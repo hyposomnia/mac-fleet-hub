@@ -1,0 +1,15 @@
+# 复制为 users_database.yml 并填入真实用户（真实文件已被 .gitignore 排除）
+#
+# 生成密码哈希（argon2id）：
+#   docker run --rm authelia/authelia:latest \
+#     authelia crypto hash generate argon2 --password '你的强密码'
+# 把输出的 $argon2id$... 整段贴到下面 password 字段。
+
+users:
+  admin:
+    displayname: 'Admin'
+    # 下面是占位哈希，请务必替换为你自己生成的哈希
+    password: '$argon2id$v=19$m=65536,t=3,p=4$REPLACE_WITH_YOUR_OWN_HASH'
+    email: 'you@example.com'
+    groups:
+      - admins

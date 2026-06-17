@@ -1,0 +1,27 @@
+# 密钥 / 凭据 / 证书 —— 绝不入库
+.env
+*.env
+!*.env.example
+secrets/
+*.key
+*.pem
+*.crt
+*.csr
+
+# Authelia 运行时与敏感数据
+server/authelia/secrets/
+server/authelia/db.sqlite3
+server/authelia/notification.txt
+server/authelia/users_database.yml          # 含密码哈希，用 .example 入库
+!server/authelia/users_database.yml.example
+
+# Caddy 数据 / 证书
+server/caddy_data/
+server/caddy_config/
+
+# Filebrowser 数据库
+**/filebrowser.db
+
+# 系统杂项
+.DS_Store
+*.log

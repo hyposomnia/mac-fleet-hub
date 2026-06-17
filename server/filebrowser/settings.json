@@ -1,0 +1,9 @@
+{
+  "port": 80,
+  "baseURL": "",
+  "address": "0.0.0.0",
+  "log": "stdout",
+  "database": "/database/filebrowser.db",
+  "root": "/srv",
+  "_comment": "首登默认 admin/admin，登录后立刻改密码；Authelia 已在前面挡了一层，这里再做纵深防御。"
+}

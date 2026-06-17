@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- launchd 服务：Filebrowser 网页文件管理，仅绑 Tailscale 内网 IP。
+     由 setup-mac.sh 替换 __BREW_PREFIX__ / __TS_IP__ / __PORT__ / __ROOT__ / __DB__。 -->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.macfleet.filebrowser</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>__BREW_PREFIX__/bin/filebrowser</string>
+        <string>-a</string>
+        <string>__TS_IP__</string>
+        <string>-p</string>
+        <string>__PORT__</string>
+        <string>-r</string>
+        <string>__ROOT__</string>
+        <string>-d</string>
+        <string>__DB__</string>
+    </array>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <true/>
+    <key>StandardOutPath</key>
+    <string>/tmp/macfleet-filebrowser.log</string>
+    <key>StandardErrorPath</key>
+    <string>/tmp/macfleet-filebrowser.err</string>
+</dict>
+</plist>

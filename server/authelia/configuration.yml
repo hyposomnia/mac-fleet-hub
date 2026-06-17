@@ -1,0 +1,55 @@
+# Authelia 主配置 —— 单用户 + TOTP 两步验证
+# 占位 {{DOMAIN}} 在部署时由 scripts/setup-server.sh 用 .env 的 DOMAIN 替换。
+# 敏感密钥(jwt/session/storage)从环境变量或 secrets 注入，不写死在此。
+
+theme: dark
+server:
+  address: 'tcp://0.0.0.0:9091'
+
+log:
+  level: info
+
+# 访问控制：默认拒绝，所有子域要求登录 + 两步验证
+access_control:
+  default_policy: deny
+  rules:
+    - domain:
+        - 'term1.{{DOMAIN}}'
+        - 'term2.{{DOMAIN}}'
+        - 'term3.{{DOMAIN}}'
+        - 'files1.{{DOMAIN}}'
+        - 'files2.{{DOMAIN}}'
+        - 'files3.{{DOMAIN}}'
+        - 'shared.{{DOMAIN}}'
+      policy: two_factor
+
+session:
+  name: authelia_session
+  cookies:
+    - domain: '{{DOMAIN}}'
+      authelia_url: 'https://auth.{{DOMAIN}}'
+      expiration: 12h
+      inactivity: 1h
+
+# 登录失败锁定（防爆破）
+regulation:
+  max_retries: 3
+  find_time: 2m
+  ban_time: 15m
+
+authentication_backend:
+  file:
+    path: /config/users_database.yml
+
+# TOTP 两步验证
+totp:
+  issuer: 'mac-fleet-hub'
+
+storage:
+  local:
+    path: /config/db.sqlite3
+
+# 通知方式：开发期用文件；生产建议改 SMTP 以收 TOTP 注册链接
+notifier:
+  filesystem:
+    filename: /config/notification.txt
