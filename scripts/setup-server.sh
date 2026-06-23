@@ -19,9 +19,13 @@ gh_latest() { curl -fsSL "https://api.github.com/repos/$1/releases/latest" | gre
 
 echo "==> [1/7] 安装 Headscale"
 if ! command -v headscale >/dev/null 2>&1; then
-  HS_VER="${HEADSCALE_VERSION:-$(gh_latest juanfont/headscale)}"
-  curl -fsSL -o /tmp/headscale.deb "https://github.com/juanfont/headscale/releases/download/v${HS_VER}/headscale_${HS_VER}_linux_${ARCH}.deb"
-  dpkg -i /tmp/headscale.deb || apt-get -fy install
+  # 国内网络常连不上 github.com release 下载：可用 HEADSCALE_DEB 指向本地预下载的 .deb
+  HS_DEB="${HEADSCALE_DEB:-}"
+  if [[ -z "$HS_DEB" || ! -f "$HS_DEB" ]]; then
+    HS_VER="${HEADSCALE_VERSION:-$(gh_latest juanfont/headscale)}"; HS_DEB=/tmp/headscale.deb
+    curl -fsSL -o "$HS_DEB" "https://github.com/juanfont/headscale/releases/download/v${HS_VER}/headscale_${HS_VER}_linux_${ARCH}.deb"
+  fi
+  dpkg -i "$HS_DEB" || apt-get -fy install
 fi
 id headscale >/dev/null 2>&1 || useradd --system --home /var/lib/headscale --shell /usr/sbin/nologin headscale || true
 install -d -o headscale -g headscale /var/lib/headscale /etc/headscale
@@ -34,9 +38,13 @@ cp "$SRV/systemd/headscale.service" /etc/systemd/system/headscale.service
 
 echo "==> [2/7] 安装 Authelia"
 if [[ ! -x /usr/local/bin/authelia ]]; then
-  AU_VER="${AUTHELIA_VERSION:-$(gh_latest authelia/authelia)}"
-  curl -fsSL -o /tmp/authelia.tgz "https://github.com/authelia/authelia/releases/download/v${AU_VER}/authelia-v${AU_VER}-linux-${ARCH}.tar.gz"
-  tar -xzf /tmp/authelia.tgz -C /tmp
+  # 同上：可用 AUTHELIA_TGZ 指向本地预下载的 tar.gz
+  AU_TGZ="${AUTHELIA_TGZ:-}"
+  if [[ -z "$AU_TGZ" || ! -f "$AU_TGZ" ]]; then
+    AU_VER="${AUTHELIA_VERSION:-$(gh_latest authelia/authelia)}"; AU_TGZ=/tmp/authelia.tgz
+    curl -fsSL -o "$AU_TGZ" "https://github.com/authelia/authelia/releases/download/v${AU_VER}/authelia-v${AU_VER}-linux-${ARCH}.tar.gz"
+  fi
+  tar -xzf "$AU_TGZ" -C /tmp
   install -m 0755 "/tmp/authelia-linux-${ARCH}" /usr/local/bin/authelia 2>/dev/null || \
     install -m 0755 /tmp/authelia /usr/local/bin/authelia
 fi
