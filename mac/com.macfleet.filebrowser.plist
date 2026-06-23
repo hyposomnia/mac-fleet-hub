@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<!-- launchd 服务：Filebrowser 网页文件管理，仅绑 Tailscale 内网 IP。
-     由 setup-mac.sh 替换 __BREW_PREFIX__ / __TS_IP__ / __PORT__ / __ROOT__ / __DB__。 -->
+<!-- launchd 服务：Filebrowser 网页文件管理，仅绑 Tailscale/Headscale mesh IP。
+     根目录=整个 home；baseURL=/fleet/m{idx}/files；鉴权交给 Headscale ACL（DB 已设 noauth）。
+     由 setup-mac.sh 替换 __BREW_PREFIX__ / __TS_IP__ / __PORT__ / __ROOT__ / __DB__ / __FB_BASE__。 -->
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
@@ -17,6 +18,8 @@
         <string>__ROOT__</string>
         <string>-d</string>
         <string>__DB__</string>
+        <string>-b</string>
+        <string>__FB_BASE__</string>
     </array>
     <key>RunAtLoad</key>
     <true/>

@@ -1,0 +1,25 @@
+[Unit]
+Description=Authelia authentication / 2FA portal (mac-fleet-hub)
+After=network.target
+
+[Service]
+Type=simple
+User=authelia
+Group=authelia
+# 二进制由 setup-server.sh 下载到 /usr/local/bin/authelia
+ExecStart=/usr/local/bin/authelia --config /etc/authelia/configuration.yml
+# 密钥以 *_FILE 环境变量注入（文件由 setup-server.sh 用 openssl 生成，chmod 600）
+Environment=AUTHELIA_JWT_SECRET_FILE=/etc/authelia/secrets/JWT_SECRET
+Environment=AUTHELIA_SESSION_SECRET_FILE=/etc/authelia/secrets/SESSION_SECRET
+Environment=AUTHELIA_STORAGE_ENCRYPTION_KEY_FILE=/etc/authelia/secrets/STORAGE_ENCRYPTION_KEY
+Restart=on-failure
+RestartSec=3
+# 加固
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/authelia
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

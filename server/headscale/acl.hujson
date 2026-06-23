@@ -1,0 +1,41 @@
+// Headscale ACL 策略（HuJSON，允许注释）。部署到 /etc/headscale/acl.hujson
+//
+// 模型：
+//   tag:fleet-gw  = 公网网关（Ubuntu，反代 ttyd/filebrowser/agent）
+//   tag:fleet-mac = 三台 Mac
+// 规则：
+//   1) Mac 之间完全互通（VNC/SSH/任意端口）——按用户要求，相当于私有局域网。
+//   2) 网关只需访问 Mac 的服务端口（7681 ttyd / 8080 filebrowser / 7682 fleet-agent）。
+//   3) 其余 tailnet 设备：默认拒（未授予的通信一律不放行）。
+//
+// 标签由 setup 脚本在签发 preauthkey 时用 --tags 指定，或 `headscale nodes tag` 设置。
+// tagOwners 指定谁能拥有这些标签（用户名 fleet）。
+{
+  "tagOwners": {
+    "tag:fleet-gw":  ["fleet"],
+    "tag:fleet-mac": ["fleet"],
+  },
+
+  "acls": [
+    // 1) Mac ↔ Mac 全端口互通
+    {
+      "action": "accept",
+      "src": ["tag:fleet-mac"],
+      "dst": ["tag:fleet-mac:*"],
+    },
+
+    // 2) 网关 → Mac 仅服务端口
+    {
+      "action": "accept",
+      "src": ["tag:fleet-gw"],
+      "dst": [
+        "tag:fleet-mac:7681",
+        "tag:fleet-mac:8080",
+        "tag:fleet-mac:7682",
+      ],
+    },
+    // (可选) Mac 也能回连网关（一般不需要；如需在此放行)
+  ],
+
+  // 没有匹配规则的流量默认被拒——其余 tailnet 设备访问 Mac/网关都不通。
+}

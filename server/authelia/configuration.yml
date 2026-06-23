@@ -1,33 +1,34 @@
-# Authelia 主配置 —— 单用户 + TOTP 两步验证
-# 占位 {{DOMAIN}} 在部署时由 scripts/setup-server.sh 用 .env 的 DOMAIN 替换。
-# 敏感密钥(jwt/session/storage)从环境变量或 secrets 注入，不写死在此。
+# Authelia 主配置 —— 单用户 + TOTP 两步验证，路径模式（挂在 example.com/fleet 下）
+# 占位 {{DOMAIN}} 部署时由 scripts/setup-server.sh 用 .env 的 DOMAIN 替换。
+# 敏感密钥(jwt/session/storage_encryption)从环境变量 *_FILE 注入（见 systemd/authelia.service），不写死。
+#
+# 部署位置：/etc/authelia/configuration.yml ；数据：/var/lib/authelia ；门户路径：/fleet/auth
 
 theme: dark
+
 server:
-  address: 'tcp://0.0.0.0:9091'
+  # 门户挂在子路径 /fleet/auth（单域名证书 → 不用子域）。
+  # Authelia 4.38+ 支持 address 带路径前缀。实现期若该版本不支持，回退见 plan §3（给证书加 auth 子域 SAN）。
+  address: 'tcp://127.0.0.1:9091/fleet/auth'
 
 log:
   level: info
 
-# 访问控制：默认拒绝，所有子域要求登录 + 两步验证
+# 访问控制：默认拒；example.com 下 /fleet 路径要求 2FA。
 access_control:
   default_policy: deny
   rules:
-    - domain:
-        - 'term1.{{DOMAIN}}'
-        - 'term2.{{DOMAIN}}'
-        - 'term3.{{DOMAIN}}'
-        - 'files1.{{DOMAIN}}'
-        - 'files2.{{DOMAIN}}'
-        - 'files3.{{DOMAIN}}'
-        - 'shared.{{DOMAIN}}'
+    - domain: '{{DOMAIN}}'
+      resources:
+        - '^/fleet($|/.*)'
       policy: two_factor
 
 session:
   name: authelia_session
   cookies:
     - domain: '{{DOMAIN}}'
-      authelia_url: 'https://auth.{{DOMAIN}}'
+      authelia_url: 'https://{{DOMAIN}}:20443/fleet/auth'
+      default_redirection_url: 'https://{{DOMAIN}}:20443/fleet/'
       expiration: 12h
       inactivity: 1h
 
@@ -39,17 +40,17 @@ regulation:
 
 authentication_backend:
   file:
-    path: /config/users_database.yml
+    path: /etc/authelia/users_database.yml
 
-# TOTP 两步验证
+# TOTP 两步验证（任意 Authenticator app 扫码即用）
 totp:
   issuer: 'mac-fleet-hub'
 
 storage:
   local:
-    path: /config/db.sqlite3
+    path: /var/lib/authelia/db.sqlite3
 
-# 通知方式：开发期用文件；生产建议改 SMTP 以收 TOTP 注册链接
+# 开发期用文件通知收 TOTP 注册链接；生产可改 SMTP。
 notifier:
   filesystem:
-    filename: /config/notification.txt
+    filename: /var/lib/authelia/notification.txt

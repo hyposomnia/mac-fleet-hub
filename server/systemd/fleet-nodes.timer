@@ -1,0 +1,10 @@
+[Unit]
+Description=Refresh headscale node status JSON every 30s (mac-fleet-hub)
+
+[Timer]
+OnBootSec=30s
+OnUnitActiveSec=30s
+AccuracySec=5s
+
+[Install]
+WantedBy=timers.target

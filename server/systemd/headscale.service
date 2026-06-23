@@ -1,0 +1,25 @@
+[Unit]
+Description=headscale self-hosted Tailscale control server (mac-fleet-hub)
+After=network.target
+Documentation=https://headscale.net
+
+[Service]
+Type=simple
+User=headscale
+Group=headscale
+# 官方 .deb 通常已自带此 unit；这里保留一份与本项目配置对应的版本。
+ExecStart=/usr/bin/headscale serve
+Restart=always
+RestartSec=5
+# 读取 LE 证书需要权限：headscale 用户加入证书可读组，或 setup 脚本放置可读副本
+ReadWritePaths=/var/lib/headscale /var/run/headscale
+RuntimeDirectory=headscale
+StateDirectory=headscale
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+AmbientCapabilities=CAP_NET_BIND_SERVICE
+
+[Install]
+WantedBy=multi-user.target

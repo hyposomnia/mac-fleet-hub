@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<!-- launchd 服务：ttyd → tmux 持久会话(跑 claude)。
-     由 setup-mac.sh 把 __BREW_PREFIX__ / __TS_IP__ / __PORT__ 替换为实际值后，
-     安装到 ~/Library/LaunchAgents/ 并 launchctl load。 -->
+<!-- launchd 服务：ttyd 网页终端。
+     ttyd 接到 tmux（经 fleet-attach.sh，按 URL ?arg=<会话名> 选窗）；会话由 fleet-agent 创建。
+     由 setup-mac.sh 替换 __BREW_PREFIX__ / __TS_IP__ / __PORT__ / __TTYD_BASE__ / __FLEET_ATTACH__。 -->
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
@@ -14,12 +14,13 @@
         <string>__TS_IP__</string>
         <string>-p</string>
         <string>__PORT__</string>
+        <string>-b</string>
+        <string>__TTYD_BASE__</string>
         <string>-W</string>
-        <string>__BREW_PREFIX__/bin/tmux</string>
-        <string>new</string>
-        <string>-A</string>
-        <string>-s</string>
-        <string>claude</string>
+        <string>-t</string>
+        <string>disableLeaveAlert=true</string>
+        <string>--url-arg</string>
+        <string>__FLEET_ATTACH__</string>
     </array>
     <key>RunAtLoad</key>
     <true/>
@@ -29,11 +30,10 @@
     <string>/tmp/macfleet-ttyd.log</string>
     <key>StandardErrorPath</key>
     <string>/tmp/macfleet-ttyd.err</string>
-    <!-- 让 claude 等命令可被找到 -->
     <key>EnvironmentVariables</key>
     <dict>
         <key>PATH</key>
-        <string>__BREW_PREFIX__/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+        <string>__BREW_PREFIX__/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
     </dict>
 </dict>
 </plist>

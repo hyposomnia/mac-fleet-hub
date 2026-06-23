@@ -15,12 +15,18 @@ server/authelia/notification.txt
 server/authelia/users_database.yml          # 含密码哈希，用 .example 入库
 !server/authelia/users_database.yml.example
 
-# Caddy 数据 / 证书
-server/caddy_data/
-server/caddy_config/
+# Headscale 运行时（真实 config 含路径/可能私钥；模板入库）
+server/headscale/config.yaml
+server/headscale/*.key
+server/headscale/*.sqlite*
 
 # Filebrowser 数据库
 **/filebrowser.db
+**/.macfleet-filebrowser.db
+
+# fleet-agent：源码与预编译二进制(dist/)入库；仅忽略本地临时产物
+mac/fleet-agent/fleet-agent
+/tmp/
 
 # 系统杂项
 .DS_Store

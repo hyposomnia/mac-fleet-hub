@@ -1,0 +1,13 @@
+{
+  "name": "mac fleet hub",
+  "short_name": "fleet",
+  "description": "远程操作三台 Mac 的 Claude 会话与文件",
+  "start_url": "/fleet/",
+  "scope": "/fleet/",
+  "display": "standalone",
+  "background_color": "#0e0e0f",
+  "theme_color": "#111111",
+  "icons": [
+    { "src": "icons/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
+  ]
+}

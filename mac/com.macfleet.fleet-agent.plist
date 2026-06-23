@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- launchd 服务：fleet-agent 会话管理服务，仅绑 mesh IP。
+     由 setup-mac.sh 替换 __AGENT_BIN__ / __TS_IP__ / __AGENT_PORT__ / __MAC_INDEX__ / __CLAUDE_BIN__。 -->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.macfleet.fleet-agent</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>__AGENT_BIN__</string>
+    </array>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>FLEET_LISTEN</key>
+        <string>__TS_IP__:__AGENT_PORT__</string>
+        <key>FLEET_MAC_INDEX</key>
+        <string>__MAC_INDEX__</string>
+        <key>FLEET_CLAUDE_BIN</key>
+        <string>__CLAUDE_BIN__</string>
+        <key>FLEET_IDLE_SEC</key>
+        <string>1800</string>
+        <key>FLEET_AUTO_CMDR</key>
+        <string>1</string>
+        <key>FLEET_DESKTOP_APP</key>
+        <string>Claude</string>
+        <key>PATH</key>
+        <string>__BREW_PREFIX__/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+    </dict>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <true/>
+    <key>StandardOutPath</key>
+    <string>/tmp/macfleet-agent.log</string>
+    <key>StandardErrorPath</key>
+    <string>/tmp/macfleet-agent.err</string>
+</dict>
+</plist>

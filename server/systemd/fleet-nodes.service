@@ -1,0 +1,9 @@
+[Unit]
+Description=Write headscale node online status to /var/www/fleet/api/nodes.json (mac-fleet-hub)
+After=headscale.service
+
+[Service]
+Type=oneshot
+# 把节点状态导出为静态 JSON，供 PWA 拉取渲染在线/离线点（无需常驻服务）。
+# headscale -o json 输出节点数组，含 name/lastSeen/online 等字段。
+ExecStart=/bin/sh -c 'headscale nodes list -o json > /var/www/fleet/api/nodes.json.tmp 2>/dev/null && mv /var/www/fleet/api/nodes.json.tmp /var/www/fleet/api/nodes.json'

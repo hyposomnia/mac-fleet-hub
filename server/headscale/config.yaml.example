@@ -1,0 +1,63 @@
+# Headscale 配置模板 —— 复制为 config.yaml 部署到 /etc/headscale/config.yaml
+# 占位 {{DOMAIN}} 由 scripts/setup-server.sh 用 .env 的 DOMAIN 替换。
+# 完整字段参考官方 config-example.yaml；这里只列与本方案相关的关键项。
+
+# 客户端连这个地址；公网 28443 → 本机 8443（路由端口映射）。
+server_url: https://{{DOMAIN}}:28443
+
+# 本机监听（路由把公网 28443 转到这里）。直接用现有 LE 证书自带 TLS。
+listen_addr: 0.0.0.0:8443
+metrics_listen_addr: 127.0.0.1:9090
+
+# 复用现有 Let's Encrypt 证书（与 nginx 同一张，按 host 生效、与端口无关）。
+# headscale 用户需能读取证书文件：setup 脚本会把 headscale 加入证书可读组，或放置 0644 副本。
+tls_cert_path: /etc/letsencrypt/live/{{DOMAIN}}/fullchain.pem
+tls_key_path: /etc/letsencrypt/live/{{DOMAIN}}/privkey.pem
+
+# 不让 headscale 自己管 ACME（证书由 certbot 管）。
+tls_letsencrypt_hostname: ""
+
+noise:
+  private_key_path: /var/lib/headscale/noise_private.key
+
+prefixes:
+  v4: 100.64.0.0/10
+  v6: fd7a:115c:a1e0::/48
+  allocation: sequential
+
+# 自托管 DERP（中继也归自己，彻底零 SaaS）。关闭官方 DERP。
+derp:
+  server:
+    enabled: true
+    region_id: 999
+    region_code: "fleet"
+    region_name: "mac-fleet-hub embedded DERP"
+    stun_listen_addr: "0.0.0.0:3478"
+    private_key_path: /var/lib/headscale/derp_server_private.key
+  urls: []
+  paths: []
+  auto_update_enabled: false
+
+database:
+  type: sqlite
+  sqlite:
+    path: /var/lib/headscale/db.sqlite
+
+# MagicDNS：给节点 mac1/mac2/mac3 等名字，nginx 也可用名字反代（可选）。
+dns:
+  magic_dns: true
+  base_domain: fleet.internal
+  nameservers:
+    global:
+      - 1.1.1.1
+      - 223.5.5.5
+
+# ACL 策略文件（见 acl.hujson）。
+policy:
+  mode: file
+  path: /etc/headscale/acl.hujson
+
+log:
+  level: info
+
+# 预授权 key、用户由 setup-server.sh 用 `headscale users create` / `headscale preauthkeys create` 生成。

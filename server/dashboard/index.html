@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#111111" />
+  <title>mac fleet hub</title>
+  <link rel="manifest" href="manifest.webmanifest" />
+  <link rel="apple-touch-icon" href="icons/icon.svg" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div id="app">
+    <!-- 侧栏 / 顶部切换器（由 app.js 按 MACS 渲染） -->
+    <aside id="sidebar">
+      <div class="brand"><span class="logo">◧</span><span>mac fleet hub</span></div>
+      <nav id="mac-list"></nav>
+      <div class="sidebar-foot">
+        <div class="legend"><span class="dot on"></span>在线 <span class="dot off"></span>离线</div>
+        <div class="user"><span class="avatar">H</span><span id="user-name">user</span><span class="lock">🔒</span></div>
+      </div>
+    </aside>
+
+    <main id="main">
+      <header id="topbar">
+        <button id="menu-btn" class="icon-btn" aria-label="菜单">≡</button>
+        <span id="crumb">选择一台 Mac</span>
+        <div class="spacer"></div>
+        <button id="reconnect-btn" class="icon-btn" title="重连" hidden>⟳</button>
+        <button id="fullscreen-btn" class="icon-btn" title="全屏" hidden>⤢</button>
+      </header>
+
+      <!-- Desktop→ttyd 有新内容时的横幅 -->
+      <div id="reload-banner" hidden>
+        桌面有新内容 · <button id="reload-btn">点此重载</button>
+        <button id="reload-dismiss" class="link">忽略</button>
+      </div>
+
+      <!-- 会话列表视图 -->
+      <section id="sessions-view" class="view">
+        <div class="seg">
+          <button data-scope="active" class="seg-btn active">活跃 <span id="cnt-active">0</span></button>
+          <button data-scope="all" class="seg-btn">全部 <span id="cnt-all">0</span></button>
+        </div>
+        <div id="session-groups"></div>
+        <button id="new-session" class="new-btn">＋ 新建会话…</button>
+      </section>
+
+      <!-- iframe 视图（终端 / 文件） -->
+      <section id="frame-view" class="view" hidden>
+        <iframe id="frame" title="terminal" allow="clipboard-read; clipboard-write"></iframe>
+        <!-- 移动端：辅助按键条 + 输入框 -->
+        <div id="mobile-input" hidden>
+          <div class="keybar">
+            <button data-key="Escape">esc</button>
+            <button data-key="Tab">tab</button>
+            <button data-key="Control">ctrl</button>
+            <button data-key="ArrowUp">↑</button>
+            <button data-key="ArrowDown">↓</button>
+            <button data-key="ArrowLeft">←</button>
+            <button data-key="ArrowRight">→</button>
+          </div>
+          <div class="inrow">
+            <input id="cmd-input" placeholder="输入命令…" autocapitalize="off" autocomplete="off" autocorrect="off" spellcheck="false" />
+            <button id="send-btn">发送</button>
+          </div>
+        </div>
+      </section>
+
+      <!-- 新建会话：选项目目录 -->
+      <section id="projects-view" class="view" hidden>
+        <header class="sub"><button id="proj-back" class="link">‹ 返回</button> 选择项目目录</header>
+        <div id="project-list"></div>
+      </section>
+    </main>
+
+    <!-- 移动端底部 Tab -->
+    <footer id="tabbar">
+      <button data-tab="sessions" class="tab active"><span class="ti">▤</span><span>会话</span></button>
+      <button data-tab="files" class="tab"><span class="ti">▦</span><span>文件</span></button>
+      <button data-tab="devices" class="tab"><span class="ti">▢</span><span>设备</span></button>
+    </footer>
+  </div>
+  <script src="app.js"></script>
+</body>
+</html>

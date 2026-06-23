@@ -1,52 +1,83 @@
 #!/usr/bin/env bash
-# 在每台 Mac 上运行：安装并启动 ttyd(→tmux→claude) 与 Filebrowser，仅绑 Tailscale 内网 IP。
-# 前置：已装并登录 Tailscale（tailscale status 能看到本机与服务器）。
+# 在每台 Mac 上运行：入网 Headscale + 起 ttyd / filebrowser / fleet-agent（仅绑 mesh 内网 IP）。
 #
-# 用法：bash mac/setup-mac.sh
+# 用法：
+#   MAC_INDEX=1 \
+#   LOGIN_SERVER=https://example.com:28443 AUTHKEY=<preauthkey> \
+#   bash mac/setup-mac.sh
+#
+#   - MAC_INDEX 必填(1/2/3)：决定终端/文件路径 /fleet/m{idx}/...
+#   - LOGIN_SERVER/AUTHKEY 选填：给出则自动 tailscale up 入网（Headscale）；
+#     省略则假设你已手动入网。
+#   - 不修改系统「远程登录/屏幕共享」开关（mac↔mac 的 SSH/VNC 请自行在系统设置开启）。
 set -euo pipefail
 
+MAC_INDEX="${MAC_INDEX:?请设置 MAC_INDEX=1|2|3}"
 TTYD_PORT="${TTYD_PORT:-7681}"
 FB_PORT="${FB_PORT:-8080}"
-FB_ROOT="${FB_ROOT:-$HOME}"                 # Filebrowser 根目录，按需收窄
+AGENT_PORT="${AGENT_PORT:-7682}"
+FB_ROOT="${FB_ROOT:-$HOME}"                       # 文件管理根目录 = 整个 home（用户决定）
 FB_DB="$HOME/.macfleet-filebrowser.db"
-
-# --- 0. 定位 Homebrew ---
-if command -v brew >/dev/null 2>&1; then
-  BREW_PREFIX="$(brew --prefix)"
-else
-  echo "未找到 Homebrew，请先安装：https://brew.sh" >&2; exit 1
-fi
-
-# --- 1. 取本机 Tailscale IP ---
-TS_BIN="$(command -v tailscale || echo /Applications/Tailscale.app/Contents/MacOS/Tailscale)"
-TS_IP="$("$TS_BIN" ip -4 2>/dev/null | head -n1 || true)"
-if [[ -z "${TS_IP}" ]]; then
-  echo "拿不到 Tailscale IP，请确认 Tailscale 已登录并连接。" >&2; exit 1
-fi
-echo "本机 Tailscale IP: $TS_IP"
-
-# --- 2. 安装依赖 ---
-echo "安装 ttyd tmux filebrowser syncthing ..."
-brew install ttyd tmux filebrowser syncthing 2>/dev/null || true
-
-# --- 3. 生成并安装 launchd 服务 ---
+TTYD_BASE="/fleet/m${MAC_INDEX}/term"
+FB_BASE="/fleet/m${MAC_INDEX}/files"
+BIN_DIR="$HOME/.local/bin"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-LA="$HOME/Library/LaunchAgents"
-mkdir -p "$LA"
 
+# --- 0. Homebrew ---
+command -v brew >/dev/null 2>&1 || { echo "未找到 Homebrew，请先装：https://brew.sh" >&2; exit 1; }
+BREW_PREFIX="$(brew --prefix)"
+CLAUDE_BIN="$(command -v claude || echo "$BREW_PREFIX/bin/claude")"
+
+# --- 1. Tailscale 客户端 + （可选）入网 Headscale ---
+TS_BIN="$(command -v tailscale || echo /Applications/Tailscale.app/Contents/MacOS/Tailscale)"
+if [[ -n "${LOGIN_SERVER:-}" && -n "${AUTHKEY:-}" ]]; then
+  echo "入网 Headscale: $LOGIN_SERVER ..."
+  "$TS_BIN" up --login-server="$LOGIN_SERVER" --authkey="$AUTHKEY" --hostname="mac${MAC_INDEX}" --accept-dns=false
+fi
+TS_IP="$("$TS_BIN" ip -4 2>/dev/null | head -n1 || true)"
+[[ -n "${TS_IP}" ]] || { echo "拿不到 Tailscale/Headscale IP，请确认已入网。" >&2; exit 1; }
+echo "本机 mesh IP: $TS_IP  (mac${MAC_INDEX})"
+
+# --- 2. 依赖 ---
+echo "安装 ttyd tmux filebrowser ..."
+brew install ttyd tmux filebrowser 2>/dev/null || true
+
+# --- 3. 安装 fleet-agent 二进制 + ttyd 附着脚本 ---
+mkdir -p "$BIN_DIR"
+ARCH="$(uname -m)"; [[ "$ARCH" == "arm64" ]] && AB="arm64" || AB="amd64"
+install -m 0755 "$SCRIPT_DIR/fleet-agent/dist/fleet-agent-darwin-${AB}" "$BIN_DIR/fleet-agent"
+install -m 0755 "$SCRIPT_DIR/fleet-agent/fleet-attach.sh" "$BIN_DIR/fleet-attach"
+AGENT_BIN="$BIN_DIR/fleet-agent"
+FLEET_ATTACH="$BIN_DIR/fleet-attach"
+
+# --- 4. filebrowser DB：noauth + baseurl（鉴权交给 Headscale ACL）---
+if [[ ! -f "$FB_DB" ]]; then
+  "$BREW_PREFIX/bin/filebrowser" -d "$FB_DB" config init >/dev/null
+fi
+"$BREW_PREFIX/bin/filebrowser" -d "$FB_DB" config set --auth.method=noauth --baseurl "$FB_BASE" --root "$FB_ROOT" >/dev/null
+
+# --- 5. 渲染并安装 launchd 服务 ---
+LA="$HOME/Library/LaunchAgents"; mkdir -p "$LA"
 render() { # src dst
   sed -e "s#__BREW_PREFIX__#${BREW_PREFIX}#g" \
       -e "s#__TS_IP__#${TS_IP}#g" \
-      -e "s#__PORT__#${PORT}#g" \
+      -e "s#__PORT__#${PORT:-}#g" \
       -e "s#__ROOT__#${FB_ROOT}#g" \
       -e "s#__DB__#${FB_DB}#g" \
+      -e "s#__TTYD_BASE__#${TTYD_BASE}#g" \
+      -e "s#__FB_BASE__#${FB_BASE}#g" \
+      -e "s#__FLEET_ATTACH__#${FLEET_ATTACH}#g" \
+      -e "s#__AGENT_BIN__#${AGENT_BIN}#g" \
+      -e "s#__AGENT_PORT__#${AGENT_PORT}#g" \
+      -e "s#__MAC_INDEX__#${MAC_INDEX}#g" \
+      -e "s#__CLAUDE_BIN__#${CLAUDE_BIN}#g" \
       "$1" > "$2"
 }
-
 PORT="$TTYD_PORT" render "$SCRIPT_DIR/com.macfleet.ttyd.plist"        "$LA/com.macfleet.ttyd.plist"
 PORT="$FB_PORT"   render "$SCRIPT_DIR/com.macfleet.filebrowser.plist" "$LA/com.macfleet.filebrowser.plist"
+                  render "$SCRIPT_DIR/com.macfleet.fleet-agent.plist" "$LA/com.macfleet.fleet-agent.plist"
 
-for svc in com.macfleet.ttyd com.macfleet.filebrowser; do
+for svc in com.macfleet.ttyd com.macfleet.filebrowser com.macfleet.fleet-agent; do
   launchctl unload "$LA/$svc.plist" 2>/dev/null || true
   launchctl load  "$LA/$svc.plist"
   echo "已加载服务: $svc"
@@ -54,12 +85,12 @@ done
 
 cat <<EOF
 
-✅ 完成。本机服务（仅 Tailscale 内网可达）：
-   网页终端  http://${TS_IP}:${TTYD_PORT}     (进入后是 tmux 会话，可运行 claude)
-   文件管理  http://${TS_IP}:${FB_PORT}        (默认 admin/admin，首登请改密码)
+✅ 完成（mac${MAC_INDEX}，仅 mesh 内网可达）：
+   网页终端    http://${TS_IP}:${TTYD_PORT}${TTYD_BASE}   (经 fleet-agent 选会话)
+   文件管理    http://${TS_IP}:${FB_PORT}${FB_BASE}        (整个 home, noauth)
+   会话服务    http://${TS_IP}:${AGENT_PORT}/api/health
 
-下一步：
-  1) 启动 Syncthing(brew services start syncthing)，把 ~/Shared 加入三台同步组。
-  2) 在服务器侧填好该 Mac 的 IP(${TS_IP})到 server/.env，部署 Caddy+Authelia。
-日志：/tmp/macfleet-ttyd.{log,err}  /tmp/macfleet-filebrowser.{log,err}
+下一步（在网关）：把本机 mesh IP ${TS_IP} 填到 server/.env 的 MAC${MAC_INDEX}_IP，再跑 setup-server.sh。
+提醒：mac↔mac 的 SSH/VNC 需你自行在「系统设置 > 通用 > 共享」开启（本脚本不动这些开关）。
+日志：/tmp/macfleet-ttyd.* /tmp/macfleet-filebrowser.* /tmp/macfleet-agent.*
 EOF
