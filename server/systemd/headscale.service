@@ -5,13 +5,12 @@ Documentation=https://headscale.net
 
 [Service]
 Type=simple
-User=headscale
-Group=headscale
-# 官方 .deb 通常已自带此 unit；这里保留一份与本项目配置对应的版本。
+# 以 root 运行以便读取 nginx 的 TLS 私钥（/etc/ssl/rtm/key.pem，通常 root-only，且会随续期轮换）。
+User=root
+Group=root
 ExecStart=/usr/bin/headscale serve
 Restart=always
 RestartSec=5
-# 读取 LE 证书需要权限：headscale 用户加入证书可读组，或 setup 脚本放置可读副本
 ReadWritePaths=/var/lib/headscale /var/run/headscale
 RuntimeDirectory=headscale
 StateDirectory=headscale

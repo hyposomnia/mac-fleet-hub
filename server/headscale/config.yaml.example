@@ -9,10 +9,11 @@ server_url: https://{{DOMAIN}}:28443
 listen_addr: 0.0.0.0:8443
 metrics_listen_addr: 127.0.0.1:9090
 
-# 复用现有 Let's Encrypt 证书（与 nginx 同一张，按 host 生效、与端口无关）。
-# headscale 用户需能读取证书文件：setup 脚本会把 headscale 加入证书可读组，或放置 0644 副本。
-tls_cert_path: /etc/letsencrypt/live/{{DOMAIN}}/fullchain.pem
-tls_key_path: /etc/letsencrypt/live/{{DOMAIN}}/privkey.pem
+# 复用 nginx 用的同一张证书（按 host 生效、与端口无关）。
+# 路径 = 你 nginx 的 ssl_certificate / ssl_certificate_key（grep ssl_certificate /etc/nginx）。
+# 本部署为 /etc/ssl/rtm/*。headscale 以 root 运行以读取私钥（见 systemd 单元）。
+tls_cert_path: /etc/ssl/rtm/cert.pem
+tls_key_path: /etc/ssl/rtm/key.pem
 
 # 不让 headscale 自己管 ACME（证书由 certbot 管）。
 tls_letsencrypt_hostname: ""
