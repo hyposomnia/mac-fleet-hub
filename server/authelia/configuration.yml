@@ -7,9 +7,9 @@
 theme: dark
 
 server:
-  # 门户挂在子路径 /fleet/auth（单域名证书 → 不用子域）。
-  # Authelia 4.38+ 支持 address 带路径前缀。实现期若该版本不支持，回退见 plan §3（给证书加 auth 子域 SAN）。
-  address: 'tcp://127.0.0.1:9091/fleet/auth'
+  # Authelia 只接受「单段」子路径（不能用 /fleet/auth）。故门户挂在单段 /auth；
+  # 受保护资源仍在 /fleet（见 access_control）。
+  address: 'tcp://127.0.0.1:9091/auth'
 
 log:
   level: info
@@ -27,7 +27,7 @@ session:
   name: authelia_session
   cookies:
     - domain: '{{DOMAIN}}'
-      authelia_url: 'https://{{DOMAIN}}:20443/fleet/auth'
+      authelia_url: 'https://{{DOMAIN}}:20443/auth'
       default_redirection_url: 'https://{{DOMAIN}}:20443/fleet/'
       expiration: 12h
       inactivity: 1h

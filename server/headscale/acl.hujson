@@ -12,8 +12,8 @@
 // tagOwners 指定谁能拥有这些标签（用户名 fleet）。
 {
   "tagOwners": {
-    "tag:fleet-gw":  ["fleet"],
-    "tag:fleet-mac": ["fleet"],
+    "tag:fleet-gw":  ["fleet@"],
+    "tag:fleet-mac": ["fleet@"],
   },
 
   "acls": [
