@@ -1,14 +1,13 @@
 'use strict';
 
 // ============================================================
-//  配置 —— 加 / 改一台 Mac 只动这里
+//  配置
 // ============================================================
 const BASE = '';   // 挂在子域根路径（mfh.example.com）；若改回子路径部署，改这里（如 '/fleet'）
-const MACS = [
-  { id: 'm1', name: 'Mac 1' },
-  { id: 'm2', name: 'Mac 2' },
-  { id: 'm3', name: 'Mac 3' },
-];
+// Mac 列表不再硬编码：从 /api/nodes.json 按入网节点名 mac<N> 动态推导（见 refreshNodes），
+// 故没入网的台不会出现空占位。显示名从 /api/names（gateway 存）覆盖默认「Mac N」。
+let MACS = [];          // [{id:'m1'}, ...]，按序号排
+let macNames = {};      // id -> 自定义显示名
 
 // ============================================================
 const $ = (s, r = document) => r.querySelector(s);
@@ -57,7 +56,7 @@ function relTime(ms) {
 }
 function projName(cwd) { return cwd ? cwd.split('/').filter(Boolean).pop() : '(未知项目)'; }
 function projDir(cwd) { const p = (cwd || '').split('/'); return p.slice(0, -1).join('/').replace(/^\/Users\/[^/]+/, '~'); }
-function macName(id) { return MACS.find((m) => m.id === id)?.name || id; }
+function macName(id) { return macNames[id] || ('Mac ' + id.slice(1)); }
 async function api(id, path, opts) {
   const r = await fetch(`${apiBase(id)}/api/${path}`, opts);
   if (!r.ok) throw new Error(`${path}: ${r.status}`);
@@ -87,13 +86,14 @@ function toggleTheme() {
 function renderHosts() {
   const nav = $('#host-list');
   clear(nav);
+  if (!MACS.length) { nav.appendChild(h('div', { class: 'empty', text: '暂无已入网的 Mac' })); return; }
   for (const m of MACS) {
     const online = state.nodes[m.id];
     const info = h('span', { class: 'host-info', title: '详情 / 代理', text: 'ⓘ' });
     info.onclick = (e) => { e.stopPropagation(); openHostModal(m.id); };
     const el = h('button', { class: 'host' + (m.id === state.macId ? ' active' : ''), dataset: { mac: m.id } },
       h('span', { class: 'dot ' + (online ? 'on' : 'off') }),
-      h('span', { class: 'host-name', text: m.name }),
+      h('span', { class: 'host-name', text: macName(m.id) }),
       info,
     );
     el.onclick = () => { selectMac(m.id); closeDrawers(); };
@@ -116,15 +116,33 @@ async function refreshNodes() {
     const r = await fetch(`${BASE}/api/nodes.json`, { cache: 'no-store' });
     if (!r.ok) return;
     const list = await r.json();
-    const map = {};
+    const online = {};
+    const ids = [];
     for (const n of (Array.isArray(list) ? list : (list.nodes || []))) {
-      const name = (n.givenName || n.name || '').toLowerCase();
-      MACS.forEach((m, i) => {
-        if (name === m.id || name === `mac${i + 1}`) map[m.id] = n.online === true || n.online === 'true';
-      });
+      // 入网节点名固定为 mac<N>（setup-mac.sh --hostname=mac$MAC_INDEX）；gateway 等非 Mac 节点跳过。
+      const mm = String(n.givenName || n.name || '').toLowerCase().match(/^mac(\d+)$/);
+      if (!mm) continue;
+      const id = 'm' + mm[1];
+      if (!ids.includes(id)) ids.push(id);
+      online[id] = n.online === true || n.online === 'true';
     }
-    state.nodes = map;
+    ids.sort((a, b) => (+a.slice(1)) - (+b.slice(1)));
+    MACS = ids.map((id) => ({ id }));
+    state.nodes = online;
     renderHosts();
+    // 首次拿到列表后默认选第一台（之前 init 里硬选 MACS[0] 已移除）。
+    if (!state.macId && MACS.length) selectMac(MACS[0].id);
+  } catch (_) {}
+}
+
+// Mac 显示名（gateway 存，所有浏览器共享）。失败静默：名字非关键，回退默认「Mac N」。
+async function refreshNames() {
+  try {
+    const r = await fetch(`${BASE}/api/names`, { cache: 'no-store' });
+    if (!r.ok) return;
+    macNames = (await r.json()) || {};
+    renderHosts();
+    if (state.macId) $('#m-host-name').textContent = macName(state.macId);
   } catch (_) {}
 }
 
@@ -307,6 +325,8 @@ let hostModalMac = null;
 async function openHostModal(id) {
   hostModalMac = id;
   $('#hm-title').textContent = macName(id);
+  $('#hm-name').value = macNames[id] || '';
+  $('#hm-name').placeholder = 'Mac ' + id.slice(1);   // 默认名（留空即回退到它）
   const online = state.nodes[id];
   $('#hm-dot').className = 'dot ' + (online ? 'on' : 'off');
   $('#hm-state').textContent = online ? '在线' : '离线';
@@ -322,19 +342,41 @@ async function openHostModal(id) {
     $('#hm-proxy-on').checked = !!p.enabled;
   } catch (e) { $('#hm-ip').textContent = '连不上（' + e.message + '）'; }
 }
-async function saveHostProxy() {
+async function saveHost() {
   if (!hostModalMac) return;
-  const body = {
-    enabled: $('#hm-proxy-on').checked,
-    http: $('#hm-http').value.trim(),
-    https: $('#hm-https').value.trim(),
-  };
+  const id = hostModalMac;
   const btn = $('#hm-save'); btn.disabled = true; btn.textContent = '保存中…';
+
+  // 1) 显示名 → gateway（/api/names）。与 Mac 是否在线无关，离线也能改名。
   try {
-    await api(hostModalMac, 'proxy', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
-    closeModal('host-modal');
-  } catch (e) { alert('保存失败：' + e.message); }
-  finally { btn.disabled = false; btn.textContent = '保存'; }
+    const r = await fetch(`${BASE}/api/names`, {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ id, name: $('#hm-name').value.trim() }),
+    });
+    if (r.ok) {
+      macNames = (await r.json()) || {};
+      renderHosts();
+      if (state.macId === id) $('#m-host-name').textContent = macName(id);
+      $('#hm-title').textContent = macName(id);
+    }
+  } catch (_) {}
+
+  // 2) 代理 → 该 Mac（/m{n}/api/proxy）。离线则失败，仅提示，不回滚已存的名字。
+  let proxyErr = '';
+  try {
+    await api(id, 'proxy', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        enabled: $('#hm-proxy-on').checked,
+        http: $('#hm-http').value.trim(),
+        https: $('#hm-https').value.trim(),
+      }),
+    });
+  } catch (e) { proxyErr = e.message; }
+
+  btn.disabled = false; btn.textContent = '保存';
+  if (proxyErr) { alert('显示名已保存；代理未保存（' + macName(id) + ' 可能离线）：' + proxyErr); return; }
+  closeModal('host-modal');
 }
 
 // ============================================================
@@ -387,6 +429,7 @@ function wireMobileInput() {
 function init() {
   initTheme();
   renderHosts();
+  refreshNames();
   refreshNodes(); setInterval(refreshNodes, 30000);
   wireMobileInput();
 
@@ -412,10 +455,10 @@ function init() {
 
   $$('[data-close]').forEach((b) => b.onclick = () => closeModal(b.dataset.close));
   $$('.modal').forEach((m) => m.addEventListener('click', (e) => { if (e.target === m) closeModal(m.id); }));
-  $('#hm-save').onclick = saveHostProxy;
+  $('#hm-save').onclick = saveHost;
 
   setMode('claude');
-  selectMac(MACS[0].id);
+  // 首选 Mac 由 refreshNodes 拿到节点列表后决定（列表为空则不选，显示空态）。
   restoreTermOrEmpty();
 
   if ('serviceWorker' in navigator) navigator.serviceWorker.register(`${BASE}/sw.js`).catch(() => {});

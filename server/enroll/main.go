@@ -23,6 +23,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -39,6 +40,8 @@ var (
 	keyTTL      = envOr("ENROLL_KEY_TTL", "10m")      // preauthkey 有效期
 	maxFails    = envInt("ENROLL_MAX_FAILS", 5)       // 锁定阈值
 	lockMin     = envInt("ENROLL_LOCK_MIN", 15)       // 锁定分钟
+	// Mac 的 web 显示名（仅供 PWA 展示，不改真实主机名）。存网关、所有浏览器共享。
+	namesFile = envOr("ENROLL_NAMES_FILE", "/var/lib/fleet-enroll/names.json")
 )
 
 func envOr(k, d string) string { if v := os.Getenv(k); v != "" { return v }; return d }
@@ -240,6 +243,101 @@ func writeJSON(w http.ResponseWriter, code int, v interface{}) {
 }
 func writeErr(w http.ResponseWriter, code int, msg string) { writeJSON(w, code, map[string]string{"error": msg}) }
 
+// ---------------- Mac 显示名（网关存储，PWA 共享） ----------------
+// 名字只为 web 展示，不动真实主机名。存 namesFile 的 {id:name} JSON。
+// 暴露在 nginx 的 /api/names（经 Authelia auth_request 保护），故写操作必须已登录。
+var (
+	namesMu  sync.Mutex
+	macIDRe  = regexp.MustCompile(`^m[1-9][0-9]?$`) // m1..m99，与 nginx /m{n} 路由对齐
+	maxNames = 99
+)
+
+func validMacID(id string) bool { return macIDRe.MatchString(id) }
+
+// sanitizeName：去首尾空白、剥控制字符（防注入/换行）、限 40 个 rune（保留中文）。
+func sanitizeName(s string) string {
+	s = strings.Map(func(r rune) rune {
+		if r < 0x20 || r == 0x7f {
+			return -1
+		}
+		return r
+	}, s)
+	s = strings.TrimSpace(s)
+	if rs := []rune(s); len(rs) > 40 {
+		s = strings.TrimSpace(string(rs[:40]))
+	}
+	return s
+}
+
+// 调用方须持 namesMu。读不到/坏文件都回空 map（显示名是非关键数据，容错优先）。
+func readNamesLocked() map[string]string {
+	m := map[string]string{}
+	if b, err := os.ReadFile(namesFile); err == nil {
+		json.Unmarshal(b, &m)
+	}
+	return m
+}
+
+func loadNames() map[string]string {
+	namesMu.Lock()
+	defer namesMu.Unlock()
+	return readNamesLocked()
+}
+
+// 原子写：写 .tmp 再 rename，避免并发/崩溃下半截文件。
+func saveNamesLocked(m map[string]string) error {
+	b, err := json.Marshal(m)
+	if err != nil {
+		return err
+	}
+	tmp := namesFile + ".tmp"
+	if err := os.WriteFile(tmp, b, 0644); err != nil {
+		return err
+	}
+	return os.Rename(tmp, namesFile)
+}
+
+func handleNames(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodGet:
+		writeJSON(w, 200, loadNames())
+	case http.MethodPost:
+		var req struct {
+			ID   string `json:"id"`
+			Name string `json:"name"`
+		}
+		if json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<12)).Decode(&req) != nil {
+			writeErr(w, 400, "请求格式错误")
+			return
+		}
+		if !validMacID(req.ID) {
+			writeErr(w, 400, "主机 ID 非法")
+			return
+		}
+		name := sanitizeName(req.Name)
+		namesMu.Lock()
+		defer namesMu.Unlock()
+		m := readNamesLocked()
+		if name == "" {
+			delete(m, req.ID) // 空名 = 清除自定义，回退默认「Mac N」
+		} else {
+			if _, exists := m[req.ID]; !exists && len(m) >= maxNames {
+				writeErr(w, 400, "自定义名称数量已达上限")
+				return
+			}
+			m[req.ID] = name
+		}
+		if err := saveNamesLocked(m); err != nil {
+			log.Printf("保存显示名失败: %v", err)
+			writeErr(w, 500, "保存失败")
+			return
+		}
+		writeJSON(w, 200, m)
+	default:
+		http.Error(w, "method not allowed", 405)
+	}
+}
+
 func main() {
 	// 子命令：-show-uri 打印 otpauth URI（供 setup 显示二维码）；secret 不存在则报错提示先生成。
 	if len(os.Args) > 1 && os.Args[1] == "-show-uri" {
@@ -253,6 +351,7 @@ func main() {
 	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("/join", handleJoin)
+	mux.HandleFunc("/names", handleNames)
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) { w.Write([]byte("ok")) })
 	log.Printf("fleet-enroll 监听 %s（login=%s, hsUser=%s）", listen, loginServer, hsUser)
 	srv := &http.Server{Addr: listen, Handler: mux, ReadTimeout: 10 * time.Second, WriteTimeout: 15 * time.Second}

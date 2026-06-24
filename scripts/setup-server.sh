@@ -129,6 +129,7 @@ fi
 echo "==> [6.5/7] 部署 fleet-enroll 自助入网服务"
 install -m 0755 "$SRV/enroll/dist/fleet-enroll-linux-amd64" /usr/local/bin/fleet-enroll
 install -d /etc/fleet-enroll
+install -d /var/lib/fleet-enroll   # 可写状态：Mac 显示名 names.json（/etc 在 ProtectSystem=full 下只读）
 if [[ ! -s /etc/fleet-enroll/totp.secret ]]; then
   head -c 20 /dev/urandom | base32 | tr -d '=' | tr 'a-z' 'A-Z' > /etc/fleet-enroll/totp.secret
   echo "  已生成入网专用 TOTP 密钥（与登录 2FA 分开）"
@@ -140,6 +141,7 @@ ENROLL_SECRET_FILE=/etc/fleet-enroll/totp.secret
 ENROLL_LOGIN_SERVER=https://${FLEET_HOST}:${HEADSCALE_PUBLIC_PORT:-28443}
 ENROLL_HS_USER=${FLEET_UID}
 ENROLL_KEY_TTL=10m
+ENROLL_NAMES_FILE=/var/lib/fleet-enroll/names.json
 EOF
 cp "$SRV/systemd/fleet-enroll.service" /etc/systemd/system/fleet-enroll.service
 systemctl daemon-reload
