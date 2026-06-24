@@ -1,0 +1,21 @@
+[Unit]
+Description=mac-fleet-hub 自助入网服务（TOTP 校验 → Headscale 一次性 preauthkey）
+After=network.target headscale.service
+Wants=headscale.service
+
+[Service]
+# 需要调用 headscale CLI（访问其 socket，默认属 root）。服务仅绑 127.0.0.1，
+# 且所有 headscale 命令参数固定、无用户输入进入命令行，故以 root 运行可接受。
+ExecStart=/usr/local/bin/fleet-enroll
+EnvironmentFile=/etc/fleet-enroll/env
+Restart=on-failure
+RestartSec=3
+User=root
+# 加固
+NoNewPrivileges=true
+ProtectSystem=full
+ProtectHome=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

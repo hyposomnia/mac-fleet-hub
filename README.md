@@ -6,17 +6,19 @@
 ## 架构（实测后定稿）
 
 ```
-手机 PWA  →  https://example.com:20443/fleet/        (Let's Encrypt 证书)
-   │  路由 20443→本机443
+手机 PWA  →  https://mfh.example.com:20443/        (通配符证书 *.example.com)
+   │  路由 20443→本机443，SNI 区分子域
    ▼
 Ubuntu 网关：现有 nginx 1.28
-   ├─ /  /admin/            现有 rtm 应用（不动）
-   ├─ /fleet/               PWA 控制台壳（静态）
-   ├─ auth_request          Authelia（原生 systemd, TOTP 2FA）
-   ├─ /fleet/m{1,2,3}/term  → mesh → 各 Mac ttyd（→ tmux → claude --resume）
-   ├─ /fleet/m{1,2,3}/files → mesh → 各 Mac filebrowser（整个 home）
-   └─ /fleet/m{1,2,3}/api   → mesh → 各 Mac fleet-agent（列出/打开/新建会话）
-Headscale（原生 systemd, 公网 28443→本机8443）：自托管组网 + 内置 DERP
+   ├─ example.com          现有 rtm 应用（/  /admin，独立 server 块，不动）
+   └─ mfh.example.com      本项目独立 server 块（同一张通配符证书）
+        ├─ /                  PWA 控制台壳（静态）
+        ├─ /auth + auth_request   Authelia（原生 systemd, TOTP 2FA）
+        ├─ /enroll/           自助入网（TOTP → 一次性 preauthkey，不过 2FA）
+        ├─ /m{1,2,3}/term  → mesh → 各 Mac ttyd（→ tmux → claude --resume）
+        ├─ /m{1,2,3}/files → mesh → 各 Mac filebrowser（整个 home）
+        └─ /m{1,2,3}/api   → mesh → 各 Mac fleet-agent（列出/打开/新建会话）
+Headscale（原生 systemd, 控制面 mfh.example.com:28443→本机8443）：自托管组网 + 内置 DERP
    └─ mesh →  Mac1 / Mac2 / Mac3（仅 mesh 可达；mac↔mac 全端口互通）
 ```
 
@@ -28,8 +30,8 @@ Headscale（原生 systemd, 公网 28443→本机8443）：自托管组网 + 内
 | 路径 | 作用 |
 |------|------|
 | `server/dashboard/` | PWA 控制台（壳 + 会话选择器；纯静态，加一台 Mac 只改 `app.js` 的 `MACS`） |
-| `server/nginx/fleet.conf` | nginx include 片段（/fleet 反代 + auth_request + ws） |
-| `server/authelia/` | Authelia 配置（TOTP 2FA，路径模式 /fleet） |
+| `server/nginx/fleet.conf` | 独立 nginx 站点模板（mfh 子域 server 块：反代 + auth_request + ws） |
+| `server/authelia/` | Authelia 配置（TOTP 2FA，保护整个 mfh 子域） |
 | `server/headscale/` | Headscale 配置模板 + ACL 策略 |
 | `server/systemd/` | authelia / headscale / 节点状态定时器 的 systemd 单元 |
 | `mac/fleet-agent/` | 会话管理服务（Go 单二进制，含预编译 `dist/`）+ ttyd 附着脚本 |
@@ -51,7 +53,7 @@ Headscale（原生 systemd, 公网 28443→本机8443）：自托管组网 + 内
    脚本自动装 Tailscale、起守护进程、入网 Headscale（这几步会要 sudo 密码），再装 ttyd/filebrowser/fleet-agent 并起服务。
 4. **回填**：把三台 mesh IP 写回 `server/.env` 的 `MAC{1,2,3}_IP`，重跑 `setup-server.sh` 刷新 nginx；
    给网关节点打 `tag:fleet-gw`。
-5. **用**：手机开 `https://<域名>:20443/fleet/` → 2FA 登录 → 选 Mac → 续接会话；可「添加到主屏」当 App。
+5. **用**：手机开 `https://<子域>:20443/`（如 `https://mfh.example.com:20443/`）→ 2FA 登录 → 选 Mac → 续接会话；可「添加到主屏」当 App。
 
 ## 配置约定
 

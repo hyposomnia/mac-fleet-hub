@@ -1,34 +1,32 @@
-# Authelia 主配置 —— 单用户 + TOTP 两步验证，路径模式（挂在 example.com/fleet 下）
-# 占位 {{DOMAIN}} 部署时由 scripts/setup-server.sh 用 .env 的 DOMAIN 替换。
+# Authelia 主配置 —— 单用户 + TOTP 两步验证，保护整个子域 mfh.example.com。
+# 占位 {{FLEET_HOST}} 部署时由 scripts/setup-server.sh 用 .env 的 FLEET_HOST 替换。
 # 敏感密钥(jwt/session/storage_encryption)从环境变量 *_FILE 注入（见 systemd/authelia.service），不写死。
 #
-# 部署位置：/etc/authelia/configuration.yml ；数据：/var/lib/authelia ；门户路径：/fleet/auth
+# 部署位置：/etc/authelia/configuration.yml ；数据：/var/lib/authelia ；门户路径：/auth
 
 theme: dark
 
 server:
-  # Authelia 只接受「单段」子路径（不能用 /fleet/auth）。故门户挂在单段 /auth；
-  # 受保护资源仍在 /fleet（见 access_control）。
+  # Authelia 只接受「单段」子路径。门户挂在单段 /auth；子域下其余路径由 nginx auth_request 保护。
   address: 'tcp://127.0.0.1:9091/auth'
 
 log:
   level: info
 
-# 访问控制：默认拒；example.com 下 /fleet 路径要求 2FA。
+# 访问控制：默认拒；子域 mfh.example.com 下所有路径要求 2FA。
+# （/auth 门户与 /enroll 自助入网在 nginx 层不过 auth_request，故不受此规则影响。）
 access_control:
   default_policy: deny
   rules:
-    - domain: '{{DOMAIN}}'
-      resources:
-        - '^/fleet($|/.*)'
+    - domain: '{{FLEET_HOST}}'
       policy: two_factor
 
 session:
   name: authelia_session
   cookies:
-    - domain: '{{DOMAIN}}'
-      authelia_url: 'https://{{DOMAIN}}:20443/auth'
-      default_redirection_url: 'https://{{DOMAIN}}:20443/fleet/'
+    - domain: '{{FLEET_HOST}}'
+      authelia_url: 'https://{{FLEET_HOST}}:20443/auth'
+      default_redirection_url: 'https://{{FLEET_HOST}}:20443/'
       expiration: 12h
       inactivity: 1h
 

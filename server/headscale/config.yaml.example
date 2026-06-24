@@ -1,19 +1,19 @@
 # Headscale 配置模板 —— 复制为 config.yaml 部署到 /etc/headscale/config.yaml
-# 占位 {{DOMAIN}} 由 scripts/setup-server.sh 用 .env 的 DOMAIN 替换。
+# 占位 {{FLEET_HOST}} 由 scripts/setup-server.sh 用 .env 的 FLEET_HOST 替换。
 # 完整字段参考官方 config-example.yaml；这里只列与本方案相关的关键项。
 
 # 客户端连这个地址；公网 28443 → 本机 8443（路由端口映射）。
-server_url: https://{{DOMAIN}}:28443
+server_url: https://{{FLEET_HOST}}:28443
 
 # 本机监听（路由把公网 28443 转到这里）。直接用现有 LE 证书自带 TLS。
 listen_addr: 0.0.0.0:8443
 metrics_listen_addr: 127.0.0.1:9090
 
-# 复用 nginx 用的同一张证书（按 host 生效、与端口无关）。
-# 路径 = 你 nginx 的 ssl_certificate / ssl_certificate_key（grep ssl_certificate /etc/nginx）。
-# 本部署为 /etc/ssl/rtm/*。headscale 以 root 运行以读取私钥（见 systemd 单元）。
-tls_cert_path: /etc/ssl/rtm/cert.pem
-tls_key_path: /etc/ssl/rtm/key.pem
+# 复用 nginx 用的同一张通配符证书（按 host 生效、与端口无关）。占位 {{SSL_CERT}}/{{SSL_KEY}}
+# 由 setup-server.sh 用 .env 的 SSL_CERT/SSL_KEY 替换（与 nginx 单一来源，不会不一致）。
+# headscale 以 root 运行以读取证书/私钥（见 systemd 单元；acme.sh 目录默认 root-only）。
+tls_cert_path: {{SSL_CERT}}
+tls_key_path: {{SSL_KEY}}
 
 # 不让 headscale 自己管 ACME（证书由 certbot 管）。
 tls_letsencrypt_hostname: ""

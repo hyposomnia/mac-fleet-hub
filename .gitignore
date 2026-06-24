@@ -28,6 +28,9 @@ server/headscale/*.sqlite*
 mac/fleet-agent/fleet-agent
 /tmp/
 
+# Claude Code 本地配置（机器专属，不入库；人格 .claude/commands 与 .agents 记忆入库）
+.claude/settings.local.json
+
 # 系统杂项
 .DS_Store
 *.log

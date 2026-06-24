@@ -33,10 +33,60 @@ type Config struct {
 	Listen     string // 绑定地址，如 100.x.x.x:7682
 	ClaudeHome string // ~/.claude
 	ClaudeBin  string // claude 可执行文件
-	MacIndex   string // 1/2/3 → 终端入口 /fleet/m{idx}/term
+	MacIndex   string // 1/2/3 → 终端入口 /m{idx}/term
 	IdleSec    int64  // 空闲回收秒数（默认 1800）
 	AutoCmdR   bool   // 会话结束自动给 Desktop 发 Cmd+R
-	DesktopApp string // osascript 目标应用名（默认 Claude）
+	DesktopApp   string // osascript 目标应用名（默认 Claude）
+	ProxyFile    string // 代理配置持久化文件（~/.macfleet-proxy.json）
+	DesktopStore string // Claude Desktop 会话库目录（一次数据源）
+}
+
+// 代理配置：Web 端可设，按会话注入到 claude 的环境（HTTP(S)_PROXY）。
+type ProxyCfg struct {
+	Enabled bool   `json:"enabled"`
+	HTTP    string `json:"http"`
+	HTTPS   string `json:"https"`
+}
+
+var (
+	proxyCfg ProxyCfg
+	proxyMu  sync.Mutex
+)
+
+func loadProxy() {
+	b, err := os.ReadFile(cfg.ProxyFile)
+	if err != nil {
+		return
+	}
+	proxyMu.Lock()
+	json.Unmarshal(b, &proxyCfg)
+	proxyMu.Unlock()
+}
+
+func saveProxy() {
+	proxyMu.Lock()
+	b, _ := json.MarshalIndent(proxyCfg, "", "  ")
+	proxyMu.Unlock()
+	os.WriteFile(cfg.ProxyFile, b, 0600)
+}
+
+// 启动 claude 前的环境前缀：env HTTP_PROXY=... HTTPS_PROXY=...（含小写别名）。
+func proxyEnvPrefix() string {
+	proxyMu.Lock()
+	p := proxyCfg
+	proxyMu.Unlock()
+	if !p.Enabled || (p.HTTP == "" && p.HTTPS == "") {
+		return ""
+	}
+	h, s := p.HTTP, p.HTTPS
+	if h == "" {
+		h = s
+	}
+	if s == "" {
+		s = h
+	}
+	return fmt.Sprintf("env HTTP_PROXY=%s HTTPS_PROXY=%s http_proxy=%s https_proxy=%s ",
+		shellQuote(h), shellQuote(s), shellQuote(h), shellQuote(s))
 }
 
 func envOr(k, d string) string {
@@ -57,6 +107,8 @@ func loadConfig() Config {
 		IdleSec:    idle,
 		AutoCmdR:   envOr("FLEET_AUTO_CMDR", "1") == "1",
 		DesktopApp: envOr("FLEET_DESKTOP_APP", "Claude"),
+		ProxyFile:    envOr("FLEET_PROXY_FILE", filepath.Join(home, ".macfleet-proxy.json")),
+		DesktopStore: envOr("FLEET_DESKTOP_STORE", filepath.Join(home, "Library", "Application Support", "Claude", "claude-code-sessions")),
 	}
 }
 
@@ -76,6 +128,7 @@ type Session struct {
 type line struct {
 	Type        string          `json:"type"`
 	AiTitle     string          `json:"aiTitle"`
+	CustomTitle string          `json:"customTitle"`
 	SessionID   string          `json:"sessionId"`
 	Cwd         string          `json:"cwd"`
 	GitBranch   string          `json:"gitBranch"`
@@ -149,13 +202,14 @@ func fileMeta(path string, mtimeMs int64) meta {
 	defer f.Close()
 	sc := bufio.NewScanner(f)
 	sc.Buffer(make([]byte, 1024*1024), 16*1024*1024)
-	var firstUser string
+	var firstUser, customTitle, aiTitle string
 	for sc.Scan() {
 		var l line
 		if json.Unmarshal(sc.Bytes(), &l) != nil {
 			continue
 		}
-		if l.Cwd != "" {
+		// 取首条 cwd（会话启动目录=项目根）。会话中途 cd 进子目录的行不应改变分组归属。
+		if l.Cwd != "" && m.cwd == "" {
 			m.cwd = l.Cwd
 		}
 		if l.GitBranch != "" {
@@ -164,14 +218,24 @@ func fileMeta(path string, mtimeMs int64) meta {
 		if l.UUID != "" {
 			m.lastUUID = l.UUID
 		}
+		// 用户 rename：jsonl 里 type=="custom-title" 的 customTitle 字段，每次 rename 追加一行，取最后一条。
+		if l.Type == "custom-title" && l.CustomTitle != "" {
+			customTitle = l.CustomTitle
+		}
 		if l.Type == "ai-title" && l.AiTitle != "" {
-			m.title = l.AiTitle
+			aiTitle = l.AiTitle
 		}
 		if firstUser == "" && l.Type == "user" {
 			firstUser = extractText(l.Message)
 		}
 	}
-	if m.title == "" {
+	// 优先级：用户 rename（customTitle） > 自动 ai-title > 首条 user 消息。
+	switch {
+	case customTitle != "":
+		m.title = customTitle
+	case aiTitle != "":
+		m.title = aiTitle
+	default:
 		m.title = firstUser
 	}
 	if m.title == "" {
@@ -212,15 +276,55 @@ func extractText(raw json.RawMessage) string {
 	return ""
 }
 func trim(s string) string {
+	s = cleanTitle(s)
 	s = strings.TrimSpace(strings.ReplaceAll(s, "\n", " "))
-	if len(s) > 80 {
-		s = s[:80]
+	// 截断按 rune，避免切坏 UTF-8（中文标题尤甚）
+	r := []rune(s)
+	if len(r) > 60 {
+		s = string(r[:60])
 	}
 	return s
 }
 
-// 扫描所有会话
-func scanSessions() []Session {
+// cleanTitle：slash 命令首条消息形如
+// "<command-message>x</command-message> <command-name>/y</command-name> ..."，
+// 优先取 /y 作标题；否则剥掉所有 <...> 标签。
+func cleanTitle(s string) string {
+	if i := strings.Index(s, "<command-name>"); i >= 0 {
+		rest := s[i+len("<command-name>"):]
+		if j := strings.Index(rest, "</command-name>"); j >= 0 {
+			if name := strings.TrimSpace(rest[:j]); name != "" {
+				return name
+			}
+		}
+	}
+	if strings.Contains(s, "<") && strings.Contains(s, ">") {
+		var b strings.Builder
+		depth := 0
+		for _, c := range s {
+			switch c {
+			case '<':
+				depth++
+			case '>':
+				if depth > 0 {
+					depth--
+				}
+			default:
+				if depth == 0 {
+					b.WriteRune(c)
+				}
+			}
+		}
+		if t := strings.TrimSpace(b.String()); t != "" {
+			return t
+		}
+	}
+	return s
+}
+
+// scanJSONL：直接扫 ~/.claude/projects 的 .jsonl —— 仅在 Desktop store 不可用时作回退源。
+// 此处 Live 用「进程存活」近似，不如 Desktop 的 isArchived 准确。
+func scanJSONL() []Session {
 	active := activeSet()
 	root := filepath.Join(cfg.ClaudeHome, "projects")
 	var out []Session
@@ -265,8 +369,101 @@ func jsonlPath(sid string) string {
 	}
 	return ""
 }
+
+// ---------------- Claude Desktop 会话库（一次数据源） ----------------
+// Desktop 在 ~/Library/Application Support/Claude/claude-code-sessions/*/*/local_*.json
+// 维护每个会话的真实元数据：cliSessionId（= CLI .jsonl 的 id，resume 用）、title（titleSource
+// user=用户 rename / auto=自动标题）、cwd / originCwd（worktree 时分别为工作树 / 主仓）、
+// isArchived（= 是否「活跃」的权威依据：未归档即活跃）、lastActivityAt。
+type dsess struct {
+	cli      string
+	title    string
+	cwd      string // 真实工作目录（worktree 时为工作树），resume 用
+	group    string // 分组目录（originCwd 优先，回退 cwd）
+	branch   string
+	archived bool
+	activity int64 // ms
+}
+
+func scanDesktop() []dsess {
+	files, _ := filepath.Glob(filepath.Join(cfg.DesktopStore, "*", "*", "local_*.json"))
+	var out []dsess
+	seen := map[string]bool{}
+	for _, f := range files {
+		b, err := os.ReadFile(f)
+		if err != nil {
+			continue
+		}
+		var d struct {
+			CliSessionID   string `json:"cliSessionId"`
+			Title          string `json:"title"`
+			Cwd            string `json:"cwd"`
+			OriginCwd      string `json:"originCwd"`
+			Branch         string `json:"branch"`
+			IsArchived     bool   `json:"isArchived"`
+			LastActivityAt int64  `json:"lastActivityAt"`
+			LastFocusedAt  int64  `json:"lastFocusedAt"`
+		}
+		if json.Unmarshal(b, &d) != nil || d.CliSessionID == "" || seen[d.CliSessionID] {
+			continue
+		}
+		seen[d.CliSessionID] = true
+		group := d.OriginCwd
+		if group == "" {
+			group = d.Cwd
+		}
+		act := d.LastActivityAt
+		if act < d.LastFocusedAt {
+			act = d.LastFocusedAt
+		}
+		out = append(out, dsess{
+			cli: d.CliSessionID, title: strings.TrimSpace(d.Title), cwd: d.Cwd,
+			group: group, branch: d.Branch, archived: d.IsArchived, activity: act,
+		})
+	}
+	return out
+}
+
+// desktopSessions：把 Desktop 库映射为会话列表（Live = 未归档）。
+func desktopSessions() []Session {
+	ds := scanDesktop()
+	out := make([]Session, 0, len(ds))
+	for _, d := range ds {
+		title := d.title
+		if title == "" { // Desktop 偶尔无 title → 回退 jsonl 解析
+			if p := jsonlPath(d.cli); p != "" {
+				title = fileMeta(p, statMtime(p)).title
+			}
+		}
+		if title == "" {
+			title = "(无标题)"
+		}
+		out = append(out, Session{
+			SessionID: d.cli, Cwd: d.group, Title: title, GitBranch: d.branch,
+			Mtime: d.activity, Live: !d.archived,
+		})
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Mtime > out[j].Mtime })
+	return out
+}
+
+// scanSessions：优先用 Desktop 库（active=未归档、标题/分组/resume id 皆权威）；
+// 库不可用（未装 Desktop 等）时回退到 .jsonl 扫描。
+func scanSessions() []Session {
+	if ds := desktopSessions(); len(ds) > 0 {
+		return ds
+	}
+	return scanJSONL()
+}
+
+// cwdOf：resume 的工作目录 —— 优先 Desktop 的真实 cwd（worktree 友好），回退 jsonl 推断。
 func cwdOf(sid string) string {
-	for _, s := range scanSessions() {
+	for _, d := range scanDesktop() {
+		if d.cli == sid {
+			return d.cwd
+		}
+	}
+	for _, s := range scanJSONL() {
 		if s.SessionID == sid {
 			return s.Cwd
 		}
@@ -307,7 +504,7 @@ func shellQuote(s string) string {
 	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 }
 func termURL(name string) string {
-	return fmt.Sprintf("/fleet/m%s/term/?arg=%s", cfg.MacIndex, name)
+	return fmt.Sprintf("/m%s/term/?arg=%s", cfg.MacIndex, name)
 }
 
 // ---------------- watch 注册表（Desktop→ttyd 检测） ----------------
@@ -464,7 +661,7 @@ func handleOpen(w http.ResponseWriter, r *http.Request) {
 	}
 	cwd := cwdOf(req.SessionID)
 	name := shortSid(req.SessionID)
-	cmd := fmt.Sprintf("%s --resume %s", cfg.ClaudeBin, shellQuote(req.SessionID))
+	cmd := proxyEnvPrefix() + fmt.Sprintf("%s --resume %s", cfg.ClaudeBin, shellQuote(req.SessionID))
 	if err := ensureTmux(name, cwd, cmd); err != nil {
 		http.Error(w, "tmux: "+err.Error(), 500)
 		return
@@ -482,11 +679,44 @@ func handleNew(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	name := fmt.Sprintf("fleet-new%d", time.Now().Unix())
-	if err := ensureTmux(name, req.Cwd, cfg.ClaudeBin); err != nil {
+	if err := ensureTmux(name, req.Cwd, proxyEnvPrefix()+cfg.ClaudeBin); err != nil {
 		http.Error(w, "tmux: "+err.Error(), 500)
 		return
 	}
 	writeJSON(w, map[string]string{"url": termURL(name), "sid": name})
+}
+
+// GET 返回当前代理；POST {enabled,http,https} 更新并持久化（按会话注入，对新开/重开会话生效）。
+func handleProxy(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodPost {
+		var p ProxyCfg
+		if json.NewDecoder(r.Body).Decode(&p) != nil {
+			http.Error(w, "bad request", 400)
+			return
+		}
+		proxyMu.Lock()
+		proxyCfg = p
+		proxyMu.Unlock()
+		saveProxy()
+	}
+	proxyMu.Lock()
+	p := proxyCfg
+	proxyMu.Unlock()
+	writeJSON(w, p)
+}
+
+// 主机信息（弹窗用）：mesh IP、mac 序号、当前代理状态。
+func handleInfo(w http.ResponseWriter, r *http.Request) {
+	host := cfg.Listen
+	if i := strings.LastIndex(host, ":"); i > 0 {
+		host = host[:i]
+	}
+	proxyMu.Lock()
+	p := proxyCfg
+	proxyMu.Unlock()
+	writeJSON(w, map[string]interface{}{
+		"macIndex": cfg.MacIndex, "meshIP": host, "proxy": p,
+	})
 }
 
 func handleWatch(w http.ResponseWriter, r *http.Request) {
@@ -507,7 +737,7 @@ func handleReload(w http.ResponseWriter, r *http.Request) {
 	watchMu.Unlock()
 	tmux("kill-session", "-t", req.Sid)
 	if wt != nil && wt.sessionID != "" {
-		cmd := fmt.Sprintf("%s --resume %s", cfg.ClaudeBin, shellQuote(wt.sessionID))
+		cmd := proxyEnvPrefix() + fmt.Sprintf("%s --resume %s", cfg.ClaudeBin, shellQuote(wt.sessionID))
 		ensureTmux(req.Sid, cwdOf(wt.sessionID), cmd)
 		registerWatch(req.Sid, wt.sessionID) // 重置 offset/tip/external
 	}
@@ -582,6 +812,7 @@ func desktopOnSession(sessionID string) bool {
 // ---------------- main ----------------
 func main() {
 	cfg = loadConfig()
+	loadProxy()
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/sessions", handleSessions)
 	mux.HandleFunc("/api/projects", handleProjects)
@@ -589,6 +820,8 @@ func main() {
 	mux.HandleFunc("/api/new", handleNew)
 	mux.HandleFunc("/api/watch", handleWatch)
 	mux.HandleFunc("/api/reload", handleReload)
+	mux.HandleFunc("/api/proxy", handleProxy)
+	mux.HandleFunc("/api/info", handleInfo)
 	mux.HandleFunc("/api/health", func(w http.ResponseWriter, r *http.Request) { w.Write([]byte("ok")) })
 
 	go reaper()

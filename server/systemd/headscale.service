@@ -5,7 +5,7 @@ Documentation=https://headscale.net
 
 [Service]
 Type=simple
-# 以 root 运行以便读取 nginx 的 TLS 私钥（/etc/ssl/rtm/key.pem，通常 root-only，且会随续期轮换）。
+# 以 root 运行以便读取 TLS 私钥（acme.sh 签发，默认 /root/.acme.sh/*，root-only，且会随续期轮换）。
 User=root
 Group=root
 ExecStart=/usr/bin/headscale serve
@@ -16,7 +16,9 @@ RuntimeDirectory=headscale
 StateDirectory=headscale
 NoNewPrivileges=true
 ProtectSystem=strict
-ProtectHome=true
+# 证书在 /root/.acme.sh（home 目录）→ 用 read-only 而非 true，否则 ProtectHome 屏蔽 /root 致读不到证书。
+# 若改用 acme.sh --install-cert 部署到 /root 之外的固定路径，可改回 ProtectHome=true。
+ProtectHome=read-only
 PrivateTmp=true
 AmbientCapabilities=CAP_NET_BIND_SERVICE
 

@@ -3,10 +3,10 @@
 #
 # 用法：
 #   MAC_INDEX=1 \
-#   LOGIN_SERVER=https://example.com:28443 AUTHKEY=<preauthkey> \
+#   LOGIN_SERVER=https://mfh.example.com:28443 AUTHKEY=<preauthkey> \
 #   bash mac/setup-mac.sh
 #
-#   - MAC_INDEX 必填(1/2/3)：决定终端/文件路径 /fleet/m{idx}/...
+#   - MAC_INDEX 必填(1/2/3)：决定终端/文件路径 /m{idx}/...
 #   - LOGIN_SERVER/AUTHKEY 选填：给出则自动 tailscale up 入网（Headscale）；
 #     省略则假设你已手动入网。
 #   - 不修改系统「远程登录/屏幕共享」开关（mac↔mac 的 SSH/VNC 请自行在系统设置开启）。
@@ -18,8 +18,8 @@ FB_PORT="${FB_PORT:-8080}"
 AGENT_PORT="${AGENT_PORT:-7682}"
 FB_ROOT="${FB_ROOT:-$HOME}"                       # 文件管理根目录 = 整个 home（用户决定）
 FB_DB="$HOME/.macfleet-filebrowser.db"
-TTYD_BASE="/fleet/m${MAC_INDEX}/term"
-FB_BASE="/fleet/m${MAC_INDEX}/files"
+TTYD_BASE="/m${MAC_INDEX}/term"
+FB_BASE="/m${MAC_INDEX}/files"
 BIN_DIR="$HOME/.local/bin"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
@@ -64,6 +64,11 @@ else
 fi
 
 # --- 4. filebrowser DB：建用户 + noauth + baseURL（鉴权交给 Headscale ACL）---
+# 重跑场景：先卸载已在运行的服务，否则 filebrowser config set 会因 DB 被占而超时。
+LA_EARLY="$HOME/Library/LaunchAgents"
+for svc in com.macfleet.ttyd com.macfleet.filebrowser com.macfleet.fleet-agent; do
+  launchctl unload "$LA_EARLY/$svc.plist" 2>/dev/null || true
+done
 if [[ ! -f "$FB_DB" ]]; then
   "$FB_BIN" -d "$FB_DB" config init >/dev/null
 fi

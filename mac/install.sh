@@ -13,7 +13,7 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-LOGIN_SERVER="${LOGIN_SERVER:-https://example.com:28443}"
+LOGIN_SERVER="${LOGIN_SERVER:-https://mfh.example.com:28443}"
 MAC_INDEX="${MAC_INDEX:-${1:-}}"
 AUTHKEY="${AUTHKEY:-${2:-}}"
 
@@ -80,6 +80,6 @@ cat <<EOF
   sed -i 's/^MAC${MAC_INDEX}_IP=.*/MAC${MAC_INDEX}_IP=${TS_IP}/' server/.env
   sudo bash scripts/setup-server.sh        # 重渲染并 reload nginx（幂等）
 
-然后浏览器开 https://example.com:20443/fleet/ → 选 Mac ${MAC_INDEX} → 续接会话。
+然后浏览器开 https://mfh.example.com:20443/ → 选 Mac ${MAC_INDEX} → 续接会话。
 （如需 mac↔mac 的 SSH/VNC，请自行在「系统设置 > 通用 > 共享」开启。）
 EOF

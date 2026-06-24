@@ -1,0 +1,260 @@
+// fleet-enroll —— 网关侧自助入网服务（纯标准库，零依赖）。
+//
+// 作用：装机的新 Mac 无法登录 Authelia，故用一个独立的 TOTP（入网专用密钥，与登录 2FA 分开）
+// 来确认「是机主本人」。验证码正确 → 生成一次性短效 Headscale preauthkey 返回，客户端据此入网。
+//
+//   POST /join {code,index}   校验 TOTP → 返回 {loginServer, authKey, index}
+//   GET  /healthz             存活探针
+//
+// 仅绑 127.0.0.1，由 nginx 暴露在 /enroll/（公开、不过 Authelia）。
+// 防爆破：连续失败锁定 + 单次只发一次性 key。bootstrap.sh / uninstall.sh / bundle 由 nginx 静态托管。
+package main
+
+import (
+	"crypto/hmac"
+	"crypto/sha1"
+	"crypto/subtle"
+	"encoding/base32"
+	"encoding/binary"
+	"encoding/json"
+	"fmt"
+	"log"
+	"net"
+	"net/http"
+	"os"
+	"os/exec"
+	"strconv"
+	"strings"
+	"sync"
+	"time"
+)
+
+// ---------------- 配置 ----------------
+var (
+	listen      = envOr("ENROLL_LISTEN", "127.0.0.1:7090")
+	secretFile  = envOr("ENROLL_SECRET_FILE", "/etc/fleet-enroll/totp.secret")
+	loginServer = envOr("ENROLL_LOGIN_SERVER", "https://mfh.example.com:28443")
+	hsUser      = envOr("ENROLL_HS_USER", "1")        // headscale 用户 id
+	hsBin       = envOr("ENROLL_HEADSCALE", "headscale")
+	keyTTL      = envOr("ENROLL_KEY_TTL", "10m")      // preauthkey 有效期
+	maxFails    = envInt("ENROLL_MAX_FAILS", 5)       // 锁定阈值
+	lockMin     = envInt("ENROLL_LOCK_MIN", 15)       // 锁定分钟
+)
+
+func envOr(k, d string) string { if v := os.Getenv(k); v != "" { return v }; return d }
+func envInt(k string, d int) int { if v := os.Getenv(k); v != "" { if n, e := strconv.Atoi(v); e == nil { return n } }; return d }
+
+// ---------------- TOTP（RFC 6238, SHA1, 6 位, 30s） ----------------
+func loadSecret() (string, error) {
+	b, err := os.ReadFile(secretFile)
+	if err != nil {
+		return "", err
+	}
+	return strings.ToUpper(strings.TrimSpace(strings.ReplaceAll(string(b), " ", ""))), nil
+}
+
+func hotp(key []byte, counter uint64) string {
+	var buf [8]byte
+	binary.BigEndian.PutUint64(buf[:], counter)
+	h := hmac.New(sha1.New, key)
+	h.Write(buf[:])
+	sum := h.Sum(nil)
+	off := sum[len(sum)-1] & 0x0f
+	v := (uint32(sum[off]&0x7f) << 24) | (uint32(sum[off+1]) << 16) | (uint32(sum[off+2]) << 8) | uint32(sum[off+3])
+	return fmt.Sprintf("%06d", v%1000000)
+}
+
+// 校验 6 位验证码，允许 ±1 个时间窗（±30s 容差）。常量时间比较防计时侧信道。
+func verifyTOTP(secret, code string, nowUnix int64) bool {
+	code = strings.TrimSpace(code)
+	if len(code) != 6 {
+		return false
+	}
+	key, err := base32.StdEncoding.WithPadding(base32.NoPadding).DecodeString(secret)
+	if err != nil {
+		return false
+	}
+	step := uint64(nowUnix / 30)
+	for d := -1; d <= 1; d++ {
+		want := hotp(key, step+uint64(int64(d)))
+		if subtle.ConstantTimeCompare([]byte(want), []byte(code)) == 1 {
+			return true
+		}
+	}
+	return false
+}
+
+// otpauth:// URI（供 setup 显示二维码/手动添加）
+func otpauthURI(secret string) string {
+	return "otpauth://totp/mac-fleet-hub:enroll?secret=" + secret + "&issuer=mac-fleet-hub&period=30&digits=6"
+}
+
+// ---------------- 防爆破（按来源 IP 计数 + 锁定） ----------------
+// 关键：锁定必须 per-IP，否则匿名者刷错码只会触发全局锁定、把机主自己也挡在外面
+// （lockout-as-DoS 反模式）。失败计数按 IP 隔离 + 滑动衰减 + 过期清理（防内存膨胀）。
+type ipState struct {
+	fails    int
+	lockedTo time.Time
+	last     time.Time
+}
+
+var (
+	ipMu      sync.Mutex
+	ipStates  = map[string]*ipState{}
+	maxTracked = 50000 // 硬上限，极端泛洪下不无界增长
+)
+
+// clientIP：服务仅绑 127.0.0.1，nginx 以「覆盖（非追加）」方式设 X-Forwarded-For=$remote_addr，
+// 故此处该头可信。取第一个值；缺失时回退 RemoteAddr。
+func clientIP(r *http.Request) string {
+	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
+		if i := strings.IndexByte(xff, ','); i >= 0 {
+			xff = xff[:i]
+		}
+		if ip := strings.TrimSpace(xff); ip != "" {
+			return ip
+		}
+	}
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		return r.RemoteAddr
+	}
+	return host
+}
+
+func lockedIP(ip string, now time.Time) bool {
+	ipMu.Lock()
+	defer ipMu.Unlock()
+	st := ipStates[ip]
+	return st != nil && now.Before(st.lockedTo)
+}
+
+func failIP(ip string, now time.Time) {
+	ipMu.Lock()
+	defer ipMu.Unlock()
+	gcLocked(now)
+	st := ipStates[ip]
+	if st == nil {
+		if len(ipStates) >= maxTracked {
+			return // 跟踪表已满（异常泛洪）：放弃记账而非无界增长
+		}
+		st = &ipState{}
+		ipStates[ip] = st
+	}
+	// 滑动衰减：距上次失败超过 lockMin 视为新一轮，清零计数（避免机主零星误输累积）
+	if !st.last.IsZero() && now.Sub(st.last) > time.Duration(lockMin)*time.Minute {
+		st.fails = 0
+	}
+	st.last = now
+	st.fails++
+	if st.fails >= maxFails {
+		st.lockedTo = now.Add(time.Duration(lockMin) * time.Minute)
+		st.fails = 0
+	}
+}
+
+func okIP(ip string) { ipMu.Lock(); delete(ipStates, ip); ipMu.Unlock() }
+
+// gcLocked：调用方已持 ipMu。清理「未锁定且久未活动」的条目。
+func gcLocked(now time.Time) {
+	for k, st := range ipStates {
+		if now.After(st.lockedTo) && now.Sub(st.last) > time.Duration(lockMin)*time.Minute {
+			delete(ipStates, k)
+		}
+	}
+}
+
+// ---------------- 入网 ----------------
+type joinReq struct {
+	Code  string `json:"code"`
+	Index string `json:"index"`
+}
+
+func createPreauthKey() (string, error) {
+	// 固定参数，无任何用户输入进入命令行：单次性（非 --reusable）、短效、打 tag:fleet-mac。
+	out, err := exec.Command(hsBin, "preauthkeys", "create",
+		"-u", hsUser, "--expiration", keyTTL, "--tags", "tag:fleet-mac").CombinedOutput()
+	if err != nil {
+		return "", fmt.Errorf("headscale: %v: %s", err, strings.TrimSpace(string(out)))
+	}
+	// 取最后一行非空 token 作为 key（headscale 裸输出即 key）
+	var key string
+	for _, ln := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+		ln = strings.TrimSpace(ln)
+		if ln != "" {
+			key = ln
+		}
+	}
+	if !strings.HasPrefix(key, "hskey-") {
+		return "", fmt.Errorf("unexpected headscale output")
+	}
+	return key, nil
+}
+
+func handleJoin(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", 405)
+		return
+	}
+	now := time.Now()
+	ip := clientIP(r)
+	if lockedIP(ip, now) {
+		writeErr(w, 429, "尝试次数过多，已临时锁定，请稍后再试")
+		return
+	}
+	var req joinReq
+	if json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<12)).Decode(&req) != nil {
+		writeErr(w, 400, "请求格式错误")
+		return
+	}
+	// index 仅作主机名提示（客户端用），严格校验为 1 位数字，不进入任何命令
+	if len(req.Index) != 1 || req.Index[0] < '1' || req.Index[0] > '9' {
+		writeErr(w, 400, "机器序号需为 1-9")
+		return
+	}
+	secret, err := loadSecret()
+	if err != nil || secret == "" {
+		writeErr(w, 500, "服务端未配置入网密钥")
+		return
+	}
+	if !verifyTOTP(secret, req.Code, now.Unix()) {
+		failIP(ip, now)
+		writeErr(w, 401, "验证码错误")
+		return
+	}
+	key, err := createPreauthKey()
+	if err != nil {
+		log.Printf("preauthkey 生成失败: %v", err)
+		writeErr(w, 500, "生成入网密钥失败")
+		return
+	}
+	okIP(ip)
+	log.Printf("入网放行 index=%s（已发一次性 preauthkey）", req.Index)
+	writeJSON(w, 200, map[string]string{"loginServer": loginServer, "authKey": key, "index": req.Index})
+}
+
+func writeJSON(w http.ResponseWriter, code int, v interface{}) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(code)
+	json.NewEncoder(w).Encode(v)
+}
+func writeErr(w http.ResponseWriter, code int, msg string) { writeJSON(w, code, map[string]string{"error": msg}) }
+
+func main() {
+	// 子命令：-show-uri 打印 otpauth URI（供 setup 显示二维码）；secret 不存在则报错提示先生成。
+	if len(os.Args) > 1 && os.Args[1] == "-show-uri" {
+		s, err := loadSecret()
+		if err != nil || s == "" {
+			fmt.Fprintln(os.Stderr, "未找到入网密钥，请先在 setup 中生成 "+secretFile)
+			os.Exit(1)
+		}
+		fmt.Println(otpauthURI(s))
+		return
+	}
+	mux := http.NewServeMux()
+	mux.HandleFunc("/join", handleJoin)
+	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) { w.Write([]byte("ok")) })
+	log.Printf("fleet-enroll 监听 %s（login=%s, hsUser=%s）", listen, loginServer, hsUser)
+	srv := &http.Server{Addr: listen, Handler: mux, ReadTimeout: 10 * time.Second, WriteTimeout: 15 * time.Second}
+	log.Fatal(srv.ListenAndServe())
+}

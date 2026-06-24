@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# 在 Ubuntu 网关上以 root 运行：装 Headscale + Authelia(原生 systemd)，部署 PWA，注入现有 nginx。
+# 在 Ubuntu 网关上以 root 运行：装 Headscale + Authelia(原生 systemd)，部署 PWA，写独立 nginx 站点（mfh 子域）。
 #
 #   cd mac-fleet-hub && cp server/.env.example server/.env && 编辑 server/.env
 #   sudo bash scripts/setup-server.sh
@@ -13,6 +13,10 @@ SRV="$ROOT/server"
 [[ -f "$SRV/.env" ]] || { echo "缺少 server/.env，请先 cp server/.env.example server/.env 并填写。" >&2; exit 1; }
 set -a; source "$SRV/.env"; set +a
 : "${DOMAIN:?在 .env 设置 DOMAIN}"
+: "${FLEET_HOST:?在 .env 设置 FLEET_HOST（服务子域，如 mfh.example.com）}"
+SSL_CERT="${SSL_CERT:-/root/.acme.sh/example.com_ecc/fullchain.cer}"
+SSL_KEY="${SSL_KEY:-/root/.acme.sh/example.com_ecc/example.com.key}"
+NGINX_SITE="${NGINX_SITE:-/etc/nginx/sites-enabled/mac-fleet-hub.conf}"
 
 ARCH=amd64
 gh_latest() { curl -fsSL "https://api.github.com/repos/$1/releases/latest" | grep -oE '"tag_name": *"[^"]+"' | head -1 | sed -E 's/.*"v?([^"]+)".*/\1/'; }
@@ -29,7 +33,9 @@ if ! command -v headscale >/dev/null 2>&1; then
 fi
 id headscale >/dev/null 2>&1 || useradd --system --home /var/lib/headscale --shell /usr/sbin/nologin headscale || true
 install -d -o headscale -g headscale /var/lib/headscale /etc/headscale
-sed "s/{{DOMAIN}}/${DOMAIN}/g" "$SRV/headscale/config.yaml.example" > /etc/headscale/config.yaml
+sed -e "s/{{DOMAIN}}/${DOMAIN}/g" -e "s/{{FLEET_HOST}}/${FLEET_HOST}/g" \
+    -e "s|{{SSL_CERT}}|${SSL_CERT}|g" -e "s|{{SSL_KEY}}|${SSL_KEY}|g" \
+    "$SRV/headscale/config.yaml.example" > /etc/headscale/config.yaml
 cp "$SRV/headscale/acl.hujson" /etc/headscale/acl.hujson
 # 让 headscale 能读 LE 证书
 usermod -aG "$(stat -c %G /etc/letsencrypt/live/${DOMAIN}/fullchain.pem 2>/dev/null || echo root)" headscale 2>/dev/null || true
@@ -50,7 +56,7 @@ if [[ ! -x /usr/local/bin/authelia ]]; then
 fi
 id authelia >/dev/null 2>&1 || useradd --system --home /var/lib/authelia --shell /usr/sbin/nologin authelia || true
 install -d -o authelia -g authelia /var/lib/authelia /etc/authelia /etc/authelia/secrets
-sed "s/{{DOMAIN}}/${DOMAIN}/g" "$SRV/authelia/configuration.yml" > /etc/authelia/configuration.yml
+sed -e "s/{{DOMAIN}}/${DOMAIN}/g" -e "s/{{FLEET_HOST}}/${FLEET_HOST}/g" "$SRV/authelia/configuration.yml" > /etc/authelia/configuration.yml
 # 用户库（含 argon2 哈希），不入库，从模板拷一次
 if [[ ! -f /etc/authelia/users_database.yml ]]; then
   cp "$SRV/authelia/users_database.yml.example" /etc/authelia/users_database.yml
@@ -69,34 +75,25 @@ install -d /var/www/fleet/api
 cp -r "$SRV/dashboard/." /var/www/fleet/
 chown -R www-data:www-data /var/www/fleet 2>/dev/null || true
 
-echo "==> [4/7] 渲染 nginx fleet 片段 + ws map"
-install -d /etc/nginx/snippets
-sed -e "s/__MAC1_IP__/${MAC1_IP}/g" -e "s/__MAC2_IP__/${MAC2_IP}/g" -e "s/__MAC3_IP__/${MAC3_IP}/g" \
-    -e "s/__TTYD_PORT__/${TTYD_PORT}/g" -e "s/__FB_PORT__/${FB_PORT}/g" -e "s/__AGENT_PORT__/${AGENT_PORT}/g" \
-    "$SRV/nginx/fleet.conf" > /etc/nginx/snippets/fleet.conf
-printf 'map $http_upgrade $fleet_conn_upgrade { default upgrade; "" close; }\n' > /etc/nginx/conf.d/fleet-map.conf
+echo "==> [4/7] 渲染 nginx 独立站点（mfh 子域 server 块）+ ws map/limit"
+install -d "$(dirname "$NGINX_SITE")"
+sed -e "s|__FLEET_HOST__|${FLEET_HOST}|g" \
+    -e "s|__SSL_CERT__|${SSL_CERT}|g" -e "s|__SSL_KEY__|${SSL_KEY}|g" \
+    -e "s|__MAC1_IP__|${MAC1_IP}|g" -e "s|__MAC2_IP__|${MAC2_IP}|g" -e "s|__MAC3_IP__|${MAC3_IP}|g" \
+    -e "s|__TTYD_PORT__|${TTYD_PORT}|g" -e "s|__FB_PORT__|${FB_PORT}|g" -e "s|__AGENT_PORT__|${AGENT_PORT}|g" \
+    "$SRV/nginx/fleet.conf" > "$NGINX_SITE"
+{
+  printf 'map $http_upgrade $fleet_conn_upgrade { default upgrade; "" close; }\n'
+  printf 'limit_req_zone $binary_remote_addr zone=fleet_enroll:1m rate=20r/m;\n'
+} > /etc/nginx/conf.d/fleet-map.conf
 
-echo "==> [5/7] 把 include 注入现有 443 server 块（自动备份）"
-SITE="${NGINX_SITE:-/etc/nginx/sites-enabled/rtm.conf}"
-if [[ -f "$SITE" ]] && ! grep -q 'snippets/fleet.conf' "$SITE"; then
-  cp "$SITE" "${SITE}.bak.$(date +%s)"
-  # 在含 'listen 443' 的 server 块的最后一个 } 前插入 include
-  awk '
-    /server[[:space:]]*\{/ {depth++; buf[depth]=$0; is443[depth]=0; next}
-    depth>0 {
-      buf[depth]=buf[depth]"\n"$0
-      if ($0 ~ /listen[^;]*443/) is443[depth]=1
-      n=gsub(/\{/,"{"); o=gsub(/\}/,"}")
-      if ($0 ~ /\}/ && depth>0) {
-        if (is443[depth]==1) sub(/\}[^}]*$/, "    include snippets/fleet.conf;\n}", buf[depth])
-        print buf[depth]; depth--
-        next
-      }
-      next
-    }
-    {print}
-  ' "$SITE" > "${SITE}.new" && mv "${SITE}.new" "$SITE"
-  echo "  已注入（备份：${SITE}.bak.*）。若 awk 未命中你的结构，请手动在 example.com:443 server{} 内加：include snippets/fleet.conf;"
+echo "==> [5/7] nginx 独立站点已写入 ${NGINX_SITE}（mfh 子域，不动现有 rtm 站点）"
+grep -Rqs 'sites-enabled/\*' /etc/nginx/nginx.conf \
+  || echo "  ⚠️ nginx.conf 似乎未 include sites-enabled/*，请确认 ${NGINX_SITE} 会被加载。"
+# 迁移清理：v1 路径模式曾把 'include snippets/fleet.conf;' 注入 rtm 的 443 块；子域模式下应移除。
+if grep -rlqs 'snippets/fleet.conf' /etc/nginx/sites-enabled/ /etc/nginx/sites-available/ 2>/dev/null; then
+  echo "  ⚠️ 检测到 v1 遗留的 'include snippets/fleet.conf;'。请从 rtm 站点删除该行，"
+  echo "     并删 /etc/nginx/snippets/fleet.conf，否则 example.com 下残留旧 /fleet 路由或 nginx -t 失败。"
 fi
 
 echo "==> [6/7] 启动 Headscale / Authelia / 状态定时器 + 网关入网"
@@ -116,12 +113,40 @@ PAK="$(headscale preauthkeys create -u "$FLEET_UID" --reusable --expiration 24h 
 if ! tailscale status >/dev/null 2>&1; then
   command -v tailscale >/dev/null 2>&1 || curl -fsSL https://tailscale.com/install.sh | sh || true
 fi
-grep -q '127.0.0.1 '"${DOMAIN}" /etc/hosts || echo "127.0.0.1 ${DOMAIN}" >> /etc/hosts
+grep -q '127.0.0.1 '"${FLEET_HOST}" /etc/hosts || echo "127.0.0.1 ${FLEET_HOST}" >> /etc/hosts
 systemctl enable --now fleet-derp-redirect.service 2>/dev/null || true
 if ! tailscale ip -4 >/dev/null 2>&1; then
   GWKEY="$(headscale preauthkeys create -u "$FLEET_UID" --reusable --expiration 1h --tags tag:fleet-gw 2>/dev/null | tail -1)"
-  tailscale up --login-server="https://${DOMAIN}:${HEADSCALE_LISTEN_PORT:-8443}" --authkey="$GWKEY" --hostname=gateway --accept-dns=false || true
+  tailscale up --login-server="https://${FLEET_HOST}:${HEADSCALE_LISTEN_PORT:-8443}" --authkey="$GWKEY" --hostname=gateway --accept-dns=false || true
 fi
+
+# ---- 自助入网服务 fleet-enroll（TOTP → 一次性 preauthkey）+ 免 clone 安装包 ----
+echo "==> [6.5/7] 部署 fleet-enroll 自助入网服务"
+install -m 0755 "$SRV/enroll/dist/fleet-enroll-linux-amd64" /usr/local/bin/fleet-enroll
+install -d /etc/fleet-enroll
+if [[ ! -s /etc/fleet-enroll/totp.secret ]]; then
+  head -c 20 /dev/urandom | base32 | tr -d '=' | tr 'a-z' 'A-Z' > /etc/fleet-enroll/totp.secret
+  echo "  已生成入网专用 TOTP 密钥（与登录 2FA 分开）"
+fi
+chmod 600 /etc/fleet-enroll/totp.secret
+cat > /etc/fleet-enroll/env <<EOF
+ENROLL_LISTEN=127.0.0.1:7090
+ENROLL_SECRET_FILE=/etc/fleet-enroll/totp.secret
+ENROLL_LOGIN_SERVER=https://${FLEET_HOST}:${HEADSCALE_PUBLIC_PORT:-28443}
+ENROLL_HS_USER=${FLEET_UID}
+ENROLL_KEY_TTL=10m
+EOF
+cp "$SRV/systemd/fleet-enroll.service" /etc/systemd/system/fleet-enroll.service
+systemctl daemon-reload
+systemctl enable --now fleet-enroll
+# 发布免 clone 安装包：bootstrap.sh / uninstall.sh / mac-bundle.tar.gz
+install -d /var/www/fleet-enroll
+install -m 0644 "$SRV/enroll/bootstrap.sh" /var/www/fleet-enroll/bootstrap.sh
+install -m 0644 "$ROOT/mac/uninstall.sh"   /var/www/fleet-enroll/uninstall.sh
+tar czf /var/www/fleet-enroll/mac-bundle.tar.gz -C "$ROOT" mac
+chown -R www-data:www-data /var/www/fleet-enroll 2>/dev/null || true
+echo "  入网二维码（请用 Authenticator 添加，与登录 2FA 分开）："
+/usr/local/bin/fleet-enroll -show-uri || true
 
 echo "==> [7/7] 校验并 reload nginx"
 if nginx -t; then systemctl reload nginx; echo "  nginx reloaded"; else echo "  ⚠️ nginx -t 失败，未 reload，请检查"; fi
@@ -130,15 +155,17 @@ cat <<EOF
 
 ✅ 网关部署完成。
 
-下一步在每台 Mac 跑（注意 MAC_INDEX 各不同）：
-  MAC_INDEX=1 LOGIN_SERVER=https://${DOMAIN}:${HEADSCALE_PUBLIC_PORT:-28443} AUTHKEY=${PAK:-<preauthkey>} bash mac/setup-mac.sh
-  MAC_INDEX=2 LOGIN_SERVER=https://${DOMAIN}:${HEADSCALE_PUBLIC_PORT:-28443} AUTHKEY=${PAK:-<preauthkey>} bash mac/setup-mac.sh
-  MAC_INDEX=3 LOGIN_SERVER=https://${DOMAIN}:${HEADSCALE_PUBLIC_PORT:-28443} AUTHKEY=${PAK:-<preauthkey>} bash mac/setup-mac.sh
+【推荐】在每台新 Mac 上免 clone 一行安装（会问域名/第几台/入网验证码）：
+  curl -fsSL https://${FLEET_HOST}:${GATEWAY_PORT:-20443}/enroll/bootstrap.sh | bash
+  （验证码来自上面打印的入网二维码；卸载：curl -fsSL .../enroll/uninstall.sh | bash）
 
-入网后：把三台 mesh IP 回填 server/.env 的 MAC{1,2,3}_IP，重跑本脚本（仅刷新 nginx 片段即可）。
+【或】手动方式（注意 MAC_INDEX 各不同）：
+  MAC_INDEX=1 LOGIN_SERVER=https://${FLEET_HOST}:${HEADSCALE_PUBLIC_PORT:-28443} AUTHKEY=${PAK:-<preauthkey>} bash mac/setup-mac.sh
+
+入网后：把三台 mesh IP 回填 server/.env 的 MAC{1,2,3}_IP，重跑本脚本（仅刷新 nginx 站点即可）。
 然后给网关节点打 tag：headscale nodes list ; headscale nodes tag -i <网关node-id> -t tag:fleet-gw
 确认路由端口映射：公网 20443→本机443、28443→本机8443。
-访问：https://${DOMAIN}:${GATEWAY_PORT:-20443}/fleet/  → Authelia 登录(2FA) → 选 Mac → 会话。
+访问：https://${FLEET_HOST}:${GATEWAY_PORT:-20443}/  → Authelia 登录(2FA) → 选 Mac → 会话。
 
 排错：journalctl -u headscale -u authelia -f ; tail -f /var/www/fleet/api/nodes.json
 EOF
