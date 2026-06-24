@@ -33,6 +33,7 @@ Headscale（原生 systemd, 公网 28443→本机8443）：自托管组网 + 内
 | `server/headscale/` | Headscale 配置模板 + ACL 策略 |
 | `server/systemd/` | authelia / headscale / 节点状态定时器 的 systemd 单元 |
 | `mac/fleet-agent/` | 会话管理服务（Go 单二进制，含预编译 `dist/`）+ ttyd 附着脚本 |
+| `mac/install.sh` | **Mac 端一键安装**（装 Tailscale + 入网 + 起全部服务） |
 | `mac/*.plist` `mac/setup-mac.sh` | 每台 Mac 的 ttyd / filebrowser / fleet-agent 常驻服务 |
 | `scripts/setup-server.sh` | 网关一键部署（装 Headscale/Authelia、部署 PWA、注入 nginx） |
 | `server/archive/` | 最初 Caddy 方案，仅参考 |
@@ -45,7 +46,9 @@ Headscale（原生 systemd, 公网 28443→本机8443）：自托管组网 + 内
 1. **网关**（Ubuntu，需 sudo）：`cp server/.env.example server/.env` 填好域名 →
    `sudo bash scripts/setup-server.sh`（装 Headscale+Authelia、部署 PWA、注入 nginx、打印 preauthkey）。
 2. **路由**：确认端口映射 公网 `20443→本机443`、`28443→本机8443`。
-3. **每台 Mac**：`MAC_INDEX=1 LOGIN_SERVER=https://<域名>:28443 AUTHKEY=<key> bash mac/setup-mac.sh`（2、3 同理）。
+3. **每台 Mac（一键）**：装好 Homebrew 后 clone 本仓库，跑
+   `MAC_INDEX=1 AUTHKEY=<preauthkey> bash mac/install.sh`（2、3 改 `MAC_INDEX`）。
+   脚本自动装 Tailscale、起守护进程、入网 Headscale（这几步会要 sudo 密码），再装 ttyd/filebrowser/fleet-agent 并起服务。
 4. **回填**：把三台 mesh IP 写回 `server/.env` 的 `MAC{1,2,3}_IP`，重跑 `setup-server.sh` 刷新 nginx；
    给网关节点打 `tag:fleet-gw`。
 5. **用**：手机开 `https://<域名>:20443/fleet/` → 2FA 登录 → 选 Mac → 续接会话；可「添加到主屏」当 App。
