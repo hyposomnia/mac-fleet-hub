@@ -63,10 +63,12 @@ else
   brew install filebrowser 2>/dev/null || true; FB_BIN="$BREW_PREFIX/bin/filebrowser"
 fi
 
-# --- 4. filebrowser DB：noauth + baseURL（鉴权交给 Headscale ACL）---
+# --- 4. filebrowser DB：建用户 + noauth + baseURL（鉴权交给 Headscale ACL）---
 if [[ ! -f "$FB_DB" ]]; then
   "$FB_BIN" -d "$FB_DB" config init >/dev/null
 fi
+# noauth 需要一个已存在的用户来自动登录（否则 /api/login 500）；密码随机、不用于登录
+"$FB_BIN" -d "$FB_DB" users add admin "$(openssl rand -base64 12)" --perm.admin >/dev/null 2>&1 || true
 "$FB_BIN" -d "$FB_DB" config set --auth.method=noauth --baseURL "$FB_BASE" --root "$FB_ROOT" >/dev/null
 
 # --- 5. 渲染并安装 launchd 服务 ---
