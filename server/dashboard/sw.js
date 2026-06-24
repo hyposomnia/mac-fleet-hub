@@ -1,6 +1,6 @@
 // 极简 service worker —— 只为让 PWA 可安装 + 外壳静态资源离线可用。
 // 不缓存 /api/ 与 iframe 内容（终端/文件必须实时）。
-const CACHE = 'fleet-shell-v3';
+const CACHE = 'fleet-shell-v4';
 const SHELL = ['/', '/index.html', '/style.css', '/app.js', '/manifest.webmanifest'];
 
 self.addEventListener('install', (e) => {

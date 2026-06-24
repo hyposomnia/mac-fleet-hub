@@ -39,9 +39,15 @@ const state = {
   mode: 'claude',        // claude | files
   scope: 'active',       // active | all
   termSid: null,         // 当前终端 tmux 会话名（watch / reload 用）
-  activeSessionId: null, // 当前打开的 claude sessionId（高亮）
-  curTitle: '',          // 当前会话标题
+  termUrl: null,         // 当前终端 iframe URL（files↔claude 切换后恢复用）
+  selectedSid: null,     // 当前选中的 claude sessionId（高亮 + 展开按钮）
+  curTitle: '',          // 当前终端标题
+  curCwd: '',            // 当前终端会话目录（用于头部 meta）
+  bypass: false,         // 当前终端是否 bypass 权限（F1）
+  killTarget: null,      // 待终止的 sessionId（二次确认用）
   nodes: {},             // id -> online
+  counts: {},            // id -> 活跃会话数（主机栏/主机条展示）
+  collapsed: new Set(),  // 已折叠的分组 cwd
   watchTimer: null,
 };
 
@@ -64,7 +70,7 @@ async function api(id, path, opts) {
 }
 
 // ============================================================
-//  主题
+//  主题（默认跟随系统 prefers-color-scheme，切换后写 localStorage 覆盖）
 // ============================================================
 function applyTheme(t) {
   document.documentElement.setAttribute('data-theme', t);
@@ -81,35 +87,61 @@ function toggleTheme() {
 }
 
 // ============================================================
-//  栏 1：主机栏
+//  toast（状态反馈，取代 alert）
 // ============================================================
-function renderHosts() {
-  const nav = $('#host-list');
-  clear(nav);
-  if (!MACS.length) { nav.appendChild(h('div', { class: 'empty', text: '暂无已入网的 Mac' })); return; }
-  for (const m of MACS) {
-    const online = state.nodes[m.id];
-    const info = h('span', { class: 'host-info', title: '详情 / 代理', text: 'ⓘ' });
-    info.onclick = (e) => { e.stopPropagation(); openHostModal(m.id); };
-    const el = h('button', { class: 'host' + (m.id === state.macId ? ' active' : ''), dataset: { mac: m.id } },
-      h('span', { class: 'dot ' + (online ? 'on' : 'off') }),
-      h('span', { class: 'host-name', text: macName(m.id) }),
-      info,
-    );
-    el.onclick = () => { selectMac(m.id); closeDrawers(); };
-    nav.appendChild(el);
-  }
-}
-function selectMac(id) {
-  state.macId = id;
-  $('#m-host-name').textContent = macName(id);
-  renderHosts();
-  if (state.mode === 'files') loadFiles();
-  else loadSessions();
+function toast(msg, kind = 'info') {
+  const ic = kind === 'err' ? '⚠' : (kind === 'ok' ? '✓' : 'ℹ');
+  const t = h('div', { class: 'toast ' + kind }, h('span', { class: 'ic', text: ic }), h('span', { text: msg }));
+  $('#toast-wrap').append(t);
+  setTimeout(() => t.remove(), 2800);
 }
 
 // ============================================================
-//  在线状态
+//  主机栏（桌面行）/ 主机条（移动 chips）
+// ============================================================
+function renderHosts() {
+  const nav = $('#host-list'); clear(nav);
+  nav.append(h('div', { class: 'hd eyebrow', text: '主机' }));
+  const chips = $('#host-chips'); clear(chips);
+  if (!MACS.length) { nav.append(h('div', { class: 'empty', text: '暂无已入网的 Mac' })); return; }
+  for (const m of MACS) {
+    const online = state.nodes[m.id];
+    const cnt = state.counts[m.id];
+    // 桌面行
+    const info = h('span', { class: 'i', title: '设置 / 代理', text: 'ⓘ' });
+    info.onclick = (e) => { e.stopPropagation(); openHostModal(m.id); };
+    const row = h('button', { class: 'host', dataset: { mac: m.id }, 'aria-current': String(m.id === state.macId) },
+      h('span', { class: 'dot ' + (online ? 'on' : 'off') }),
+      h('span', { class: 'nm', text: macName(m.id) }),
+      h('span', { class: 'ct tnum', text: online ? (cnt != null ? String(cnt) : '') : '离线' }),
+      info,
+    );
+    row.onclick = () => selectMac(m.id);
+    nav.append(row);
+    // 移动 chip
+    const chip = h('button', { class: 'chip', dataset: { mac: m.id }, 'aria-current': String(m.id === state.macId) },
+      h('span', { class: 'dot ' + (online ? 'on' : 'off') }),
+      macName(m.id),
+      online && cnt != null ? h('span', { class: 'ct tnum', text: String(cnt) }) : null,
+    );
+    chip.onclick = () => selectMac(m.id);
+    chips.append(chip);
+  }
+}
+
+function selectMac(id) {
+  state.macId = id;
+  // 切主机：放弃上一台的终端视图与选中态（tmux 在那台机上仍持久保留）
+  $('#app').classList.remove('term-open');
+  state.termSid = null; state.termUrl = null; state.selectedSid = null;
+  renderHosts();
+  closeMenus();
+  if (state.mode === 'files') loadFiles();
+  else { loadSessions(); restoreTermOrEmpty(); }
+}
+
+// ============================================================
+//  在线状态 + 显示名 + 每主机会话数
 // ============================================================
 async function refreshNodes() {
   try {
@@ -130,9 +162,18 @@ async function refreshNodes() {
     MACS = ids.map((id) => ({ id }));
     state.nodes = online;
     renderHosts();
-    // 首次拿到列表后默认选第一台（之前 init 里硬选 MACS[0] 已移除）。
     if (!state.macId && MACS.length) selectMac(MACS[0].id);
+    refreshHostCounts();
   } catch (_) {}
+}
+
+// 各在线主机的活跃会话数（主机栏/主机条角标）。失败静默：数字非关键。
+async function refreshHostCounts() {
+  await Promise.all(MACS.filter((m) => state.nodes[m.id]).map(async (m) => {
+    try { const d = await api(m.id, 'sessions?scope=active'); state.counts[m.id] = (d.sessions || []).length; }
+    catch (_) {}
+  }));
+  renderHosts();
 }
 
 // Mac 显示名（gateway 存，所有浏览器共享）。失败静默：名字非关键，回退默认「Mac N」。
@@ -142,40 +183,42 @@ async function refreshNames() {
     if (!r.ok) return;
     macNames = (await r.json()) || {};
     renderHosts();
-    if (state.macId) $('#m-host-name').textContent = macName(state.macId);
   } catch (_) {}
 }
 
 // ============================================================
-//  模式切换（会话 / 文件）
+//  模式切换（Claude会话 / 文件）
 // ============================================================
 function setMode(mode) {
   state.mode = mode;
   $('#app').dataset.mode = mode;
-  $$('.mode-btn').forEach((b) => b.classList.toggle('active', b.dataset.mode === mode));
-  $('#m-mode').textContent = mode === 'files' ? '▤' : '▦';
+  if (mode !== 'claude') $('#app').classList.remove('term-open'); // 离开会话模式收起终端 push
+  $$('[data-mode]').forEach((b) => b.setAttribute('aria-selected', String(b.dataset.mode === mode)));
   if (mode === 'files') loadFiles();
   else { loadSessions(); restoreTermOrEmpty(); }
 }
 
 // ============================================================
-//  栏 2：会话列表
+//  Claude会话 列表
 // ============================================================
 async function loadSessions() {
   if (state.mode !== 'claude' || !state.macId) return;
-  const wrap = $('#session-groups');
-  clear(wrap); wrap.appendChild(h('div', { class: 'empty', text: '加载中…' }));
+  const wrap = $('#session-groups'); clear(wrap);
+  for (let i = 0; i < 3; i++) wrap.append(h('div', { class: 'skel-ses' }, h('div', { class: 'skel l1' }), h('div', { class: 'skel l2' })));
+
   let data;
   try { data = await api(state.macId, `sessions?scope=${state.scope}`); }
   catch (e) {
     clear(wrap);
-    wrap.appendChild(h('div', { class: 'empty' }, `连不上 ${macName(state.macId)}`, h('br'), h('small', { text: e.message })));
+    wrap.append(h('div', { class: 'empty' }, '连不上 ' + macName(state.macId), h('br'), h('small', { text: e.message })));
     return;
   }
 
   const sessions = data.sessions || [];
-  $('#cnt-active').textContent = sessions.filter((s) => s.live).length;
+  const activeN = state.scope === 'active' ? sessions.length : sessions.filter((s) => s.live).length;
+  $('#cnt-active').textContent = activeN;
   $('#cnt-all').textContent = data.total ?? sessions.length;
+  state.counts[state.macId] = activeN;
 
   const groups = {};
   for (const s of sessions) (groups[s.cwd] ||= []).push(s);
@@ -185,71 +228,133 @@ async function loadSessions() {
   }).sort((a, b) => b.last - a.last);
 
   clear(wrap);
-  if (!ordered.length) { wrap.appendChild(h('div', { class: 'empty', text: '没有会话' })); return; }
+  if (!ordered.length) { wrap.append(h('div', { class: 'empty', text: '没有会话' })); return; }
   for (const g of ordered) {
-    wrap.appendChild(h('div', { class: 'grp-head' },
-      h('span', { text: '▸' }),
-      h('span', { class: 'gname', text: projName(g.cwd) }),
-      h('span', { class: 'path', text: projDir(g.cwd) }),
-      h('span', { class: 'count', text: String(g.arr.length) }),
-    ));
-    for (const s of g.arr) {
-      const title = h('div', { class: 'title' }, s.title || '(无标题)', s.live && h('span', { class: 'badge', text: '桌面使用中' }));
-      const meta = (s.gitBranch ? s.gitBranch + ' · ' : '') + relTime(s.mtime);
-      const el = h('button', { class: 'sess' + (s.sessionId === state.activeSessionId ? ' active' : ''), dataset: { sid: s.sessionId } },
-        h('div', { class: 'body' }, title, h('div', { class: 'meta', text: meta })),
-        h('span', { class: 'chev', text: '›' }),
-      );
-      el.onclick = () => openSession(s.sessionId, s.title);
-      wrap.appendChild(el);
-    }
+    const collapsed = state.collapsed.has(g.cwd);
+    const head = h('button', { class: 'grp-h' },
+      h('span', { class: 'chev', text: '▾' }),
+      h('span', { class: 'gn', text: projName(g.cwd) }),
+      h('span', { class: 'gp', text: projDir(g.cwd) }),
+      h('span', { class: 'gc badge', text: String(g.arr.length) }),
+    );
+    const items = h('div', { class: 'grp-items' }, ...g.arr.map(sessionRow));
+    const grp = h('div', { class: 'grp' + (collapsed ? ' collapsed' : '') }, head, items);
+    head.onclick = () => {
+      grp.classList.toggle('collapsed');
+      if (grp.classList.contains('collapsed')) state.collapsed.add(g.cwd);
+      else state.collapsed.delete(g.cwd);
+    };
+    wrap.append(grp);
   }
 }
 
+// 会话行：点行 = 仅选中；选中后展开「连接 / Bypass连接」；live(.conn) 会话选中后显示「终止 ⏹」。
+function sessionRow(s) {
+  const sid = s.sessionId;
+  const stop = s.live && h('span', { class: 'stopbtn', title: '终止进程（会话保留）', text: '⏹',
+    onclick: (e) => { e.stopPropagation(); termSes(sid, s.title); } });
+  const top = h('div', { class: 'ses-top' },
+    h('span', { class: 'dot ' + (s.live ? 'live' : 'off') }),
+    h('span', { class: 't', text: s.title || '(无标题)' }),
+    stop,
+  );
+  const meta = (s.gitBranch ? s.gitBranch + ' · ' : '') + relTime(s.mtime);
+  const acts = h('div', { class: 'ses-acts' },
+    h('button', { class: 'btn sm accent', onclick: (e) => { e.stopPropagation(); connect(sid, s.title, s.cwd, false); } },
+      h('span', { class: 'gi', text: '→' }), '连接'),
+    h('button', { class: 'btn sm danger', title: 'claude --dangerously-skip-permissions（跳过工具权限确认）',
+      onclick: (e) => { e.stopPropagation(); connect(sid, s.title, s.cwd, true); } }, '⚠ Bypass连接'),
+  );
+  const row = h('div', {
+    class: 'ses' + (s.live ? ' conn' : '') + (sid === state.selectedSid ? ' sel' : ''),
+    dataset: { sid },
+  }, top, h('div', { class: 'ses-meta', text: meta }), acts);
+  row.onclick = () => selectSes(sid);
+  return row;
+}
+
+function selectSes(sid) {
+  state.selectedSid = sid;
+  $$('.ses').forEach((el) => el.classList.toggle('sel', el.dataset.sid === sid));
+}
+
 // ============================================================
-//  打开 / 新建会话 → 终端 iframe
+//  连接 / 新建 → 终端 iframe（F1：bypass）
 // ============================================================
-async function openSession(sessionId, title) {
+async function connect(sessionId, title, cwd, bypass) {
+  selectSes(sessionId);
   try {
     const r = await api(state.macId, 'open', {
       method: 'POST', headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ sessionId }),
+      body: JSON.stringify({ sessionId, bypass: !!bypass }),
     });
-    state.activeSessionId = sessionId;
-    enterTerm(r.url, r.sid, title || '会话');
-    $$('.sess').forEach((b) => b.classList.toggle('active', b.dataset.sid === sessionId));
-  } catch (e) { alert('打开失败：' + e.message); }
+    state.selectedSid = sessionId;
+    enterTerm(r.url, r.sid, title || '会话', cwd, !!r.bypass);
+  } catch (e) { toast('连接失败：' + e.message, 'err'); }
 }
-async function newSessionIn(cwd) {
-  closeModal('projects-modal');
-  try {
-    const r = await api(state.macId, 'new', {
-      method: 'POST', headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ cwd }),
-    });
-    state.activeSessionId = null;
-    enterTerm(r.url, r.sid, '新会话 · ' + projName(cwd));
-  } catch (e) { alert('新建失败：' + e.message); }
+
+function newSessionIn(cwd) {
+  closeOverlay('projects-modal');
+  api(state.macId, 'new', {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ cwd }),
+  }).then((r) => {
+    state.selectedSid = null;
+    enterTerm(r.url, r.sid, '新会话 · ' + projName(cwd), cwd, !!r.bypass);
+  }).catch((e) => toast('新建失败：' + e.message, 'err'));
 }
-function enterTerm(url, sid, title) {
+
+function enterTerm(url, sid, title, cwd, bypass) {
   state.termSid = sid || null;
+  state.termUrl = url;
   state.curTitle = title || '会话';
+  state.curCwd = cwd || '';
+  state.bypass = !!bypass;
   $('#frame').src = url;
-  $('#empty-state').style.display = 'none';
-  $('#win-title').textContent = title;
-  $('#m-session-name').textContent = title;
-  $('#reload-btn-top').hidden = false;
+  $('#empty-state').hidden = true;
   $('#reconnect-btn').hidden = false;
   $('#fullscreen-btn').hidden = false;
   $('#mobile-input').hidden = !isMobile();
-  closeDrawers();
+  renderTermHead();
+  if (isMobile()) $('#app').classList.add('term-open');
+  closeMenus();
   startWatch();
 }
-function restoreTermOrEmpty() {
-  if (state.termSid) { $('#empty-state').style.display = 'none'; $('#mobile-input').hidden = !isMobile(); }
-  else { $('#frame').removeAttribute('src'); $('#empty-state').style.display = 'flex'; $('#mobile-input').hidden = true; }
-  $('#win-title').textContent = state.curTitle || '选择一个会话';
+
+// 终端头：状态点 + 标题（bypass 时追加「⚠ 跳过权限」徽标）+ 权限模式 meta
+function renderTermHead() {
+  const tt = $('#win-title'); clear(tt);
+  tt.append(h('span', { class: 'dot live' }), h('span', { class: 'ttl', text: state.curTitle }));
+  if (state.bypass) tt.append(h('span', { class: 'badge err', text: '⚠ 跳过权限' }));
+  $('#win-meta').textContent = macName(state.macId) + ' · '
+    + (state.curCwd ? projName(state.curCwd) + ' · ' : '')
+    + (state.bypass ? '⚠ 跳过权限模式' : '正常权限');
 }
+
+// 切回会话模式：有终端则恢复，无则空态
+function restoreTermOrEmpty() {
+  if (state.termSid) {
+    $('#frame').src = state.termUrl;
+    $('#empty-state').hidden = true;
+    $('#reconnect-btn').hidden = false;
+    $('#fullscreen-btn').hidden = false;
+    $('#mobile-input').hidden = !isMobile();
+    renderTermHead();
+    startWatch();
+  } else {
+    $('#frame').removeAttribute('src');
+    $('#empty-state').hidden = false;
+    $('#reconnect-btn').hidden = true;
+    $('#fullscreen-btn').hidden = true;
+    $('#mobile-input').hidden = true;
+    stopWatch(); hideBanner();
+    const tt = $('#win-title'); clear(tt); tt.append(h('span', { class: 'ttl', text: '选择一个会话' }));
+    $('#win-meta').textContent = '选中会话后点「连接」打开终端';
+  }
+}
+
+// 移动端从终端「返回」：仅收起 push，不结束进程（tmux 持久）
+function backToList() { $('#app').classList.remove('term-open'); }
 
 // ============================================================
 //  文件浏览器
@@ -257,19 +362,19 @@ function restoreTermOrEmpty() {
 function loadFiles() {
   if (!state.macId) return;
   stopWatch(); hideBanner();
+  $('#app').classList.remove('term-open');
   $('#frame').src = `${apiBase(state.macId)}/files/`;
-  $('#empty-state').style.display = 'none';
-  $('#win-title').textContent = '文件 · ' + macName(state.macId);
-  $('#m-session-name').textContent = '文件';
-  $('#reload-btn-top').hidden = true;
+  $('#empty-state').hidden = true;
   $('#reconnect-btn').hidden = false;
   $('#fullscreen-btn').hidden = false;
   $('#mobile-input').hidden = true;
-  closeDrawers();
+  const tt = $('#win-title'); clear(tt); tt.append(h('span', { class: 'ttl', text: '文件 · ' + macName(state.macId) }));
+  $('#win-meta').textContent = macName(state.macId);
+  closeMenus();
 }
 
 // ============================================================
-//  Desktop→ttyd 变更检测
+//  Desktop→ttyd 变更检测（重载条）
 // ============================================================
 function startWatch() {
   stopWatch(); hideBanner();
@@ -296,43 +401,67 @@ async function doReload() {
 //  新建会话：项目目录
 // ============================================================
 async function showProjects() {
-  openModal('projects-modal');
-  const list = $('#project-list');
-  clear(list); list.appendChild(h('div', { class: 'empty', text: '加载中…' }));
+  if (!state.macId) return;
+  openOverlay('projects-modal');
+  const list = $('#project-list'); clear(list); list.append(h('div', { class: 'empty', text: '加载中…' }));
   try {
     const data = await api(state.macId, 'projects');
     const ps = data.projects || [];
     clear(list);
-    if (!ps.length) { list.appendChild(h('div', { class: 'empty', text: '没有已知项目目录' })); return; }
+    if (!ps.length) { list.append(h('div', { class: 'empty', text: '没有已知项目目录' })); return; }
     for (const p of ps) {
-      const el = h('button', { class: 'sess' },
+      const el = h('button', { class: 'proj' },
         h('div', { class: 'body' },
-          h('div', { class: 'title', text: projName(p.cwd) }),
-          h('div', { class: 'meta', text: projDir(p.cwd) + ' · ' + p.count + ' 个会话' }),
+          h('div', { class: 'pn', text: projName(p.cwd) }),
+          h('div', { class: 'pm', text: projDir(p.cwd) + ' · ' + p.count + ' 个会话' }),
         ),
-        h('span', { class: 'chev', text: '＋' }),
+        h('span', { class: 'add', text: '＋' }),
       );
       el.onclick = () => newSessionIn(p.cwd);
-      list.appendChild(el);
+      list.append(el);
     }
-  } catch (e) { clear(list); list.appendChild(h('div', { class: 'empty', text: '加载失败：' + e.message })); }
+  } catch (e) { clear(list); list.append(h('div', { class: 'empty', text: '加载失败：' + e.message })); }
 }
 
 // ============================================================
-//  主机弹窗（IP / 代理）
+//  终止进程（F2：会话保留，二次确认非原生 confirm）
 // ============================================================
-let hostModalMac = null;
+function termSes(sessionId, title) {
+  state.killTarget = sessionId;
+  $('#ck-name').textContent = title || '该会话';
+  openOverlay('confirm-kill');
+}
+async function closeSession() {
+  const sid = state.killTarget;
+  closeOverlay('confirm-kill');
+  if (!sid) return;
+  try {
+    const r = await api(state.macId, 'close', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ sessionId: sid }),
+    });
+    toast(r.killed ? '已终止该会话进程（会话保留）' : '该会话没有正在运行的控制台进程', r.killed ? 'ok' : 'info');
+  } catch (e) { toast('终止失败：' + e.message, 'err'); }
+  loadSessions();
+  refreshHostCounts();
+}
+
+// ============================================================
+//  主机设置弹窗（Mesh IP / 代理 / 显示名）
+// ============================================================
 async function openHostModal(id) {
-  hostModalMac = id;
+  state.killTarget = null;
+  state.hostModalMac = id;
   $('#hm-title').textContent = macName(id);
   $('#hm-name').value = macNames[id] || '';
-  $('#hm-name').placeholder = 'Mac ' + id.slice(1);   // 默认名（留空即回退到它）
+  $('#hm-name').placeholder = 'Mac ' + id.slice(1);
   const online = state.nodes[id];
   $('#hm-dot').className = 'dot ' + (online ? 'on' : 'off');
-  $('#hm-state').textContent = online ? '在线' : '离线';
+  const st = $('#hm-state'); st.textContent = online ? '在线' : '离线'; st.className = 'badge ' + (online ? 'ok' : '');
   $('#hm-ip').textContent = '加载中…';
   $('#hm-http').value = ''; $('#hm-https').value = ''; $('#hm-proxy-on').checked = false;
-  openModal('host-modal');
+  closeMenus();
+  openOverlay('host-modal');
   try {
     const info = await api(id, 'info');
     $('#hm-ip').textContent = info.meshIP || '—';
@@ -342,23 +471,19 @@ async function openHostModal(id) {
     $('#hm-proxy-on').checked = !!p.enabled;
   } catch (e) { $('#hm-ip').textContent = '连不上（' + e.message + '）'; }
 }
+
 async function saveHost() {
-  if (!hostModalMac) return;
-  const id = hostModalMac;
+  const id = state.hostModalMac;
+  if (!id) return;
   const btn = $('#hm-save'); btn.disabled = true; btn.textContent = '保存中…';
 
-  // 1) 显示名 → gateway（/api/names）。与 Mac 是否在线无关，离线也能改名。
+  // 1) 显示名 → gateway（/api/names）。离线也能改名。
   try {
     const r = await fetch(`${BASE}/api/names`, {
       method: 'POST', headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ id, name: $('#hm-name').value.trim() }),
     });
-    if (r.ok) {
-      macNames = (await r.json()) || {};
-      renderHosts();
-      if (state.macId === id) $('#m-host-name').textContent = macName(id);
-      $('#hm-title').textContent = macName(id);
-    }
+    if (r.ok) { macNames = (await r.json()) || {}; renderHosts(); $('#hm-title').textContent = macName(id); }
   } catch (_) {}
 
   // 2) 代理 → 该 Mac（/m{n}/api/proxy）。离线则失败，仅提示，不回滚已存的名字。
@@ -375,17 +500,32 @@ async function saveHost() {
   } catch (e) { proxyErr = e.message; }
 
   btn.disabled = false; btn.textContent = '保存';
-  if (proxyErr) { alert('显示名已保存；代理未保存（' + macName(id) + ' 可能离线）：' + proxyErr); return; }
-  closeModal('host-modal');
+  if (proxyErr) { toast('显示名已保存；代理未保存（' + macName(id) + ' 可能离线）：' + proxyErr, 'err'); return; }
+  closeOverlay('host-modal');
+  toast('已保存', 'ok');
 }
 
 // ============================================================
-//  弹窗 / 抽屉
+//  退出登录（F4：跳 Authelia 退出端点，登出后回登录页）
 // ============================================================
-function openModal(id) { $('#' + id).hidden = false; }
-function closeModal(id) { $('#' + id).hidden = true; }
-function openDrawer(which) { closeDrawers(); $('#' + which).classList.add('open'); $('#scrim').hidden = false; }
-function closeDrawers() { $('#rail').classList.remove('open'); $('#sessions-col').classList.remove('open'); $('#scrim').hidden = true; }
+function doLogout() {
+  closeMenus();
+  location.href = `${BASE}/auth/logout?rd=${encodeURIComponent(location.origin + BASE + '/')}`;
+}
+
+// ============================================================
+//  浮层菜单 / 弹窗
+// ============================================================
+function openOverlay(id) { $('#' + id).hidden = false; }
+function closeOverlay(id) { $('#' + id).hidden = true; }
+function closeMenus() { $('#usermenu').hidden = true; $('#m-menu').hidden = true; }
+function toggleMenu(id, e) {
+  if (e) e.stopPropagation();
+  const m = $('#' + id);
+  const willOpen = m.hidden;
+  closeMenus();
+  m.hidden = !willOpen;
+}
 
 // ============================================================
 //  移动端输入辅助 → 注入 ttyd（best-effort）
@@ -420,7 +560,10 @@ function wireMobileInput() {
     const inp = $('#cmd-input');
     if (inp.value) { sendToTerm(inp.value + '\n'); inp.value = ''; }
   };
-  $('#cmd-input').addEventListener('keydown', (e) => { if (e.key === 'Enter') $('#send-btn').click(); });
+  // Enter 发送、Shift+Enter 换行
+  $('#cmd-input').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); $('#send-btn').click(); }
+  });
 }
 
 // ============================================================
@@ -433,32 +576,54 @@ function init() {
   refreshNodes(); setInterval(refreshNodes, 30000);
   wireMobileInput();
 
-  $('#theme-btn').onclick = toggleTheme;
-  $$('.mode-btn').forEach((b) => b.onclick = () => setMode(b.dataset.mode));
-  $$('.seg-btn').forEach((b) => b.onclick = () => {
+  // 模式 / 范围 / 刷新 / 新建
+  $$('[data-mode]').forEach((b) => b.onclick = () => setMode(b.dataset.mode));
+  $$('[data-scope]').forEach((b) => b.onclick = () => {
     state.scope = b.dataset.scope;
-    $$('.seg-btn').forEach((x) => x.classList.toggle('active', x === b));
+    $$('[data-scope]').forEach((x) => x.setAttribute('aria-selected', String(x === b)));
     loadSessions();
   });
-  $('#refresh-btn').onclick = loadSessions;
+  $('#refresh-btn').onclick = () => { loadSessions(); refreshHostCounts(); };
   $('#new-session').onclick = showProjects;
+
+  // 终端窗口
+  $('#win-back').onclick = backToList;
   $('#reload-btn').onclick = doReload;
-  $('#reload-btn-top').onclick = doReload;
   $('#reload-dismiss').onclick = hideBanner;
-  $('#reconnect-btn').onclick = () => { try { $('#frame').contentWindow.location.reload(); } catch (_) {} };
-  $('#fullscreen-btn').onclick = () => $('#frame-wrap').requestFullscreen?.();
+  $('#reconnect-btn').onclick = () => { try { $('#frame').contentWindow.location.reload(); } catch (_) { const f = $('#frame'); f.src = f.src; } };
+  $('#fullscreen-btn').onclick = () => $('.win-body').requestFullscreen?.();
 
-  $('#m-host').onclick = () => openDrawer('rail');
-  $('#m-session').onclick = () => openDrawer('sessions-col');
-  $('#m-mode').onclick = () => setMode(state.mode === 'files' ? 'claude' : 'files');
-  $('#scrim').onclick = closeDrawers;
+  // 主题 / 用户菜单
+  $('#theme-btn').onclick = toggleTheme;
+  $('#user-btn').onclick = (e) => toggleMenu('usermenu', e);
+  $('#m-menu-btn').onclick = (e) => toggleMenu('m-menu', e);
+  $$('#usermenu button, #m-menu button').forEach((b) => {
+    if (!b.dataset.act) return;
+    b.onclick = () => { closeMenus(); if (b.dataset.act === 'theme') toggleTheme(); else if (b.dataset.act === 'logout') doLogout(); };
+  });
+  $('#m-info-btn').onclick = () => { if (state.macId) openHostModal(state.macId); };
 
-  $$('[data-close]').forEach((b) => b.onclick = () => closeModal(b.dataset.close));
-  $$('.modal').forEach((m) => m.addEventListener('click', (e) => { if (e.target === m) closeModal(m.id); }));
+  // 弹窗 / 抽屉
+  $$('[data-close]').forEach((b) => b.onclick = () => closeOverlay(b.dataset.close));
+  $$('.overlay').forEach((o) => o.addEventListener('click', (e) => { if (e.target === o) closeOverlay(o.id); }));
   $('#hm-save').onclick = saveHost;
+  $('#hm-copy').onclick = async () => {
+    const ip = $('#hm-ip').textContent;
+    try { await navigator.clipboard.writeText(ip); toast('已复制 ' + ip, 'ok'); }
+    catch (_) { toast('复制失败', 'err'); }
+  };
+  $('#ck-confirm').onclick = closeSession;
+
+  // 点空白处关菜单
+  document.addEventListener('click', (e) => {
+    if (!e.target.closest('.menu') && !e.target.closest('#user-btn') && !e.target.closest('#m-menu-btn')) closeMenus();
+  });
+  // 跨断点时同步移动输入坞可见性
+  addEventListener('resize', () => {
+    if (state.mode === 'claude' && state.termSid) $('#mobile-input').hidden = !isMobile();
+  });
 
   setMode('claude');
-  // 首选 Mac 由 refreshNodes 拿到节点列表后决定（列表为空则不选，显示空态）。
   restoreTermOrEmpty();
 
   if ('serviceWorker' in navigator) navigator.serviceWorker.register(`${BASE}/sw.js`).catch(() => {});

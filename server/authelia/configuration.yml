@@ -27,8 +27,11 @@ session:
     - domain: '{{FLEET_HOST}}'
       authelia_url: 'https://{{FLEET_HOST}}:20443/auth'
       default_redirection_url: 'https://{{FLEET_HOST}}:20443/'
-      expiration: 12h
-      inactivity: 1h
+      # F3：登录有效期 ~30 天。expiration=会话绝对寿命，inactivity=空闲超时。
+      # 二者都设 30d 才能「30 天内（含长时间不操作）无需重新认证」——这是用户明确
+      # 接受的便利/安全权衡（单用户 + 已有 TOTP + 登录失败锁定 regulation 兜底）。
+      expiration: 30d
+      inactivity: 30d
 
 # 登录失败锁定（防爆破）
 regulation:

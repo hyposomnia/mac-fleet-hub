@@ -3,73 +3,109 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-  <meta name="theme-color" content="#0d1117" media="(prefers-color-scheme: dark)" />
+  <!-- theme-color 跟随系统，主色取自 style.css 令牌（暗 --bg / 亮 --surface），改主色须同步 -->
+  <meta name="theme-color" content="#090c12" media="(prefers-color-scheme: dark)" />
   <meta name="theme-color" content="#f6f7f9" media="(prefers-color-scheme: light)" />
   <title>mac fleet hub</title>
   <link rel="manifest" href="manifest.webmanifest" />
   <link rel="apple-touch-icon" href="icons/icon.svg" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <!-- 主题：默认跟随系统 prefers-color-scheme，用户切换后写 localStorage 覆盖（与 app.js initTheme 一致）。
+       内联以避免首屏闪烁。 -->
+  <script>document.documentElement.dataset.theme = (function () { try { var t = localStorage.getItem('fleet-theme'); if (t) return t; } catch (e) {} return matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark'; })();</script>
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
   <div id="app" data-mode="claude">
 
-    <!-- ───────── 栏 1：主机栏（桌面=左栏 / 移动=抽屉） ───────── -->
+    <!-- ───────── 主机栏（桌面左栏） ───────── -->
     <aside id="rail" class="pane">
-      <div class="brand"><span class="logo">◧</span><span class="brand-name">fleet hub</span></div>
+      <div class="brand"><span class="logo">◧</span><span>fleet hub</span></div>
 
-      <div class="mode-switch" role="tablist">
-        <button class="mode-btn" data-mode="claude" role="tab"><span class="mi">▤</span>会话</button>
-        <button class="mode-btn" data-mode="files" role="tab"><span class="mi">▦</span>文件</button>
+      <div class="modeseg" role="tablist">
+        <button data-mode="claude" role="tab" aria-selected="true"><span class="gi">▤</span>Claude会话</button>
+        <button data-mode="files" role="tab" aria-selected="false"><span class="gi">▦</span>文件</button>
       </div>
 
-      <nav id="host-list" class="host-list"></nav>
+      <nav id="host-list" class="hostlist"><div class="hd eyebrow">主机</div></nav>
 
-      <div class="rail-foot">
-        <button id="theme-btn" class="ghost-btn" title="切换主题"><span class="ti">◐</span><span class="lbl">主题</span></button>
-        <div class="user"><span class="avatar">H</span><span class="uname" id="user-name">user</span><span class="lock">🔒</span></div>
+      <div class="railfoot">
+        <button id="theme-btn" class="ghost-btn"><span class="gi">◐</span>切换主题</button>
+        <button id="user-btn" class="userrow" aria-haspopup="true">
+          <span class="avatar">H</span><span class="un" id="user-name">user</span><span class="cv">▾</span>
+        </button>
+        <div id="usermenu" class="menu" hidden>
+          <button data-act="theme"><span class="gi">◐</span>切换主题</button>
+          <div class="sep"></div>
+          <button data-act="logout" class="danger"><span class="gi">⏻</span>退出登录</button>
+        </div>
       </div>
     </aside>
 
-    <!-- ───────── 栏 2：会话列表（仅会话模式；桌面=中栏 / 移动=抽屉） ───────── -->
-    <section id="sessions-col" class="pane">
-      <header class="col-head">
-        <div class="seg">
-          <button data-scope="active" class="seg-btn active">活跃 <b id="cnt-active">0</b></button>
-          <button data-scope="all" class="seg-btn">全部 <b id="cnt-all">0</b></button>
+    <!-- ───────── 移动端头部（品牌 + 当前主机ⓘ + ⋮菜单） ───────── -->
+    <header id="mtopbar">
+      <span class="logo">◧</span><span class="tt">fleet hub</span>
+      <button id="m-info-btn" class="iconbtn" title="当前主机设置">ⓘ</button>
+      <button id="m-menu-btn" class="iconbtn" title="菜单" aria-haspopup="true">⋮</button>
+      <div id="m-menu" class="menu" hidden>
+        <button data-act="theme"><span class="gi">◐</span>切换主题</button>
+        <div class="sep"></div>
+        <button data-act="logout" class="danger"><span class="gi">⏻</span>退出登录</button>
+      </div>
+    </header>
+
+    <!-- ───────── 移动端主机条 + 模式分段 ───────── -->
+    <div id="mobctl">
+      <div id="host-chips" class="hostchips"></div>
+      <div class="seg full" role="tablist">
+        <button data-mode="claude" role="tab" aria-selected="true">Claude会话</button>
+        <button data-mode="files" role="tab" aria-selected="false">文件</button>
+      </div>
+    </div>
+
+    <!-- ───────── Claude会话 列 ───────── -->
+    <section id="sescol" class="pane">
+      <header class="sc-head">
+        <div class="seg" role="tablist">
+          <button data-scope="active" role="tab" aria-selected="true">活跃 <b id="cnt-active">0</b></button>
+          <button data-scope="all" role="tab" aria-selected="false">全部 <b id="cnt-all">0</b></button>
         </div>
-        <button id="refresh-btn" class="icon-btn" title="刷新">⟳</button>
+        <button id="refresh-btn" class="iconbtn" title="刷新">⟳</button>
       </header>
-      <div id="session-groups" class="session-groups"></div>
-      <button id="new-session" class="new-btn"><span>＋</span> 新建会话</button>
+      <div id="session-groups" class="sc-body"></div>
+      <button id="new-session" class="newbtn"><span class="gi">＋</span> 新建会话</button>
     </section>
 
-    <!-- ───────── 栏 3：窗口（会话终端 / 文件浏览器） ───────── -->
-    <section id="window-col" class="pane">
-      <header id="win-head">
-        <span id="win-title" class="win-title">选择一个会话</span>
-        <div class="spacer"></div>
-        <button id="reload-btn-top" class="icon-btn" title="拉取桌面最新（重载）" hidden>⤓</button>
-        <button id="reconnect-btn" class="icon-btn" title="重连" hidden>⟳</button>
-        <button id="fullscreen-btn" class="icon-btn" title="全屏" hidden>⤢</button>
+    <!-- ───────── 窗口（终端 / 文件） ───────── -->
+    <section id="win" class="pane">
+      <header class="win-head">
+        <button id="win-back" class="iconbtn bare win-back" title="返回（不结束进程）">←</button>
+        <div class="info">
+          <span id="win-title" class="tt"><span class="ttl">选择一个会话</span></span>
+          <span id="win-meta" class="mt">选中会话后点「连接」打开终端</span>
+        </div>
+        <button id="reconnect-btn" class="iconbtn" title="重连" hidden>⟳</button>
+        <button id="fullscreen-btn" class="iconbtn" title="全屏" hidden>⤢</button>
       </header>
 
       <div id="reload-banner" hidden>
         <span class="rb-dot"></span>桌面端有新内容
-        <button id="reload-btn" class="rb-act">重载会话</button>
-        <button id="reload-dismiss" class="rb-link">忽略</button>
+        <button id="reload-btn" class="btn sm primary rb-act">重载会话</button>
+        <button id="reload-dismiss" class="iconbtn bare" title="忽略">✕</button>
       </div>
 
-      <div id="frame-wrap">
+      <div class="win-body">
         <iframe id="frame" title="window" allow="clipboard-read; clipboard-write"></iframe>
         <div id="empty-state" class="empty-state">
-          <div class="es-glyph">◧</div>
-          <div class="es-text">从左侧选择一个会话开始</div>
+          <div class="g">▤</div>
+          <div>选中一个会话，点 <b>「连接」</b> 或 <b>「Bypass连接」</b> 打开终端<br />
+            <span class="dim" style="font-size:var(--t-xs)">点击会话本身只是选中，不会连接</span>
+          </div>
         </div>
       </div>
 
-      <!-- 移动端：辅助按键条 + 输入框 -->
+      <!-- 移动端：辅助按键条 + 命令框 + 发送 -->
       <div id="mobile-input" hidden>
         <div class="keybar">
           <button data-key="Escape">esc</button>
@@ -81,54 +117,67 @@
           <button data-key="ArrowRight">→</button>
         </div>
         <div class="inrow">
-          <input id="cmd-input" placeholder="输入命令…" autocapitalize="off" autocomplete="off" autocorrect="off" spellcheck="false" />
-          <button id="send-btn" class="send-btn">发送</button>
+          <textarea id="cmd-input" rows="1" placeholder="输入命令…" autocapitalize="off" autocomplete="off" autocorrect="off" spellcheck="false"></textarea>
+          <button id="send-btn" class="send-btn" title="发送">↑</button>
         </div>
       </div>
     </section>
 
-    <!-- ───────── 移动端顶栏（抽屉触发器） ───────── -->
-    <header id="mtopbar">
-      <button id="m-host" class="mtab"><span class="mtab-k">主机</span><span id="m-host-name" class="mtab-v">Mac 2</span><i>▾</i></button>
-      <button id="m-session" class="mtab"><span class="mtab-k">会话</span><span id="m-session-name" class="mtab-v">选择</span><i>▾</i></button>
-      <button id="m-mode" class="micon" title="会话/文件">▦</button>
-    </header>
-
-    <!-- 抽屉遮罩 -->
-    <div id="scrim" hidden></div>
+    <!-- ───────── 主机设置（Mesh IP + 代理 + 显示名；ⓘ 触发，移动端为底部抽屉） ───────── -->
+    <div id="host-modal" class="overlay" hidden>
+      <div class="modal">
+        <div class="modal-head">
+          <span id="hm-dot" class="dot"></span><span id="hm-title">Mac</span>
+          <span id="hm-state" class="badge">—</span>
+          <button class="iconbtn bare x" data-close="host-modal">✕</button>
+        </div>
+        <div class="modal-body">
+          <div class="kv"><span class="k">Mesh IP</span>
+            <span class="v mono"><span id="hm-ip">—</span>
+              <button id="hm-copy" class="iconbtn bare" style="width:24px;height:24px;font-size:12px" title="复制">⧉</button>
+            </span>
+          </div>
+          <div class="kv"><span class="k">代理（按会话注入）</span>
+            <label class="switch"><input type="checkbox" id="hm-proxy-on" /><span class="tk"></span></label>
+          </div>
+          <div class="field"><label>HTTP 代理</label><input id="hm-http" class="input mono" placeholder="http://127.0.0.1:7897" /></div>
+          <div class="field"><label>HTTPS 代理</label><input id="hm-https" class="input mono" placeholder="http://127.0.0.1:7897" /></div>
+          <p class="hint">开启后，<b>新开 / 重开</b>的 claude 会话将带上 HTTP(S)_PROXY。请确保该 Mac 本地代理在运行。</p>
+          <div class="field"><label>显示名（仅本控制台显示，不改真实主机名，留空恢复默认）</label><input id="hm-name" class="input" placeholder="Mac N" maxlength="40" /></div>
+        </div>
+        <div class="modal-foot">
+          <button class="btn sm" data-close="host-modal">取消</button>
+          <button id="hm-save" class="btn sm primary">保存</button>
+        </div>
+      </div>
+    </div>
 
     <!-- ───────── 项目目录选择（新建会话） ───────── -->
-    <div id="projects-modal" class="modal" hidden>
-      <div class="modal-card">
-        <header class="modal-head"><span>选择项目目录</span><button class="modal-x" data-close="projects-modal">✕</button></header>
+    <div id="projects-modal" class="overlay" hidden>
+      <div class="modal">
+        <div class="modal-head"><span>选择项目目录</span><button class="iconbtn bare x" data-close="projects-modal">✕</button></div>
         <div id="project-list" class="project-list"></div>
       </div>
     </div>
 
-    <!-- ───────── 主机弹窗（IP / 代理） ───────── -->
-    <div id="host-modal" class="modal" hidden>
-      <div class="modal-card">
-        <header class="modal-head"><span id="hm-title">Mac</span><button class="modal-x" data-close="host-modal">✕</button></header>
+    <!-- ───────── 终止进程二次确认（样式化，非原生 confirm；移动端为底部抽屉） ───────── -->
+    <div id="confirm-kill" class="overlay" hidden>
+      <div class="modal" style="max-width:380px">
+        <div class="modal-head">终止会话进程<button class="iconbtn bare x" data-close="confirm-kill">✕</button></div>
         <div class="modal-body">
-          <label class="field"><span>显示名</span><input id="hm-name" placeholder="Mac N" maxlength="40" /></label>
-          <p class="hint">仅用于本控制台显示，不改 Mac 真实主机名。留空恢复默认。</p>
-          <div class="kv"><span class="k">状态</span><span class="v"><span id="hm-dot" class="dot"></span><span id="hm-state">—</span></span></div>
-          <div class="kv"><span class="k">Mesh IP</span><span class="v mono" id="hm-ip">—</span></div>
-          <hr class="sep" />
-          <div class="proxy-head">
-            <span class="k">代理（按会话注入）</span>
-            <label class="switch"><input type="checkbox" id="hm-proxy-on" /><span class="track"></span></label>
-          </div>
-          <p class="hint">开启后，<b>新开/重开</b>的 claude 会话将带上 HTTP(S)_PROXY。请确保该 Mac 本地代理在运行。</p>
-          <label class="field"><span>HTTP 代理</span><input id="hm-http" class="mono" placeholder="http://127.0.0.1:7897" /></label>
-          <label class="field"><span>HTTPS 代理</span><input id="hm-https" class="mono" placeholder="http://127.0.0.1:7897" /></label>
+          <p class="wrap-pretty">终止「<b id="ck-name"></b>」在 Mac 上的进程？<br />
+            <span class="muted" style="font-size:var(--t-sm)">会话条目会保留，仅结束其 claude / tmux 进程。</span>
+          </p>
         </div>
-        <footer class="modal-foot">
-          <button class="btn-ghost" data-close="host-modal">取消</button>
-          <button id="hm-save" class="btn-primary">保存</button>
-        </footer>
+        <div class="modal-foot">
+          <button class="btn sm" data-close="confirm-kill">取消</button>
+          <button id="ck-confirm" class="btn sm danger">终止进程</button>
+        </div>
       </div>
     </div>
+
+    <!-- toast 区（状态反馈，取代 alert） -->
+    <div id="toast-wrap"></div>
 
   </div>
   <script src="app.js"></script>
