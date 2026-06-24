@@ -9,7 +9,7 @@
     <string>com.macfleet.filebrowser</string>
     <key>ProgramArguments</key>
     <array>
-        <string>__BREW_PREFIX__/bin/filebrowser</string>
+        <string>__FB_BIN__</string>
         <string>-a</string>
         <string>__TS_IP__</string>
         <string>-p</string>

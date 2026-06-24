@@ -1,0 +1,16 @@
+[Unit]
+# 网关在家宽 NAT 后、且公网 28443→本机8443 端口转换 + hairpin 不通时：
+# 让网关自身访问 127.0.0.1:28443（embedded DERP 的对外端口）重定向到本地 8443，
+# 这样网关 tailscaled 也能连上自己的 DERP，从而经中继到达各 Mac。
+Description=Loopback redirect 28443->8443 for gateway embedded DERP (hairpin workaround)
+After=network.target
+Before=tailscaled.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/sbin/iptables -t nat -A OUTPUT -p tcp -d 127.0.0.1 --dport 28443 -j REDIRECT --to-ports 8443
+ExecStop=/usr/sbin/iptables -t nat -D OUTPUT -p tcp -d 127.0.0.1 --dport 28443 -j REDIRECT --to-ports 8443
+
+[Install]
+WantedBy=multi-user.target

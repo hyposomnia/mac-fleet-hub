@@ -39,10 +39,10 @@ TS_IP="$("$TS_BIN" ip -4 2>/dev/null | head -n1 || true)"
 echo "本机 mesh IP: $TS_IP  (mac${MAC_INDEX})"
 
 # --- 2. 依赖 ---
-echo "安装 ttyd tmux filebrowser ..."
-brew install ttyd tmux filebrowser 2>/dev/null || true
+echo "安装 ttyd tmux ..."
+brew install ttyd tmux 2>/dev/null || true
 
-# --- 3. 安装 fleet-agent 二进制 + ttyd 附着脚本 ---
+# --- 3. 安装 fleet-agent / filebrowser 二进制 + ttyd 附着脚本 ---
 mkdir -p "$BIN_DIR"
 ARCH="$(uname -m)"; [[ "$ARCH" == "arm64" ]] && AB="arm64" || AB="amd64"
 install -m 0755 "$SCRIPT_DIR/fleet-agent/dist/fleet-agent-darwin-${AB}" "$BIN_DIR/fleet-agent"
@@ -50,11 +50,24 @@ install -m 0755 "$SCRIPT_DIR/fleet-agent/fleet-attach.sh" "$BIN_DIR/fleet-attach
 AGENT_BIN="$BIN_DIR/fleet-agent"
 FLEET_ATTACH="$BIN_DIR/fleet-attach"
 
-# --- 4. filebrowser DB：noauth + baseurl（鉴权交给 Headscale ACL）---
-if [[ ! -f "$FB_DB" ]]; then
-  "$BREW_PREFIX/bin/filebrowser" -d "$FB_DB" config init >/dev/null
+# filebrowser：用仓库内置的官方二进制（Homebrew 的 bottle 缺内嵌前端，/files 会空白）。
+# 无对应架构则可用 FILEBROWSER_BIN 指定本地官方二进制，最后才回退 brew。
+FB_BIN="$BIN_DIR/filebrowser"
+if [[ -f "$SCRIPT_DIR/bin/filebrowser-darwin-${AB}" ]]; then
+  install -m 0755 "$SCRIPT_DIR/bin/filebrowser-darwin-${AB}" "$FB_BIN"
+  xattr -dr com.apple.quarantine "$FB_BIN" 2>/dev/null || true
+elif [[ -n "${FILEBROWSER_BIN:-}" && -f "${FILEBROWSER_BIN}" ]]; then
+  install -m 0755 "${FILEBROWSER_BIN}" "$FB_BIN"; xattr -dr com.apple.quarantine "$FB_BIN" 2>/dev/null || true
+else
+  echo "⚠️ 无内置 filebrowser-${AB} 二进制，回退 brew（若 /files 空白请换官方二进制）"
+  brew install filebrowser 2>/dev/null || true; FB_BIN="$BREW_PREFIX/bin/filebrowser"
 fi
-"$BREW_PREFIX/bin/filebrowser" -d "$FB_DB" config set --auth.method=noauth --baseurl "$FB_BASE" --root "$FB_ROOT" >/dev/null
+
+# --- 4. filebrowser DB：noauth + baseURL（鉴权交给 Headscale ACL）---
+if [[ ! -f "$FB_DB" ]]; then
+  "$FB_BIN" -d "$FB_DB" config init >/dev/null
+fi
+"$FB_BIN" -d "$FB_DB" config set --auth.method=noauth --baseURL "$FB_BASE" --root "$FB_ROOT" >/dev/null
 
 # --- 5. 渲染并安装 launchd 服务 ---
 LA="$HOME/Library/LaunchAgents"; mkdir -p "$LA"
@@ -66,6 +79,7 @@ render() { # src dst
       -e "s#__DB__#${FB_DB}#g" \
       -e "s#__TTYD_BASE__#${TTYD_BASE}#g" \
       -e "s#__FB_BASE__#${FB_BASE}#g" \
+      -e "s#__FB_BIN__#${FB_BIN}#g" \
       -e "s#__FLEET_ATTACH__#${FLEET_ATTACH}#g" \
       -e "s#__AGENT_BIN__#${AGENT_BIN}#g" \
       -e "s#__AGENT_PORT__#${AGENT_PORT}#g" \

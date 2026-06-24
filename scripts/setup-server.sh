@@ -99,14 +99,29 @@ if [[ -f "$SITE" ]] && ! grep -q 'snippets/fleet.conf' "$SITE"; then
   echo "  已注入（备份：${SITE}.bak.*）。若 awk 未命中你的结构，请手动在 example.com:443 server{} 内加：include snippets/fleet.conf;"
 fi
 
-echo "==> [6/7] 启动 Headscale / Authelia / 状态定时器"
+echo "==> [6/7] 启动 Headscale / Authelia / 状态定时器 + 网关入网"
 cp "$SRV/systemd/fleet-nodes.service" /etc/systemd/system/
 cp "$SRV/systemd/fleet-nodes.timer"   /etc/systemd/system/
+cp "$SRV/systemd/fleet-derp-redirect.service" /etc/systemd/system/
 systemctl daemon-reload
 systemctl enable --now headscale authelia fleet-nodes.timer
-# headscale 用户 + 可复用 preauthkey（打 tag）
+sleep 2
+# headscale 用户（id 取数字）+ 可复用 preauthkey（给各 Mac 用，打 tag:fleet-mac）
 headscale users create fleet 2>/dev/null || true
-PAK="$(headscale preauthkeys create -u fleet --reusable --expiration 24h --tags tag:fleet-mac 2>/dev/null | tail -1 || true)"
+FLEET_UID="$(headscale users list -o json 2>/dev/null | grep -oE '"id":[0-9]+' | head -1 | grep -oE '[0-9]+')"
+FLEET_UID="${FLEET_UID:-1}"
+PAK="$(headscale preauthkeys create -u "$FLEET_UID" --reusable --expiration 24h --tags tag:fleet-mac 2>/dev/null | tail -1 || true)"
+
+# 网关自身入 mesh（nginx 要经 mesh 到各 Mac）。家宽 hairpin 不通 → 用本地解析 + 28443→8443 重定向。
+if ! tailscale status >/dev/null 2>&1; then
+  command -v tailscale >/dev/null 2>&1 || curl -fsSL https://tailscale.com/install.sh | sh || true
+fi
+grep -q '127.0.0.1 '"${DOMAIN}" /etc/hosts || echo "127.0.0.1 ${DOMAIN}" >> /etc/hosts
+systemctl enable --now fleet-derp-redirect.service 2>/dev/null || true
+if ! tailscale ip -4 >/dev/null 2>&1; then
+  GWKEY="$(headscale preauthkeys create -u "$FLEET_UID" --reusable --expiration 1h --tags tag:fleet-gw 2>/dev/null | tail -1)"
+  tailscale up --login-server="https://${DOMAIN}:${HEADSCALE_LISTEN_PORT:-8443}" --authkey="$GWKEY" --hostname=gateway --accept-dns=false || true
+fi
 
 echo "==> [7/7] 校验并 reload nginx"
 if nginx -t; then systemctl reload nginx; echo "  nginx reloaded"; else echo "  ⚠️ nginx -t 失败，未 reload，请检查"; fi
