@@ -12,6 +12,12 @@
     </array>
     <key>EnvironmentVariables</key>
     <dict>
+        <!-- UTF-8 locale：fleet-agent 用 tmux new-session 起 server 与 pane（shell/claude），
+             无 UTF-8 locale 时 server 端按非 UTF-8 处理，中文输入/显示都会坏。 -->
+        <key>LANG</key>
+        <string>en_US.UTF-8</string>
+        <key>LC_ALL</key>
+        <string>en_US.UTF-8</string>
         <key>FLEET_LISTEN</key>
         <string>__TS_IP__:__AGENT_PORT__</string>
         <key>FLEET_MAC_INDEX</key>

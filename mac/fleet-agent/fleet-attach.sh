@@ -17,4 +17,5 @@ if ! "$TMUX_BIN" has-session -t "$name" 2>/dev/null; then
   sleep 5
   exit 0
 fi
-exec "$TMUX_BIN" attach -t "$name"
+# -u：强制 tmux 客户端按 UTF-8 处理，避免 launchd 缺省 locale 下吃掉中文输入。
+exec "$TMUX_BIN" -u attach -t "$name"

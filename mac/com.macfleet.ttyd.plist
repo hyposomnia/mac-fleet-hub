@@ -32,6 +32,12 @@
     <string>/tmp/macfleet-ttyd.err</string>
     <key>EnvironmentVariables</key>
     <dict>
+        <!-- UTF-8 locale：launchd 不继承用户 locale，缺省下 tmux attach 客户端按非 UTF-8
+             处理，会吃掉中文等多字节输入。显式设 UTF-8 才能在网页终端输入中文。 -->
+        <key>LANG</key>
+        <string>en_US.UTF-8</string>
+        <key>LC_ALL</key>
+        <string>en_US.UTF-8</string>
         <key>PATH</key>
         <string>__BREW_PREFIX__/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
     </dict>
