@@ -1,0 +1,277 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>fleet hub · 重构稿（移动 H5）</title>
+<link rel="stylesheet" href="tokens.css" />
+<!-- 主题跟随系统：默认 prefers-color-scheme，用户切换后写 localStorage 覆盖（与 app.js initTheme 一致） -->
+<script>document.documentElement.dataset.theme=(function(){try{var t=localStorage.getItem('fleet-theme');if(t)return t}catch(e){}return matchMedia('(prefers-color-scheme:light)').matches?'light':'dark'})()</script>
+<style>
+  body { display:flex; flex-direction:column; align-items:center; min-height:100dvh; padding:var(--s7) var(--s4) var(--s8); gap:var(--s5); }
+  .page-head { text-align:center; max-width:560px; }
+  .page-head h1 { font-size:var(--t-xl); font-weight:700; letter-spacing:-.2px; }
+  .page-head p { color:var(--text-2); margin-top:8px; font-size:var(--t-sm); }
+  .page-head .switch-row { margin-top:var(--s4); display:flex; gap:10px; justify-content:center; }
+
+  .device { width:392px; max-width:96vw; border-radius:52px; background:#000; padding:13px; box-shadow:var(--e3), 0 0 0 1px var(--border-1); flex:none; }
+  .screen { position:relative; border-radius:40px; overflow:hidden; background:var(--bg); height:812px; display:flex; flex-direction:column; }
+  .notch { position:absolute; top:13px; left:50%; transform:translateX(-50%); width:108px; height:28px; background:#000; border-radius:0 0 18px 18px; z-index:8; }
+  .statusbar { display:flex; align-items:center; justify-content:space-between; padding:14px 26px 6px; font-size:var(--t-sm); font-weight:650; flex:none; }
+  .statusbar .r { font-size:var(--t-xs); }
+
+  /* 头部：品牌 + 当前主机设置(ⓘ) + 菜单(⋮)。无底部 Tab */
+  .apphead { display:flex; align-items:center; gap:10px; padding:8px 16px 10px; flex:none; }
+  .apphead .logo { width:30px; height:30px; border-radius:9px; display:grid; place-items:center; background:var(--brand-grad); color:#fff; font-size:15px; }
+  .apphead .tt { font-weight:700; font-size:var(--t-lg); flex:1; }
+  .subhead { padding:0 14px 6px; flex:none; }
+  .hostchips { display:flex; gap:8px; padding-bottom:10px; overflow-x:auto; }
+  .hostchips::-webkit-scrollbar { height:0 }
+  .chip { flex:none; display:flex; align-items:center; gap:8px; padding:8px 14px; border-radius:var(--r-pill); background:var(--surface-1); border:1px solid var(--border); font-weight:560; font-size:var(--t-sm); min-height:40px; }
+  .chip[aria-current="true"] { background:var(--accent-soft); border-color:var(--accent-line); color:var(--accent-text) }
+  .seg.full { display:flex; width:100% } .seg.full button { flex:1; padding:9px 0 }
+
+  .body { flex:1; overflow-y:auto; padding:8px 14px 18px; }
+  .body::-webkit-scrollbar { width:0 }
+  .panel { display:none; flex-direction:column; height:100%; }
+  .panel.on { display:flex }
+
+  .grp-h { display:flex; align-items:center; gap:9px; width:100%; text-align:left; padding:12px 6px 9px }
+  .grp-h .chev { color:var(--text-2); font-size:10px; width:12px; transition:transform var(--dur-1) var(--ease) }
+  .grp.collapsed .chev { transform:rotate(-90deg) }
+  .grp-h .gn { font-weight:680; font-size:var(--t-base); color:var(--text) } .grp-h .gp{ font-family:var(--mono); font-size:9.5px; color:var(--text-2) } .grp-h .gc{ margin-left:auto }
+  .grp.collapsed .grp-items { display:none }
+
+  .msrow { padding:13px 14px; border-radius:var(--r); background:var(--surface-1); border:1px solid var(--border); margin-bottom:8px; transition:border-color var(--dur-1) var(--ease) }
+  .msrow.sel { border-color:var(--accent-line); background:var(--accent-soft) }
+  .ms-top { display:flex; align-items:center; gap:11px }
+  .ms-top .t { flex:1; font-weight:560; font-size:var(--t-sm); white-space:nowrap; overflow:hidden; text-overflow:ellipsis }
+  .ms-top .tm { font-size:9.5px; color:var(--text-2) }
+  /* 终止进程图标：仅「连接过 / 有进程」(.conn)的会话在选中时显示；非删除，终止后会话仍保留 */
+  .ms-top .stopbtn { width:34px; height:34px; border-radius:9px; display:none; align-items:center; justify-content:center; color:var(--text-1); font-size:15px; flex:none; background:var(--surface-2); border:1px solid var(--border-strong) }
+  .msrow.sel.conn .ms-top .stopbtn { display:inline-flex }
+  .ms-top .stopbtn:active { background:var(--danger-soft); color:var(--danger) }
+  .ms-meta { font-family:var(--mono); font-size:var(--t-xs); color:var(--text-2); margin:4px 0 0 0 }
+  .ms-acts { display:none; gap:9px; margin-top:11px }
+  .msrow.sel .ms-acts { display:flex }
+  .ms-acts .btn { flex:1; min-height:44px }
+
+  .fab { position:absolute; right:18px; bottom:24px; height:52px; padding:0 20px; border-radius:var(--r-pill); background:var(--accent); color:#fff; font-weight:620; display:flex; align-items:center; gap:8px; box-shadow:var(--e2); z-index:5 }
+
+  .embed-note { display:flex; gap:8px; padding:9px 12px; border-radius:10px; background:var(--accent-soft); color:var(--accent-text); font-size:var(--t-2xs); margin-bottom:12px }
+  .frow { display:flex; align-items:center; gap:13px; padding:14px 8px; border-bottom:1px solid var(--border); min-height:50px }
+  .frow .fi { width:20px; text-align:center; color:var(--text-2) } .frow .fn{ flex:1; font-size:var(--t-sm) } .frow .fs{ font-size:var(--t-2xs); color:var(--text-2) }
+
+  /* 终端 push 视图 */
+  #m-term { position:absolute; inset:0; z-index:20; background:var(--bg); display:flex; flex-direction:column; transform:translateX(100%); transition:transform var(--dur-3) var(--ease) }
+  #m-term.on { transform:translateX(0) }
+  .thead { display:flex; align-items:center; gap:10px; padding:8px 14px 12px; flex:none; border-bottom:1px solid var(--border) }
+  .thead .info { flex:1; min-width:0 }
+  .thead .tt { font-weight:640; font-size:var(--t-sm); display:flex; align-items:center; gap:7px }
+  .thead .tt .ttl { flex:1; min-width:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis }
+  .thead .tt .dot, .thead .tt .badge { flex:none }
+  .thead .mt { font-size:9.5px; color:var(--text-2); font-family:var(--mono) }
+  .tbody { flex:1; overflow:auto; background:#070a0f; color:#cfe0d6; font-family:var(--mono); font-size:12px; line-height:1.6; padding:14px 15px }
+  .tbody .p{ color:var(--accent-1) } .tbody .a{ color:#9ad7b4 } .tbody .dimc{ color:#5b6675 } .tbody .u{ color:#e9eef5 }
+  .cur { display:inline-block; width:7px; height:13px; background:var(--accent); vertical-align:text-bottom; animation:blink 1.1s step-end infinite }
+  @keyframes blink { 50%{ opacity:0 } }
+  .inputdock { flex:none; background:var(--surface); border-top:1px solid var(--border); padding:8px 10px calc(8px + 14px) }
+  .keybar { display:flex; gap:7px; overflow-x:auto; padding-bottom:8px } .keybar::-webkit-scrollbar { height:0 }
+  .key { flex:none; min-width:46px; height:44px; padding:0 14px; border-radius:11px; background:var(--surface-2); border:1px solid var(--border); color:var(--text-1); font-family:var(--mono); font-size:13px; display:grid; place-items:center }
+  .key:active { background:var(--surface-hover) }
+  .key.sticky[aria-pressed="true"] { background:var(--accent); color:#fff; border-color:var(--accent); box-shadow:var(--glow) }
+  .inrow { display:flex; gap:9px; align-items:flex-end }
+  .inrow .cmd { flex:1; min-height:46px; max-height:120px; padding:12px 14px; border-radius:14px; background:var(--surface-2); border:1px solid var(--border); resize:none; outline:none; line-height:1.4 }
+  .inrow .cmd:focus { border-color:var(--accent); box-shadow:var(--ring) }
+  .sendbtn { width:46px; height:46px; border-radius:14px; background:var(--accent); color:#fff; font-size:18px; display:grid; place-items:center; flex:none }
+
+  /* 设置：底部抽屉（在机内） */
+  .sheet-scrim { position:absolute; inset:0; z-index:30; background:rgba(0,0,0,.5); opacity:0; pointer-events:none; transition:opacity var(--dur-2) var(--ease) }
+  .sheet-scrim.on { opacity:1; pointer-events:auto }
+  .sheet { position:absolute; left:0; right:0; bottom:0; z-index:31; background:var(--surface-1); border-top:1px solid var(--border-1); border-radius:22px 22px 0 0; box-shadow:var(--e3); transform:translateY(100%); transition:transform var(--dur-3) var(--ease); padding:8px 18px calc(18px + 14px) }
+  .sheet.on { transform:translateY(0) }
+  .sheet .grab { width:38px; height:4px; border-radius:3px; background:var(--border-strong); margin:8px auto 14px }
+  .sheet .sh-head { display:flex; align-items:center; gap:10px; margin-bottom:8px } .sheet .sh-head .nm{ font-weight:680; font-size:var(--t-md); flex:1 }
+
+  /* ⋮ 菜单（在机内） */
+  .m-menu { position:absolute; top:54px; right:14px; z-index:32 }
+
+  .caption { font-size:var(--t-2xs); color:var(--text-2); text-align:center; margin-top:11px }
+</style>
+</head>
+<body>
+
+  <div class="page-head">
+    <h1>fleet hub · 移动 H5 重构</h1>
+    <p class="wrap-pretty">去掉总览/连接后不再需要底部 Tab：头部 + 横向主机条 + Claude会话/文件 分段。点会话「选中」展开连接按钮；ⓘ 开当前主机设置，⋮ 菜单含退出登录。</p>
+    <div class="switch-row"><button class="btn sm" onclick="toggleTheme()"><span class="gi">◐</span> 切换主题</button></div>
+  </div>
+
+  <div class="device">
+    <div class="screen" id="screen">
+      <div class="notch"></div>
+      <div class="statusbar"><span>9:41</span><span class="r">5G ▤▤▤ ▣</span></div>
+
+      <div class="apphead">
+        <span class="logo">◧</span><span class="tt">fleet hub</span>
+        <button class="iconbtn" title="当前主机设置" onclick="openSheet()">ⓘ</button>
+        <button class="iconbtn" title="菜单" onclick="toggleMenu(event)">⋮</button>
+      </div>
+
+      <div class="subhead">
+        <div class="hostchips">
+          <button class="chip" aria-current="true" onclick="pickHost(this)"><span class="dot on"></span>Mac 1</button>
+          <button class="chip" onclick="pickHost(this)"><span class="dot on"></span>Mac 2</button>
+          <button class="chip" onclick="pickHost(this)"><span class="dot off"></span>Mac 3</button>
+        </div>
+        <div class="seg full"><button aria-selected="true" onclick="setMode('sessions',this)">Claude会话</button><button onclick="setMode('files',this)">文件</button></div>
+      </div>
+
+      <!-- Claude会话 -->
+      <div class="panel on" data-p="sessions">
+        <div class="body">
+          <div class="grp">
+            <button class="grp-h" onclick="toggleGrp(this)"><span class="chev">▾</span><span class="gn">mac-fleet-hub</span><span class="gp">~/Git_Repositories</span><span class="gc badge">2</span></button>
+            <div class="grp-items">
+              <div class="msrow sel conn" onclick="selectSes(this)">
+                <div class="ms-top"><span class="dot live"></span><span class="t">重构 dashboard 设计系统</span><span class="tm">刚刚</span><span class="stopbtn" title="终止进程（会话保留）" onclick="event.stopPropagation();termSes('重构 dashboard 设计系统')">⏹</span></div>
+                <div class="ms-meta">master · 刚刚</div>
+                <div class="ms-acts">
+                  <button class="btn sm accent" onclick="event.stopPropagation();openTerm('重构 dashboard 设计系统','Mac 1 · mac-fleet-hub',false)"><span class="gi">→</span>连接</button>
+                  <button class="btn sm danger" onclick="event.stopPropagation();openTerm('重构 dashboard 设计系统','Mac 1 · mac-fleet-hub',true)">⚠ Bypass连接</button>
+                </div>
+              </div>
+
+              <div class="msrow conn" onclick="selectSes(this)">
+                <div class="ms-top"><span class="dot live"></span><span class="t">修复 nginx 反代 502</span><span class="tm">12 分</span><span class="stopbtn" title="终止进程（会话保留）" onclick="event.stopPropagation();termSes('修复 nginx 反代 502')">⏹</span></div>
+                <div class="ms-meta">fix/nginx · 12 分钟前</div>
+                <div class="ms-acts">
+                  <button class="btn sm accent" onclick="event.stopPropagation();openTerm('修复 nginx 反代 502','Mac 1 · mac-fleet-hub',false)"><span class="gi">→</span>连接</button>
+                  <button class="btn sm danger" onclick="event.stopPropagation();openTerm('修复 nginx 反代 502','Mac 1 · mac-fleet-hub',true)">⚠ Bypass连接</button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="grp">
+            <button class="grp-h" onclick="toggleGrp(this)"><span class="chev">▾</span><span class="gn">blog-engine</span><span class="gp">~/Git_Repositories</span><span class="gc badge">1</span></button>
+            <div class="grp-items">
+              <!-- 未连接过 / 无进程：无终止图标 -->
+              <div class="msrow" onclick="selectSes(this)">
+                <div class="ms-top"><span class="dot off"></span><span class="t">调研 headscale v2 迁移</span><span class="tm">2 时</span></div>
+                <div class="ms-meta">main · 2 小时前</div>
+                <div class="ms-acts">
+                  <button class="btn sm accent" onclick="event.stopPropagation();openTerm('调研 headscale v2 迁移','Mac 1 · blog-engine',false)"><span class="gi">→</span>连接</button>
+                  <button class="btn sm danger" onclick="event.stopPropagation();openTerm('调研 headscale v2 迁移','Mac 1 · blog-engine',true)">⚠ Bypass连接</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <button class="fab" onclick="openTerm('新会话 · mac-fleet-hub','Mac 1',false)"><span class="gi">＋</span>新建</button>
+      </div>
+
+      <!-- 文件 -->
+      <div class="panel" data-p="files">
+        <div class="body">
+          <div class="embed-note"><span class="gi">ℹ</span> 实际嵌入 filebrowser，此处为统一外壳示意</div>
+          <div class="frow"><span class="fi">↰</span><span class="fn">..</span></div>
+          <div class="frow"><span class="fi">▸</span><span class="fn">server</span><span class="fs">目录</span></div>
+          <div class="frow"><span class="fi">▸</span><span class="fn">docs</span><span class="fs">目录</span></div>
+          <div class="frow"><span class="fi">≡</span><span class="fn">README.md</span><span class="fs">4.2 KB</span></div>
+          <div class="frow"><span class="fi">≡</span><span class="fn">install.sh</span><span class="fs">8.1 KB</span></div>
+        </div>
+      </div>
+
+      <!-- 终端 push -->
+      <div id="m-term">
+        <div class="thead">
+          <button class="iconbtn bare" onclick="closeTerm()" style="width:36px">←</button>
+          <div class="info"><div class="tt" id="t-title">会话</div><div class="mt" id="t-meta">Mac · 项目</div></div>
+          <button class="iconbtn bare" style="width:36px" title="重连">⟳</button>
+          <button class="iconbtn bare" style="width:36px" title="全屏">⤢</button>
+        </div>
+        <div class="tbody">
+          <div><span class="p">❯</span> <span class="u">claude</span> <span class="dimc" id="t-flag">--resume</span></div>
+          <div class="dimc">─ 已恢复 · 14 条消息 ──────────────</div><br />
+          <div><span class="a">●</span> 我已经读完 style.css 和 app.js，</div>
+          <div>&nbsp;&nbsp;理解了现有结构与设计令牌。</div><br />
+          <div><span class="p">❯</span> <span class="u">继续</span><span class="cur"></span></div>
+        </div>
+        <div class="inputdock">
+          <div class="keybar">
+            <button class="key">esc</button><button class="key">tab</button>
+            <button class="key sticky" aria-pressed="false" onclick="this.setAttribute('aria-pressed', this.getAttribute('aria-pressed')==='true'?'false':'true')">ctrl</button>
+            <button class="key">↑</button><button class="key">↓</button><button class="key">←</button><button class="key">→</button>
+          </div>
+          <div class="inrow"><textarea class="cmd" rows="1" placeholder="输入命令…"></textarea><button class="sendbtn">↑</button></div>
+        </div>
+      </div>
+
+      <!-- 设置底部抽屉 -->
+      <div class="sheet-scrim" id="sheet-scrim" onclick="closeSheet()"></div>
+      <div class="sheet" id="sheet">
+        <div class="grab"></div>
+        <div class="sh-head"><span class="dot on"></span><span class="nm">Mac 1</span><span class="badge ok">在线</span></div>
+        <div class="kv"><span class="k">Mesh IP</span><span class="v mono">100.64.0.11</span></div>
+        <div class="kv"><span class="k">代理（按会话注入）</span><label class="switch"><input type="checkbox" checked /><span class="tk"></span></label></div>
+        <div class="field"><label>HTTP 代理</label><input class="input mono" value="http://127.0.0.1:7897" /></div>
+        <div class="field"><label>HTTPS 代理</label><input class="input mono" value="http://127.0.0.1:7897" /></div>
+        <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:16px"><button class="btn sm" onclick="closeSheet()">取消</button><button class="btn sm primary">保存</button></div>
+      </div>
+
+      <!-- ⋮ 菜单 -->
+      <div class="menu m-menu" id="m-menu" hidden>
+        <button onclick="toggleTheme();closeMenu()"><span class="gi">◐</span>切换主题</button>
+        <div class="sep"></div>
+        <button class="danger" onclick="doLogout()"><span class="gi">⏻</span>退出登录</button>
+      </div>
+
+      <!-- 关闭进程二次确认（底部抽屉，非原生 confirm） -->
+      <div class="sheet-scrim" id="ck-scrim" onclick="closeKill()"></div>
+      <div class="sheet" id="ck-sheet">
+        <div class="grab"></div>
+        <div style="font-weight:680;font-size:var(--t-md);margin-bottom:8px">终止会话进程</div>
+        <p class="muted wrap-pretty" style="font-size:var(--t-sm)">终止「<b id="ck-name" style="color:var(--text)"></b>」在 Mac 上的进程？会话条目会保留，仅结束其 claude / tmux 进程。</p>
+        <div style="display:flex;gap:10px;margin-top:16px"><button class="btn" style="flex:1;min-height:44px" onclick="closeKill()">取消</button><button class="btn danger" style="flex:1;min-height:44px" onclick="closeKill();toast('已终止该会话进程（会话保留）')">终止进程</button></div>
+      </div>
+
+      <!-- toast（状态反馈，取代 alert） -->
+      <div id="toast-wrap" style="position:absolute;bottom:28px;left:0;right:0;z-index:40;display:flex;flex-direction:column;gap:8px;align-items:center;pointer-events:none;padding:0 16px"></div>
+
+    </div>
+  </div>
+  <div class="caption">交互机 · 点会话选中→展开连接，点连接进终端</div>
+
+<script>
+  const $ = id => document.getElementById(id);
+  const el = (tag, cls, text) => { const e=document.createElement(tag); if(cls)e.className=cls; if(text!=null)e.textContent=text; return e; };
+
+  function setMode(m, btn){
+    document.querySelectorAll('.panel').forEach(p=>p.classList.toggle('on', p.dataset.p===m));
+    document.querySelectorAll('.seg.full button').forEach(b=>b.setAttribute('aria-selected', String(b===btn)));
+  }
+  function pickHost(node){ document.querySelectorAll('.chip').forEach(c=>c.setAttribute('aria-current', String(c===node))); }
+  function selectSes(node){ document.querySelectorAll('.msrow').forEach(s=>s.classList.toggle('sel', s===node)); }
+  function toggleGrp(btn){ btn.parentElement.classList.toggle('collapsed'); }
+  function openTerm(title, meta, bypass){
+    $('t-title').replaceChildren(el('span','dot live'), el('span','ttl',title));
+    if(bypass) $('t-title').append(el('span','badge err','⚠ 跳过权限'));
+    $('t-meta').textContent = meta + ' · ' + (bypass?'bypass permissions':'正常权限');
+    $('t-flag').textContent = bypass ? '--resume --dangerously-skip-permissions' : '--resume';
+    $('m-term').classList.add('on');
+  }
+  function closeTerm(){ $('m-term').classList.remove('on'); }
+  function termSes(title){ $('ck-name').textContent=title; $('ck-scrim').classList.add('on'); $('ck-sheet').classList.add('on'); /* 确认后 → POST close API 终止进程；会话保留（见 PRD.md F2） */ }
+  function closeKill(){ $('ck-scrim').classList.remove('on'); $('ck-sheet').classList.remove('on'); }
+  function openSheet(){ $('sheet-scrim').classList.add('on'); $('sheet').classList.add('on'); }
+  function closeSheet(){ $('sheet-scrim').classList.remove('on'); $('sheet').classList.remove('on'); }
+  function toggleMenu(e){ e.stopPropagation(); $('m-menu').hidden = !$('m-menu').hidden; }
+  function closeMenu(){ $('m-menu').hidden = true; }
+  function doLogout(){ closeMenu(); toast('→ 跳转 Authelia 退出端点，清除会话后回到登录页（见 PRD.md）'); }
+  function toast(msg){ const t=el('div','toast info'); t.style.pointerEvents='auto'; t.append(el('span','ic','✓'), el('span',null,msg)); $('toast-wrap').append(t); setTimeout(()=>t.remove(), 2600); }
+  function toggleTheme(){ const d=document.documentElement, t=d.dataset.theme==='light'?'dark':'light'; d.dataset.theme=t; try{localStorage.setItem('fleet-theme',t)}catch(e){} }
+  addEventListener('click', e=>{ if(!e.target.closest('.m-menu') && !e.target.closest('[title=菜单]')) closeMenu(); });
+</script>
+</body>
+</html>

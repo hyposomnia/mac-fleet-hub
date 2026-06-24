@@ -1,0 +1,304 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>fleet hub · 重构稿（Web）</title>
+<link rel="stylesheet" href="tokens.css" />
+<!-- 主题跟随系统：默认 prefers-color-scheme，用户切换后写 localStorage 覆盖（与 app.js initTheme 一致） -->
+<script>document.documentElement.dataset.theme=(function(){try{var t=localStorage.getItem('fleet-theme');if(t)return t}catch(e){}return matchMedia('(prefers-color-scheme:light)').matches?'light':'dark'})()</script>
+<style>
+  /* 结构：主机栏（含 ⓘ 设置弹窗）+ Claude会话/文件 + 窗口。
+     无「总览」「连接」菜单。窄屏（≤860px）整页切到移动端布局，见 mobile.html。 */
+  #shell { height:100dvh; display:grid; grid-template-columns: var(--rail-w) var(--sess-w) 1fr; }
+  #shell[data-mode="files"] { grid-template-columns: var(--rail-w) 1fr; }
+  #shell[data-mode="files"] #sescol { display:none; }
+
+  /* 主机栏 */
+  #rail { background:var(--surface); border-right:1px solid var(--border); display:flex; flex-direction:column; gap:var(--s4); padding:var(--s4) var(--s3); min-height:0; }
+  .brand { display:flex; align-items:center; gap:10px; padding:6px; font-weight:680; font-size:var(--t-md); }
+  .brand .logo { width:30px; height:30px; border-radius:9px; display:grid; place-items:center; background:var(--brand-grad); color:#fff; font-size:16px; box-shadow:var(--e1); }
+
+  .modeseg { display:grid; grid-template-columns:1fr 1fr; gap:4px; background:var(--surface-2); border:1px solid var(--border); border-radius:10px; padding:4px; }
+  .modeseg button { display:flex; align-items:center; justify-content:center; gap:7px; padding:8px 0; border-radius:7px; color:var(--text-1); font-weight:550; font-size:var(--t-sm); transition:all var(--dur-1) var(--ease); }
+  .modeseg button .gi { font-size:13px; opacity:.85; }
+  .modeseg button[aria-selected="true"] { background:var(--accent); color:#fff; box-shadow:var(--e1); }
+
+  .hostlist { display:flex; flex-direction:column; gap:5px; overflow-y:auto; flex:1; }
+  .hostlist .hd { padding:8px 8px 4px; }
+  .host { display:flex; align-items:center; gap:10px; padding:9px 11px; border-radius:10px; border:1px solid transparent; transition:all var(--dur-1) var(--ease); width:100%; text-align:left; }
+  .host:hover { background:var(--surface-hover); }
+  .host[aria-current="true"] { background:var(--accent-soft); border-color:var(--accent-line); }
+  .host[aria-current="true"] .nm { color:var(--accent-text); }
+  .host .nm { font-weight:550; flex:1; font-size:var(--t-sm); }
+  .host .ct { font-size:var(--t-2xs); color:var(--text-2); font-variant-numeric:tabular-nums; }
+  .host .i { width:24px; height:24px; border-radius:7px; display:grid; place-items:center; color:var(--text-2); opacity:0; transition:all var(--dur-1) var(--ease); flex:none; }
+  .host:hover .i, .host[aria-current="true"] .i { opacity:1; }
+  .host .i:hover { background:var(--surface-2); color:var(--text); }
+
+  .railfoot { margin-top:auto; display:flex; flex-direction:column; gap:6px; padding-top:var(--s3); border-top:1px solid var(--border); position:relative; }
+  .ghost-btn { display:flex; align-items:center; gap:9px; padding:9px 11px; border-radius:10px; color:var(--text-1); font-size:var(--t-sm); font-weight:540; transition:all var(--dur-1) var(--ease); }
+  .ghost-btn:hover { background:var(--surface-hover); color:var(--text); }
+  .ghost-btn .gi { width:18px; text-align:center; }
+  .userrow { display:flex; align-items:center; gap:9px; padding:8px 10px; border-radius:10px; width:100%; transition:background var(--dur-1) var(--ease); }
+  .userrow:hover { background:var(--surface-hover); }
+  .avatar { width:28px; height:28px; border-radius:50%; display:grid; place-items:center; font-size:12px; font-weight:650; background:var(--surface-2); color:var(--accent-text); flex:none; }
+  .userrow .un { flex:1; font-weight:550; font-size:var(--t-sm); text-align:left; }
+  .userrow .cv { color:var(--text-2); }
+
+  /* Claude会话 列 */
+  #sescol { background:var(--bg); border-right:1px solid var(--border); display:flex; flex-direction:column; min-height:0; }
+  .sc-head { display:flex; align-items:center; gap:10px; padding:14px 14px 10px; border-bottom:1px solid var(--border); }
+  .sc-head .seg { flex:1; }
+  .sc-body { flex:1; overflow-y:auto; padding:10px; }
+  .grp { margin-bottom:var(--s2); }
+  .grp-h { display:flex; align-items:center; gap:9px; width:100%; text-align:left; padding:10px 10px; border-radius:9px; transition:background var(--dur-1) var(--ease); }
+  .grp-h:hover { background:var(--surface-1); }
+  .grp-h .chev { color:var(--text-2); font-size:10px; width:12px; transition:transform var(--dur-1) var(--ease); }
+  .grp.collapsed .chev { transform:rotate(-90deg); }
+  .grp-h .gn { font-weight:680; font-size:var(--t-base); color:var(--text); }
+  .grp-h .gp { font-family:var(--mono); font-size:var(--t-2xs); color:var(--text-2); }
+  .grp-h .gc { margin-left:auto; }
+  .grp.collapsed .grp-items { display:none; }
+  .grp-items { padding-top:2px; }
+
+  .ses { display:flex; flex-direction:column; padding:10px 11px; border-radius:11px; border:1px solid transparent; transition:all var(--dur-1) var(--ease); cursor:pointer; }
+  .ses:hover { background:var(--surface-1); border-color:var(--border); }
+  .ses.sel { background:var(--accent-soft); border-color:var(--accent-line); }
+  .ses-top { display:flex; align-items:center; gap:9px; }
+  .ses-top .dot { flex:none; }
+  .ses-top .t { flex:1; font-weight:550; font-size:var(--t-sm); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  /* 终止进程图标：仅「连接过 / 有进程」的会话(.conn)在选中时显示；非删除，终止后会话仍保留 */
+  .ses-top .stopbtn { width:25px; height:25px; border-radius:7px; display:none; align-items:center; justify-content:center; color:var(--text-1); font-size:12px; flex:none; background:var(--surface-2); border:1px solid var(--border-strong); }
+  .ses.sel.conn .stopbtn { display:inline-flex; }
+  .ses-top .stopbtn:hover { background:var(--danger-soft); color:var(--danger); border-color:transparent; }
+  .ses-meta { font-family:var(--mono); font-size:var(--t-2xs); color:var(--text-2); margin:3px 0 0 17px; }
+  /* 操作按钮：仅「选中」时显示（不再 hover 显示） */
+  .ses-acts { display:flex; gap:7px; margin:9px 0 1px 17px; max-height:0; overflow:hidden; opacity:0; transition:all var(--dur-2) var(--ease); }
+  .ses.sel .ses-acts { max-height:44px; opacity:1; }
+
+  .newbtn { margin:10px; padding:11px; border-radius:10px; border:1px dashed var(--border-1); color:var(--text-1); font-weight:540; font-size:var(--t-sm); display:flex; align-items:center; justify-content:center; gap:8px; transition:all var(--dur-1) var(--ease); }
+  .newbtn:hover { background:var(--accent-soft); border-color:var(--accent); color:var(--accent-text); }
+
+  /* 窗口 */
+  #win { display:flex; flex-direction:column; min-width:0; background:var(--bg); }
+  .win-head { display:flex; align-items:center; gap:11px; padding:11px 16px; border-bottom:1px solid var(--border); min-height:54px; }
+  .win-head .info { display:flex; flex-direction:column; gap:2px; min-width:0; }
+  .win-head .tt { font-weight:640; font-size:var(--t-md); display:flex; align-items:center; gap:9px; }
+  .win-head .mt { font-size:var(--t-xs); color:var(--text-2); font-family:var(--mono); }
+  .win-head .sp { flex:1; }
+  .win-body { flex:1; position:relative; min-height:0; }
+
+  .empty { position:absolute; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:14px; color:var(--text-2); text-align:center; padding:0 30px; }
+  .empty .g { width:62px; height:62px; border-radius:17px; display:grid; place-items:center; font-size:28px; background:var(--surface-1); border:1px solid var(--border); color:var(--text-1); }
+
+  .term { position:absolute; inset:0; display:none; flex-direction:column; }
+  .term.on { display:flex; }
+  .reload-bar { display:flex; align-items:center; gap:9px; padding:9px 16px; background:var(--accent-soft); border-bottom:1px solid var(--accent-line); color:var(--accent-text); font-size:var(--t-sm); }
+  .reload-bar .rb-dot { width:7px; height:7px; border-radius:50%; background:var(--accent); animation:pulse 1.6s infinite; }
+  .term-screen { flex:1; background:#070a0f; font-family:var(--mono); font-size:var(--t-sm); line-height:1.65; padding:18px 20px; color:#cfe0d6; overflow:auto; }
+  .term-screen .p { color:var(--accent-1); } .term-screen .u { color:#e9eef5; } .term-screen .a { color:#9ad7b4; } .term-screen .dimc { color:#5b6675; }
+  .cur { display:inline-block; width:8px; height:15px; background:var(--accent); vertical-align:text-bottom; animation:blink 1.1s step-end infinite; }
+  @keyframes blink { 50%{ opacity:0 } }
+
+  .files { position:absolute; inset:0; display:none; flex-direction:column; }
+  #shell[data-mode="files"] .files { display:flex; }
+  #shell[data-mode="files"] .term, #shell[data-mode="files"] .empty { display:none; }
+  .embed-note { display:flex; align-items:center; gap:8px; margin:14px 16px 0; padding:9px 13px; border-radius:10px; background:var(--accent-soft); color:var(--accent-text); font-size:var(--t-xs); }
+  .crumbs { display:flex; gap:7px; font-family:var(--mono); font-size:var(--t-sm); color:var(--text-2); padding:14px 16px 10px; }
+  .crumbs b { color:var(--text); }
+  .frow { display:flex; align-items:center; gap:13px; padding:11px 16px; border-bottom:1px solid var(--border); cursor:pointer; }
+  .frow:hover { background:var(--surface-hover); }
+  .frow .fi { width:20px; text-align:center; color:var(--text-2); } .frow .fn { flex:1; font-size:var(--t-sm); } .frow .fs { font-size:var(--t-xs); color:var(--text-2); }
+
+  /* 窄屏：实际产品在此断点整页切到移动端布局（mobile.html） */
+  .narrow-note { display:none; }
+  @media (max-width:860px){
+    #shell { display:none; }
+    .narrow-note { display:flex; flex-direction:column; align-items:center; justify-content:center; gap:14px; height:100dvh; padding:30px; text-align:center; color:var(--text-1); }
+    .narrow-note .g { font-size:34px; }
+  }
+</style>
+</head>
+<body>
+<div id="shell" data-mode="sessions">
+
+  <!-- 主机栏 -->
+  <aside id="rail">
+    <div class="brand"><span class="logo">◧</span><span>fleet hub</span></div>
+
+    <div class="modeseg" role="tablist">
+      <button role="tab" aria-selected="true" onclick="setMode('sessions')"><span class="gi">▤</span>Claude会话</button>
+      <button role="tab" aria-selected="false" onclick="setMode('files')"><span class="gi">▦</span>文件</button>
+    </div>
+
+    <nav class="hostlist">
+      <div class="hd eyebrow">主机</div>
+      <button class="host" aria-current="true" onclick="selectHost(this)"><span class="dot on"></span><span class="nm">Mac 1</span><span class="ct tnum">3</span><span class="i" title="设置" onclick="event.stopPropagation();openSettings('Mac 1',true)">ⓘ</span></button>
+      <button class="host" onclick="selectHost(this)"><span class="dot on"></span><span class="nm">Mac 2</span><span class="ct tnum">2</span><span class="i" title="设置" onclick="event.stopPropagation();openSettings('Mac 2',true)">ⓘ</span></button>
+      <button class="host" onclick="selectHost(this)"><span class="dot off"></span><span class="nm">Mac 3</span><span class="ct">离线</span><span class="i" title="设置" onclick="event.stopPropagation();openSettings('Mac 3',false)">ⓘ</span></button>
+    </nav>
+
+    <div class="railfoot">
+      <button class="ghost-btn" onclick="toggleTheme()"><span class="gi">◐</span>切换主题</button>
+      <button class="userrow" onclick="toggleMenu(event)"><span class="avatar">H</span><span class="un">user</span><span class="cv">▾</span></button>
+      <div class="menu" id="usermenu" hidden style="bottom:60px;left:8px;right:8px;">
+        <button onclick="toggleTheme();closeMenu()"><span class="gi">◐</span>切换主题</button>
+        <div class="sep"></div>
+        <button class="danger" onclick="doLogout()"><span class="gi">⏻</span>退出登录</button>
+      </div>
+    </div>
+  </aside>
+
+  <!-- Claude会话 列 -->
+  <section id="sescol">
+    <div class="sc-head">
+      <div class="seg"><button aria-selected="true">活跃 <b>3</b></button><button>全部 <b>8</b></button></div>
+      <button class="iconbtn" title="刷新">⟳</button>
+    </div>
+    <div class="sc-body">
+      <div class="grp">
+        <button class="grp-h" onclick="toggleGrp(this)"><span class="chev">▾</span><span class="gn">mac-fleet-hub</span><span class="gp">~/Git_Repositories</span><span class="gc badge">2</span></button>
+        <div class="grp-items">
+          <div class="ses sel conn" onclick="selectSes(this)">
+            <div class="ses-top"><span class="dot live"></span><span class="t">重构 dashboard 设计系统</span><span class="stopbtn" title="终止进程（会话保留）" onclick="event.stopPropagation();termSes('重构 dashboard 设计系统')">⏹</span></div>
+            <div class="ses-meta">master · 刚刚</div>
+            <div class="ses-acts">
+              <button class="btn sm accent" onclick="event.stopPropagation();connect('重构 dashboard 设计系统',false)"><span class="gi">→</span>连接</button>
+              <button class="btn sm danger" onclick="event.stopPropagation();connect('重构 dashboard 设计系统',true)" title="claude --dangerously-skip-permissions">⚠ Bypass连接</button>
+            </div>
+          </div>
+
+          <div class="ses conn" onclick="selectSes(this)">
+            <div class="ses-top"><span class="dot live"></span><span class="t">修复 nginx 反代 502</span><span class="stopbtn" title="终止进程（会话保留）" onclick="event.stopPropagation();termSes('修复 nginx 反代 502')">⏹</span></div>
+            <div class="ses-meta">fix/nginx · 12 分钟前</div>
+            <div class="ses-acts">
+              <button class="btn sm accent" onclick="event.stopPropagation();connect('修复 nginx 反代 502',false)"><span class="gi">→</span>连接</button>
+              <button class="btn sm danger" onclick="event.stopPropagation();connect('修复 nginx 反代 502',true)">⚠ Bypass连接</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="grp">
+        <button class="grp-h" onclick="toggleGrp(this)"><span class="chev">▾</span><span class="gn">blog-engine</span><span class="gp">~/Git_Repositories</span><span class="gc badge">1</span></button>
+        <div class="grp-items">
+          <!-- 未连接过 / 无进程：无终止图标 -->
+          <div class="ses" onclick="selectSes(this)">
+            <div class="ses-top"><span class="dot off"></span><span class="t">调研 headscale v2 迁移</span></div>
+            <div class="ses-meta">main · 2 小时前</div>
+            <div class="ses-acts">
+              <button class="btn sm accent" onclick="event.stopPropagation();connect('调研 headscale v2 迁移',false)"><span class="gi">→</span>连接</button>
+              <button class="btn sm danger" onclick="event.stopPropagation();connect('调研 headscale v2 迁移',true)">⚠ Bypass连接</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <button class="newbtn"><span class="gi">＋</span> 新建会话</button>
+  </section>
+
+  <!-- 窗口 -->
+  <section id="win">
+    <div class="win-head">
+      <div class="info"><span class="tt" id="win-tt">Claude会话 · Mac 1</span><span class="mt" id="win-mt">选中会话后点「连接」打开终端</span></div>
+      <span class="sp"></span>
+      <button class="iconbtn" title="重连" hidden id="btn-recon">⟳</button>
+      <button class="iconbtn" title="全屏" hidden id="btn-full">⤢</button>
+    </div>
+    <div class="win-body">
+      <!-- 空态 -->
+      <div class="empty" id="empty"><div class="g">▤</div><div>选中一个会话，点<b>「连接」</b>或<b>「Bypass连接」</b>打开终端<br /><span class="dim" style="font-size:var(--t-xs)">点击会话本身只是选中，不会连接</span></div></div>
+
+      <!-- 终端 -->
+      <div class="term" id="term">
+        <div class="reload-bar" hidden id="reload-bar"><span class="rb-dot"></span>桌面端有新内容<button class="btn sm primary" style="margin-left:auto">重载会话</button><button class="iconbtn bare" onclick="document.getElementById('reload-bar').hidden=true">✕</button></div>
+        <div class="term-screen">
+          <div><span class="p">❯</span> <span class="u">claude</span> <span class="dimc" id="term-flag">--resume</span></div>
+          <div class="dimc">─ 已恢复会话 · 14 条消息 ────────────────────</div><br />
+          <div><span class="a">●</span> 我已经读完 style.css 和 app.js，理解了现有结构与设计令牌。</div>
+          <div>&nbsp;&nbsp;接下来把令牌抽到 tokens.css。</div><br />
+          <div class="dimc">&nbsp;&nbsp;⎿ 写入 docs/features/ui-polish/tokens.css</div><br />
+          <div><span class="p">❯</span> <span class="u">继续</span><span class="cur"></span></div>
+        </div>
+      </div>
+
+      <!-- 文件（filebrowser iframe 外壳示意） -->
+      <div class="files">
+        <div class="embed-note"><span class="gi">ℹ</span> 文件区是嵌入的 filebrowser（iframe），此处为统一外壳示意，列表交互沿用 filebrowser。</div>
+        <div class="crumbs"><span>~</span><span>/</span><b>Git_Repositories</b><span>/</span><span>mac-fleet-hub</span></div>
+        <div class="frow"><span class="fi">↰</span><span class="fn">..</span></div>
+        <div class="frow"><span class="fi">▸</span><span class="fn">server</span><span class="fs">目录</span></div>
+        <div class="frow"><span class="fi">▸</span><span class="fn">docs</span><span class="fs">目录</span></div>
+        <div class="frow"><span class="fi">≡</span><span class="fn">README.md</span><span class="fs">4.2 KB</span></div>
+      </div>
+    </div>
+  </section>
+
+</div>
+
+<!-- 窄屏占位：实际产品在 ≤860px 整页切到移动端布局 -->
+<div class="narrow-note"><span class="g">▢</span><div>窗口过窄 / 移动浏览器<br />自动切换为移动端布局</div><div class="dim" style="font-size:var(--t-sm)">见 <b>mobile.html</b></div></div>
+
+<!-- 关闭进程二次确认（样式化，非原生 confirm） -->
+<div class="overlay" id="confirm-kill" onclick="if(event.target.id==='confirm-kill')$('confirm-kill').classList.remove('on')">
+  <div class="modal" style="max-width:380px">
+    <div class="modal-head">终止会话进程<button class="iconbtn bare x" onclick="$('confirm-kill').classList.remove('on')">✕</button></div>
+    <div class="modal-body"><p class="wrap-pretty">终止「<b id="ck-name"></b>」在 Mac 上的进程？<br /><span class="muted" style="font-size:var(--t-sm)">会话条目会保留，仅结束其 claude / tmux 进程。</span></p></div>
+    <div class="modal-foot"><button class="btn sm" onclick="$('confirm-kill').classList.remove('on')">取消</button><button class="btn sm danger" onclick="$('confirm-kill').classList.remove('on');toast('已终止该会话进程（会话保留）')">终止进程</button></div>
+  </div>
+</div>
+
+<!-- toast 区（状态反馈，取代 alert） -->
+<div id="toast-wrap" style="position:fixed;bottom:24px;left:50%;transform:translateX(-50%);z-index:80;display:flex;flex-direction:column;gap:8px;align-items:center;"></div>
+
+<!-- 主机设置弹窗（Mesh IP + 代理；由主机 ⓘ 触发，取代原「连接」菜单） -->
+<div class="overlay" id="settings" onclick="if(event.target.id==='settings')closeSettings()">
+  <div class="modal">
+    <div class="modal-head"><span id="set-name">Mac 1</span><span class="badge ok" id="set-state">在线</span><button class="iconbtn bare x" onclick="closeSettings()">✕</button></div>
+    <div class="modal-body">
+      <div class="kv"><span class="k">Mesh IP</span><span class="v mono"><span id="set-ip">100.64.0.11</span> <button class="iconbtn bare" style="width:24px;height:24px;font-size:12px" title="复制">⧉</button></span></div>
+      <div class="kv"><span class="k">代理（按会话注入）</span><label class="switch"><input type="checkbox" checked /><span class="tk"></span></label></div>
+      <div class="field"><label>HTTP 代理</label><input class="input mono" value="http://127.0.0.1:7897" /></div>
+      <div class="field"><label>HTTPS 代理</label><input class="input mono" value="http://127.0.0.1:7897" /></div>
+      <p class="hint">开启后，新开 / 重开的 claude 会话将带上 HTTP(S)_PROXY。请确保该 Mac 本地代理在运行。</p>
+    </div>
+    <div class="modal-foot"><button class="btn sm" onclick="closeSettings()">取消</button><button class="btn sm primary">保存</button></div>
+  </div>
+</div>
+
+<script>
+  // 安全 DOM 构造（与 app.js 约定一致：不使用 innerHTML，文本走 textContent）
+  const $ = id => document.getElementById(id);
+  const el = (tag, cls, text) => { const e=document.createElement(tag); if(cls)e.className=cls; if(text!=null)e.textContent=text; return e; };
+
+  function setMode(m){
+    $('shell').setAttribute('data-mode', m);
+    document.querySelectorAll('.modeseg button').forEach((b,i)=>b.setAttribute('aria-selected', String((m==='sessions')===(i===0))));
+    $('win-tt').textContent = (m==='files' ? '文件 · Mac 1' : 'Claude会话 · Mac 1');
+  }
+  function selectHost(node){ document.querySelectorAll('.host').forEach(h=>h.setAttribute('aria-current', String(h===node))); }
+  function selectSes(node){ document.querySelectorAll('.ses').forEach(s=>s.classList.toggle('sel', s===node)); }
+  function toggleGrp(btn){ btn.parentElement.classList.toggle('collapsed'); }
+
+  function connect(title, bypass){
+    $('empty').style.display='none'; $('term').classList.add('on');
+    $('btn-recon').hidden=false; $('btn-full').hidden=false;
+    const tt = $('win-tt'); tt.replaceChildren(el('span','dot live'), document.createTextNode(' '+title));
+    if(bypass) tt.append(' ', el('span','badge err','⚠ 跳过权限'));
+    $('win-mt').textContent = 'Mac 1 · mac-fleet-hub · ' + (bypass ? 'bypass permissions 模式' : '正常权限');
+    $('term-flag').textContent = bypass ? '--resume --dangerously-skip-permissions' : '--resume';
+    setTimeout(()=>{ $('reload-bar').hidden=false; }, 1200);
+  }
+  function termSes(title){ $('ck-name').textContent=title; $('confirm-kill').classList.add('on'); /* 确认后 → POST close API 终止进程；会话条目保留（见 PRD.md F2） */ }
+  function openSettings(name, online){ $('set-name').textContent=name; const st=$('set-state'); st.textContent=online?'在线':'离线'; st.className='badge '+(online?'ok':''); $('set-ip').textContent=online?'100.64.0.1x':'连不上'; $('settings').classList.add('on'); }
+  function closeSettings(){ $('settings').classList.remove('on'); }
+  function toggleMenu(e){ e.stopPropagation(); $('usermenu').hidden = !$('usermenu').hidden; }
+  function closeMenu(){ $('usermenu').hidden = true; }
+  function doLogout(){ closeMenu(); toast('→ 跳转 Authelia 退出端点，清除会话后回到登录页（见 PRD.md）'); }
+  function toast(msg){ const t=el('div','toast info'); t.append(el('span','ic','✓'), el('span',null,msg)); const w=$('toast-wrap'); w.append(t); setTimeout(()=>t.remove(), 2600); }
+  function toggleTheme(){ const d=document.documentElement, t=d.dataset.theme==='light'?'dark':'light'; d.dataset.theme=t; try{localStorage.setItem('fleet-theme',t)}catch(e){} }
+  addEventListener('click', e=>{ if(!e.target.closest('.railfoot')) closeMenu(); });
+</script>
+</body>
+</html>

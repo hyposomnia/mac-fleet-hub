@@ -5,8 +5,8 @@
      · 暗色默认的工具感、冷蓝 #6e8bff 强调、系统字体栈
      · 单色 Unicode 字形图标、克制阴影、.16s 缓动、12/8 圆角
    在其上做「大胆重构」需要的提升：模块化字号阶 / 4pt 间距阶 /
-   分层表面与高程 / 语义状态色（含新增 warn 琥珀，用 oklch 推导）/
-   有目的的动效。供两份高保真稿（desktop.html / mobile.html）共用。
+   分层表面与高程 / 语义状态色（online 绿 / offline 灰 / danger 红，无新增色）/
+   仅服务清晰度的克制动效。供两份高保真稿（desktop.html / mobile.html）共用。
    ============================================================ */
 
 :root {
@@ -39,7 +39,8 @@
   --dur-1:.14s; --dur-2:.22s; --dur-3:.4s;
 
   /* —— 布局 —— */
-  --nav-w: 256px;
+  --rail-w: 260px;   /* 主机栏 */
+  --sess-w: 330px;   /* Claude会话列 */
 }
 
 /* —— 夜（默认）—— */
@@ -67,8 +68,6 @@
   --online:      #46d39a;
   --online-soft: rgba(70,211,154,.15);
   --offline:     #5a6473;
-  --warn:        oklch(0.80 0.125 78);    /* 琥珀：会话等待输入 —— 由现有冷调推导出的暖对比 */
-  --warn-soft:   oklch(0.80 0.125 78 / .15);
   --danger:      #ff6b6b;
   --danger-soft: rgba(255,107,107,.14);
 
@@ -107,8 +106,6 @@
   --online:      #12a567;
   --online-soft: rgba(18,165,103,.12);
   --offline:     #aab2bf;
-  --warn:        oklch(0.66 0.14 70);
-  --warn-soft:   oklch(0.66 0.14 70 / .12);
   --danger:      #dc3b3b;
   --danger-soft: rgba(220,59,59,.10);
 
@@ -157,7 +154,6 @@ button { cursor: pointer; border: none; background: none; }
 .dot.on  { background: var(--online); box-shadow: 0 0 0 3px color-mix(in srgb, var(--online) 24%, transparent); }
 .dot.off { background: var(--offline); }
 .dot.live{ background: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); animation: pulse 1.8s var(--ease) infinite; }
-.dot.warn{ background: var(--warn); box-shadow: 0 0 0 3px var(--warn-soft); }
 @keyframes pulse { 0%,100%{ opacity:1 } 50%{ opacity:.4 } }
 
 /* 徽标 */
@@ -172,7 +168,6 @@ button { cursor: pointer; border: none; background: none; }
 .badge.live { background: var(--accent-soft); color: var(--accent-text); border-color: var(--accent-line); }
 .badge.live .d { background: var(--accent); animation: pulse 1.8s var(--ease) infinite; }
 .badge.ok   { background: var(--online-soft); color: var(--online); border-color: transparent; }
-.badge.warn { background: var(--warn-soft); color: var(--warn); border-color: transparent; }
 .badge.err  { background: var(--danger-soft); color: var(--danger); border-color: transparent; }
 
 /* 按钮 */
@@ -191,6 +186,11 @@ button { cursor: pointer; border: none; background: none; }
 .btn.ghost { background: transparent; }
 .btn.sm { padding:6px 11px; font-size: var(--t-xs); border-radius:8px; }
 .btn .gi { font-size: 1.05em; opacity:.85; }
+/* danger：用于「Bypass连接」（claude --dangerously-skip-permissions，跳过权限确认，需警示） */
+.btn.danger { background: var(--danger-soft); color: var(--danger); border-color: transparent; }
+.btn.danger:hover { background: color-mix(in srgb, var(--danger) 20%, transparent); color: var(--danger); }
+.btn.accent { background: var(--accent-soft); color: var(--accent-text); border-color: var(--accent-line); }
+.btn.accent:hover { background: color-mix(in srgb, var(--accent) 24%, transparent); }
 
 /* 图标按钮（沿用字形图标约定：内联 Unicode，非 SVG/emoji） */
 .iconbtn {
@@ -244,3 +244,37 @@ button { cursor: pointer; border: none; background: none; }
 .eyebrow { font-size: var(--t-2xs); font-weight:650; letter-spacing:.8px; text-transform:uppercase; color: var(--text-2); }
 .tnum { font-variant-numeric: tabular-nums; }
 .wrap-pretty { text-wrap: pretty; }
+
+/* —— 弹窗（主机设置：Mesh IP + 代理；从导航视图改回 ⓘ 触发的弹窗）—— */
+.overlay { position:fixed; inset:0; z-index:60; display:none; place-items:center; padding:20px; background:rgba(0,0,0,.5); backdrop-filter:blur(3px); }
+.overlay.on { display:grid; animation: ofade .15s var(--ease); }
+@keyframes ofade { from{ opacity:0 } }
+.modal { width:100%; max-width:430px; background:var(--surface-1); border:1px solid var(--border-1); border-radius:var(--r-lg); box-shadow:var(--e3); overflow:hidden; animation: opop .18s var(--ease-spring); }
+@keyframes opop { from{ transform:translateY(8px) scale(.98); opacity:0 } }
+.modal-head { display:flex; align-items:center; gap:10px; padding:16px 18px; border-bottom:1px solid var(--border); font-weight:650; font-size:var(--t-md); }
+.modal-head .x { margin-left:auto; }
+.modal-body { padding:16px 18px; }
+.modal-foot { display:flex; gap:10px; justify-content:flex-end; padding:14px 18px; border-top:1px solid var(--border); }
+
+.kv { display:flex; align-items:center; justify-content:space-between; padding:10px 0; border-bottom:1px solid var(--border); }
+.kv:last-child { border-bottom:none; }
+.kv .k { color:var(--text-1); font-size:var(--t-sm); }
+.kv .v { display:flex; align-items:center; gap:8px; font-weight:550; font-size:var(--t-sm); }
+.field { margin-top:var(--s3); }
+.field > label { display:block; font-size:var(--t-xs); color:var(--text-1); margin-bottom:6px; }
+.hint { color:var(--text-2); font-size:var(--t-xs); line-height:1.5; margin-top:var(--s3); }
+
+.switch { position:relative; width:42px; height:24px; flex:none; }
+.switch input { display:none; }
+.switch .tk { position:absolute; inset:0; border-radius:var(--r-pill); background:var(--surface-2); border:1px solid var(--border-1); transition:all var(--dur-2) var(--ease); }
+.switch .tk::after { content:""; position:absolute; top:2px; left:2px; width:18px; height:18px; border-radius:50%; background:var(--text-2); transition:all var(--dur-2) var(--ease); }
+.switch input:checked + .tk { background:var(--accent); border-color:var(--accent); }
+.switch input:checked + .tk::after { left:20px; background:#fff; }
+
+/* —— 浮层菜单（用户区：退出登录 / 切换主题）—— */
+.menu { position:absolute; z-index:55; background:var(--surface-1); border:1px solid var(--border-1); border-radius:12px; box-shadow:var(--e3); padding:6px; min-width:180px; }
+.menu button { display:flex; align-items:center; gap:11px; width:100%; padding:9px 11px; border-radius:8px; color:var(--text-1); font-size:var(--t-sm); font-weight:540; text-align:left; }
+.menu button .gi { width:18px; text-align:center; }
+.menu button:hover { background:var(--surface-hover); color:var(--text); }
+.menu button.danger:hover { background:var(--danger-soft); color:var(--danger); }
+.menu .sep { height:1px; background:var(--border); margin:5px 4px; }
