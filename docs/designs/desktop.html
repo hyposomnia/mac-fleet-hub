@@ -1,0 +1,446 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>fleet hub · 重构稿（Web）</title>
+<link rel="stylesheet" href="tokens.css" />
+<style>
+  /* ====== 桌面布局：导航 + 主区（取代旧的固定三栏） ====== */
+  #shell { height:100dvh; display:grid; grid-template-columns: var(--nav-w) 1fr; }
+
+  /* ---- 左导航：主机栏 + 视图导航合并 ---- */
+  #nav { background: var(--surface); border-right:1px solid var(--border); display:flex; flex-direction:column; gap:var(--s4); padding:var(--s4) var(--s3); min-height:0; }
+  .brand { display:flex; align-items:center; gap:10px; padding:4px 6px; font-weight:680; font-size:var(--t-md); letter-spacing:.2px; }
+  .brand .logo { width:30px; height:30px; border-radius:9px; display:grid; place-items:center; background:var(--brand-grad); color:#fff; font-size:16px; box-shadow: var(--e1); }
+  .brand small { color:var(--text-2); font-weight:500; font-size:var(--t-2xs); display:block; letter-spacing:.3px; }
+
+  .search { display:flex; align-items:center; gap:8px; padding:9px 12px; border-radius:10px; background:var(--surface-2); border:1px solid var(--border); color:var(--text-2); font-size:var(--t-sm); transition:all var(--dur-1) var(--ease); width:100%; text-align:left; }
+  .search:hover { border-color:var(--border-1); color:var(--text-1); }
+  .search .kbd { margin-left:auto; font-family:var(--mono); font-size:var(--t-2xs); padding:2px 6px; border-radius:6px; background:var(--surface-1); border:1px solid var(--border); color:var(--text-2); }
+
+  .navsec { display:flex; flex-direction:column; gap:3px; }
+  .navsec .hd { padding:6px 8px 4px; }
+  .navitem { display:flex; align-items:center; gap:11px; padding:9px 11px; border-radius:10px; color:var(--text-1); font-weight:550; font-size:var(--t-base); border:1px solid transparent; transition:all var(--dur-1) var(--ease); width:100%; text-align:left; }
+  .navitem:hover { background:var(--surface-hover); color:var(--text); }
+  .navitem[aria-current="true"] { background:var(--accent-soft); color:var(--accent-text); border-color:var(--accent-line); }
+  .navitem .gi { width:20px; text-align:center; font-size:var(--t-md); opacity:.9; }
+  .navitem .tail { margin-left:auto; font-size:var(--t-2xs); color:var(--text-2); }
+  .navitem .tail.acc { color:var(--accent-text); }
+
+  .hostitem { display:flex; align-items:center; gap:10px; padding:8px 11px; border-radius:10px; border:1px solid transparent; transition:all var(--dur-1) var(--ease); width:100%; text-align:left; }
+  .hostitem:hover { background:var(--surface-hover); }
+  .hostitem[aria-current="true"] { background:var(--surface-1); border-color:var(--border); }
+  .hostitem .nm { font-weight:550; font-size:var(--t-sm); flex:1; }
+  .hostitem .ct { font-size:var(--t-2xs); color:var(--text-2); font-variant-numeric:tabular-nums; }
+
+  .navfoot { margin-top:auto; display:flex; flex-direction:column; gap:6px; padding-top:var(--s3); border-top:1px solid var(--border); }
+  .legend { display:flex; align-items:center; gap:7px; padding:6px 8px; font-size:var(--t-2xs); color:var(--text-2); }
+  .legend .pp { font-size:var(--t-2xs); font-weight:650; color:var(--warn); background:var(--warn-soft); border-radius:var(--r-pill); padding:1px 7px; }
+  .userrow { display:flex; align-items:center; gap:9px; padding:7px 9px; border-radius:10px; }
+  .avatar { width:28px; height:28px; border-radius:50%; display:grid; place-items:center; font-size:12px; font-weight:650; background:var(--surface-2); color:var(--accent-text); }
+  .userrow .un { flex:1; font-weight:550; font-size:var(--t-sm); }
+
+  /* ---- 主区 ---- */
+  #main { min-width:0; min-height:0; overflow-y:auto; display:flex; flex-direction:column; }
+  .topbar { position:sticky; top:0; z-index:5; display:flex; align-items:center; gap:12px; padding:var(--s4) var(--s6); background:color-mix(in srgb, var(--bg) 82%, transparent); backdrop-filter:blur(12px); border-bottom:1px solid var(--border); }
+  .topbar h1 { font-size:var(--t-lg); font-weight:680; letter-spacing:.2px; }
+  .topbar .crumb { color:var(--text-2); font-size:var(--t-sm); }
+  .topbar .sp { flex:1; }
+  .view { padding:var(--s6); display:none; }
+  .view.on { display:block; animation:rise var(--dur-3) var(--ease); }
+  @keyframes rise { from{ opacity:0; transform:translateY(6px) } }
+
+  /* ====== 总览 ====== */
+  .hero { display:flex; align-items:flex-end; justify-content:space-between; gap:var(--s4); margin-bottom:var(--s5); }
+  .hero .ttl { font-size:var(--t-2xl); font-weight:720; letter-spacing:-.3px; }
+  .hero .sub { color:var(--text-1); margin-top:4px; font-size:var(--t-md); }
+  .hero .sub b { color:var(--text); font-weight:650; }
+  .hero .sub .acc { color:var(--accent-text); }
+  .hero .sub .wn { color:var(--warn); }
+
+  .attention { margin-bottom:var(--s6); }
+  .attention .lbl { display:flex; align-items:center; gap:8px; margin-bottom:var(--s3); }
+  .att-cards { display:grid; grid-template-columns:repeat(2,1fr); gap:var(--s3); }
+  .att { display:flex; align-items:center; gap:13px; padding:14px 16px; border-radius:var(--r-lg); background:var(--surface-1); border:1px solid var(--border); transition:all var(--dur-2) var(--ease); }
+  .att:hover { border-color:var(--border-strong); transform:translateY(-1px); box-shadow:var(--e2); }
+  .att.warn { background:var(--warn-soft); border-color:transparent; }
+  .att.err  { background:var(--danger-soft); border-color:transparent; }
+  .att .ico { width:38px; height:38px; border-radius:11px; display:grid; place-items:center; font-size:18px; flex:none; background:var(--surface-2); }
+  .att.warn .ico { background:color-mix(in srgb,var(--warn) 22%,transparent); color:var(--warn); }
+  .att.err  .ico { background:color-mix(in srgb,var(--danger) 20%,transparent); color:var(--danger); }
+  .att .bd { flex:1; min-width:0; }
+  .att .bd .t { font-weight:600; font-size:var(--t-base); }
+  .att .bd .m { color:var(--text-1); font-size:var(--t-sm); margin-top:2px; }
+  .att .bd .m .where { font-family:var(--mono); font-size:var(--t-xs); }
+
+  .grid-hosts { display:grid; grid-template-columns:repeat(auto-fill,minmax(340px,1fr)); gap:var(--s4); }
+  .hostcard { padding:var(--s5); display:flex; flex-direction:column; gap:var(--s4); transition:all var(--dur-2) var(--ease); }
+  .hostcard:hover { border-color:var(--border-strong); box-shadow:var(--e2); }
+  .hostcard.off { opacity:.72; }
+  .hc-head { display:flex; align-items:center; gap:11px; }
+  .hc-head .nm { font-weight:680; font-size:var(--t-lg); }
+  .hc-head .ip { margin-left:auto; font-family:var(--mono); font-size:var(--t-xs); color:var(--text-2); }
+  .hc-sessions { display:flex; flex-direction:column; gap:2px; }
+  .scell { display:flex; align-items:center; gap:11px; padding:9px 10px; border-radius:10px; transition:background var(--dur-1) var(--ease); cursor:pointer; }
+  .scell:hover { background:var(--surface-hover); }
+  .scell .bd { flex:1; min-width:0; }
+  .scell .pr { font-family:var(--mono); font-size:var(--t-2xs); color:var(--text-2); }
+  .scell .t { font-weight:540; font-size:var(--t-sm); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .scell .tm { font-size:var(--t-2xs); color:var(--text-2); font-variant-numeric:tabular-nums; white-space:nowrap; }
+  .hc-foot { display:flex; gap:8px; margin-top:2px; }
+  .hc-empty { text-align:center; color:var(--text-2); font-size:var(--t-sm); padding:var(--s5) 0; }
+  .hc-empty .g { font-size:26px; opacity:.5; display:block; margin-bottom:6px; }
+
+  /* ====== 会话视图 ====== */
+  .ses-bar { display:flex; align-items:center; gap:12px; margin-bottom:var(--s5); flex-wrap:wrap; }
+  .ses-bar .input { max-width:300px; }
+  .ses-bar .sp { flex:1; }
+  .grp { margin-bottom:var(--s5); }
+  .grp-h { display:flex; align-items:center; gap:9px; padding:0 4px 9px; }
+  .grp-h .gn { font-weight:620; font-size:var(--t-base); }
+  .grp-h .gp { font-family:var(--mono); font-size:var(--t-xs); color:var(--text-2); }
+  .grp-h .gc { margin-left:auto; }
+  .ses-list { display:flex; flex-direction:column; gap:8px; }
+  .ses-row { display:flex; align-items:center; gap:13px; padding:13px 15px; border-radius:var(--r); background:var(--surface-1); border:1px solid var(--border); transition:all var(--dur-1) var(--ease); cursor:pointer; }
+  .ses-row:hover { border-color:var(--border-strong); box-shadow:var(--e1); }
+  .ses-row.active { border-color:var(--accent-line); background:var(--accent-soft); }
+  .ses-row .bd { flex:1; min-width:0; }
+  .ses-row .t { font-weight:585; font-size:var(--t-base); display:flex; align-items:center; gap:9px; }
+  .ses-row .m { color:var(--text-2); font-size:var(--t-sm); margin-top:3px; font-family:var(--mono); }
+  .ses-row .acts { display:flex; gap:6px; opacity:0; transition:opacity var(--dur-1) var(--ease); }
+  .ses-row:hover .acts { opacity:1; }
+
+  /* ====== 终端视图 ====== */
+  .term-wrap { display:flex; flex-direction:column; height:calc(100dvh - 64px); }
+  .term-head { display:flex; align-items:center; gap:12px; padding:0 0 var(--s4); }
+  .term-head .info { display:flex; flex-direction:column; gap:2px; }
+  .term-head .tt { font-weight:640; font-size:var(--t-md); display:flex; align-items:center; gap:9px; }
+  .term-head .mt { font-size:var(--t-xs); color:var(--text-2); font-family:var(--mono); }
+  .reload-toast { position:absolute; top:var(--s5); left:50%; transform:translateX(-50%); z-index:8; }
+  .term { position:relative; flex:1; background:#070a0f; border:1px solid var(--border-1); border-radius:var(--r); overflow:hidden; font-family:var(--mono); font-size:var(--t-sm); line-height:1.65; }
+  [data-theme="light"] .term { background:#0c0f16; }
+  .term .body { padding:18px 20px; color:#cfe0d6; height:100%; overflow:auto; }
+  .term .p { color:var(--accent-1); }
+  .term .u { color:#e9eef5; }
+  .term .a { color:#9ad7b4; }
+  .term .dimc { color:#5b6675; }
+  .term .cur { display:inline-block; width:8px; height:15px; background:var(--accent); vertical-align:text-bottom; animation:blink 1.1s step-end infinite; }
+  @keyframes blink { 50%{ opacity:0 } }
+
+  /* ====== 文件视图 ====== */
+  .crumbs { display:flex; align-items:center; gap:7px; font-family:var(--mono); font-size:var(--t-sm); color:var(--text-2); margin-bottom:var(--s4); }
+  .crumbs b { color:var(--text); font-weight:600; }
+  .filelist { overflow:hidden; }
+  .frow { display:flex; align-items:center; gap:13px; padding:11px 16px; border-bottom:1px solid var(--border); transition:background var(--dur-1) var(--ease); cursor:pointer; }
+  .frow:last-child { border-bottom:none; }
+  .frow:hover { background:var(--surface-hover); }
+  .frow .fi { width:22px; text-align:center; color:var(--text-2); }
+  .frow .fn { flex:1; font-size:var(--t-sm); }
+  .frow .fs { font-size:var(--t-xs); color:var(--text-2); font-variant-numeric:tabular-nums; }
+  .embed-note { display:flex; align-items:center; gap:8px; margin-bottom:var(--s4); padding:9px 13px; border-radius:10px; background:var(--accent-soft); color:var(--accent-text); font-size:var(--t-xs); }
+
+  /* ====== 连接视图 ====== */
+  .conn-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(360px,1fr)); gap:var(--s4); }
+  .conn-card { padding:var(--s5); }
+  .kv { display:flex; align-items:center; justify-content:space-between; padding:10px 0; border-bottom:1px solid var(--border); }
+  .kv:last-of-type { border-bottom:none; }
+  .kv .k { color:var(--text-1); font-size:var(--t-sm); }
+  .kv .v { display:flex; align-items:center; gap:8px; font-weight:550; font-size:var(--t-sm); }
+  .field { margin-top:var(--s3); }
+  .field label { display:block; font-size:var(--t-xs); color:var(--text-1); margin-bottom:6px; }
+  .switch { position:relative; width:42px; height:24px; flex:none; }
+  .switch input { display:none; }
+  .switch .tk { position:absolute; inset:0; border-radius:var(--r-pill); background:var(--surface-2); border:1px solid var(--border-1); transition:all var(--dur-2) var(--ease); }
+  .switch .tk::after { content:""; position:absolute; top:2px; left:2px; width:18px; height:18px; border-radius:50%; background:var(--text-2); transition:all var(--dur-2) var(--ease); }
+  .switch input:checked + .tk { background:var(--accent); border-color:var(--accent); }
+  .switch input:checked + .tk::after { left:20px; background:#fff; }
+
+  .pp-tag { font-size:var(--t-2xs); font-weight:650; color:var(--warn); background:var(--warn-soft); border-radius:var(--r-pill); padding:2px 8px; margin-left:8px; vertical-align:middle; }
+
+  /* ====== 命令面板（⌘K，提议） ====== */
+  #palette { position:fixed; inset:0; z-index:40; display:none; padding-top:14vh; justify-content:center; background:rgba(0,0,0,.5); backdrop-filter:blur(4px); }
+  #palette.on { display:flex; animation:fade var(--dur-2) var(--ease); }
+  @keyframes fade { from{ opacity:0 } }
+  .pal { width:min(620px,92vw); align-self:flex-start; background:var(--surface-1); border:1px solid var(--border-1); border-radius:var(--r-lg); box-shadow:var(--e3); overflow:hidden; animation:pop var(--dur-2) var(--ease-spring); }
+  @keyframes pop { from{ transform:translateY(10px) scale(.98); opacity:0 } }
+  .pal-in { display:flex; align-items:center; gap:11px; padding:15px 18px; border-bottom:1px solid var(--border); }
+  .pal-in input { flex:1; background:none; border:none; outline:none; font-size:var(--t-md); }
+  .pal-in input::placeholder { color:var(--text-3); }
+  .pal-body { max-height:48vh; overflow:auto; padding:8px; }
+  .pal-sec { font-size:var(--t-2xs); font-weight:650; letter-spacing:.5px; text-transform:uppercase; color:var(--text-2); padding:10px 10px 5px; }
+  .pal-row { display:flex; align-items:center; gap:12px; padding:10px 11px; border-radius:9px; cursor:pointer; }
+  .pal-row:hover, .pal-row.sel { background:var(--accent-soft); }
+  .pal-row .gi { width:22px; text-align:center; color:var(--text-1); }
+  .pal-row .bd { flex:1; min-width:0; }
+  .pal-row .t { font-size:var(--t-sm); font-weight:540; }
+  .pal-row .w { font-family:var(--mono); font-size:var(--t-2xs); color:var(--text-2); }
+  .pal-row .tag { font-size:var(--t-2xs); color:var(--text-2); }
+
+  @media (max-width:1080px){ .att-cards{ grid-template-columns:1fr } }
+</style>
+</head>
+<body data-theme="dark">
+<div id="shell">
+
+  <!-- ========================= 左导航 ========================= -->
+  <nav id="nav">
+    <div class="brand"><span class="logo">◧</span><span>fleet hub<small>3 台 Mac · mesh</small></span></div>
+
+    <button class="search" onclick="openPal()">
+      <span class="gi">⌕</span><span>搜索会话、跳转…</span><span class="kbd">⌘K</span>
+    </button>
+
+    <div class="navsec">
+      <div class="navitem" data-view="overview" aria-current="true" onclick="go('overview')"><span class="gi">◵</span>总览<span class="tail acc tnum">1 待处理</span></div>
+      <div class="navitem" data-view="sessions" onclick="go('sessions')"><span class="gi">▤</span>会话<span class="tail tnum">5</span></div>
+      <div class="navitem" data-view="files" onclick="go('files')"><span class="gi">▦</span>文件</div>
+      <div class="navitem" data-view="conn" onclick="go('conn')"><span class="gi">⇄</span>连接</div>
+    </div>
+
+    <div class="navsec">
+      <div class="hd eyebrow">主机</div>
+      <button class="hostitem" aria-current="true" onclick="go('sessions')"><span class="dot on"></span><span class="nm">Mac 1</span><span class="ct">3</span></button>
+      <button class="hostitem" onclick="go('sessions')"><span class="dot warn"></span><span class="nm">Mac 2</span><span class="ct">2</span></button>
+      <button class="hostitem" onclick="go('sessions')"><span class="dot off"></span><span class="nm">Mac 3</span><span class="ct dim">离线</span></button>
+    </div>
+
+    <div class="navfoot">
+      <div class="legend"><span class="pp">提议</span> 标注的是本次新增功能</div>
+      <button class="navitem" onclick="toggleTheme()"><span class="gi">◐</span>切换主题</button>
+      <div class="userrow"><span class="avatar">H</span><span class="un">user</span><span class="gi" style="opacity:.5">🔒</span></div>
+    </div>
+  </nav>
+
+  <!-- ========================= 主区 ========================= -->
+  <main id="main">
+
+    <!-- ---------- 总览 ---------- -->
+    <section class="view on" data-screen="overview">
+      <div class="topbar" style="margin:calc(-1*var(--s6)) calc(-1*var(--s6)) var(--s6)">
+        <h1>总览</h1><span class="crumb">Mission Control <span class="pp-tag">提议</span></span><span class="sp"></span>
+        <button class="btn primary sm" onclick="go('sessions')"><span class="gi">＋</span> 新建会话</button>
+      </div>
+
+      <div class="hero">
+        <div>
+          <div class="ttl">下午好，user</div>
+          <div class="sub"><b>2/3</b> 台在线 · <b class="acc">3</b> 个会话进行中 · <b class="wn">1</b> 个等待你的输入</div>
+        </div>
+      </div>
+
+      <!-- 需要关注（提议）：把分散在各主机、需要你介入的会话聚到一处 -->
+      <div class="attention">
+        <div class="lbl"><span class="eyebrow">需要关注</span><span class="pp-tag">提议</span></div>
+        <div class="att-cards">
+          <div class="att warn" onclick="go('terminal')">
+            <div class="ico">‼</div>
+            <div class="bd">
+              <div class="t">实现 push 通知接入</div>
+              <div class="m">会话正等待你的输入 · <span class="where">Mac 2 · ios-companion</span></div>
+            </div>
+            <span class="badge warn"><span class="d" style="background:var(--warn)"></span>等待输入</span>
+          </div>
+          <div class="att err" onclick="go('conn')">
+            <div class="ico">⚠</div>
+            <div class="bd">
+              <div class="t">Mac 3 已离线</div>
+              <div class="m">最后在线 <span class="where">31 分钟前</span> · mesh 连接中断</div>
+            </div>
+            <button class="btn sm"><span class="gi">⟳</span> 重连</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="lbl" style="display:flex;align-items:center;gap:8px;margin-bottom:var(--s3)"><span class="eyebrow">舰队</span></div>
+      <div class="grid-hosts">
+
+        <!-- Mac 1 -->
+        <article class="card hostcard">
+          <div class="hc-head"><span class="dot on"></span><span class="nm">Mac 1</span><span class="badge live"><span class="d"></span>2 进行中</span><span class="ip">100.64.0.11</span></div>
+          <div class="hc-sessions">
+            <div class="scell" onclick="go('terminal')"><span class="dot live"></span><div class="bd"><div class="pr">mac-fleet-hub</div><div class="t">重构 dashboard 设计系统</div></div><span class="tm">刚刚</span></div>
+            <div class="scell" onclick="go('terminal')"><span class="dot live"></span><div class="bd"><div class="pr">mac-fleet-hub</div><div class="t">修复 nginx 反代 502</div></div><span class="tm">12 分钟前</span></div>
+            <div class="scell" onclick="go('terminal')"><span class="dot off"></span><div class="bd"><div class="pr">blog-engine</div><div class="t">调研 headscale v2 迁移</div></div><span class="tm">2 小时前</span></div>
+          </div>
+          <div class="hc-foot"><button class="btn sm" onclick="go('sessions')">查看全部 3 个</button><button class="btn sm ghost"><span class="gi">＋</span> 新建</button></div>
+        </article>
+
+        <!-- Mac 2 -->
+        <article class="card hostcard">
+          <div class="hc-head"><span class="dot warn"></span><span class="nm">Mac 2</span><span class="badge warn"><span class="d" style="background:var(--warn)"></span>1 待处理</span><span class="ip">100.64.0.12</span></div>
+          <div class="hc-sessions">
+            <div class="scell" onclick="go('terminal')"><span class="dot warn"></span><div class="bd"><div class="pr">ios-companion</div><div class="t">实现 push 通知接入</div></div><span class="tm">3 分钟前</span></div>
+            <div class="scell" onclick="go('terminal')"><span class="dot off"></span><div class="bd"><div class="pr">ios-companion</div><div class="t">写单元测试</div></div><span class="tm">1 天前</span></div>
+          </div>
+          <div class="hc-foot"><button class="btn sm" onclick="go('sessions')">查看全部 2 个</button><button class="btn sm ghost"><span class="gi">＋</span> 新建</button></div>
+        </article>
+
+        <!-- Mac 3 离线 -->
+        <article class="card hostcard off">
+          <div class="hc-head"><span class="dot off"></span><span class="nm">Mac 3</span><span class="badge">离线</span><span class="ip">—</span></div>
+          <div class="hc-empty"><span class="g">⌁</span>mesh 连接中断<br />最后在线 31 分钟前</div>
+          <div class="hc-foot"><button class="btn sm"><span class="gi">⟳</span> 尝试重连</button></div>
+        </article>
+
+      </div>
+    </section>
+
+    <!-- ---------- 会话 ---------- -->
+    <section class="view" data-screen="sessions">
+      <div class="topbar" style="margin:calc(-1*var(--s6)) calc(-1*var(--s6)) var(--s6)">
+        <h1>会话</h1><span class="crumb">· Mac 1 <span class="dot on" style="display:inline-block;vertical-align:middle"></span></span><span class="sp"></span>
+      </div>
+
+      <div class="ses-bar">
+        <input class="input" placeholder="⌕ 在 Mac 1 的会话中搜索…" />
+        <div class="seg"><button aria-selected="true">活跃 <b>3</b></button><button>全部 <b>8</b></button></div>
+        <span class="sp"></span>
+        <button class="iconbtn" title="刷新">⟳</button>
+        <button class="btn primary sm"><span class="gi">＋</span> 新建会话</button>
+      </div>
+
+      <div class="grp">
+        <div class="grp-h"><span class="gi" style="color:var(--text-2)">▸</span><span class="gn">mac-fleet-hub</span><span class="gp">~/Git_Repositories</span><span class="gc badge">2</span></div>
+        <div class="ses-list">
+          <div class="ses-row active" onclick="go('terminal')">
+            <span class="dot live"></span>
+            <div class="bd"><div class="t">重构 dashboard 设计系统 <span class="badge live"><span class="d"></span>桌面使用中</span></div><div class="m">master · 刚刚</div></div>
+            <div class="acts"><button class="iconbtn bare" title="重命名（提议）">✎</button><button class="iconbtn bare" title="结束会话（提议）">⨯</button></div>
+          </div>
+          <div class="ses-row" onclick="go('terminal')">
+            <span class="dot live"></span>
+            <div class="bd"><div class="t">修复 nginx 反代 502 <span class="badge live"><span class="d"></span>桌面使用中</span></div><div class="m">fix/nginx · 12 分钟前</div></div>
+            <div class="acts"><button class="iconbtn bare" title="重命名（提议）">✎</button><button class="iconbtn bare" title="结束会话（提议）">⨯</button></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="grp">
+        <div class="grp-h"><span class="gi" style="color:var(--text-2)">▸</span><span class="gn">blog-engine</span><span class="gp">~/Git_Repositories</span><span class="gc badge">1</span></div>
+        <div class="ses-list">
+          <div class="ses-row" onclick="go('terminal')">
+            <span class="dot off"></span>
+            <div class="bd"><div class="t">调研 headscale v2 迁移</div><div class="m">main · 2 小时前</div></div>
+            <div class="acts"><button class="iconbtn bare" title="重命名（提议）">✎</button><button class="iconbtn bare" title="结束会话（提议）">⨯</button></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ---------- 终端 ---------- -->
+    <section class="view" data-screen="terminal">
+      <div class="term-wrap">
+        <div class="term-head">
+          <button class="iconbtn" onclick="go('overview')" title="返回">←</button>
+          <div class="info"><span class="tt"><span class="dot live"></span>重构 dashboard 设计系统</span><span class="mt">Mac 1 · mac-fleet-hub · master</span></div>
+          <span class="sp" style="flex:1"></span>
+          <button class="iconbtn" title="重连">⟳</button>
+          <button class="iconbtn" title="全屏">⤢</button>
+        </div>
+        <div class="term">
+          <div class="reload-toast">
+            <div class="toast info"><span class="ic">⤓</span><span>桌面端有新内容</span><button class="btn sm primary">重载会话</button><button class="iconbtn bare">✕</button></div>
+          </div>
+          <div class="body">
+            <div><span class="p">❯</span> <span class="u">claude</span> <span class="dimc">--resume</span></div>
+            <div class="dimc">─ 已恢复会话 · 14 条消息 ────────────────────</div>
+            <br />
+            <div><span class="a">●</span> 我已经读完 style.css 和 app.js，理解了现有的三栏结构与设计令牌。</div>
+            <div>&nbsp;&nbsp;接下来我会把令牌抽到 tokens.css 并提升模块化字号阶。</div>
+            <br />
+            <div class="dimc">&nbsp;&nbsp;⎿ 读取 docs/designs/tokens.css (210 行)</div>
+            <div class="dimc">&nbsp;&nbsp;⎿ 写入 docs/designs/desktop.html</div>
+            <br />
+            <div><span class="p">❯</span> <span class="u">继续，把移动端也一起做了</span><span class="cur"></span></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ---------- 文件 ---------- -->
+    <section class="view" data-screen="files">
+      <div class="topbar" style="margin:calc(-1*var(--s6)) calc(-1*var(--s6)) var(--s6)"><h1>文件</h1><span class="crumb">· Mac 1</span></div>
+      <div class="embed-note"><span class="gi">ℹ</span> 文件区实际嵌入 filebrowser（iframe）；此处为统一视觉外壳的示意，交互沿用 filebrowser。</div>
+      <div class="crumbs"><span>~</span><span>/</span><b>Git_Repositories</b><span>/</span><span>mac-fleet-hub</span></div>
+      <div class="card filelist">
+        <div class="frow"><span class="fi">↰</span><span class="fn">..</span></div>
+        <div class="frow"><span class="fi">▸</span><span class="fn">server</span><span class="fs">目录</span></div>
+        <div class="frow"><span class="fi">▸</span><span class="fn">mac</span><span class="fs">目录</span></div>
+        <div class="frow"><span class="fi">▸</span><span class="fn">docs</span><span class="fs">目录</span></div>
+        <div class="frow"><span class="fi">≡</span><span class="fn">README.md</span><span class="fs">4.2 KB</span></div>
+        <div class="frow"><span class="fi">≡</span><span class="fn">install.sh</span><span class="fs">8.1 KB</span></div>
+      </div>
+    </section>
+
+    <!-- ---------- 连接 ---------- -->
+    <section class="view" data-screen="conn">
+      <div class="topbar" style="margin:calc(-1*var(--s6)) calc(-1*var(--s6)) var(--s6)">
+        <h1>连接</h1><span class="sp"></span><button class="btn sm"><span class="gi">⟳</span> 重连全部 <span class="pp-tag">提议</span></button>
+      </div>
+      <div class="conn-grid">
+
+        <article class="card conn-card">
+          <div class="hc-head" style="margin-bottom:var(--s3)"><span class="dot on"></span><span class="nm" style="font-weight:680;font-size:var(--t-md)">Mac 1</span><span class="badge ok">在线</span></div>
+          <div class="kv"><span class="k">Mesh IP</span><span class="v mono">100.64.0.11 <button class="iconbtn bare" title="复制" style="width:24px;height:24px;font-size:12px">⧉</button></span></div>
+          <div class="kv"><span class="k">代理（按会话注入）</span><label class="switch"><input type="checkbox" checked /><span class="tk"></span></label></div>
+          <div class="field"><label>HTTP 代理</label><input class="input mono" value="http://127.0.0.1:7897" /></div>
+          <div class="field"><label>HTTPS 代理</label><input class="input mono" value="http://127.0.0.1:7897" /></div>
+          <div style="display:flex;justify-content:flex-end;margin-top:var(--s4)"><button class="btn primary sm">保存</button></div>
+        </article>
+
+        <article class="card conn-card">
+          <div class="hc-head" style="margin-bottom:var(--s3)"><span class="dot warn"></span><span class="nm" style="font-weight:680;font-size:var(--t-md)">Mac 2</span><span class="badge warn">1 会话等待</span></div>
+          <div class="kv"><span class="k">Mesh IP</span><span class="v mono">100.64.0.12</span></div>
+          <div class="kv"><span class="k">代理（按会话注入）</span><label class="switch"><input type="checkbox" /><span class="tk"></span></label></div>
+          <div class="field"><label>HTTP 代理</label><input class="input mono" placeholder="http://127.0.0.1:7897" /></div>
+        </article>
+
+        <article class="card conn-card" style="opacity:.72">
+          <div class="hc-head" style="margin-bottom:var(--s3)"><span class="dot off"></span><span class="nm" style="font-weight:680;font-size:var(--t-md)">Mac 3</span><span class="badge err">离线 31 分钟</span></div>
+          <div class="kv"><span class="k">Mesh IP</span><span class="v mono dim">连不上</span></div>
+          <div style="display:flex;justify-content:flex-end;margin-top:var(--s4)"><button class="btn sm"><span class="gi">⟳</span> 尝试重连</button></div>
+        </article>
+
+      </div>
+    </section>
+
+  </main>
+</div>
+
+<!-- ========================= 命令面板（⌘K，提议） ========================= -->
+<div id="palette" onclick="if(event.target.id==='palette')closePal()">
+  <div class="pal">
+    <div class="pal-in"><span class="gi" style="color:var(--text-2)">⌕</span><input id="pal-q" placeholder="搜索会话、项目，或输入命令…" /><span class="kbd" style="font-family:var(--mono);font-size:var(--t-2xs);color:var(--text-2)">esc</span></div>
+    <div class="pal-body">
+      <div class="pal-sec">会话 · 跨全部主机</div>
+      <div class="pal-row sel" onclick="go('terminal'),closePal()"><span class="gi"><span class="dot live" style="display:inline-block"></span></span><div class="bd"><div class="t">重构 dashboard 设计系统</div><div class="w">Mac 1 · mac-fleet-hub</div></div><span class="tag">↵ 打开</span></div>
+      <div class="pal-row" onclick="go('terminal'),closePal()"><span class="gi"><span class="dot warn" style="display:inline-block"></span></span><div class="bd"><div class="t">实现 push 通知接入</div><div class="w">Mac 2 · ios-companion · 等待输入</div></div></div>
+      <div class="pal-row" onclick="go('terminal'),closePal()"><span class="gi"><span class="dot off" style="display:inline-block"></span></span><div class="bd"><div class="t">调研 headscale v2 迁移</div><div class="w">Mac 1 · blog-engine</div></div></div>
+      <div class="pal-sec">操作</div>
+      <div class="pal-row" onclick="go('sessions'),closePal()"><span class="gi">＋</span><div class="bd"><div class="t">新建会话…</div></div></div>
+      <div class="pal-row" onclick="toggleTheme()"><span class="gi">◐</span><div class="bd"><div class="t">切换明 / 暗主题</div></div></div>
+      <div class="pal-row" onclick="go('conn'),closePal()"><span class="gi">⟳</span><div class="bd"><div class="t">重连全部主机</div></div></div>
+    </div>
+  </div>
+</div>
+
+<script>
+  function go(view){
+    document.querySelectorAll('.view').forEach(v=>v.classList.toggle('on', v.dataset.screen===view));
+    document.querySelectorAll('.navitem[data-view]').forEach(n=>n.setAttribute('aria-current', String(n.dataset.view===view)));
+    document.getElementById('main').scrollTo(0,0);
+  }
+  function toggleTheme(){
+    const b=document.body, t=b.getAttribute('data-theme')==='light'?'dark':'light';
+    b.setAttribute('data-theme',t);
+  }
+  function openPal(){ document.getElementById('palette').classList.add('on'); setTimeout(()=>document.getElementById('pal-q').focus(),60); }
+  function closePal(){ document.getElementById('palette').classList.remove('on'); }
+  addEventListener('keydown', e=>{
+    if((e.metaKey||e.ctrlKey)&&e.key.toLowerCase()==='k'){ e.preventDefault(); openPal(); }
+    if(e.key==='Escape') closePal();
+  });
+</script>
+</body>
+</html>

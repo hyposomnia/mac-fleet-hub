@@ -101,7 +101,12 @@ cp "$SRV/systemd/fleet-nodes.service" /etc/systemd/system/
 cp "$SRV/systemd/fleet-nodes.timer"   /etc/systemd/system/
 cp "$SRV/systemd/fleet-derp-redirect.service" /etc/systemd/system/
 systemctl daemon-reload
-systemctl enable --now headscale authelia fleet-nodes.timer
+# enable 开机自启；headscale/authelia 用 restart 而非 enable --now：重跑脚本时配置常已变
+# （换域名/换证书），而 enable --now 对已运行服务是 no-op，不会重载配置——旧域名残留会直接
+# 导致 Authelia 登录点击无反应。restart 同时覆盖「首次启动」与「重跑生效」两种情况。
+systemctl enable headscale authelia fleet-nodes.timer >/dev/null 2>&1 || true
+systemctl restart headscale authelia
+systemctl start fleet-nodes.timer
 sleep 2
 # headscale 用户（id 取数字）+ 可复用 preauthkey（给各 Mac 用，打 tag:fleet-mac）
 headscale users create fleet 2>/dev/null || true
@@ -138,7 +143,9 @@ ENROLL_KEY_TTL=10m
 EOF
 cp "$SRV/systemd/fleet-enroll.service" /etc/systemd/system/fleet-enroll.service
 systemctl daemon-reload
-systemctl enable --now fleet-enroll
+# 同理 restart：重跑时 /etc/fleet-enroll/env（ENROLL_LOGIN_SERVER 等）可能随域名变化。
+systemctl enable fleet-enroll >/dev/null 2>&1 || true
+systemctl restart fleet-enroll
 # 发布免 clone 安装包：bootstrap.sh / uninstall.sh / mac-bundle.tar.gz
 install -d /var/www/fleet-enroll
 install -m 0644 "$SRV/enroll/bootstrap.sh" /var/www/fleet-enroll/bootstrap.sh
