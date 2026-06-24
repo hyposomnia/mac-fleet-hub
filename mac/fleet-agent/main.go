@@ -598,6 +598,44 @@ func writeJSON(w http.ResponseWriter, v interface{}) {
 	json.NewEncoder(w).Encode(v)
 }
 
+// writeErr：结构化错误体 {error,message}，前端按 message 展示可读文案。
+func writeErr(w http.ResponseWriter, code int, kind, msg string) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(code)
+	json.NewEncoder(w).Encode(map[string]string{"error": kind, "message": msg})
+}
+
+// ptyUsage：探测系统当前已分配的 pty 从设备数(/dev/ttys*)与上限(kern.tty.ptmx_max)。
+// 设为变量以便测试注入。任一探测失败时对应项返回 0（→ ptyExhausted 视为「未知不判耗尽」）。
+var ptyUsage = func() (used, max int) {
+	if entries, err := os.ReadDir("/dev"); err == nil {
+		for _, e := range entries {
+			if strings.HasPrefix(e.Name(), "ttys") {
+				used++
+			}
+		}
+	}
+	if out, err := exec.Command("sysctl", "-n", "kern.tty.ptmx_max").Output(); err == nil {
+		max, _ = strconv.Atoi(strings.TrimSpace(string(out)))
+	}
+	return
+}
+
+// ptyExhausted：max>0 且已用达到上限才算耗尽。探测失败(max==0)不误判，
+// 避免把普通 tmux 错误都归因成 pty 耗尽。
+func ptyExhausted(used, max int) bool { return max > 0 && used >= max }
+
+// httpTmuxErr：tmux 起会话失败的统一响应。pty 耗尽是可预期的运维状态（常由长跑 GUI 应用
+// 泄露 pty 触发，非本服务 bug），单独判出来给 503 + 可读文案，与普通 500 区分，便于前端精确提示。
+func httpTmuxErr(w http.ResponseWriter, err error) {
+	if used, max := ptyUsage(); ptyExhausted(used, max) {
+		writeErr(w, http.StatusServiceUnavailable, "pty_exhausted",
+			fmt.Sprintf("系统终端(pty)已达上限 %d/%d，无法新建会话。请关闭闲置的网页终端，或重启占用 pty 的应用后重试。", used, max))
+		return
+	}
+	writeErr(w, http.StatusInternalServerError, "tmux_failed", "启动终端会话失败："+err.Error())
+}
+
 func handleSessions(w http.ResponseWriter, r *http.Request) {
 	all := scanSessions()
 	scope := r.URL.Query().Get("scope")
@@ -686,7 +724,7 @@ func handleOpen(w http.ResponseWriter, r *http.Request) {
 	cwd := cwdOf(req.SessionID)
 	name := shortSid(req.SessionID)
 	if err := ensureTmux(name, cwd, claudeResumeCmd(req.SessionID, req.Bypass)); err != nil {
-		http.Error(w, "tmux: "+err.Error(), 500)
+		httpTmuxErr(w, err)
 		return
 	}
 	registerWatch(name, req.SessionID, req.Bypass)
@@ -704,7 +742,7 @@ func handleNew(w http.ResponseWriter, r *http.Request) {
 	}
 	name := fmt.Sprintf("fleet-new%d", time.Now().Unix())
 	if err := ensureTmux(name, req.Cwd, claudeNewCmd(req.Bypass)); err != nil {
-		http.Error(w, "tmux: "+err.Error(), 500)
+		httpTmuxErr(w, err)
 		return
 	}
 	writeJSON(w, map[string]interface{}{"url": termURL(name), "sid": name, "bypass": req.Bypass})
@@ -865,6 +903,15 @@ func desktopOnSession(sessionID string) bool {
 
 // ---------------- main ----------------
 func main() {
+	// 带参 → 自管理子命令（start/stop/restart/status/update/version/help）；
+	// 无参 → 启动服务（launchd 即如此调用）。
+	if len(os.Args) > 1 {
+		os.Exit(runSelfCommand(os.Args[1:]))
+	}
+	runServer()
+}
+
+func runServer() {
 	cfg = loadConfig()
 	loadProxy()
 	mux := http.NewServeMux()

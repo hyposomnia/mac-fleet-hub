@@ -1,6 +1,12 @@
 package main
 
-import "testing"
+import (
+	"encoding/json"
+	"errors"
+	"net/http/httptest"
+	"strings"
+	"testing"
+)
 
 // F1：Bypass连接 = claude 带 --dangerously-skip-permissions。这是安全边界，
 // 用单测钉死「普通连接不带、bypass 才带」与标志位置，避免回归。
@@ -28,5 +34,63 @@ func TestClaudeNewCmd(t *testing.T) {
 	}
 	if got := claudeNewCmd(true); got != "claude --dangerously-skip-permissions" {
 		t.Fatalf("bypass new: got %q want %q", got, "claude --dangerously-skip-permissions")
+	}
+}
+
+// pty 耗尽判定是 open/new 500 → 精确提示的核心分支，钉死边界：
+// 达上限才算耗尽；探测失败(max==0)绝不误判，否则会把所有 tmux 错误都谎报成 pty 耗尽。
+func TestPtyExhausted(t *testing.T) {
+	cases := []struct {
+		used, max int
+		want      bool
+	}{
+		{511, 511, true},  // 正好达上限
+		{527, 511, true},  // 超上限（本次事故现场）
+		{510, 511, false}, // 还差一个
+		{0, 0, false},     // 两项都探测失败 → 不判耗尽
+		{600, 0, false},   // 上限探测失败 → 不判耗尽
+	}
+	for _, c := range cases {
+		if got := ptyExhausted(c.used, c.max); got != c.want {
+			t.Errorf("ptyExhausted(%d,%d)=%v want %v", c.used, c.max, got, c.want)
+		}
+	}
+}
+
+// httpTmuxErr 按 pty 是否耗尽分流到 503/500，且各自带正确 error 类型与可读 message。
+func TestHttpTmuxErr(t *testing.T) {
+	orig := ptyUsage
+	defer func() { ptyUsage = orig }()
+
+	// 耗尽 → 503 + pty_exhausted，文案含 used/max
+	ptyUsage = func() (int, int) { return 527, 511 }
+	rec := httptest.NewRecorder()
+	httpTmuxErr(rec, errors.New("create session failed"))
+	if rec.Code != 503 {
+		t.Fatalf("exhausted: code got %d want 503", rec.Code)
+	}
+	var body map[string]string
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("exhausted: bad json: %v", err)
+	}
+	if body["error"] != "pty_exhausted" {
+		t.Fatalf("exhausted: error got %q want pty_exhausted", body["error"])
+	}
+	if !strings.Contains(body["message"], "527/511") {
+		t.Fatalf("exhausted: message missing 527/511: %q", body["message"])
+	}
+
+	// 未耗尽 → 500 + tmux_failed，回传原始 err 文本
+	ptyUsage = func() (int, int) { return 10, 511 }
+	rec = httptest.NewRecorder()
+	httpTmuxErr(rec, errors.New("boom-xyz"))
+	if rec.Code != 500 {
+		t.Fatalf("normal: code got %d want 500", rec.Code)
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("normal: bad json: %v", err)
+	}
+	if body["error"] != "tmux_failed" || !strings.Contains(body["message"], "boom-xyz") {
+		t.Fatalf("normal: body=%+v", body)
 	}
 }

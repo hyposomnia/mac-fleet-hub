@@ -65,7 +65,12 @@ function projDir(cwd) { const p = (cwd || '').split('/'); return p.slice(0, -1).
 function macName(id) { return macNames[id] || ('Mac ' + id.slice(1)); }
 async function api(id, path, opts) {
   const r = await fetch(`${apiBase(id)}/api/${path}`, opts);
-  if (!r.ok) throw new Error(`${path}: ${r.status}`);
+  if (!r.ok) {
+    // 后端错误体 {error,message}：优先展示可读 message（如 pty 耗尽），回退状态码
+    let msg = `${path}: ${r.status}`;
+    try { const j = await r.json(); if (j && j.message) msg = j.message; } catch (_) {}
+    throw new Error(msg);
+  }
   return r.json();
 }
 
