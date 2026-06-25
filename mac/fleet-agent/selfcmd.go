@@ -23,9 +23,8 @@ var version = "dev"
 
 const svcLabel = "com.macfleet.fleet-agent"
 
-// 默认更新源：仓库内预编译产物（dist/）。公开后匿名可取；私有期用 FLEET_UPDATE_URL
-// 指向网关 mesh 地址、或配合 FLEET_UPDATE_TOKEN 走 GitHub 私有 raw。
-const defaultUpdateBase = "https://raw.githubusercontent.com/YOUR_GH_USER/mac-fleet-hub/master/mac/fleet-agent/dist"
+// 更新下载源由部署方配置，不内置任何具体仓库/用户名。环境变量名见下。
+const updateBaseEnv = "FLEET_UPDATE_BASE"
 
 const usage = `fleet-agent —— 每台 Mac 的会话管理服务
 
@@ -39,8 +38,11 @@ const usage = `fleet-agent —— 每台 Mac 的会话管理服务
   fleet-agent version   打印版本
   fleet-agent help      显示本帮助
 
-环境变量:
-  FLEET_UPDATE_URL    覆盖默认下载地址（默认 GitHub raw 的 dist/<arch>）
+环境变量（更新源必填其一，不内置任何默认仓库）:
+  FLEET_UPDATE_BASE   更新下载目录前缀，自动追加 /fleet-agent-darwin-<arch>
+                      （如 https://raw.githubusercontent.com/YOUR_GH_USER/mac-fleet-hub/master/mac/fleet-agent/dist
+                       或网关 mesh：http://100.64.0.1/fleet/agent-dist）
+  FLEET_UPDATE_URL    完整下载地址（替代 BASE，直接使用，不追加架构名）
   FLEET_UPDATE_TOKEN  私有仓库下载用的 GitHub token（加 Authorization 头）
 `
 
@@ -261,11 +263,17 @@ func probeHealth(listen string) string {
 
 func updateAsset() string { return "fleet-agent-darwin-" + runtime.GOARCH }
 
-func updateURL() string {
+// updateURL：解析更新下载地址。无内置默认——必须由部署方配置 FLEET_UPDATE_URL（完整地址）
+// 或 FLEET_UPDATE_BASE（目录前缀，追加架构产物名）；都未配置则报清晰错误。
+func updateURL() (string, error) {
 	if u := os.Getenv("FLEET_UPDATE_URL"); u != "" {
-		return u
+		return u, nil
 	}
-	return defaultUpdateBase + "/" + updateAsset()
+	if base := os.Getenv(updateBaseEnv); base != "" {
+		return strings.TrimRight(base, "/") + "/" + updateAsset(), nil
+	}
+	return "", fmt.Errorf("未配置更新源：请设置 %s（下载目录前缀，自动追加 %s）或 FLEET_UPDATE_URL（完整地址）",
+		updateBaseEnv, updateAsset())
 }
 
 func cmdUpdate() error {
@@ -277,7 +285,10 @@ func cmdUpdate() error {
 		self = real
 	}
 
-	url := updateURL()
+	url, err := updateURL()
+	if err != nil {
+		return err
+	}
 	fmt.Printf("下载 %s …\n", url)
 	data, err := downloadBinary(url)
 	if err != nil {

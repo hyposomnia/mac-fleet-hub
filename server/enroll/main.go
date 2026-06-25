@@ -34,7 +34,7 @@ import (
 var (
 	listen      = envOr("ENROLL_LISTEN", "127.0.0.1:7090")
 	secretFile  = envOr("ENROLL_SECRET_FILE", "/etc/fleet-enroll/totp.secret")
-	loginServer = envOr("ENROLL_LOGIN_SERVER", "https://mfh.example.com:28443")
+	loginServer = envOr("ENROLL_LOGIN_SERVER", "https://fleet.example.com:28443") // 占位默认；部署时由 setup-server.sh 按 .env 的 FLEET_HOST 注入真实值
 	hsUser      = envOr("ENROLL_HS_USER", "1")        // headscale 用户 id
 	hsBin       = envOr("ENROLL_HEADSCALE", "headscale")
 	keyTTL      = envOr("ENROLL_KEY_TTL", "10m")      // preauthkey 有效期

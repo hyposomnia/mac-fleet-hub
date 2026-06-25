@@ -13,9 +13,10 @@ SRV="$ROOT/server"
 [[ -f "$SRV/.env" ]] || { echo "缺少 server/.env，请先 cp server/.env.example server/.env 并填写。" >&2; exit 1; }
 set -a; source "$SRV/.env"; set +a
 : "${DOMAIN:?在 .env 设置 DOMAIN}"
-: "${FLEET_HOST:?在 .env 设置 FLEET_HOST（服务子域，如 mfh.example.com）}"
-SSL_CERT="${SSL_CERT:-/root/.acme.sh/example.com_ecc/fullchain.cer}"
-SSL_KEY="${SSL_KEY:-/root/.acme.sh/example.com_ecc/example.com.key}"
+: "${FLEET_HOST:?在 .env 设置 FLEET_HOST（服务子域，如 fleet.example.com）}"
+: "${SSL_CERT:?在 .env 设置 SSL_CERT（证书完整链路径）}"
+: "${SSL_KEY:?在 .env 设置 SSL_KEY（证书私钥路径）}"
+: "${MAC_IPS:?在 .env 设置 MAC_IPS（空格分隔的各 Mac mesh IP，按 m1 m2 … 顺序）}"
 NGINX_SITE="${NGINX_SITE:-/etc/nginx/sites-enabled/mac-fleet-hub.conf}"
 
 ARCH=amd64
@@ -75,25 +76,36 @@ install -d /var/www/fleet/api
 cp -r "$SRV/dashboard/." /var/www/fleet/
 chown -R www-data:www-data /var/www/fleet 2>/dev/null || true
 
-echo "==> [4/7] 渲染 nginx 独立站点（mfh 子域 server 块）+ ws map/limit"
+echo "==> [4/7] 渲染 nginx 独立站点（子域 server 块）+ ws map/limit"
 install -d "$(dirname "$NGINX_SITE")"
-sed -e "s|__FLEET_HOST__|${FLEET_HOST}|g" \
-    -e "s|__SSL_CERT__|${SSL_CERT}|g" -e "s|__SSL_KEY__|${SSL_KEY}|g" \
-    -e "s|__MAC1_IP__|${MAC1_IP}|g" -e "s|__MAC2_IP__|${MAC2_IP}|g" -e "s|__MAC3_IP__|${MAC3_IP}|g" \
-    -e "s|__TTYD_PORT__|${TTYD_PORT}|g" -e "s|__FB_PORT__|${FB_PORT}|g" -e "s|__AGENT_PORT__|${AGENT_PORT}|g" \
-    "$SRV/nginx/fleet.conf" > "$NGINX_SITE"
+# 按 MAC_IPS 循环渲染每台 Mac 的反代块（单 Mac 模板 fleet-mac.conf；台数任意）。
+# 第 i 个 IP → mac i（路径 /m{i}/，与 dashboard 按节点名 mac<N> 枚举对齐）。
+MAC_BLOCKS="$(mktemp)"; i=0
+for ip in ${MAC_IPS}; do
+  i=$((i + 1))
+  sed -e "s|__N__|${i}|g" -e "s|__MAC_IP__|${ip}|g" "$SRV/nginx/fleet-mac.conf" >> "$MAC_BLOCKS"
+done
+echo "     渲染 ${i} 台 Mac 的反代块（MAC_IPS=${MAC_IPS}）"
+# 先用 awk 把 __MAC_LOCATIONS__ 标记行替换为生成的所有 Mac 块（从文件读，兼容 BSD/GNU awk），
+# 再 sed 替换标量占位。
+awk -v f="$MAC_BLOCKS" '/__MAC_LOCATIONS__/{while((getline line < f)>0) print line; close(f); next} {print}' "$SRV/nginx/fleet.conf" \
+  | sed -e "s|__FLEET_HOST__|${FLEET_HOST}|g" \
+        -e "s|__SSL_CERT__|${SSL_CERT}|g" -e "s|__SSL_KEY__|${SSL_KEY}|g" \
+        -e "s|__TTYD_PORT__|${TTYD_PORT}|g" -e "s|__FB_PORT__|${FB_PORT}|g" -e "s|__AGENT_PORT__|${AGENT_PORT}|g" \
+  > "$NGINX_SITE"
+rm -f "$MAC_BLOCKS"
 {
   printf 'map $http_upgrade $fleet_conn_upgrade { default upgrade; "" close; }\n'
   printf 'limit_req_zone $binary_remote_addr zone=fleet_enroll:1m rate=20r/m;\n'
 } > /etc/nginx/conf.d/fleet-map.conf
 
-echo "==> [5/7] nginx 独立站点已写入 ${NGINX_SITE}（mfh 子域，不动现有 rtm 站点）"
+echo "==> [5/7] nginx 独立站点已写入 ${NGINX_SITE}（子域，不动同机其它站点）"
 grep -Rqs 'sites-enabled/\*' /etc/nginx/nginx.conf \
   || echo "  ⚠️ nginx.conf 似乎未 include sites-enabled/*，请确认 ${NGINX_SITE} 会被加载。"
-# 迁移清理：v1 路径模式曾把 'include snippets/fleet.conf;' 注入 rtm 的 443 块；子域模式下应移除。
+# 迁移清理：v1 路径模式曾把 'include snippets/fleet.conf;' 注入既有站点的 443 块；子域模式下应移除。
 if grep -rlqs 'snippets/fleet.conf' /etc/nginx/sites-enabled/ /etc/nginx/sites-available/ 2>/dev/null; then
-  echo "  ⚠️ 检测到 v1 遗留的 'include snippets/fleet.conf;'。请从 rtm 站点删除该行，"
-  echo "     并删 /etc/nginx/snippets/fleet.conf，否则 example.com 下残留旧 /fleet 路由或 nginx -t 失败。"
+  echo "  ⚠️ 检测到 v1 遗留的 'include snippets/fleet.conf;'。请从既有站点删除该行，"
+  echo "     并删 /etc/nginx/snippets/fleet.conf，否则根域下残留旧 /fleet 路由或 nginx -t 失败。"
 fi
 
 echo "==> [6/7] 启动 Headscale / Authelia / 状态定时器 + 网关入网"
@@ -171,7 +183,8 @@ cat <<EOF
 【或】手动方式（注意 MAC_INDEX 各不同）：
   MAC_INDEX=1 LOGIN_SERVER=https://${FLEET_HOST}:${HEADSCALE_PUBLIC_PORT:-28443} AUTHKEY=${PAK:-<preauthkey>} bash mac/setup-mac.sh
 
-入网后：把三台 mesh IP 回填 server/.env 的 MAC{1,2,3}_IP，重跑本脚本（仅刷新 nginx 站点即可）。
+入网后：把各 Mac 的 mesh IP 按顺序填进 server/.env 的 MAC_IPS（空格分隔，第 N 个对应 mac N），
+重跑本脚本（仅刷新 nginx 站点即可）。
 然后给网关节点打 tag：headscale nodes list ; headscale nodes tag -i <网关node-id> -t tag:fleet-gw
 确认路由端口映射：公网 20443→本机443、28443→本机8443。
 访问：https://${FLEET_HOST}:${GATEWAY_PORT:-20443}/  → Authelia 登录(2FA) → 选 Mac → 会话。

@@ -3,10 +3,10 @@
 #
 # 用法：
 #   MAC_INDEX=1 \
-#   LOGIN_SERVER=https://mfh.example.com:28443 AUTHKEY=<preauthkey> \
+#   LOGIN_SERVER=https://fleet.example.com:28443 AUTHKEY=<preauthkey> \
 #   bash mac/setup-mac.sh
 #
-#   - MAC_INDEX 必填(1/2/3)：决定终端/文件路径 /m{idx}/...
+#   - MAC_INDEX 必填(1/2/3/…)：决定终端/文件路径 /m{idx}/...，且要与网关 .env 的 MAC_IPS 第几个对应一致
 #   - LOGIN_SERVER/AUTHKEY 选填：给出则自动 tailscale up 入网（Headscale）；
 #     省略则假设你已手动入网。
 #   - 不修改系统「远程登录/屏幕共享」开关（mac↔mac 的 SSH/VNC 请自行在系统设置开启）。
@@ -111,7 +111,7 @@ cat <<EOF
    文件管理    http://${TS_IP}:${FB_PORT}${FB_BASE}        (整个 home, noauth)
    会话服务    http://${TS_IP}:${AGENT_PORT}/api/health
 
-下一步（在网关）：把本机 mesh IP ${TS_IP} 填到 server/.env 的 MAC${MAC_INDEX}_IP，再跑 setup-server.sh。
+下一步（在网关）：把本机 mesh IP ${TS_IP} 按顺序填到 server/.env 的 MAC_IPS（第 ${MAC_INDEX} 台 = 第 ${MAC_INDEX} 个），再跑 setup-server.sh。
 提醒：mac↔mac 的 SSH/VNC 需你自行在「系统设置 > 通用 > 共享」开启（本脚本不动这些开关）。
 日志：/tmp/macfleet-ttyd.* /tmp/macfleet-filebrowser.* /tmp/macfleet-agent.*
 EOF

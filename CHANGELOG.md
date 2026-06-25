@@ -29,4 +29,4 @@ mac-fleet-hub 变更记录（日期为本地时间）。
 
 - **dashboard 重构 + F1–F4**：连接 / Bypass连接（`--dangerously-skip-permissions`）、终止进程（`POST /api/close`，会话保留）、登录有效期 30 天（Authelia）、退出登录（`/auth/logout`）。
 - **fleet-agent 自管理子命令**：`update / start / stop / restart / status`；pty 耗尽精确提示（503 + 可读 message）。
-- Web 域名 `mfh` → `fleet.example.com`（mesh 控制面在根域 `example.com:28443`，与 web 子域解耦）。
+- Web 域名迁移到独立子域（`fleet.example.com`）；mesh 控制面与 web 子域解耦。

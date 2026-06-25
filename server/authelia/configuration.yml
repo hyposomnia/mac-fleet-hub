@@ -1,4 +1,4 @@
-# Authelia 主配置 —— 单用户 + TOTP 两步验证，保护整个子域 mfh.example.com。
+# Authelia 主配置 —— 单用户 + TOTP 两步验证，保护整个子域 fleet.example.com。
 # 占位 {{FLEET_HOST}} 部署时由 scripts/setup-server.sh 用 .env 的 FLEET_HOST 替换。
 # 敏感密钥(jwt/session/storage_encryption)从环境变量 *_FILE 注入（见 systemd/authelia.service），不写死。
 #
@@ -13,7 +13,7 @@ server:
 log:
   level: info
 
-# 访问控制：默认拒；子域 mfh.example.com 下所有路径要求 2FA。
+# 访问控制：默认拒；子域 fleet.example.com 下所有路径要求 2FA。
 # （/auth 门户与 /enroll 自助入网在 nginx 层不过 auth_request，故不受此规则影响。）
 access_control:
   default_policy: deny

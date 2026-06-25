@@ -13,7 +13,7 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-LOGIN_SERVER="${LOGIN_SERVER:-https://mfh.example.com:28443}"
+LOGIN_SERVER="${LOGIN_SERVER:-https://fleet.example.com:28443}"   # Headscale 控制面；请改成你的网关地址（或经 enroll/bootstrap.sh 自动注入）
 MAC_INDEX="${MAC_INDEX:-${1:-}}"
 AUTHKEY="${AUTHKEY:-${2:-}}"
 
@@ -75,11 +75,12 @@ cat <<EOF
 🎉 mac${MAC_INDEX} 安装完成，mesh IP = ${TS_IP}
 
 下一步（在网关）把它接进反代：
-  ssh -p 22 user@example.com
+  ssh <你的网关>                              # 例：ssh -p <ssh端口> youruser@your-gateway
   cd ~/mac-fleet-hub
-  sed -i 's/^MAC${MAC_INDEX}_IP=.*/MAC${MAC_INDEX}_IP=${TS_IP}/' server/.env
+  # 把本机 mesh IP ${TS_IP} 填到 server/.env 的 MAC_IPS（空格分隔，按 m1 m2 … 顺序；
+  # 这是第 ${MAC_INDEX} 台 → 放在第 ${MAC_INDEX} 个位置）
   sudo bash scripts/setup-server.sh        # 重渲染并 reload nginx（幂等）
 
-然后浏览器开 https://mfh.example.com:20443/ → 选 Mac ${MAC_INDEX} → 续接会话。
+然后浏览器开 https://<你的子域>:20443/ → 选 Mac ${MAC_INDEX} → 续接会话。
 （如需 mac↔mac 的 SSH/VNC，请自行在「系统设置 > 通用 > 共享」开启。）
 EOF

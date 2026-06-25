@@ -1,7 +1,7 @@
 {
   "name": "mac fleet hub",
   "short_name": "fleet",
-  "description": "远程操作三台 Mac 的 Claude 会话与文件",
+  "description": "远程操作你的 Mac 集群的 Claude 会话与文件",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",

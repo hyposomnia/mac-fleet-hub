@@ -9,7 +9,7 @@ bold() { printf "\033[1m%s\033[0m\n" "$1"; }
 bold "== mac-fleet-hub 自助安装 =="
 
 # 允许通过环境变量预填（curl|bash 时也可：DOMAIN=.. IDX=.. CODE=.. bash <(curl ...)）
-DEF_DOMAIN="${DOMAIN:-mfh.example.com:20443}"
+DEF_DOMAIN="${DOMAIN:-fleet.example.com:20443}"
 read -r -p "网关地址[:端口]（默认 ${DEF_DOMAIN}）> " IN_DOMAIN < /dev/tty || true
 DOMAIN="${IN_DOMAIN:-$DEF_DOMAIN}"
 

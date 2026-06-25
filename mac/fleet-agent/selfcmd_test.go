@@ -5,7 +5,6 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
-	"strings"
 	"testing"
 )
 
@@ -38,17 +37,23 @@ func TestUpdateAssetAndURL(t *testing.T) {
 		t.Fatalf("updateAsset()=%q want %q", got, wantAsset)
 	}
 
-	// 默认 URL 指向 GitHub raw 的 dist 且以 asset 结尾
+	// 未配置任何更新源 → 报错（不内置默认仓库/用户名）
 	t.Setenv("FLEET_UPDATE_URL", "")
-	def := updateURL()
-	if !strings.HasPrefix(def, "https://raw.githubusercontent.com/") || !strings.HasSuffix(def, wantAsset) {
-		t.Fatalf("default updateURL()=%q", def)
+	t.Setenv("FLEET_UPDATE_BASE", "")
+	if _, err := updateURL(); err == nil {
+		t.Fatalf("updateURL() 未配置更新源时应报错")
 	}
 
-	// 环境变量覆盖优先（私有期指向网关）
+	// FLEET_UPDATE_BASE：目录前缀，追加架构产物名（去掉前缀末尾多余的 /）
+	t.Setenv("FLEET_UPDATE_BASE", "https://example.com/dist/")
+	if got, err := updateURL(); err != nil || got != "https://example.com/dist/"+wantAsset {
+		t.Fatalf("base updateURL()=%q err=%v", got, err)
+	}
+
+	// FLEET_UPDATE_URL 完整地址优先，直接使用（私有期指向网关 mesh）
 	t.Setenv("FLEET_UPDATE_URL", "http://100.64.0.1/fleet/agent")
-	if got := updateURL(); got != "http://100.64.0.1/fleet/agent" {
-		t.Fatalf("override updateURL()=%q", got)
+	if got, err := updateURL(); err != nil || got != "http://100.64.0.1/fleet/agent" {
+		t.Fatalf("override updateURL()=%q err=%v", got, err)
 	}
 }
 
