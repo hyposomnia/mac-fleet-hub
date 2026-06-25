@@ -3,7 +3,7 @@
 // 作用：装机的新 Mac 无法登录 Authelia，故用一个独立的 TOTP（入网专用密钥，与登录 2FA 分开）
 // 来确认「是机主本人」。验证码正确 → 生成一次性短效 Headscale preauthkey 返回，客户端据此入网。
 //
-//   POST /join {code,index}   校验 TOTP → 返回 {loginServer, authKey, index}
+//   POST /join {code}         校验 TOTP → 服务端自动分配下一个空闲编号 → 返回 {loginServer, authKey, index}
 //   GET  /healthz             存活探针
 //
 // 仅绑 127.0.0.1，由 nginx 暴露在 /enroll/（公开、不过 Authelia）。
@@ -194,6 +194,56 @@ func createPreauthKey() (string, error) {
 	return key, nil
 }
 
+// ---------------- 编号自动分配 ----------------
+// 入网编号（mac<N>）由网关统一分配，客户端不再自报，避免人工填错/撞号。
+// 真相源：headscale 现有节点的 hostname `mac<N>`，取 max+1（单调递增，不填补空缺）。
+// 同时纳入 names.json 已占用编号，避免分配到一个已有显示名的号。
+var (
+	allocMu    sync.Mutex
+	allocFloor int                                       // 本进程已发出的最大编号
+	macHostRe  = regexp.MustCompile(`\bmac([0-9]+)\b`)   // 从 headscale 输出（表格或 -o json 均可）抓 mac<N>
+)
+
+// parseMaxMacIndex：从 headscale 任意格式输出里扫出最大的 mac<N> 编号；无则 0。
+func parseMaxMacIndex(out string) int {
+	max := 0
+	for _, m := range macHostRe.FindAllStringSubmatch(out, -1) {
+		if n, err := strconv.Atoi(m[1]); err == nil && n > max {
+			max = n
+		}
+	}
+	return max
+}
+
+// computeNext：纯函数，综合 headscale 输出、names.json 占用、本进程 floor 得下一编号。
+// floor 关键：headscale 要等客户端真正 `tailscale up` 才出现新节点，分配后到入网前有窗口，
+// 期间另一台入网若只看 headscale 会拿到同号；floor 记住本进程已发出的最大号，桥接这段延迟。
+func computeNext(hsOut string, names map[string]string, floor int) int {
+	max := parseMaxMacIndex(hsOut)
+	for id := range names {
+		if n, err := strconv.Atoi(strings.TrimPrefix(id, "m")); err == nil && n > max {
+			max = n
+		}
+	}
+	if floor > max {
+		max = floor
+	}
+	return max + 1
+}
+
+// nextIndex：串行化分配下一个编号。整段持 allocMu，杜绝并发撞号。
+func nextIndex() (int, error) {
+	allocMu.Lock()
+	defer allocMu.Unlock()
+	out, err := exec.Command(hsBin, "nodes", "list").CombinedOutput()
+	if err != nil {
+		return 0, fmt.Errorf("headscale nodes list: %v: %s", err, strings.TrimSpace(string(out)))
+	}
+	next := computeNext(string(out), loadNames(), allocFloor)
+	allocFloor = next
+	return next, nil
+}
+
 func handleJoin(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "method not allowed", 405)
@@ -210,11 +260,7 @@ func handleJoin(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, "请求格式错误")
 		return
 	}
-	// index 仅作主机名提示（客户端用），严格校验为 1 位数字，不进入任何命令
-	if len(req.Index) != 1 || req.Index[0] < '1' || req.Index[0] > '9' {
-		writeErr(w, 400, "机器序号需为 1-9")
-		return
-	}
+	// 客户端传来的 index 一律忽略——编号由服务端统一分配。
 	secret, err := loadSecret()
 	if err != nil || secret == "" {
 		writeErr(w, 500, "服务端未配置入网密钥")
@@ -225,6 +271,12 @@ func handleJoin(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 401, "验证码错误")
 		return
 	}
+	idx, err := nextIndex()
+	if err != nil {
+		log.Printf("编号分配失败: %v", err)
+		writeErr(w, 500, "分配机器编号失败")
+		return
+	}
 	key, err := createPreauthKey()
 	if err != nil {
 		log.Printf("preauthkey 生成失败: %v", err)
@@ -232,8 +284,8 @@ func handleJoin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	okIP(ip)
-	log.Printf("入网放行 index=%s（已发一次性 preauthkey）", req.Index)
-	writeJSON(w, 200, map[string]string{"loginServer": loginServer, "authKey": key, "index": req.Index})
+	log.Printf("入网放行 index=%d（已发一次性 preauthkey）", idx)
+	writeJSON(w, 200, map[string]string{"loginServer": loginServer, "authKey": key, "index": strconv.Itoa(idx)})
 }
 
 func writeJSON(w http.ResponseWriter, code int, v interface{}) {

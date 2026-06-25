@@ -5,7 +5,7 @@
 #                 → 装 ttyd/tmux/filebrowser/fleet-agent + 起 3 个常驻服务（无需 sudo）。
 #
 # 用法（任选其一）：
-#   bash mac/install.sh                         # 全程交互询问（服务器地址 / 第几台 / AUTHKEY）
+#   bash mac/install.sh                         # 手动模式：交互询问（服务器地址 / 第几台 / AUTHKEY；正常应走 bootstrap 自动分配编号）
 #   LOGIN_SERVER=https://你的网关:8443 MAC_INDEX=2 AUTHKEY=hskey-... bash mac/install.sh
 #   bash mac/install.sh 2 hskey-...             # 位置参数：MAC_INDEX AUTHKEY（仍会问服务器地址）
 #
@@ -31,8 +31,10 @@ if ! command -v brew >/dev/null 2>&1; then
 fi
 
 # --- 1. 收集参数 ---
-while ! [[ "${MAC_INDEX}" =~ ^[1-9]$ ]]; do
-  read -r -p "这台是第几台 Mac？(1/2/3 …) > " MAC_INDEX
+# MAC_INDEX 通常由 bootstrap.sh 从网关自动分配并经 env 传入（此时不会提问）；
+# 仅手动直跑本脚本（无网关协调）才需手填。
+while ! [[ "${MAC_INDEX}" =~ ^[1-9][0-9]?$ ]]; do
+  read -r -p "这台是第几台 Mac？(通常由 bootstrap 自动分配，手动安装才需填，如 1/2/3 …) > " MAC_INDEX
 done
 if [[ -z "${LOGIN_SERVER}" ]]; then
   echo "网关的 Headscale 控制面地址（默认监听 8443；网关若用高位端口/ISP 封 443，则填对外端口，如 https://fleet.example.com:28443）。"
