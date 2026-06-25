@@ -146,8 +146,8 @@ button { cursor: pointer; border: none; background: none; }
 .dot.on { background: var(--online); box-shadow: 0 0 0 3px color-mix(in srgb, var(--online) 24%, transparent); }
 .dot.off { background: var(--offline); }
 .dot.live { background: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); animation: pulse 1.8s var(--ease) infinite; }
-/* 等待你回复/选择：棕色点 + 轻脉冲提示需要处理（仅 s.waiting 时渲染） */
-.dot.wait { background: var(--wait); box-shadow: 0 0 0 3px var(--wait-soft); animation: pulse 1.8s var(--ease) infinite; }
+/* 等待你回复/选择：棕色点（静态，不脉冲） */
+.dot.wait { background: var(--wait); box-shadow: 0 0 0 3px var(--wait-soft); }
 @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: .4; } }
 
 /* 徽标 */
@@ -337,22 +337,22 @@ button { cursor: pointer; border: none; background: none; }
 .grp.collapsed .grp-items { display: none; }
 .grp-items { padding-top: 2px; }
 
-.ses { display: flex; flex-direction: column; padding: 10px 11px; border-radius: 11px; border: 1px solid transparent; transition: background var(--dur-1) var(--ease), border-color var(--dur-1) var(--ease); cursor: pointer; width: 100%; text-align: left; }
+.ses { display: flex; flex-direction: column; padding: 7px 11px; border-radius: 11px; border: 1px solid transparent; transition: background var(--dur-1) var(--ease), border-color var(--dur-1) var(--ease); cursor: pointer; width: 100%; text-align: left; }
 .ses:hover { background: var(--surface-1); border-color: var(--border); }
 .ses.sel { background: var(--accent-soft); border-color: var(--accent-line); }
 .ses-top { display: flex; align-items: center; gap: 9px; }
+/* 行首点位恒定留出（dot 8px + gap 9px = 17px）：无 waiting 透明占位、标题统一对齐；仅 .wait 显棕色 */
+.ses-top .dot { background: transparent; box-shadow: none; }
+.ses-top .dot.wait { background: var(--wait); box-shadow: 0 0 0 3px var(--wait-soft); }
 .ses-top .dot { flex: none; }
 .ses-top .t { flex: 1; font-weight: 550; font-size: var(--t-sm); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 /* 终止进程图标：仅「已开 pty / 有进程」(.conn) 的会话显示（不论是否选中）；非删除，终止后会话仍保留 */
 .ses-top .stopbtn { width: 25px; height: 25px; border-radius: 7px; display: none; align-items: center; justify-content: center; color: var(--text-1); font-size: 12px; flex: none; background: var(--surface-2); border: 1px solid var(--border-strong); }
 .ses.conn .stopbtn { display: inline-flex; }
 .ses-top .stopbtn:hover { background: var(--danger-soft); color: var(--danger); border-color: transparent; }
-.ses-meta { font-family: var(--mono); font-size: var(--t-2xs); color: var(--text-2); margin: 3px 0 0 0; }
-/* 有等待棕点时，meta/按钮缩进对齐到标题（点 8px + gap 9px = 17px）；无点则齐左 */
-.ses.waiting .ses-meta { margin-left: 17px; }
+.ses-meta { font-family: var(--mono); font-size: var(--t-2xs); color: var(--text-2); margin: 2px 0 0 17px; }
 /* 操作按钮：仅「选中」时展开（不再 hover 显示） */
-.ses-acts { display: flex; gap: 7px; margin: 9px 0 1px 0; max-height: 0; overflow: hidden; opacity: 0; transition: max-height var(--dur-2) var(--ease), opacity var(--dur-2) var(--ease); }
-.ses.waiting .ses-acts { margin-left: 17px; }
+.ses-acts { display: flex; gap: 7px; margin: 8px 0 1px 17px; max-height: 0; overflow: hidden; opacity: 0; transition: max-height var(--dur-2) var(--ease), opacity var(--dur-2) var(--ease); }
 .ses.sel .ses-acts { max-height: 48px; opacity: 1; }
 
 .newbtn { margin: 10px; padding: 11px; border-radius: 10px; border: 1px dashed var(--border-1); color: var(--text-1); font-weight: 540; font-size: var(--t-sm); display: flex; align-items: center; justify-content: center; gap: 8px; transition: all var(--dur-1) var(--ease); }
