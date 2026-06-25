@@ -350,7 +350,8 @@ button { cursor: pointer; border: none; background: none; }
 .ses-top .stopbtn { width: 25px; height: 25px; border-radius: 7px; display: none; align-items: center; justify-content: center; color: var(--text-1); font-size: 12px; flex: none; background: var(--surface-2); border: 1px solid var(--border-strong); }
 .ses.conn .stopbtn { display: inline-flex; }
 .ses-top .stopbtn:hover { background: var(--danger-soft); color: var(--danger); border-color: transparent; }
-.ses-meta { font-family: var(--mono); font-size: var(--t-2xs); color: var(--text-2); margin: 2px 0 0 17px; }
+/* 紧凑化：时间内联在标题同行尾部（不再单起 meta 行显示分支/路径） */
+.ses-time { font-family: var(--mono); font-size: var(--t-2xs); color: var(--text-2); flex: none; white-space: nowrap; }
 /* 操作按钮：仅「选中」时展开（不再 hover 显示） */
 .ses-acts { display: flex; gap: 7px; margin: 8px 0 1px 17px; max-height: 0; overflow: hidden; opacity: 0; transition: max-height var(--dur-2) var(--ease), opacity var(--dur-2) var(--ease); }
 .ses.sel .ses-acts { max-height: 48px; opacity: 1; }

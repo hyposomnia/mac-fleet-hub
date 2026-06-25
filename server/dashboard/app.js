@@ -284,9 +284,10 @@ function sessionRow(s) {
     // 行首点位恒定留出（标题统一对齐）：默认透明占位，仅「等待你回复/选择」(s.waiting) 显棕色点
     h('span', { class: 'dot' + (s.waiting ? ' wait' : ''), title: s.waiting ? '等待你的回复 / 选择' : null }),
     h('span', { class: 't', text: s.title || '(无标题)' }),
+    // 紧凑化：不再单起一行显示分支/路径，仅在同行标题后跟相对时间
+    h('span', { class: 'ses-time', text: relTime(s.mtime) }),
     stop,
   );
-  const meta = (s.gitBranch ? s.gitBranch + ' · ' : '') + relTime(s.mtime);
   const acts = s.pty
     ? h('div', { class: 'ses-acts' },
         h('button', { class: 'btn sm accent', title: '回到已有终端（进程已在运行，不重连）',
@@ -300,7 +301,7 @@ function sessionRow(s) {
   const row = h('div', {
     class: 'ses' + (s.pty ? ' conn' : '') + (sid === state.selectedSid ? ' sel' : ''),
     dataset: { sid },
-  }, top, h('div', { class: 'ses-meta', text: meta }), acts);
+  }, top, acts);
   row.onclick = () => selectSes(sid);
   return row;
 }
