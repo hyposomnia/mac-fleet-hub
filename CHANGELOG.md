@@ -4,6 +4,9 @@ mac-fleet-hub 变更记录（日期为本地时间）。
 
 ## 2026-06-25
 
+### 品牌
+- 新 app 图标（`icons/icon.svg`）：品牌渐变圆角砖（`#6e8bff→#9b7bff`）+ 两张等大会话窗叠层 + 品牌色提示符，体现「多 Mac 多终端会话」；矢量，各尺寸锐利。补 `<link rel="icon">` 浏览器标签页 favicon、manifest 加 `maskable`、`theme_color`/`background_color` 对齐 `#090c12`。
+
 ### dashboard 交互优化
 - **分组折叠箭头**改用清晰的内联 SVG chevron（原 Unicode `▾` 太淡）。
 - **「终止 ⏹」按钮**改由真实进程状态驱动（fleet-agent 新增 `pty` 字段）：仅对**已起 fleet 进程**的会话显示，且**不选中也显示**；未起进程的不显示。

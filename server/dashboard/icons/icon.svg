@@ -1,7 +1,14 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
-  <rect width="512" height="512" rx="96" fill="#111111"/>
-  <rect x="116" y="140" width="280" height="200" rx="18" fill="none" stroke="#4a8cff" stroke-width="16"/>
-  <path d="M150 196 L196 240 L150 284" fill="none" stroke="#4a8cff" stroke-width="16" stroke-linecap="round" stroke-linejoin="round"/>
-  <line x1="214" y1="288" x2="300" y2="288" stroke="#4a8cff" stroke-width="16" stroke-linecap="round"/>
-  <rect x="196" y="356" width="120" height="16" rx="8" fill="#4a8cff"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img">
+  <title>mac fleet hub</title>
+  <defs>
+    <linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#6e8bff"/>
+      <stop offset="1" stop-color="#9b7bff"/>
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" rx="116" fill="url(#g)"/>
+  <rect x="157" y="132" width="250" height="188" rx="38" fill="#ffffff" fill-opacity="0.4"/>
+  <rect x="105" y="192" width="250" height="188" rx="38" fill="#ffffff"/>
+  <path d="M165 248 L205 286 L165 324" fill="none" stroke="#6e8bff" stroke-width="26" stroke-linecap="round" stroke-linejoin="round"/>
+  <rect x="228" y="273" width="74" height="26" rx="13" fill="#6e8bff" fill-opacity="0.5"/>
 </svg>
