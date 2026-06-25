@@ -37,6 +37,24 @@ func TestClaudeNewCmd(t *testing.T) {
 	}
 }
 
+// tmux -f <conf> 必须排在 new-session 之前，否则被当作 new-session 的参数而失效——
+// conf 在 server 启动时加载 history-limit/mouse，错位则网页终端退回「只一屏、不能滚」。
+// 钉死：① conf 非空时 -f 紧贴开头且在 new-session 前；② conf 为空时不带 -f。
+func TestTmuxNewSessionArgs(t *testing.T) {
+	args := tmuxNewSessionArgs("/home/u/.macfleet-tmux.conf", "fleet-abc", "cd '/x'; exec claude")
+	if len(args) < 3 || args[0] != "-f" || args[1] != "/home/u/.macfleet-tmux.conf" || args[2] != "new-session" {
+		t.Fatalf("conf 非空：-f 须在 new-session 前，got %v", args)
+	}
+	if args[len(args)-3] != "sh" || args[len(args)-2] != "-c" {
+		t.Fatalf("尾部应是 sh -c <full>，got %v", args)
+	}
+
+	bare := tmuxNewSessionArgs("", "fleet-abc", "x")
+	if bare[0] != "new-session" {
+		t.Fatalf("conf 为空：不应带 -f，got %v", bare)
+	}
+}
+
 // pty 耗尽判定是 open/new 500 → 精确提示的核心分支，钉死边界：
 // 达上限才算耗尽；探测失败(max==0)绝不误判，否则会把所有 tmux 错误都谎报成 pty 耗尽。
 func TestPtyExhausted(t *testing.T) {

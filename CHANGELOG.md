@@ -6,7 +6,8 @@ mac-fleet-hub 变更记录（日期为本地时间）。
 
 ### 网页终端体验
 - **终端配色跟随 dashboard 深/浅色**：ttyd 把 xterm 实例挂在 iframe 的 `window.term`，按 `data-theme` 给 `term.options.theme` 套深/浅两套配色（取自 `style.css` 设计 token），切换实时生效、每次终端加载/重连后重套用。无需改 ttyd 启动参数。
-- **网页终端可往上翻历史**：`fleet-agent` 建 tmux 会话前设 `history-limit 50000` + `mouse on`（原默认 mouse 关闭，网页里滚轮/上滑进不了 copy-mode，只能看一屏）。副作用：桌面端拖选复制改为 Shift+拖选；移动端无影响。改 `main.go` → 已重建 dist 双架构。
+- **网页终端可往上翻历史**：`fleet-agent` 经 `tmux -f ~/.macfleet-tmux.conf new-session` 加载 `history-limit 50000` + `mouse on`（原默认 mouse 关闭，网页里滚轮/上滑进不了 copy-mode，只能看一屏）。conf 由 agent 启动时自写。副作用：桌面端拖选复制改为 Shift+拖选；移动端无影响。改 `main.go` → 已重建 dist 双架构。
+  - *修正*：初版用「建会话前 `set-option -g`」在**冷启动**（空闲会话全回收、tmux server 已退出）时哑火——无 server 可 set、空 server 又因 `exit-empty` 自杀；改用 `-f conf` 在 server 启动时加载，冷/温都生效（单测钉死 `-f` 须在 `new-session` 之前）。
 
 ### 品牌
 - 新 app 图标（`icons/icon.svg`）：品牌渐变圆角砖（`#6e8bff→#9b7bff`）+ 两张等大会话窗叠层 + 品牌色提示符，体现「多 Mac 多终端会话」；矢量，各尺寸锐利。补 `<link rel="icon">` 浏览器标签页 favicon、manifest 加 `maskable`、`theme_color`/`background_color` 对齐 `#090c12`。

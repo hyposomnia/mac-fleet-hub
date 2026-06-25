@@ -44,6 +44,7 @@ type Config struct {
 	DesktopApp   string // osascript 目标应用名（默认 Claude）
 	ProxyFile    string // 代理配置持久化文件（~/.macfleet-proxy.json）
 	DesktopStore string // Claude Desktop 会话库目录（一次数据源）
+	TmuxConf     string // 自管理 tmux 配置（~/.macfleet-tmux.conf），经 tmux -f 在 server 启动时加载
 }
 
 // 代理配置：Web 端可设，按会话注入到 claude 的环境（HTTP(S)_PROXY）。
@@ -114,6 +115,7 @@ func loadConfig() Config {
 		DesktopApp: envOr("FLEET_DESKTOP_APP", "Claude"),
 		ProxyFile:    envOr("FLEET_PROXY_FILE", filepath.Join(home, ".macfleet-proxy.json")),
 		DesktopStore: envOr("FLEET_DESKTOP_STORE", filepath.Join(home, "Library", "Application Support", "Claude", "claude-code-sessions")),
+		TmuxConf:     envOr("FLEET_TMUX_CONF", filepath.Join(home, ".macfleet-tmux.conf")),
 	}
 }
 
@@ -610,20 +612,47 @@ func shortSid(sessionID string) string {
 	return "fleet-" + id
 }
 
+// fleet-agent 自管理的 tmux 配置，经 `tmux -f` 在 server 启动时加载：
+//   history-limit：默认仅 2000 行 → 5 万，网页里能往上翻很多历史。此值在「建 pane」时
+//     由 server 读取，必须在建 pane 前就位才对新 pane 生效（建后再改无效）。
+//   mouse on：默认关闭时网页终端滚轮/上滑进不了 tmux copy-mode，只能看当前一屏；开了才能滚。
+//     副作用：桌面端拖选复制改为 Shift+拖选；移动端无影响。
+// 走 -f conf 而非「建会话前 set-option -g」：冷启动（空闲会话全回收、server 已退出）时
+// 无 server 可 set，单起空 server 又因默认 exit-empty 立即自杀，set 必然哑火；-f 在 server
+// 启动时加载 conf，冷/温都生效。
+const tmuxConf = `# mac-fleet-hub fleet-agent 自动生成，勿手改
+set -g history-limit 50000
+set -g mouse on
+`
+
+// writeTmuxConf：启动时写一次 conf 到固定路径，供 ensureTmux 的 tmux -f 引用。
+// 自写而非由 setup-mac.sh 安装：避免新增安装步骤与「线上手改/脚本重渲染」的配置漂移。
+func writeTmuxConf() {
+	if cfg.TmuxConf == "" {
+		return
+	}
+	if err := os.WriteFile(cfg.TmuxConf, []byte(tmuxConf), 0644); err != nil {
+		log.Printf("写 tmux conf 失败（终端回滚/鼠标将用 tmux 默认值）：%v", err)
+	}
+}
+
+// tmuxNewSessionArgs：构造 new-session 参数。-f <conf> 必须排在 new-session 之前——它是
+// tmux 的 server 级标志，放到子命令之后会被当作 new-session 的参数而完全失效。
+func tmuxNewSessionArgs(conf, name, full string) []string {
+	var args []string
+	if conf != "" {
+		args = append(args, "-f", conf)
+	}
+	return append(args, "new-session", "-d", "-s", name, "-x", "220", "-y", "50", "sh", "-c", full)
+}
+
 // 起/复用一个 tmux 会话跑命令
 func ensureTmux(name, cwd, cmd string) error {
 	if tmuxHas(name) {
 		return nil
 	}
-	// 建会话前设全局选项（幂等、best-effort）：
-	//   history-limit：默认仅 2000 行 → 调到 5 万，网页里能往上翻很多历史；
-	//                  此值在「新建 pane」时读取，必须 new-session 之前设好才对新会话生效。
-	//   mouse on：默认关闭时网页终端的滚轮/上滑不会进 tmux copy-mode，只能看当前一屏；
-	//             开了才能滚动翻历史。副作用：桌面端拖选复制改为 Shift+拖选。
-	tmux("set-option", "-g", "history-limit", "50000")
-	tmux("set-option", "-g", "mouse", "on")
 	full := fmt.Sprintf("cd %s; exec %s", shellQuote(cwd), cmd)
-	_, err := tmux("new-session", "-d", "-s", name, "-x", "220", "-y", "50", "sh", "-c", full)
+	_, err := tmux(tmuxNewSessionArgs(cfg.TmuxConf, name, full)...)
 	return err
 }
 func shellQuote(s string) string {
@@ -1048,6 +1077,7 @@ func main() {
 func runServer() {
 	cfg = loadConfig()
 	loadProxy()
+	writeTmuxConf()
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/sessions", handleSessions)
 	mux.HandleFunc("/api/projects", handleProjects)
