@@ -59,6 +59,8 @@
   --offline: #5a6473;
   --danger: #ff6b6b;
   --danger-soft: rgba(255, 107, 107, .14);
+  --wait: #d08a45;
+  --wait-soft: rgba(208, 138, 69, .22);
 
   --e1: 0 1px 2px rgba(0, 0, 0, .45);
   --e2: 0 6px 20px rgba(0, 0, 0, .42);
@@ -97,6 +99,8 @@
   --offline: #aab2bf;
   --danger: #dc3b3b;
   --danger-soft: rgba(220, 59, 59, .10);
+  --wait: #9c6321;
+  --wait-soft: rgba(156, 99, 33, .16);
 
   --e1: 0 1px 2px rgba(30, 40, 60, .10);
   --e2: 0 6px 20px rgba(30, 40, 60, .12);
@@ -142,6 +146,8 @@ button { cursor: pointer; border: none; background: none; }
 .dot.on { background: var(--online); box-shadow: 0 0 0 3px color-mix(in srgb, var(--online) 24%, transparent); }
 .dot.off { background: var(--offline); }
 .dot.live { background: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); animation: pulse 1.8s var(--ease) infinite; }
+/* 等待你回复/选择：棕色点 + 轻脉冲提示需要处理（仅 s.waiting 时渲染） */
+.dot.wait { background: var(--wait); box-shadow: 0 0 0 3px var(--wait-soft); animation: pulse 1.8s var(--ease) infinite; }
 @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: .4; } }
 
 /* 徽标 */
@@ -341,9 +347,12 @@ button { cursor: pointer; border: none; background: none; }
 .ses-top .stopbtn { width: 25px; height: 25px; border-radius: 7px; display: none; align-items: center; justify-content: center; color: var(--text-1); font-size: 12px; flex: none; background: var(--surface-2); border: 1px solid var(--border-strong); }
 .ses.conn .stopbtn { display: inline-flex; }
 .ses-top .stopbtn:hover { background: var(--danger-soft); color: var(--danger); border-color: transparent; }
-.ses-meta { font-family: var(--mono); font-size: var(--t-2xs); color: var(--text-2); margin: 3px 0 0 17px; }
+.ses-meta { font-family: var(--mono); font-size: var(--t-2xs); color: var(--text-2); margin: 3px 0 0 0; }
+/* 有等待棕点时，meta/按钮缩进对齐到标题（点 8px + gap 9px = 17px）；无点则齐左 */
+.ses.waiting .ses-meta { margin-left: 17px; }
 /* 操作按钮：仅「选中」时展开（不再 hover 显示） */
-.ses-acts { display: flex; gap: 7px; margin: 9px 0 1px 17px; max-height: 0; overflow: hidden; opacity: 0; transition: max-height var(--dur-2) var(--ease), opacity var(--dur-2) var(--ease); }
+.ses-acts { display: flex; gap: 7px; margin: 9px 0 1px 0; max-height: 0; overflow: hidden; opacity: 0; transition: max-height var(--dur-2) var(--ease), opacity var(--dur-2) var(--ease); }
+.ses.waiting .ses-acts { margin-left: 17px; }
 .ses.sel .ses-acts { max-height: 48px; opacity: 1; }
 
 .newbtn { margin: 10px; padding: 11px; border-radius: 10px; border: 1px dashed var(--border-1); color: var(--text-1); font-weight: 540; font-size: var(--t-sm); display: flex; align-items: center; justify-content: center; gap: 8px; transition: all var(--dur-1) var(--ease); }

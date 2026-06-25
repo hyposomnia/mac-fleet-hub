@@ -281,7 +281,8 @@ function sessionRow(s) {
   const stop = s.pty && h('span', { class: 'stopbtn', title: '终止进程（会话保留）', text: '⏹',
     onclick: (e) => { e.stopPropagation(); termSes(sid, s.title); } });
   const top = h('div', { class: 'ses-top' },
-    h('span', { class: 'dot ' + (s.live ? 'live' : 'off') }),
+    // 默认不显示行首点；仅「等待你回复/选择」(s.waiting) 的会话显示棕色点（后端 waiting 信号驱动）
+    s.waiting && h('span', { class: 'dot wait', title: '等待你的回复 / 选择' }),
     h('span', { class: 't', text: s.title || '(无标题)' }),
     stop,
   );
@@ -297,7 +298,7 @@ function sessionRow(s) {
         h('button', { class: 'btn sm danger', title: 'claude --dangerously-skip-permissions（跳过工具权限确认）',
           onclick: (e) => { e.stopPropagation(); connect(sid, s.title, s.cwd, true); } }, '⚠ Bypass连接'));
   const row = h('div', {
-    class: 'ses' + (s.pty ? ' conn' : '') + (sid === state.selectedSid ? ' sel' : ''),
+    class: 'ses' + (s.pty ? ' conn' : '') + (s.waiting ? ' waiting' : '') + (sid === state.selectedSid ? ' sel' : ''),
     dataset: { sid },
   }, top, h('div', { class: 'ses-meta', text: meta }), acts);
   row.onclick = () => selectSes(sid);
