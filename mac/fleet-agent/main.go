@@ -124,7 +124,8 @@ type Session struct {
 	Title     string `json:"title"`
 	GitBranch string `json:"gitBranch"`
 	Mtime     int64  `json:"mtime"` // 毫秒
-	Live      bool   `json:"live"`
+	Live      bool   `json:"live"`  // Desktop 未归档（活跃）
+	Pty       bool   `json:"pty"`   // 控制台已为该会话起过 fleet tmux（有可终止/可回到的进程）
 }
 
 // jsonl 行（只取需要字段）
@@ -483,6 +484,22 @@ func tmuxHas(name string) bool {
 	_, err := tmux("has-session", "-t", name)
 	return err == nil
 }
+
+// fleetTmuxSet：一次列出所有 fleet-* tmux 会话名 → 集合，供 handleSessions 标记每个会话是否「开了 pty」。
+// 比逐会话 tmux has-session 便宜（一次调用），避免会话多时 N 次 exec。
+func fleetTmuxSet() map[string]bool {
+	set := map[string]bool{}
+	out, err := tmux("list-sessions", "-F", "#{session_name}")
+	if err != nil {
+		return set
+	}
+	for _, ln := range strings.Split(strings.TrimSpace(out), "\n") {
+		if strings.HasPrefix(ln, "fleet-") {
+			set[ln] = true
+		}
+	}
+	return set
+}
 func shortSid(sessionID string) string {
 	id := strings.ReplaceAll(sessionID, "-", "")
 	if len(id) > 10 {
@@ -638,6 +655,11 @@ func httpTmuxErr(w http.ResponseWriter, err error) {
 
 func handleSessions(w http.ResponseWriter, r *http.Request) {
 	all := scanSessions()
+	// 标记每个会话是否已有 fleet tmux 进程（前端据此显示「终止」「进入连接」）
+	ptySet := fleetTmuxSet()
+	for i := range all {
+		all[i].Pty = ptySet[shortSid(all[i].SessionID)]
+	}
 	scope := r.URL.Query().Get("scope")
 	list := all
 	if scope == "active" {

@@ -321,7 +321,9 @@ button { cursor: pointer; border: none; background: none; }
 .grp { margin-bottom: var(--s2); }
 .grp-h { display: flex; align-items: center; gap: 9px; width: 100%; text-align: left; padding: 10px 10px; border-radius: 9px; transition: background var(--dur-1) var(--ease); }
 .grp-h:hover { background: var(--surface-1); }
-.grp-h .chev { color: var(--text-2); font-size: 10px; width: 12px; transition: transform var(--dur-1) var(--ease); flex: none; }
+/* 折叠箭头：内联 SVG chevron（替代过淡的 Unicode ▾）。stroke=currentColor，靠 color 上色 */
+.grp-h .chev { width: 16px; height: 16px; color: var(--text-1); flex: none; transition: transform var(--dur-1) var(--ease); }
+.grp-h:hover .chev { color: var(--text); }
 .grp.collapsed .chev { transform: rotate(-90deg); }
 .grp-h .gn { font-weight: 680; font-size: var(--t-base); color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .grp-h .gp { font-family: var(--mono); font-size: var(--t-2xs); color: var(--text-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -335,9 +337,9 @@ button { cursor: pointer; border: none; background: none; }
 .ses-top { display: flex; align-items: center; gap: 9px; }
 .ses-top .dot { flex: none; }
 .ses-top .t { flex: 1; font-weight: 550; font-size: var(--t-sm); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-/* 终止进程图标：仅「连接过 / 有进程」(.conn) 的会话在选中时显示；非删除，终止后会话仍保留 */
+/* 终止进程图标：仅「已开 pty / 有进程」(.conn) 的会话显示（不论是否选中）；非删除，终止后会话仍保留 */
 .ses-top .stopbtn { width: 25px; height: 25px; border-radius: 7px; display: none; align-items: center; justify-content: center; color: var(--text-1); font-size: 12px; flex: none; background: var(--surface-2); border: 1px solid var(--border-strong); }
-.ses.sel.conn .stopbtn { display: inline-flex; }
+.ses.conn .stopbtn { display: inline-flex; }
 .ses-top .stopbtn:hover { background: var(--danger-soft); color: var(--danger); border-color: transparent; }
 .ses-meta { font-family: var(--mono); font-size: var(--t-2xs); color: var(--text-2); margin: 3px 0 0 17px; }
 /* 操作按钮：仅「选中」时展开（不再 hover 显示） */

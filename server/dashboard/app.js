@@ -34,12 +34,28 @@ function h(tag, props, ...kids) {
 }
 function clear(el) { el.replaceChildren(); }
 
+// 内联 SVG 图标（SVG 元素须用命名空间 createElementNS，不能走 h() 的 createElement；不用 innerHTML）。
+// 目前仅折叠箭头用——Unicode ▾ 太淡，换成描边 chevron 更清晰。
+function svgIcon(cls, pathD) {
+  const NS = 'http://www.w3.org/2000/svg';
+  const svg = document.createElementNS(NS, 'svg');
+  for (const [k, v] of [['class', cls], ['viewBox', '0 0 24 24'], ['fill', 'none'],
+    ['stroke', 'currentColor'], ['stroke-width', '2.5'], ['stroke-linecap', 'round'], ['stroke-linejoin', 'round']]) {
+    svg.setAttribute(k, v);
+  }
+  const p = document.createElementNS(NS, 'path');
+  p.setAttribute('d', pathD);
+  svg.appendChild(p);
+  return svg;
+}
+
 const state = {
   macId: null,
   mode: 'claude',        // claude | files
   scope: 'active',       // active | all
   termSid: null,         // 当前终端 tmux 会话名（watch / reload 用）
   termUrl: null,         // 当前终端 iframe URL（files↔claude 切换后恢复用）
+  termSessionId: null,   // 当前终端对应的 claude sessionId（判断「进入连接」是否就是当前终端）
   selectedSid: null,     // 当前选中的 claude sessionId（高亮 + 展开按钮）
   curTitle: '',          // 当前终端标题
   curCwd: '',            // 当前终端会话目录（用于头部 meta）
@@ -138,7 +154,7 @@ function selectMac(id) {
   state.macId = id;
   // 切主机：放弃上一台的终端视图与选中态（tmux 在那台机上仍持久保留）
   $('#app').classList.remove('term-open');
-  state.termSid = null; state.termUrl = null; state.selectedSid = null;
+  state.termSid = null; state.termUrl = null; state.termSessionId = null; state.selectedSid = null;
   renderHosts();
   closeMenus();
   if (state.mode === 'files') loadFiles();
@@ -208,8 +224,12 @@ function setMode(mode) {
 // ============================================================
 async function loadSessions() {
   if (state.mode !== 'claude' || !state.macId) return;
-  const wrap = $('#session-groups'); clear(wrap);
-  for (let i = 0; i < 3; i++) wrap.append(h('div', { class: 'skel-ses' }, h('div', { class: 'skel l1' }), h('div', { class: 'skel l2' })));
+  const wrap = $('#session-groups');
+  // 仅列表为空（首次/切主机）才显示骨架；刷新已有内容时保留旧内容直到新数据就绪，避免闪
+  if (!wrap.querySelector('.grp, .empty')) {
+    clear(wrap);
+    for (let i = 0; i < 3; i++) wrap.append(h('div', { class: 'skel-ses' }, h('div', { class: 'skel l1' }), h('div', { class: 'skel l2' })));
+  }
 
   let data;
   try { data = await api(state.macId, `sessions?scope=${state.scope}`); }
@@ -237,7 +257,7 @@ async function loadSessions() {
   for (const g of ordered) {
     const collapsed = state.collapsed.has(g.cwd);
     const head = h('button', { class: 'grp-h' },
-      h('span', { class: 'chev', text: '▾' }),
+      svgIcon('chev', 'M6 9l6 6 6-6'),
       h('span', { class: 'gn', text: projName(g.cwd) }),
       h('span', { class: 'gp', text: projDir(g.cwd) }),
       h('span', { class: 'gc badge', text: String(g.arr.length) }),
@@ -253,10 +273,12 @@ async function loadSessions() {
   }
 }
 
-// 会话行：点行 = 仅选中；选中后展开「连接 / Bypass连接」；live(.conn) 会话选中后显示「终止 ⏹」。
+// 会话行：点行 = 仅选中。
+// 已开 pty（控制台起过进程）的会话：恒显「终止 ⏹」（不论是否选中），选中后按钮为「进入连接」(回到已有终端，不重连)。
+// 未开 pty 的会话：无 ⏹，选中后展开「连接 / ⚠ Bypass连接」。
 function sessionRow(s) {
   const sid = s.sessionId;
-  const stop = s.live && h('span', { class: 'stopbtn', title: '终止进程（会话保留）', text: '⏹',
+  const stop = s.pty && h('span', { class: 'stopbtn', title: '终止进程（会话保留）', text: '⏹',
     onclick: (e) => { e.stopPropagation(); termSes(sid, s.title); } });
   const top = h('div', { class: 'ses-top' },
     h('span', { class: 'dot ' + (s.live ? 'live' : 'off') }),
@@ -264,14 +286,18 @@ function sessionRow(s) {
     stop,
   );
   const meta = (s.gitBranch ? s.gitBranch + ' · ' : '') + relTime(s.mtime);
-  const acts = h('div', { class: 'ses-acts' },
-    h('button', { class: 'btn sm accent', onclick: (e) => { e.stopPropagation(); connect(sid, s.title, s.cwd, false); } },
-      h('span', { class: 'gi', text: '→' }), '连接'),
-    h('button', { class: 'btn sm danger', title: 'claude --dangerously-skip-permissions（跳过工具权限确认）',
-      onclick: (e) => { e.stopPropagation(); connect(sid, s.title, s.cwd, true); } }, '⚠ Bypass连接'),
-  );
+  const acts = s.pty
+    ? h('div', { class: 'ses-acts' },
+        h('button', { class: 'btn sm accent', title: '回到已有终端（进程已在运行，不重连）',
+          onclick: (e) => { e.stopPropagation(); connect(sid, s.title, s.cwd, false); } },
+          h('span', { class: 'gi', text: '→' }), '进入连接'))
+    : h('div', { class: 'ses-acts' },
+        h('button', { class: 'btn sm accent', onclick: (e) => { e.stopPropagation(); connect(sid, s.title, s.cwd, false); } },
+          h('span', { class: 'gi', text: '→' }), '连接'),
+        h('button', { class: 'btn sm danger', title: 'claude --dangerously-skip-permissions（跳过工具权限确认）',
+          onclick: (e) => { e.stopPropagation(); connect(sid, s.title, s.cwd, true); } }, '⚠ Bypass连接'));
   const row = h('div', {
-    class: 'ses' + (s.live ? ' conn' : '') + (sid === state.selectedSid ? ' sel' : ''),
+    class: 'ses' + (s.pty ? ' conn' : '') + (sid === state.selectedSid ? ' sel' : ''),
     dataset: { sid },
   }, top, h('div', { class: 'ses-meta', text: meta }), acts);
   row.onclick = () => selectSes(sid);
@@ -288,13 +314,20 @@ function selectSes(sid) {
 // ============================================================
 async function connect(sessionId, title, cwd, bypass) {
   selectSes(sessionId);
+  // 「进入连接」：已是当前终端则仅回到该视图，不重连、不重载（tmux 进程一直在）
+  if (state.termSessionId === sessionId && state.termSid) {
+    if (isMobile()) $('#app').classList.add('term-open');
+    return;
+  }
   try {
     const r = await api(state.macId, 'open', {
       method: 'POST', headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ sessionId, bypass: !!bypass }),
     });
     state.selectedSid = sessionId;
+    state.termSessionId = sessionId;
     enterTerm(r.url, r.sid, title || '会话', cwd, !!r.bypass);
+    loadSessions(); // 刷新 pty 标记：该会话现在有进程 → 行变「进入连接」+ 显示 ⏹（无骨架闪）
   } catch (e) { toast('连接失败：' + e.message, 'err'); }
 }
 
@@ -305,6 +338,7 @@ function newSessionIn(cwd) {
     body: JSON.stringify({ cwd }),
   }).then((r) => {
     state.selectedSid = null;
+    state.termSessionId = null;
     enterTerm(r.url, r.sid, '新会话 · ' + projName(cwd), cwd, !!r.bypass);
   }).catch((e) => toast('新建失败：' + e.message, 'err'));
 }
@@ -420,7 +454,6 @@ async function showProjects() {
           h('div', { class: 'pn', text: projName(p.cwd) }),
           h('div', { class: 'pm', text: projDir(p.cwd) + ' · ' + p.count + ' 个会话' }),
         ),
-        h('span', { class: 'add', text: '＋' }),
       );
       el.onclick = () => newSessionIn(p.cwd);
       list.append(el);
