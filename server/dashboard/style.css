@@ -320,7 +320,9 @@ button { cursor: pointer; border: none; background: none; }
    ============================================================ */
 #sescol { background: var(--bg); border-right: 1px solid var(--border); display: flex; flex-direction: column; }
 .sc-head { display: flex; align-items: center; gap: 10px; padding: 14px 14px 10px; border-bottom: 1px solid var(--border); }
+/* 筛选条撑满本行后，按钮也各占一半填满（否则容器被 flex:1 拉宽、按钮却挤在左边留大片空白） */
 .sc-head .seg { flex: 1; }
+.sc-head .seg button { flex: 1; text-align: center; }
 .sc-body { flex: 1; overflow-y: auto; padding: 10px; }
 
 .grp { margin-bottom: var(--s2); }
