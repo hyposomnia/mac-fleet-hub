@@ -42,6 +42,8 @@ var (
 	lockMin     = envInt("ENROLL_LOCK_MIN", 15)       // 锁定分钟
 	// Mac 的 web 显示名（仅供 PWA 展示，不改真实主机名）。存网关、所有浏览器共享。
 	namesFile = envOr("ENROLL_NAMES_FILE", "/var/lib/fleet-enroll/names.json")
+	// dashboard 偏好（终端 iframe 池上限 / 回滚行数，桌面与移动各一套）。存网关、所有浏览器共享。
+	settingsFile = envOr("ENROLL_SETTINGS_FILE", "/var/lib/fleet-enroll/dashboard-settings.json")
 )
 
 func envOr(k, d string) string { if v := os.Getenv(k); v != "" { return v }; return d }
@@ -390,6 +392,93 @@ func handleNames(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// ---------------- dashboard 偏好（网关存储，PWA 共享） ----------------
+// 终端 iframe 池上限与每窗口回滚行数，桌面 / 移动各一套。暴露在 nginx 的 /api/settings
+// （经 Authelia auth_request 保护），写操作须已登录。存 settingsFile 的 JSON。
+type dashSettings struct {
+	DesktopMaxWindows int `json:"desktopMaxWindows"`
+	DesktopScrollback int `json:"desktopScrollback"`
+	MobileMaxWindows  int `json:"mobileMaxWindows"`
+	MobileScrollback  int `json:"mobileScrollback"`
+}
+
+func defaultSettings() dashSettings {
+	return dashSettings{DesktopMaxWindows: 10, DesktopScrollback: 5000, MobileMaxWindows: 4, MobileScrollback: 5000}
+}
+
+// clampOr：v 为 0（缺省/未填）回退 def，否则钳到 [lo,hi]。
+func clampOr(v, lo, hi, def int) int {
+	if v == 0 {
+		return def
+	}
+	if v < lo {
+		return lo
+	}
+	if v > hi {
+		return hi
+	}
+	return v
+}
+
+// normalize：把任意输入收敛到合法范围，缺省项回退默认。上限留足余量（真正天花板是系统 pty 池）。
+func (s *dashSettings) normalize() {
+	d := defaultSettings()
+	s.DesktopMaxWindows = clampOr(s.DesktopMaxWindows, 1, 30, d.DesktopMaxWindows)
+	s.MobileMaxWindows = clampOr(s.MobileMaxWindows, 1, 12, d.MobileMaxWindows)
+	s.DesktopScrollback = clampOr(s.DesktopScrollback, 200, 100000, d.DesktopScrollback)
+	s.MobileScrollback = clampOr(s.MobileScrollback, 200, 100000, d.MobileScrollback)
+}
+
+var settingsMu sync.Mutex
+
+func loadSettings() dashSettings {
+	settingsMu.Lock()
+	defer settingsMu.Unlock()
+	s := dashSettings{}
+	if b, err := os.ReadFile(settingsFile); err == nil {
+		json.Unmarshal(b, &s)
+	}
+	s.normalize() // 缺文件/缺字段都回退默认
+	return s
+}
+
+func saveSettingsLocked(s dashSettings) error {
+	b, err := json.Marshal(s)
+	if err != nil {
+		return err
+	}
+	tmp := settingsFile + ".tmp"
+	if err := os.WriteFile(tmp, b, 0644); err != nil {
+		return err
+	}
+	return os.Rename(tmp, settingsFile)
+}
+
+func handleSettings(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodGet:
+		writeJSON(w, 200, loadSettings())
+	case http.MethodPost:
+		var req dashSettings
+		if json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<12)).Decode(&req) != nil {
+			writeErr(w, 400, "请求格式错误")
+			return
+		}
+		req.normalize()
+		settingsMu.Lock()
+		err := saveSettingsLocked(req)
+		settingsMu.Unlock()
+		if err != nil {
+			log.Printf("保存 dashboard 偏好失败: %v", err)
+			writeErr(w, 500, "保存失败")
+			return
+		}
+		writeJSON(w, 200, req)
+	default:
+		http.Error(w, "method not allowed", 405)
+	}
+}
+
 func main() {
 	// 子命令：-show-uri 打印 otpauth URI（供 setup 显示二维码）；secret 不存在则报错提示先生成。
 	if len(os.Args) > 1 && os.Args[1] == "-show-uri" {
@@ -404,6 +493,7 @@ func main() {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/join", handleJoin)
 	mux.HandleFunc("/names", handleNames)
+	mux.HandleFunc("/settings", handleSettings)
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) { w.Write([]byte("ok")) })
 	log.Printf("fleet-enroll 监听 %s（login=%s, hsUser=%s）", listen, loginServer, hsUser)
 	srv := &http.Server{Addr: listen, Handler: mux, ReadTimeout: 10 * time.Second, WriteTimeout: 15 * time.Second}

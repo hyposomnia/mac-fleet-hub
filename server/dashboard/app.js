@@ -77,7 +77,13 @@ const state = {
   counts: {},            // id -> 活跃会话数（主机栏/主机条展示）
   collapsed: new Set(),  // 已折叠的分组 cwd
   watchTimer: null,
+  pool: [],              // 终端 iframe 池：每个打开的会话一个常驻 iframe（见「终端 iframe 池」段）
+  current: null,         // 当前显示的池条目（null = 空态 / 文件模式）
+  settings: null,        // dashboard 偏好（窗口上限/回滚行数，网关存；GET /api/settings）
 };
+
+// 偏好默认（拉取失败/未设时回退，与 server/enroll defaultSettings 对齐）
+const SETTINGS_DEFAULT = { desktopMaxWindows: 10, desktopScrollback: 5000, mobileMaxWindows: 4, mobileScrollback: 5000 };
 
 // ---------- 工具 ----------
 const isMobile = () => matchMedia('(max-width: 860px)').matches;
@@ -140,16 +146,15 @@ const XTERM_THEME = {
     white: '#e2e6ec', brightWhite: '#ffffff',
   },
 };
-function applyTermTheme(retries = 20) {
-  let term;
-  try { term = $('#frame').contentWindow.term; } catch (_) { return; } // 跨源等异常直接放弃
-  if (!term || !term.options) {
-    // iframe/WS 还没就绪：短轮询重试，直到 xterm 实例出现
-    if (retries > 0) setTimeout(() => applyTermTheme(retries - 1), 150);
-    return;
-  }
+// 切主题时给池里所有已就绪的终端换肤（新加载的终端在 hookTerm 里首次套用）。
+function applyTermTheme() {
   const mode = document.documentElement.getAttribute('data-theme') === 'light' ? 'light' : 'dark';
-  try { term.options.theme = XTERM_THEME[mode]; } catch (_) {}
+  for (const e of state.pool) {
+    try {
+      const t = e.iframe.contentWindow.term;
+      if (t && t.options) t.options.theme = XTERM_THEME[mode];
+    } catch (_) {}
+  }
 }
 function initTheme() {
   let t;
@@ -206,13 +211,14 @@ function renderHosts() {
 
 function selectMac(id) {
   state.macId = id;
-  // 切主机：放弃上一台的终端视图与选中态（tmux 在那台机上仍持久保留）
+  // 切主机：终端回空态（不自动复用上一台的窗口）。池条目按 macId 保留、仍占 pty；
+  // 选中本台某个已开会话会瞬时显示（poolFind 按 macId 匹配）。
   $('#app').classList.remove('term-open');
-  state.termSid = null; state.termUrl = null; state.termSessionId = null; state.selectedSid = null;
+  state.selectedSid = null;
   renderHosts();
   closeMenus();
   if (state.mode === 'files') loadFiles();
-  else { loadSessions(); restoreTermOrEmpty(); }
+  else { loadSessions(); showEmpty(); }
 }
 
 // ============================================================
@@ -259,6 +265,51 @@ async function refreshNames() {
     macNames = (await r.json()) || {};
     renderHosts();
   } catch (_) {}
+}
+
+// ============================================================
+//  dashboard 偏好（终端窗口上限 / 回滚行数，gateway 存，所有浏览器共享）
+// ============================================================
+async function refreshSettings() {
+  try {
+    const r = await fetch(`${BASE}/api/settings`, { cache: 'no-store' });
+    if (r.ok) { state.settings = { ...SETTINGS_DEFAULT, ...(await r.json()) }; return; }
+  } catch (_) {}
+  if (!state.settings) state.settings = { ...SETTINGS_DEFAULT }; // 拉取失败：用默认，不阻塞
+}
+function openSettings() {
+  const s = state.settings || SETTINGS_DEFAULT;
+  $('#st-dmax').value = s.desktopMaxWindows;
+  $('#st-dscroll').value = s.desktopScrollback;
+  $('#st-mmax').value = s.mobileMaxWindows;
+  $('#st-mscroll').value = s.mobileScrollback;
+  openOverlay('settings-modal');
+}
+async function saveSettings() {
+  const body = {
+    desktopMaxWindows: parseInt($('#st-dmax').value, 10) || 0,
+    desktopScrollback: parseInt($('#st-dscroll').value, 10) || 0,
+    mobileMaxWindows: parseInt($('#st-mmax').value, 10) || 0,
+    mobileScrollback: parseInt($('#st-mscroll').value, 10) || 0,
+  };
+  try {
+    const r = await fetch(`${BASE}/api/settings`, {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body),
+    });
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    state.settings = { ...SETTINGS_DEFAULT, ...(await r.json()) }; // 服务端 normalize 后的真实值
+    closeOverlay('settings-modal');
+    toast('设置已保存', 'ok');
+    poolEvict();              // 上限调小 → 立即按新上限释放多余窗口
+    applyScrollbackToPool();  // 回滚行数即时作用到已开终端
+  } catch (e) { toast('保存失败：' + e.message, 'err'); }
+}
+// 把当前回滚行数应用到池里所有已就绪终端（保存设置后即时生效）。
+function applyScrollbackToPool() {
+  const n = poolScrollback();
+  for (const e of state.pool) {
+    try { const t = e.iframe.contentWindow.term; if (t && t.options) t.options.scrollback = n; } catch (_) {}
+  }
 }
 
 // ============================================================
@@ -364,26 +415,129 @@ function sessionRow(s) {
 function selectSes(sid) {
   state.selectedSid = sid;
   $$('.ses').forEach((el) => el.classList.toggle('sel', el.dataset.sid === sid));
+  // 已在池中的会话：选中即瞬时切换，不必再点「进入连接」
+  const e = poolFind(state.macId, sid);
+  if (e) poolShow(e);
+}
+
+// ============================================================
+//  终端 iframe 池
+//  每个打开过的会话一个常驻 iframe，全尺寸叠放在 #frames 里，靠 .show 显隐切换
+//  （visibility 而非 display:none——后者会把 iframe 尺寸塌成 0、ttyd 把 pty resize 成
+//   0×0、Claude TUI 排版炸掉）。池内会话全程保持实时、不掉线；切换 = 改 class，瞬时。
+//  超上限按「最后收到输出时间」LRU 释放（排除当前窗口）：关 iframe → WS 断 →
+//   tmux detach → 释放 1 个 pty；后台 Claude 进程不受影响，再点回来重新 attach。
+// ============================================================
+const curFrame = () => (state.current ? state.current.iframe : $('#frame'));
+function poolMax() { const s = state.settings || SETTINGS_DEFAULT; return isMobile() ? s.mobileMaxWindows : s.desktopMaxWindows; }
+function poolScrollback() { const s = state.settings || SETTINGS_DEFAULT; return isMobile() ? s.mobileScrollback : s.desktopScrollback; }
+function poolFind(macId, sessionId) {
+  if (!sessionId) return null;
+  return state.pool.find((e) => e.macId === macId && e.sessionId === sessionId) || null;
+}
+
+// xterm 就绪后（ttyd 异步初始化，轮询等它出现）：套主题 + 设回滚行数 + 包 term.write
+// 记「最后收到输出时间」（LRU 释放依据）。
+function hookTerm(entry, retries = 30) {
+  let term;
+  try { term = entry.iframe.contentWindow.term; } catch (_) { return; }
+  if (!term || !term.options) { if (retries > 0) setTimeout(() => hookTerm(entry, retries - 1), 150); return; }
+  const mode = document.documentElement.getAttribute('data-theme') === 'light' ? 'light' : 'dark';
+  try { term.options.theme = XTERM_THEME[mode]; } catch (_) {}
+  try { term.options.scrollback = poolScrollback(); } catch (_) {}
+  if (!term.__fleetHooked) {
+    term.__fleetHooked = true;
+    const orig = term.write.bind(term);
+    term.write = (...a) => { entry.lastOutput = Date.now(); return orig(...a); };
+  }
+}
+
+// 关掉一个池条目（释放其 pty）。后台 tmux/Claude 不受影响。
+function poolDrop(entry) {
+  const i = state.pool.indexOf(entry);
+  if (i >= 0) state.pool.splice(i, 1);
+  try { entry.iframe.remove(); } catch (_) {}
+  if (state.current === entry) state.current = null;
+}
+
+// 超上限释放：非当前窗口里「最后收到输出时间」最早的先释放。
+function poolEvict() {
+  const max = poolMax();
+  while (state.pool.length > max) {
+    let victim = null;
+    for (const e of state.pool) {
+      if (e === state.current) continue;
+      if (!victim || e.lastOutput < victim.lastOutput) victim = e;
+    }
+    if (!victim) break; // 只剩当前窗口，不再释放
+    poolDrop(victim);
+  }
+}
+
+// 显示某个池条目（隐藏文件 iframe 与其余终端，仅它 .show）。
+function poolShow(entry) {
+  state.current = entry;
+  // 同步老字段，watch / reload / resize / 移动输入坞复用
+  state.termSid = entry.sid; state.termUrl = entry.url; state.termSessionId = entry.sessionId;
+  state.curTitle = entry.title; state.curCwd = entry.cwd; state.bypass = entry.bypass;
+  $('#frame').classList.remove('show');
+  for (const e of state.pool) e.iframe.classList.toggle('show', e === entry);
+  $('#empty-state').hidden = true;
+  $('#reconnect-btn').hidden = false;
+  $('#fullscreen-btn').hidden = false;
+  $('#mobile-input').hidden = !isMobile();
+  renderTermHead();
+  if (isMobile()) $('#app').classList.add('term-open');
+  closeMenus();
+  startWatch();
+}
+
+// 空态：隐藏所有 iframe，复位头部。
+function showEmpty() {
+  state.current = null;
+  state.termSid = state.termUrl = state.termSessionId = null;
+  for (const e of state.pool) e.iframe.classList.remove('show');
+  $('#frame').classList.remove('show');
+  $('#empty-state').hidden = false;
+  $('#reconnect-btn').hidden = true;
+  $('#fullscreen-btn').hidden = true;
+  $('#mobile-input').hidden = true;
+  stopWatch(); hideBanner();
+  const tt = $('#win-title'); clear(tt); tt.append(h('span', { class: 'ttl', text: '选择一个会话' }));
+  $('#win-meta').textContent = '选中会话后点「连接」打开终端';
+}
+
+// 新建一个池条目（新 iframe）并显示，随后按上限 LRU 回收。
+function poolAdd(macId, sessionId, sid, url, title, cwd, bypass) {
+  const iframe = document.createElement('iframe');
+  iframe.className = 'term-frame';
+  iframe.title = 'window';
+  iframe.setAttribute('allow', 'clipboard-read; clipboard-write');
+  const entry = { macId, sessionId: sessionId || null, sid, url, title: title || '会话', cwd: cwd || '', bypass: !!bypass, iframe, lastOutput: Date.now() };
+  iframe.addEventListener('load', () => hookTerm(entry)); // 每次加载/重连后套主题+回滚+记输出
+  $('#frames').appendChild(iframe);
+  iframe.src = url;
+  state.pool.push(entry);
+  poolShow(entry);
+  poolEvict();
+  return entry;
 }
 
 // ============================================================
 //  连接 / 新建 → 终端 iframe（F1：bypass）
 // ============================================================
 async function connect(sessionId, title, cwd, bypass) {
-  selectSes(sessionId);
-  // 「进入连接」：已是当前终端则仅回到该视图，不重连、不重载（tmux 进程一直在）
-  if (state.termSessionId === sessionId && state.termSid) {
-    if (isMobile()) $('#app').classList.add('term-open');
-    return;
-  }
+  selectSes(sessionId); // 已在池则 selectSes 已瞬时切过去；这里再确保权限模式一致
+  const exist = poolFind(state.macId, sessionId);
+  if (exist && exist.bypass === !!bypass) { poolShow(exist); return; } // 池内：瞬时切回，不重连
+  if (exist) poolDrop(exist); // 权限模式变了（普通↔bypass）→ 丢弃旧窗口重开
   try {
     const r = await api(state.macId, 'open', {
       method: 'POST', headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ sessionId, bypass: !!bypass }),
     });
     state.selectedSid = sessionId;
-    state.termSessionId = sessionId;
-    enterTerm(r.url, r.sid, title || '会话', cwd, !!r.bypass);
+    poolAdd(state.macId, sessionId, r.sid, r.url, title || '会话', cwd, !!r.bypass);
     loadSessions(); // 刷新 pty 标记：该会话现在有进程 → 行变「进入连接」+ 显示 ⏹（无骨架闪）
   } catch (e) { toast('连接失败：' + e.message, 'err'); }
 }
@@ -395,26 +549,8 @@ function newSessionIn(cwd) {
     body: JSON.stringify({ cwd }),
   }).then((r) => {
     state.selectedSid = null;
-    state.termSessionId = null;
-    enterTerm(r.url, r.sid, '新会话 · ' + projName(cwd), cwd, !!r.bypass);
+    poolAdd(state.macId, null, r.sid, r.url, '新会话 · ' + projName(cwd), cwd, !!r.bypass);
   }).catch((e) => toast('新建失败：' + e.message, 'err'));
-}
-
-function enterTerm(url, sid, title, cwd, bypass) {
-  state.termSid = sid || null;
-  state.termUrl = url;
-  state.curTitle = title || '会话';
-  state.curCwd = cwd || '';
-  state.bypass = !!bypass;
-  $('#frame').src = url;
-  $('#empty-state').hidden = true;
-  $('#reconnect-btn').hidden = false;
-  $('#fullscreen-btn').hidden = false;
-  $('#mobile-input').hidden = !isMobile();
-  renderTermHead();
-  if (isMobile()) $('#app').classList.add('term-open');
-  closeMenus();
-  startWatch();
 }
 
 // 终端头：状态点 + 标题（bypass 时追加「⚠ 跳过权限」徽标）+ 权限模式 meta
@@ -427,26 +563,10 @@ function renderTermHead() {
     + (state.bypass ? '⚠ 跳过权限模式' : '正常权限');
 }
 
-// 切回会话模式：有终端则恢复，无则空态
+// 切回会话模式：当前池条目仍在则显示，否则空态。
 function restoreTermOrEmpty() {
-  if (state.termSid) {
-    $('#frame').src = state.termUrl;
-    $('#empty-state').hidden = true;
-    $('#reconnect-btn').hidden = false;
-    $('#fullscreen-btn').hidden = false;
-    $('#mobile-input').hidden = !isMobile();
-    renderTermHead();
-    startWatch();
-  } else {
-    $('#frame').removeAttribute('src');
-    $('#empty-state').hidden = false;
-    $('#reconnect-btn').hidden = true;
-    $('#fullscreen-btn').hidden = true;
-    $('#mobile-input').hidden = true;
-    stopWatch(); hideBanner();
-    const tt = $('#win-title'); clear(tt); tt.append(h('span', { class: 'ttl', text: '选择一个会话' }));
-    $('#win-meta').textContent = '选中会话后点「连接」打开终端';
-  }
+  if (state.current && state.pool.includes(state.current)) poolShow(state.current);
+  else showEmpty();
 }
 
 // 移动端从终端「返回」：仅收起 push，不结束进程（tmux 持久）
@@ -459,7 +579,10 @@ function loadFiles() {
   if (!state.macId) return;
   stopWatch(); hideBanner();
   $('#app').classList.remove('term-open');
+  state.current = null;                                  // 文件模式：脱离终端池（reconnect/reload 转而作用于 #frame）
+  for (const e of state.pool) e.iframe.classList.remove('show');
   $('#frame').src = `${apiBase(state.macId)}/files/`;
+  $('#frame').classList.add('show');
   $('#empty-state').hidden = true;
   $('#reconnect-btn').hidden = false;
   $('#fullscreen-btn').hidden = false;
@@ -490,7 +613,8 @@ async function doReload() {
   try { await api(state.macId, 'reload', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ sid: state.termSid }) }); }
   catch (_) {}
   hideBanner();
-  try { $('#frame').contentWindow.location.reload(); } catch (_) { const f = $('#frame'); f.src = f.src; }
+  const f = curFrame();
+  try { f.contentWindow.location.reload(); } catch (_) { f.src = f.src; }
 }
 
 // ============================================================
@@ -536,11 +660,12 @@ async function closeSession() {
       body: JSON.stringify({ sessionId: sid }),
     });
     toast(r.killed ? '已终止该会话进程（会话保留）' : '该会话没有正在运行的控制台进程', r.killed ? 'ok' : 'info');
-    // 终止的就是当前终端：回到空状态（否则 iframe 停在 ttyd 的 [exited]/Press ⏎ to Reconnect）
-    if (state.termSessionId === sid) {
-      state.termSid = null; state.termUrl = null; state.termSessionId = null;
-      $('#app').classList.remove('term-open');
-      restoreTermOrEmpty();
+    // 终止后把该会话从池里移除（进程已结束，留着 iframe 只会停在 [exited]/Press ⏎ to Reconnect）。
+    const ent = poolFind(state.macId, sid);
+    if (ent) {
+      const wasCurrent = ent === state.current;
+      poolDrop(ent);
+      if (wasCurrent) { $('#app').classList.remove('term-open'); restoreTermOrEmpty(); }
     }
   } catch (e) { toast('终止失败：' + e.message, 'err'); }
   loadSessions();
@@ -633,7 +758,7 @@ function toggleMenu(id, e) {
 // ============================================================
 let ctrlHeld = false;
 function sendToTerm(text, key) {
-  const win = $('#frame').contentWindow;
+  const win = curFrame().contentWindow;
   try {
     const t = win && win.term;
     if (t && typeof t.paste === 'function' && text) { t.focus(); t.paste(text); return true; }
@@ -674,6 +799,7 @@ function init() {
   initTheme();
   renderHosts();
   refreshNames();
+  refreshSettings();
   refreshNodes(); setInterval(refreshNodes, 30000);
   wireMobileInput();
 
@@ -693,8 +819,7 @@ function init() {
   $('#win-back').onclick = backToList;
   $('#reload-btn').onclick = doReload;
   $('#reload-dismiss').onclick = hideBanner;
-  $('#frame').addEventListener('load', () => applyTermTheme()); // 每次终端加载/重连后套用当前主题
-  $('#reconnect-btn').onclick = () => { try { $('#frame').contentWindow.location.reload(); } catch (_) { const f = $('#frame'); f.src = f.src; } };
+  $('#reconnect-btn').onclick = () => { const f = curFrame(); try { f.contentWindow.location.reload(); } catch (_) { f.src = f.src; } };
   $('#fullscreen-btn').onclick = () => $('.win-body').requestFullscreen?.();
 
   // 用户菜单（主题切换已收进菜单内 data-act="theme"，不再单独占一行）
@@ -702,8 +827,14 @@ function init() {
   $('#m-menu-btn').onclick = (e) => toggleMenu('m-menu', e);
   $$('#usermenu button, #m-menu button').forEach((b) => {
     if (!b.dataset.act) return;
-    b.onclick = () => { closeMenus(); if (b.dataset.act === 'theme') toggleTheme(); else if (b.dataset.act === 'logout') doLogout(); };
+    b.onclick = () => {
+      closeMenus();
+      if (b.dataset.act === 'theme') toggleTheme();
+      else if (b.dataset.act === 'settings') openSettings();
+      else if (b.dataset.act === 'logout') doLogout();
+    };
   });
+  $('#st-save').onclick = saveSettings;
   $('#m-info-btn').onclick = () => { if (state.macId) openHostModal(state.macId); };
 
   // 弹窗 / 抽屉

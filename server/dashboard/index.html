@@ -37,6 +37,7 @@
         </button>
         <div id="usermenu" class="menu" hidden>
           <button data-act="theme"><span class="gi">◐</span>切换主题</button>
+          <button data-act="settings"><span class="gi">⚙</span>设置</button>
           <div class="sep"></div>
           <button data-act="logout" class="danger"><span class="gi">⏻</span>退出登录</button>
         </div>
@@ -50,6 +51,7 @@
       <button id="m-menu-btn" class="iconbtn" title="菜单" aria-haspopup="true">⋮</button>
       <div id="m-menu" class="menu" hidden>
         <button data-act="theme"><span class="gi">◐</span>切换主题</button>
+        <button data-act="settings"><span class="gi">⚙</span>设置</button>
         <div class="sep"></div>
         <button data-act="logout" class="danger"><span class="gi">⏻</span>退出登录</button>
       </div>
@@ -96,7 +98,9 @@
       </div>
 
       <div class="win-body">
+        <!-- #frame：仅「文件」模式用；#frames：终端 iframe 池（每会话一个，JS 动态建，靠 .show 显隐切换） -->
         <iframe id="frame" title="window" allow="clipboard-read; clipboard-write"></iframe>
+        <div id="frames"></div>
         <div id="empty-state" class="empty-state">
           <div class="g">▤</div>
           <div>选中一个会话，点 <b>「连接」</b> 或 <b>「Bypass连接」</b> 打开终端<br />
@@ -148,6 +152,26 @@
         <div class="modal-foot">
           <button class="btn sm" data-close="host-modal">取消</button>
           <button id="hm-save" class="btn sm primary">保存</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ───────── 设置（终端窗口上限 / 回滚行数，桌面与移动各一套；存网关，所有浏览器共享） ───────── -->
+    <div id="settings-modal" class="overlay" hidden>
+      <div class="modal">
+        <div class="modal-head"><span class="gi">⚙</span><span>设置</span><button class="iconbtn bare x" data-close="settings-modal">✕</button></div>
+        <div class="modal-body">
+          <div class="set-sec">桌面端</div>
+          <div class="field"><label>最大同时打开的终端窗口数</label><input id="st-dmax" class="input mono" type="number" min="1" max="30" inputmode="numeric" /></div>
+          <div class="field"><label>每个窗口的最大回滚行数</label><input id="st-dscroll" class="input mono" type="number" min="200" max="100000" step="100" inputmode="numeric" /></div>
+          <div class="set-sec">移动端</div>
+          <div class="field"><label>最大同时打开的终端窗口数</label><input id="st-mmax" class="input mono" type="number" min="1" max="12" inputmode="numeric" /></div>
+          <div class="field"><label>每个窗口的最大回滚行数</label><input id="st-mscroll" class="input mono" type="number" min="200" max="100000" step="100" inputmode="numeric" /></div>
+          <p class="hint">超出窗口数上限时，按「最后收到输出时间」最早的窗口先释放（当前正看的窗口不会被释放）。被释放的会话后台进程不受影响，再次点开会重新连接。</p>
+        </div>
+        <div class="modal-foot">
+          <button class="btn sm" data-close="settings-modal">取消</button>
+          <button id="st-save" class="btn sm primary">保存</button>
         </div>
       </div>
     </div>
