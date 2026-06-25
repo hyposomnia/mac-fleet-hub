@@ -198,7 +198,7 @@ function setMode(mode) {
   state.mode = mode;
   $('#app').dataset.mode = mode;
   if (mode !== 'claude') $('#app').classList.remove('term-open'); // 离开会话模式收起终端 push
-  $$('[data-mode]').forEach((b) => b.setAttribute('aria-selected', String(b.dataset.mode === mode)));
+  $$('button[data-mode]').forEach((b) => b.setAttribute('aria-selected', String(b.dataset.mode === mode)));
   if (mode === 'files') loadFiles();
   else { loadSessions(); restoreTermOrEmpty(); }
 }
@@ -582,7 +582,9 @@ function init() {
   wireMobileInput();
 
   // 模式 / 范围 / 刷新 / 新建
-  $$('[data-mode]').forEach((b) => b.onclick = () => setMode(b.dataset.mode));
+  // 注意 button[data-mode]：#app 本身带 data-mode（CSS 切栅格用），裸 [data-mode] 会把 #app 也选中，
+  // 给根容器挂上 onclick → 点页面任意处都冒泡触发 setMode→loadSessions（每次点击闪一下）。
+  $$('button[data-mode]').forEach((b) => b.onclick = () => setMode(b.dataset.mode));
   $$('[data-scope]').forEach((b) => b.onclick = () => {
     state.scope = b.dataset.scope;
     $$('[data-scope]').forEach((x) => x.setAttribute('aria-selected', String(x === b)));
