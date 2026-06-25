@@ -615,6 +615,13 @@ func ensureTmux(name, cwd, cmd string) error {
 	if tmuxHas(name) {
 		return nil
 	}
+	// 建会话前设全局选项（幂等、best-effort）：
+	//   history-limit：默认仅 2000 行 → 调到 5 万，网页里能往上翻很多历史；
+	//                  此值在「新建 pane」时读取，必须 new-session 之前设好才对新会话生效。
+	//   mouse on：默认关闭时网页终端的滚轮/上滑不会进 tmux copy-mode，只能看当前一屏；
+	//             开了才能滚动翻历史。副作用：桌面端拖选复制改为 Shift+拖选。
+	tmux("set-option", "-g", "history-limit", "50000")
+	tmux("set-option", "-g", "mouse", "on")
 	full := fmt.Sprintf("cd %s; exec %s", shellQuote(cwd), cmd)
 	_, err := tmux("new-session", "-d", "-s", name, "-x", "220", "-y", "50", "sh", "-c", full)
 	return err

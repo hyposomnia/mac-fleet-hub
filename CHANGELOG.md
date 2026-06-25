@@ -4,6 +4,10 @@ mac-fleet-hub 变更记录（日期为本地时间）。
 
 ## 2026-06-25
 
+### 网页终端体验
+- **终端配色跟随 dashboard 深/浅色**：ttyd 把 xterm 实例挂在 iframe 的 `window.term`，按 `data-theme` 给 `term.options.theme` 套深/浅两套配色（取自 `style.css` 设计 token），切换实时生效、每次终端加载/重连后重套用。无需改 ttyd 启动参数。
+- **网页终端可往上翻历史**：`fleet-agent` 建 tmux 会话前设 `history-limit 50000` + `mouse on`（原默认 mouse 关闭，网页里滚轮/上滑进不了 copy-mode，只能看一屏）。副作用：桌面端拖选复制改为 Shift+拖选；移动端无影响。改 `main.go` → 已重建 dist 双架构。
+
 ### 品牌
 - 新 app 图标（`icons/icon.svg`）：品牌渐变圆角砖（`#6e8bff→#9b7bff`）+ 两张等大会话窗叠层 + 品牌色提示符，体现「多 Mac 多终端会话」；矢量，各尺寸锐利。补 `<link rel="icon">` 浏览器标签页 favicon、manifest 加 `maskable`、`theme_color`/`background_color` 对齐 `#090c12`。
 

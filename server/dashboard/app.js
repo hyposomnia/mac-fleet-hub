@@ -108,6 +108,47 @@ async function api(id, path, opts) {
 function applyTheme(t) {
   document.documentElement.setAttribute('data-theme', t);
   try { localStorage.setItem('fleet-theme', t); } catch (_) {}
+  applyTermTheme(); // 终端(iframe 内 xterm)跟随切换
+}
+
+// ttyd 把 xterm 实例挂在 iframe 的 window.term 上。这里按 data-theme 给它换肤，
+// 配色取自 style.css 的设计 token，让网页终端与 dashboard 深/浅色统一。
+const XTERM_THEME = {
+  dark: {
+    background: '#090c12', foreground: '#e9eef5',
+    cursor: '#6e8bff', cursorAccent: '#090c12', selectionBackground: 'rgba(110,139,255,.28)',
+    black: '#2b3240', brightBlack: '#6b7585',
+    red: '#ff6b6b', brightRed: '#ff8f8f',
+    green: '#46d39a', brightGreen: '#6ee3b4',
+    yellow: '#d08a45', brightYellow: '#e8a868',
+    blue: '#6e8bff', brightBlue: '#93a9ff',
+    magenta: '#b18bff', brightMagenta: '#c9adff',
+    cyan: '#5cc8d8', brightCyan: '#82dbe8',
+    white: '#aab4c4', brightWhite: '#e9eef5',
+  },
+  light: {
+    background: '#f6f7f9', foreground: '#141821',
+    cursor: '#3f5cff', cursorAccent: '#f6f7f9', selectionBackground: 'rgba(63,92,255,.16)',
+    black: '#2c333f', brightBlack: '#828c9d',
+    red: '#dc3b3b', brightRed: '#b32d2d',
+    green: '#12a567', brightGreen: '#0c8a55',
+    yellow: '#9c6321', brightYellow: '#b5762b',
+    blue: '#3f5cff', brightBlue: '#2f49e6',
+    magenta: '#7c4ddb', brightMagenta: '#6a3fc9',
+    cyan: '#1f8fa6', brightCyan: '#157e94',
+    white: '#e2e6ec', brightWhite: '#ffffff',
+  },
+};
+function applyTermTheme(retries = 20) {
+  let term;
+  try { term = $('#frame').contentWindow.term; } catch (_) { return; } // 跨源等异常直接放弃
+  if (!term || !term.options) {
+    // iframe/WS 还没就绪：短轮询重试，直到 xterm 实例出现
+    if (retries > 0) setTimeout(() => applyTermTheme(retries - 1), 150);
+    return;
+  }
+  const mode = document.documentElement.getAttribute('data-theme') === 'light' ? 'light' : 'dark';
+  try { term.options.theme = XTERM_THEME[mode]; } catch (_) {}
 }
 function initTheme() {
   let t;
@@ -644,6 +685,7 @@ function init() {
   $('#win-back').onclick = backToList;
   $('#reload-btn').onclick = doReload;
   $('#reload-dismiss').onclick = hideBanner;
+  $('#frame').addEventListener('load', () => applyTermTheme()); // 每次终端加载/重连后套用当前主题
   $('#reconnect-btn').onclick = () => { try { $('#frame').contentWindow.location.reload(); } catch (_) { const f = $('#frame'); f.src = f.src; } };
   $('#fullscreen-btn').onclick = () => $('.win-body').requestFullscreen?.();
 
