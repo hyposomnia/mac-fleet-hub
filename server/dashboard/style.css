@@ -330,8 +330,9 @@ button { cursor: pointer; border: none; background: none; }
 .grp-h .chev { width: 16px; height: 16px; color: var(--text-1); flex: none; transition: transform var(--dur-1) var(--ease); }
 .grp-h:hover .chev { color: var(--text); }
 .grp.collapsed .chev { transform: rotate(-90deg); }
-.grp-h .gn { font-weight: 680; font-size: var(--t-base); color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.grp-h .gp { font-family: var(--mono); font-size: var(--t-2xs); color: var(--text-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* 目录名优先全展示：可换行（含长 token 强制断行），不省略；父路径退为可截断的次要信息 */
+.grp-h .gn { font-weight: 680; font-size: var(--t-base); color: var(--text); flex: 1 1 auto; min-width: 0; white-space: normal; overflow-wrap: anywhere; word-break: break-word; }
+.grp-h .gp { font-family: var(--mono); font-size: var(--t-2xs); color: var(--text-2); flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .grp-h .gc { margin-left: auto; flex: none; }
 .grp.collapsed .grp-items { display: none; }
 .grp-items { padding-top: 2px; }
