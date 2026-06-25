@@ -8,6 +8,7 @@ mac-fleet-hub 变更记录（日期为本地时间）。
 - 新 app 图标（`icons/icon.svg`）：品牌渐变圆角砖（`#6e8bff→#9b7bff`）+ 两张等大会话窗叠层 + 品牌色提示符，体现「多 Mac 多终端会话」；矢量，各尺寸锐利。补 `<link rel="icon">` 浏览器标签页 favicon、manifest 加 `maskable`、`theme_color`/`background_color` 对齐 `#090c12`。
 
 ### dashboard 移动端
+- **终止按钮改 SVG**：原 Unicode `⏹` 在 iOS 渲染成彩色 emoji，换成内联 SVG 实心圆角方块（`currentColor`，跟随悬停变红）。
 - **软键盘弹起顶起输入坞**：VisualViewport 算键盘高度 → `--kb`，移动端输入坞上移到键盘之上（修 iOS 输入框被键盘遮挡）。
 - **禁页面缩放 + 全宽不溢出**：viewport 加 `maximum-scale=1, user-scalable=no, interactive-widget=resizes-content`；`html,body` 加 `overflow-x:hidden`。
 

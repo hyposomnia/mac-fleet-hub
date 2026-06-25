@@ -49,6 +49,18 @@ function svgIcon(cls, pathD) {
   return svg;
 }
 
+// 终止图标：实心圆角方块（stop）。用 SVG 而非 Unicode ⏹——后者在 iOS 上会渲染成彩色 emoji。
+function svgStop() {
+  const NS = 'http://www.w3.org/2000/svg';
+  const svg = document.createElementNS(NS, 'svg');
+  svg.setAttribute('viewBox', '0 0 24 24');
+  svg.setAttribute('fill', 'currentColor');
+  const r = document.createElementNS(NS, 'rect');
+  for (const [k, v] of [['x', '7'], ['y', '7'], ['width', '10'], ['height', '10'], ['rx', '3']]) r.setAttribute(k, v);
+  svg.appendChild(r);
+  return svg;
+}
+
 const state = {
   macId: null,
   mode: 'claude',        // claude | files
@@ -278,8 +290,8 @@ async function loadSessions() {
 // 未开 pty 的会话：无 ⏹，选中后展开「连接 / ⚠ Bypass连接」。
 function sessionRow(s) {
   const sid = s.sessionId;
-  const stop = s.pty && h('span', { class: 'stopbtn', title: '终止进程（会话保留）', text: '⏹',
-    onclick: (e) => { e.stopPropagation(); termSes(sid, s.title); } });
+  const stop = s.pty && h('span', { class: 'stopbtn', title: '终止进程（会话保留）',
+    onclick: (e) => { e.stopPropagation(); termSes(sid, s.title); } }, svgStop());
   const top = h('div', { class: 'ses-top' },
     // 行首点位恒定留出（标题统一对齐）：默认透明占位，仅「等待你回复/选择」(s.waiting) 显棕色点
     h('span', { class: 'dot' + (s.waiting ? ' wait' : ''), title: s.waiting ? '等待你的回复 / 选择' : null }),

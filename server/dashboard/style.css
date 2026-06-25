@@ -347,7 +347,8 @@ button { cursor: pointer; border: none; background: none; }
 .ses-top .dot { flex: none; }
 .ses-top .t { flex: 1; font-weight: 550; font-size: var(--t-sm); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 /* 终止进程图标：仅「已开 pty / 有进程」(.conn) 的会话显示（不论是否选中）；非删除，终止后会话仍保留 */
-.ses-top .stopbtn { width: 25px; height: 25px; border-radius: 7px; display: none; align-items: center; justify-content: center; color: var(--text-1); font-size: 12px; flex: none; background: var(--surface-2); border: 1px solid var(--border-strong); }
+.ses-top .stopbtn { width: 25px; height: 25px; border-radius: 7px; display: none; align-items: center; justify-content: center; color: var(--text-1); flex: none; background: var(--surface-2); border: 1px solid var(--border-strong); }
+.ses-top .stopbtn svg { width: 13px; height: 13px; }
 .ses.conn .stopbtn { display: inline-flex; }
 .ses-top .stopbtn:hover { background: var(--danger-soft); color: var(--danger); border-color: transparent; }
 /* 紧凑化：时间内联在标题同行尾部（不再单起 meta 行显示分支/路径） */
