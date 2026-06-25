@@ -536,6 +536,12 @@ async function closeSession() {
       body: JSON.stringify({ sessionId: sid }),
     });
     toast(r.killed ? '已终止该会话进程（会话保留）' : '该会话没有正在运行的控制台进程', r.killed ? 'ok' : 'info');
+    // 终止的就是当前终端：回到空状态（否则 iframe 停在 ttyd 的 [exited]/Press ⏎ to Reconnect）
+    if (state.termSessionId === sid) {
+      state.termSid = null; state.termUrl = null; state.termSessionId = null;
+      $('#app').classList.remove('term-open');
+      restoreTermOrEmpty();
+    }
   } catch (e) { toast('终止失败：' + e.message, 'err'); }
   loadSessions();
   refreshHostCounts();
