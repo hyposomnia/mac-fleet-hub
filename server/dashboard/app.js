@@ -90,6 +90,7 @@ function relTime(ms) {
 }
 function projName(cwd) { return cwd ? cwd.split('/').filter(Boolean).pop() : '(未知项目)'; }
 function projDir(cwd) { const p = (cwd || '').split('/'); return p.slice(0, -1).join('/').replace(/^\/Users\/[^/]+/, '~'); }
+function projFull(cwd) { return (cwd || '(未知路径)').replace(/^\/Users\/[^/]+/, '~'); }
 function macName(id) { return macNames[id] || ('Mac ' + id.slice(1)); }
 async function api(id, path, opts) {
   const r = await fetch(`${apiBase(id)}/api/${path}`, opts);
@@ -312,7 +313,8 @@ async function loadSessions() {
     const head = h('button', { class: 'grp-h' },
       svgIcon('chev', 'M6 9l6 6 6-6'),
       h('span', { class: 'gn', text: projName(g.cwd) }),
-      h('span', { class: 'gp', text: projDir(g.cwd) }),
+      // 路径不再行内展示（反正显示不全）：改为软底「/」chip，hover 看完整路径
+      h('span', { class: 'gpath badge', title: projFull(g.cwd) }, '/'),
       h('span', { class: 'gc badge', text: String(g.arr.length) }),
     );
     const items = h('div', { class: 'grp-items' }, ...g.arr.map(sessionRow));
