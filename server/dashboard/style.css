@@ -1,7 +1,6 @@
 /* ============================================================
    mac fleet hub —— 设计系统 v2（令牌 + 组件 + 布局）
-   令牌与组件层取自 docs/features/ui-polish/tokens.css；布局按
-   desktop.html / mobile.html 两份高保真稿统一为单页响应式实现。
+   单页响应式实现（桌面 / 移动统一）。
    视觉 DNA：暗色默认、冷蓝强调、系统字体栈、单色 Unicode 字形图标、克制阴影。
    ============================================================ */
 
@@ -337,7 +336,7 @@ button { cursor: pointer; border: none; background: none; }
 .grp.collapsed .grp-items { display: none; }
 .grp-items { padding-top: 2px; }
 
-.ses { display: flex; flex-direction: column; padding: 7px 11px; border-radius: 11px; border: 1px solid transparent; transition: background var(--dur-1) var(--ease), border-color var(--dur-1) var(--ease); cursor: pointer; width: 100%; text-align: left; }
+.ses { display: flex; flex-direction: column; padding: 4px 11px; border-radius: 11px; border: 1px solid transparent; transition: background var(--dur-1) var(--ease), border-color var(--dur-1) var(--ease); cursor: pointer; width: 100%; text-align: left; }
 .ses:hover { background: var(--surface-1); border-color: var(--border); }
 .ses.sel { background: var(--accent-soft); border-color: var(--accent-line); }
 .ses-top { display: flex; align-items: center; gap: 9px; }
@@ -357,9 +356,10 @@ button { cursor: pointer; border: none; background: none; }
 .ses-top .stopbtn:hover svg { opacity: 1; }
 /* 紧凑化：时间内联在标题同行尾部（不再单起 meta 行显示分支/路径） */
 .ses-time { font-family: var(--mono); font-size: var(--t-2xs); color: var(--text-2); flex: none; white-space: nowrap; }
-/* 操作按钮：仅「选中」时展开（不再 hover 显示） */
-.ses-acts { display: flex; gap: 7px; margin: 8px 0 1px 17px; max-height: 0; overflow: hidden; opacity: 0; transition: max-height var(--dur-2) var(--ease), opacity var(--dur-2) var(--ease); }
-.ses.sel .ses-acts { max-height: 48px; opacity: 1; }
+/* 操作按钮：仅「选中」时展开（不再 hover 显示）。
+   收起态 margin 归零——否则 margin 即便 max-height:0 仍占 9px，把标题往上顶、未选中行看着不垂直居中。 */
+.ses-acts { display: flex; gap: 7px; margin: 0 0 0 17px; max-height: 0; overflow: hidden; opacity: 0; transition: max-height var(--dur-2) var(--ease), opacity var(--dur-2) var(--ease), margin-top var(--dur-2) var(--ease); }
+.ses.sel .ses-acts { max-height: 48px; opacity: 1; margin-top: 8px; }
 
 .newbtn { margin: 10px; padding: 11px; border-radius: 10px; border: 1px dashed var(--border-1); color: var(--text-1); font-weight: 540; font-size: var(--t-sm); display: flex; align-items: center; justify-content: center; gap: 8px; transition: all var(--dur-1) var(--ease); }
 .newbtn:hover { background: var(--accent-soft); border-color: var(--accent); color: var(--accent-text); }
