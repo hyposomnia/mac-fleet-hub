@@ -63,16 +63,17 @@ sudo bash scripts/setup-server.sh
 
 ### 第二步：接入每台 Mac
 
-网关跑起来后，在每台要纳管的 Mac 上（已装 Homebrew）任选其一：
+网关跑起来后，在每台要纳管的 Mac 上（已装 Homebrew）执行。**无需 clone 仓库**——客户端只用到 `mac/` 那点文件，由网关直接提供。任选其一：
 
 ```bash
-# 推荐：免 clone 一行装。跟着提示输入网关地址 + 入网验证码即可，密钥/地址自动下发。
+# 推荐：一行装。跟着提示输入网关地址 + 入网验证码即可，密钥/地址/自更新源自动下发。
 curl -fsSL https://<你的网关地址>/enroll/bootstrap.sh | bash
 ```
 ```bash
-# 或本地 clone 装（交互问网关地址 + 预授权密钥）
-git clone https://github.com/hyposomnia/mac-fleet-hub.git
-cd mac-fleet-hub && bash mac/install.sh
+# 或手动（已有预授权密钥时）：只下客户端包再装，同样不 clone
+curl -fsSL https://<你的网关地址>/enroll/mac-bundle.tar.gz | tar xz
+LOGIN_SERVER=https://<你的网关地址>:8443 AUTHKEY=<预授权密钥> bash mac/install.sh
+#   （网关若用高位端口/封 443，把 :8443 换成你的 Headscale 对外端口，如 :28443）
 ```
 装完这台 Mac 即出现在控制台里，点进去就能接它的终端 / 文件。**加更多 Mac？重复这一步就行。**
 

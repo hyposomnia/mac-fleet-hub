@@ -96,15 +96,19 @@ curl -I https://<FLEET_HOST>[:GATEWAY_PORT]/auth    # 期望 200
 
 ### 执行（二选一）
 
+**Mac 端不需要 clone 仓库**——客户端只用 `mac/` 那点文件（agent 二进制 + 附着脚本 + plist + 安装逻辑），由网关在 `/enroll/` 直接提供。
+
 ```bash
-# A) 免 clone 一行（推荐，网关已起时）：自动下发入网密钥 / 控制面地址 / 自更新源
+# A) 一行装（推荐，网关已起时）：自动下发入网密钥 / 控制面地址 / 自更新源
 curl -fsSL https://<网关地址>/enroll/bootstrap.sh | bash
 
-# B) 本地 clone：交互问 网关地址 + AUTHKEY
-git clone https://github.com/YOUR_GH_USER/mac-fleet-hub.git && cd mac-fleet-hub
-bash mac/install.sh
+# B) 手动（已有预授权密钥时）：只下客户端包，不 clone
+curl -fsSL https://<网关地址>/enroll/mac-bundle.tar.gz | tar xz
+LOGIN_SERVER=https://<网关地址>:8443 AUTHKEY=<预授权密钥> bash mac/install.sh
+#   网关用高位端口/封 443 时把 :8443 换成 Headscale 对外端口（如 :28443）
 ```
 两者都会装 Tailscale、入网 Headscale（需 sudo 密码）、起 ttyd / filebrowser / fleet-agent。
+AI 执行 B 时：用 env 把 LOGIN_SERVER/AUTHKEY/MAC_INDEX 传入即可非交互；编号自行按现有数量 +1，别问用户。
 
 ### 验证
 
