@@ -2,6 +2,15 @@
 
 mac-fleet-hub 变更记录（日期为本地时间）。
 
+## 2026-06-26
+
+### 终端 iframe 池（切换丝滑 + 上限可调）
+- **单 iframe「导航式」终端 → iframe 池**：每个打开过的会话一个常驻 iframe，全尺寸叠放在 `#frames`，靠 `.show`（`visibility` 而非 `display:none`——后者会把 iframe 尺寸塌成 0、ttyd 把 pty resize 成 0×0、Claude TUI 排版炸掉）显隐切换。切换 = 改 class，瞬时；池内会话全程保持实时、不掉线。`#frame` 仅留给「文件」模式。
+- **超上限按「最后收到输出时间」LRU 释放（排除当前窗口）**：包 `term.write` 记每个窗口的最后收到输出时刻；超上限时释放非当前窗口里最早的那个——关 iframe → WS 断 → tmux detach → 释放 1 个 pty，后台 Claude 进程不受影响，再点回来重新 attach。真实 Chrome 实测：单终端 iframe 边际成本 ~2.1MB JS 堆（+ 几 MB GPU 后备），浏览器内存非瓶颈，真正天花板是系统 pty 池。
+- **选中已打开的会话即瞬时切换**：点会话行时若该会话已在池中，直接显示，不必再点「进入连接」。
+- **设置弹窗（存网关、所有浏览器共享）**：user / ⋮ 菜单加「⚙ 设置」，4 项——桌面 / 移动 各设「最大终端窗口数」「每窗口最大回滚行数」（默认桌面 10、移动 4，回滚 5000）。回滚行数经 xterm `term.options.scrollback` 即时生效。存储走 `fleet-enroll` 新增 `/settings` 端点（原子写 `dashboard-settings.json`，服务端 `normalize` 钳制+缺省回退），nginx 加 `/api/settings`（Authelia 保护，镜像 `/api/names`）。
+- 终止当前终端会话后从池移除并回空态（不再停在 `[exited]/Press ⏎ to Reconnect`）。
+
 ## 2026-06-25
 
 ### 网页终端体验
