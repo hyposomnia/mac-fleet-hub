@@ -313,8 +313,8 @@ async function loadSessions() {
     const head = h('button', { class: 'grp-h' },
       svgIcon('chev', 'M6 9l6 6 6-6'),
       h('span', { class: 'gn', text: projName(g.cwd) }),
-      // 路径不再行内展示（反正显示不全）：改为软底「/」chip，hover 看完整路径
-      h('span', { class: 'gpath badge', title: projFull(g.cwd) }, '/'),
+      // 路径不再行内展示（反正显示不全）：改为软底「/」chip，hover 即时弹完整路径（CSS tooltip，不走有延迟的原生 title）
+      h('span', { class: 'gpath badge', dataset: { path: projFull(g.cwd) } }, '/'),
       h('span', { class: 'gc badge', text: String(g.arr.length) }),
     );
     const items = h('div', { class: 'grp-items' }, ...g.arr.map(sessionRow));

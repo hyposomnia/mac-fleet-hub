@@ -332,8 +332,18 @@ button { cursor: pointer; border: none; background: none; }
 .grp.collapsed .chev { transform: rotate(-90deg); }
 /* 目录名优先全展示：可换行（含长 token 强制断行），不省略 */
 .grp-h .gn { font-weight: 680; font-size: var(--t-base); color: var(--text); flex: 1 1 auto; min-width: 0; white-space: normal; overflow-wrap: anywhere; word-break: break-word; }
-/* 路径 chip：软底「/」，靠右；hover 用原生 title 弹完整路径 */
-.grp-h .gpath { margin-left: auto; flex: none; font-family: var(--mono); cursor: help; }
+/* 路径 chip：软底「/」，靠右；hover 即时弹完整路径（自定义 tooltip，无原生 title 的延迟） */
+.grp-h .gpath { position: relative; margin-left: auto; flex: none; font-family: var(--mono); cursor: help; }
+.grp-h .gpath::after {
+  content: attr(data-path); position: absolute; top: calc(100% + 6px); right: 0; z-index: 50;
+  width: max-content; max-width: 280px;
+  padding: 6px 9px; border-radius: var(--r-sm);
+  background: var(--surface-2); color: var(--text); border: 1px solid var(--border-strong); box-shadow: var(--e2);
+  font-family: var(--mono); font-size: var(--t-2xs); font-weight: 500; line-height: 1.45; letter-spacing: 0;
+  white-space: normal; overflow-wrap: anywhere; text-align: left;
+  opacity: 0; pointer-events: none;
+}
+.grp-h .gpath:hover::after { opacity: 1; }
 .grp-h .gc { flex: none; }
 .grp.collapsed .grp-items { display: none; }
 .grp-items { padding-top: 2px; }
