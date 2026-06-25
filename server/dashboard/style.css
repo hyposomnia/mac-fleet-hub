@@ -347,10 +347,14 @@ button { cursor: pointer; border: none; background: none; }
 .ses-top .dot { flex: none; }
 .ses-top .t { flex: 1; font-weight: 550; font-size: var(--t-sm); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 /* 终止进程图标：仅「已开 pty / 有进程」(.conn) 的会话显示（不论是否选中）；非删除，终止后会话仍保留 */
-.ses-top .stopbtn { width: 25px; height: 25px; border-radius: 7px; display: none; align-items: center; justify-content: center; color: var(--text-1); flex: none; background: var(--surface-2); border: 1px solid var(--border-strong); }
-.ses-top .stopbtn svg { width: 13px; height: 13px; }
+/* 正常态：静态绿点（无呼吸）；hover：红色停止按钮（圆形边框） */
+.ses-top .stopbtn { position: relative; width: 25px; height: 25px; border-radius: 50%; display: none; align-items: center; justify-content: center; color: var(--danger); flex: none; background: transparent; border: 1px solid transparent; }
+.ses-top .stopbtn::before { content: ''; position: absolute; width: 8px; height: 8px; border-radius: 50%; background: var(--online); }
+.ses-top .stopbtn svg { width: 13px; height: 13px; opacity: 0; }
 .ses.conn .stopbtn { display: inline-flex; }
-.ses-top .stopbtn:hover { background: var(--danger-soft); color: var(--danger); border-color: transparent; }
+.ses-top .stopbtn:hover { background: var(--danger-soft); border-color: var(--danger); }
+.ses-top .stopbtn:hover::before { opacity: 0; }
+.ses-top .stopbtn:hover svg { opacity: 1; }
 /* 紧凑化：时间内联在标题同行尾部（不再单起 meta 行显示分支/路径） */
 .ses-time { font-family: var(--mono); font-size: var(--t-2xs); color: var(--text-2); flex: none; white-space: nowrap; }
 /* 操作按钮：仅「选中」时展开（不再 hover 显示） */
