@@ -27,6 +27,15 @@ url_base() { [[ "$2" == "443" ]] && echo "https://$1" || echo "https://$1:$2"; }
 WEB_BASE="$(url_base "$FLEET_HOST" "$GATEWAY_PORT")"
 HS_BASE="$(url_base "$FLEET_HOST" "$HEADSCALE_PUBLIC_PORT")"
 
+# ---- 前置检查（fail-fast；本脚本不装 nginx、不签证书，二者需提前就绪）----
+command -v nginx >/dev/null 2>&1 || { echo "✗ 未找到 nginx。本脚本不安装 nginx，请先 'apt install nginx' 再重跑。" >&2; exit 1; }
+[[ -f "$SSL_CERT" ]] || { echo "✗ 证书文件不存在: $SSL_CERT" >&2; echo "  本脚本不签证书：请先用 acme.sh/certbot 签好 *.${DOMAIN} 通配符证书，把 fullchain/key 路径填进 server/.env。" >&2; exit 1; }
+[[ -f "$SSL_KEY"  ]] || { echo "✗ 证书私钥不存在: $SSL_KEY" >&2; exit 1; }
+command -v apt-get >/dev/null 2>&1 || echo "  ⚠️ 未检测到 apt-get：本脚本按 Debian/Ubuntu 编写（dpkg/useradd），其他发行版需自行调整。"
+if command -v getent >/dev/null 2>&1 && ! getent hosts "$FLEET_HOST" >/dev/null 2>&1; then
+  echo "  ⚠️ ${FLEET_HOST} 当前解析不到——请确认 DNS 已指向本网关公网 IP，否则手机/各 Mac 连不上。"
+fi
+
 ARCH=amd64
 gh_latest() { curl -fsSL "https://api.github.com/repos/$1/releases/latest" | grep -oE '"tag_name": *"[^"]+"' | head -1 | sed -E 's/.*"v?([^"]+)".*/\1/'; }
 
@@ -69,9 +78,32 @@ install -d -o authelia -g authelia /var/lib/authelia /etc/authelia /etc/authelia
 sed -e "s/{{DOMAIN}}/${DOMAIN}/g" -e "s/{{FLEET_HOST}}/${FLEET_HOST}/g" -e "s|{{WEB_BASE}}|${WEB_BASE}|g" "$SRV/authelia/configuration.yml" > /etc/authelia/configuration.yml
 # 用户库（含 argon2 哈希），不入库，从模板拷一次
 if [[ ! -f /etc/authelia/users_database.yml ]]; then
-  cp "$SRV/authelia/users_database.yml.example" /etc/authelia/users_database.yml
-  echo "  ⚠️ 已建 /etc/authelia/users_database.yml，请替换为真实 argon2 哈希："
-  echo "     authelia crypto hash generate argon2 --password '强密码'"
+  if [[ -t 0 ]]; then
+    # 首次：交互式建登录用户（用户名 + 密码 → argon2id 哈希）。明文不落盘。
+    read -r -p "  设置登录用户名 [admin] > " AU_USER < /dev/tty; AU_USER="${AU_USER:-admin}"
+    read -r -s -p "  设置登录密码（不回显）> " AU_PW < /dev/tty; echo
+    AU_HASH="$(/usr/local/bin/authelia crypto hash generate argon2 --password "$AU_PW" 2>/dev/null | grep -oE '\$argon2id\$[^[:space:]]+' | head -1)"
+    unset AU_PW
+    if [[ -n "$AU_HASH" ]]; then
+      cat > /etc/authelia/users_database.yml <<EOF
+users:
+  ${AU_USER}:
+    displayname: '${AU_USER}'
+    password: '${AU_HASH}'
+    email: '${AU_USER}@${DOMAIN}'
+    groups:
+      - admins
+EOF
+      echo "  ✓ 已创建登录用户 ${AU_USER}（密码哈希已写入，明文未留存）"
+    else
+      cp "$SRV/authelia/users_database.yml.example" /etc/authelia/users_database.yml
+      echo "  ⚠️ 哈希生成失败，已拷占位库，请手动替换：authelia crypto hash generate argon2 --password '强密码'"
+    fi
+  else
+    cp "$SRV/authelia/users_database.yml.example" /etc/authelia/users_database.yml
+    echo "  ⚠️ 非交互运行：已建占位用户库，请替换为真实 argon2 哈希："
+    echo "     authelia crypto hash generate argon2 --password '强密码'"
+  fi
 fi
 # 密钥
 gen() { [[ -s "/etc/authelia/secrets/$1" ]] || { openssl rand -base64 48 | tr -d '\n' > "/etc/authelia/secrets/$1"; }; }
@@ -154,6 +186,9 @@ if ! tailscale ip -4 >/dev/null 2>&1; then
   GWKEY="$(headscale preauthkeys create -u "$FLEET_UID" --reusable --expiration 1h --tags tag:fleet-gw 2>/dev/null | tail -1)"
   tailscale up --login-server="https://${FLEET_HOST}:${HEADSCALE_LISTEN_PORT:-8443}" --authkey="$GWKEY" --hostname=gateway --accept-dns=false || true
 fi
+# 确保网关节点带 tag:fleet-gw（用 fleet-gw key 入网会自动打；这里兜「已在 mesh / 重跑」未打的情况）。
+GW_ID="$(headscale nodes list 2>/dev/null | awk '/gateway/{print $1; exit}')"
+[[ -n "${GW_ID:-}" ]] && headscale nodes tag -i "$GW_ID" -t tag:fleet-gw >/dev/null 2>&1 || true
 
 # ---- 自助入网服务 fleet-enroll（TOTP → 一次性 preauthkey）+ 免 clone 安装包 ----
 echo "==> [6.5/7] 部署 fleet-enroll 自助入网服务"
@@ -183,6 +218,9 @@ install -d /var/www/fleet-enroll
 install -m 0644 "$SRV/enroll/bootstrap.sh" /var/www/fleet-enroll/bootstrap.sh
 install -m 0644 "$ROOT/mac/uninstall.sh"   /var/www/fleet-enroll/uninstall.sh
 tar czf /var/www/fleet-enroll/mac-bundle.tar.gz -C "$ROOT" mac
+# fleet-agent 自更新源：单独服务各架构二进制，agent `update` 从 ${WEB_BASE}/enroll/dist 拉。
+install -d /var/www/fleet-enroll/dist
+install -m 0644 "$ROOT"/mac/fleet-agent/dist/fleet-agent-darwin-* /var/www/fleet-enroll/dist/ 2>/dev/null || true
 chown -R www-data:www-data /var/www/fleet-enroll 2>/dev/null || true
 echo "  入网二维码（请用 Authenticator 添加，与登录 2FA 分开）："
 /usr/local/bin/fleet-enroll -show-uri || true

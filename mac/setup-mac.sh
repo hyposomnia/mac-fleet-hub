@@ -9,6 +9,7 @@
 #   - MAC_INDEX 必填(1/2/3/…)：决定终端/文件路径 /m{idx}/...，且要与网关 .env 的 MAC_IPS 第几个对应一致
 #   - LOGIN_SERVER/AUTHKEY 选填：给出则自动 tailscale up 入网（Headscale）；
 #     省略则假设你已手动入网。
+#   - FLEET_UPDATE_BASE 选填：写进 ~/.zshrc，使 `fleet-agent update` 自更新开箱即用。
 #   - 不修改系统「远程登录/屏幕共享」开关（mac↔mac 的 SSH/VNC 请自行在系统设置开启）。
 set -euo pipefail
 
@@ -124,6 +125,17 @@ for svc in com.macfleet.ttyd com.macfleet.filebrowser com.macfleet.fleet-agent; 
   launchctl load  "$LA/$svc.plist"
   echo "已加载服务: $svc"
 done
+
+# fleet-agent 自更新源：写进 ~/.zshrc 受管块，使交互式 `fleet-agent update` 开箱即用
+# （update 是手动 CLI，读交互 shell 环境变量，不读 launchd plist）。幂等：先删旧块再追加。
+if [[ -n "${FLEET_UPDATE_BASE:-}" ]]; then
+  ZRC="$HOME/.zshrc"; MB="# >>> mac-fleet-hub >>>"; ME="# <<< mac-fleet-hub <<<"; touch "$ZRC"
+  if grep -qF "$MB" "$ZRC"; then
+    tmp="$(mktemp)"; awk -v b="$MB" -v e="$ME" '$0==b{skip=1} !skip{print} $0==e{skip=0}' "$ZRC" > "$tmp" && mv "$tmp" "$ZRC"
+  fi
+  { echo "$MB"; echo "export FLEET_UPDATE_BASE=\"$FLEET_UPDATE_BASE\""; echo "$ME"; } >> "$ZRC"
+  echo "已写入 ~/.zshrc：FLEET_UPDATE_BASE=$FLEET_UPDATE_BASE（新开终端后 'fleet-agent update' 即可用）"
+fi
 
 cat <<EOF
 

@@ -47,4 +47,7 @@ curl -fsSL "${BASE}/mac-bundle.tar.gz" | tar xz -C "$TMP"
 [ -f "$TMP/mac/install.sh" ] || { echo "✗ 安装包损坏"; exit 1; }
 
 echo "→ 开始安装（接下来会提示输入本机 sudo 密码，用于装 tailscaled 与入网）"
-MAC_INDEX="$IDX" AUTHKEY="$AUTHKEY" LOGIN_SERVER="$LOGIN" bash "$TMP/mac/install.sh"
+# 自更新源 = 本网关的 /enroll/dist（agent `update` 直接从这拉新二进制，用户零配置）。
+MAC_INDEX="$IDX" AUTHKEY="$AUTHKEY" LOGIN_SERVER="$LOGIN" \
+  FLEET_UPDATE_BASE="https://${DOMAIN}/enroll/dist" \
+  bash "$TMP/mac/install.sh"

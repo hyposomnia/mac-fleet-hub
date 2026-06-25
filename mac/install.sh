@@ -9,6 +9,9 @@
 #   MAC_INDEX=2 AUTHKEY=hskey-... bash mac/install.sh
 #   bash mac/install.sh 2 hskey-...             # 位置参数：MAC_INDEX AUTHKEY
 #
+# 可选 env：FLEET_UPDATE_BASE=https://<网关>/enroll/dist —— 写进 ~/.zshrc，使 `fleet-agent update`
+#   自更新开箱即用（bootstrap.sh 会自动注入；手动装可自带，或指向你 fork 的 dist 目录）。
+#
 # 不修改系统「远程登录/屏幕共享」开关（mac↔mac 的 SSH/VNC 请自行在系统设置开启）。
 set -euo pipefail
 
@@ -68,7 +71,7 @@ TS_IP="$("$TS_BIN" ip -4 2>/dev/null | head -n1 || true)"
 
 # --- 5. 配服务（无需 sudo）---
 bold "[4/4] 安装服务（ttyd / filebrowser / fleet-agent）"
-MAC_INDEX="$MAC_INDEX" bash "$SCRIPT_DIR/setup-mac.sh"
+MAC_INDEX="$MAC_INDEX" FLEET_UPDATE_BASE="${FLEET_UPDATE_BASE:-}" bash "$SCRIPT_DIR/setup-mac.sh"
 
 cat <<EOF
 
