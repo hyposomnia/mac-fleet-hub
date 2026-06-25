@@ -5,9 +5,9 @@
 #                 → 装 ttyd/tmux/filebrowser/fleet-agent + 起 3 个常驻服务（无需 sudo）。
 #
 # 用法（任选其一）：
-#   bash mac/install.sh                         # 全程交互询问
-#   MAC_INDEX=2 AUTHKEY=hskey-... bash mac/install.sh
-#   bash mac/install.sh 2 hskey-...             # 位置参数：MAC_INDEX AUTHKEY
+#   bash mac/install.sh                         # 全程交互询问（服务器地址 / 第几台 / AUTHKEY）
+#   LOGIN_SERVER=https://你的网关:8443 MAC_INDEX=2 AUTHKEY=hskey-... bash mac/install.sh
+#   bash mac/install.sh 2 hskey-...             # 位置参数：MAC_INDEX AUTHKEY（仍会问服务器地址）
 #
 # 可选 env：FLEET_UPDATE_BASE=https://<网关>/enroll/dist —— 写进 ~/.zshrc，使 `fleet-agent update`
 #   自更新开箱即用（bootstrap.sh 会自动注入；手动装可自带，或指向你 fork 的 dist 目录）。
@@ -16,7 +16,7 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-LOGIN_SERVER="${LOGIN_SERVER:-https://fleet.example.com:8443}"   # Headscale 控制面；请改成你的网关地址（默认监听 8443；ISP 封 443 用高位端口时改成你的对外端口，如 :28443。也可经 enroll/bootstrap.sh 自动注入）
+LOGIN_SERVER="${LOGIN_SERVER:-}"   # Headscale 控制面（网关）地址；留空则交互询问（bootstrap.sh 会自动注入）
 MAC_INDEX="${MAC_INDEX:-${1:-}}"
 AUTHKEY="${AUTHKEY:-${2:-}}"
 
@@ -34,6 +34,12 @@ fi
 while ! [[ "${MAC_INDEX}" =~ ^[1-9]$ ]]; do
   read -r -p "这台是第几台 Mac？(1/2/3 …) > " MAC_INDEX
 done
+if [[ -z "${LOGIN_SERVER}" ]]; then
+  echo "网关的 Headscale 控制面地址（默认监听 8443；网关若用高位端口/ISP 封 443，则填对外端口，如 https://fleet.example.com:28443）。"
+  while ! [[ "${LOGIN_SERVER}" =~ ^https?:// ]]; do
+    read -r -p "粘贴控制面地址 (https://你的网关:8443) > " LOGIN_SERVER
+  done
+fi
 if [[ -z "${AUTHKEY}" ]]; then
   echo "需要 Headscale 预授权密钥（在网关用 'headscale preauthkeys create -u 1 --reusable --tags tag:fleet-mac' 生成）。"
   read -r -p "粘贴 AUTHKEY (hskey-...) > " AUTHKEY
