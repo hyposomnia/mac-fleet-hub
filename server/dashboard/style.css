@@ -350,7 +350,7 @@ button { cursor: pointer; border: none; background: none; }
 /* 正常态：静态绿点（无呼吸）；hover：红色停止按钮（圆形边框） */
 .ses-top .stopbtn { position: relative; width: 25px; height: 25px; border-radius: 50%; display: none; align-items: center; justify-content: center; color: var(--danger); flex: none; background: transparent; border: 1px solid transparent; }
 .ses-top .stopbtn::before { content: ''; position: absolute; width: 8px; height: 8px; border-radius: 50%; background: var(--online); }
-.ses-top .stopbtn svg { width: 13px; height: 13px; opacity: 0; }
+.ses-top .stopbtn svg { width: 16px; height: 16px; opacity: 0; }
 .ses.conn .stopbtn { display: inline-flex; }
 .ses-top .stopbtn:hover { background: var(--danger-soft); border-color: var(--danger); }
 .ses-top .stopbtn:hover::before { opacity: 0; }
