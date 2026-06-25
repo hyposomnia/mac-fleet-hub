@@ -22,7 +22,7 @@ Headscale（原生 systemd, 控制面 fleet.example.com:28443→本机8443）：
 ```
 
 核心能力：**选一台 Mac → 按项目分组列出 Claude 会话（活跃/全部）→ 点一条 `claude --resume` 带上下文续接**；
-也能新建会话、浏览/传文件。全链路**原生 systemd / launchd，零容器**。设计与取舍详见 `docs/plan.md`。
+也能新建会话、浏览/传文件。全链路**原生 systemd / launchd，零容器**。
 
 ## 目录
 

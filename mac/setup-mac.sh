@@ -50,17 +50,38 @@ install -m 0755 "$SCRIPT_DIR/fleet-agent/fleet-attach.sh" "$BIN_DIR/fleet-attach
 AGENT_BIN="$BIN_DIR/fleet-agent"
 FLEET_ATTACH="$BIN_DIR/fleet-attach"
 
-# filebrowser：用仓库内置的官方二进制（Homebrew 的 bottle 缺内嵌前端，/files 会空白）。
-# 无对应架构则可用 FILEBROWSER_BIN 指定本地官方二进制，最后才回退 brew。
+# filebrowser：装官方 release 二进制（Homebrew 的 bottle 缺内嵌前端，/files 会空白）。
+# 优先级：FILEBROWSER_BIN 指定本地二进制 > 官方 release 下载(校验 sha256) > brew 兜底。
 FB_BIN="$BIN_DIR/filebrowser"
-if [[ -f "$SCRIPT_DIR/bin/filebrowser-darwin-${AB}" ]]; then
-  install -m 0755 "$SCRIPT_DIR/bin/filebrowser-darwin-${AB}" "$FB_BIN"
-  xattr -dr com.apple.quarantine "$FB_BIN" 2>/dev/null || true
-elif [[ -n "${FILEBROWSER_BIN:-}" && -f "${FILEBROWSER_BIN}" ]]; then
-  install -m 0755 "${FILEBROWSER_BIN}" "$FB_BIN"; xattr -dr com.apple.quarantine "$FB_BIN" 2>/dev/null || true
-else
-  echo "⚠️ 无内置 filebrowser-${AB} 二进制，回退 brew（若 /files 空白请换官方二进制）"
+FB_VER="${FB_VER:-v2.63.16}"                       # 想换版本：导出 FB_VER 覆盖
+fb_brew_fallback() {
+  echo "⚠️ $1，回退 brew（若 /files 空白请用 FILEBROWSER_BIN 指定官方二进制）" >&2
   brew install filebrowser 2>/dev/null || true; FB_BIN="$BREW_PREFIX/bin/filebrowser"
+}
+if [[ -n "${FILEBROWSER_BIN:-}" && -f "${FILEBROWSER_BIN}" ]]; then
+  install -m 0755 "${FILEBROWSER_BIN}" "$FB_BIN"
+  xattr -dr com.apple.quarantine "$FB_BIN" 2>/dev/null || true
+elif command -v curl >/dev/null 2>&1; then
+  echo "下载 filebrowser ${FB_VER}（官方 release，darwin-${AB}）..."
+  FB_TMP="$(mktemp -d)"; FB_TGZ="darwin-${AB}-filebrowser.tar.gz"
+  FB_REL="https://github.com/filebrowser/filebrowser/releases/download/${FB_VER}"
+  if curl -fsSL "$FB_REL/$FB_TGZ" -o "$FB_TMP/$FB_TGZ" \
+     && curl -fsSL "$FB_REL/filebrowser_${FB_VER#v}_checksums.txt" -o "$FB_TMP/sums.txt"; then
+    WANT="$(grep " ${FB_TGZ}\$" "$FB_TMP/sums.txt" | awk '{print $1}')"
+    GOT="$(shasum -a 256 "$FB_TMP/$FB_TGZ" | awk '{print $1}')"
+    if [[ -n "$WANT" && "$WANT" == "$GOT" ]]; then
+      tar -xzf "$FB_TMP/$FB_TGZ" -C "$FB_TMP" filebrowser
+      install -m 0755 "$FB_TMP/filebrowser" "$FB_BIN"
+      xattr -dr com.apple.quarantine "$FB_BIN" 2>/dev/null || true
+    else
+      fb_brew_fallback "filebrowser sha256 校验失败 (want=${WANT:-?} got=$GOT)"
+    fi
+  else
+    fb_brew_fallback "filebrowser 下载失败"
+  fi
+  rm -rf "$FB_TMP"
+else
+  fb_brew_fallback "无 curl 可用"
 fi
 
 # --- 4. filebrowser DB：建用户 + noauth + baseURL（鉴权交给 Headscale ACL）---

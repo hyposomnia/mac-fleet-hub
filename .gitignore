@@ -28,8 +28,13 @@ server/headscale/*.sqlite*
 mac/fleet-agent/fleet-agent
 /tmp/
 
-# Claude Code 本地配置（机器专属，不入库；人格 .claude/commands 与 .agents 记忆入库）
-.claude/settings.local.json
+# AI 开发产物（不开源）：.agents/ 与 .claude/ 各自是独立的私有 git 仓库，
+# 嵌套在此被主仓库忽略；跨账号同步走它们各自的私有远端（在该目录内 git push/pull）。
+.agents/
+.claude/
+
+# 个人部署笔记 / 私有资料（本地保留，不入库）
+.private/
 
 # 系统杂项
 .DS_Store
