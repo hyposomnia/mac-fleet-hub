@@ -16,8 +16,10 @@ package main
 
 import (
 	"bufio"
+	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"os"
@@ -124,8 +126,9 @@ type Session struct {
 	Title     string `json:"title"`
 	GitBranch string `json:"gitBranch"`
 	Mtime     int64  `json:"mtime"` // 毫秒
-	Live      bool   `json:"live"`  // Desktop 未归档（活跃）
-	Pty       bool   `json:"pty"`   // 控制台已为该会话起过 fleet tmux（有可终止/可回到的进程）
+	Live      bool   `json:"live"`    // Desktop 未归档（活跃）
+	Pty       bool   `json:"pty"`     // 控制台已为该会话起过 fleet tmux（有可终止/可回到的进程）
+	Waiting   bool   `json:"waiting"` // 卡在「等你回答/授权」：jsonl 最后一条 assistant 且 stop_reason==tool_use
 }
 
 // jsonl 行（只取需要字段）
@@ -372,6 +375,105 @@ func jsonlPath(sid string) string {
 		}
 	}
 	return ""
+}
+
+// jsonlPaths：一次扫 ~/.claude/projects 建 sessionId → .jsonl 路径 映射，
+// 供 handleSessions 批量标记，避免每会话各扫一遍目录。
+func jsonlPaths() map[string]string {
+	m := map[string]string{}
+	root := filepath.Join(cfg.ClaudeHome, "projects")
+	projs, _ := os.ReadDir(root)
+	for _, p := range projs {
+		if !p.IsDir() {
+			continue
+		}
+		pdir := filepath.Join(root, p.Name())
+		files, _ := os.ReadDir(pdir)
+		for _, f := range files {
+			if n := f.Name(); strings.HasSuffix(n, ".jsonl") {
+				m[strings.TrimSuffix(n, ".jsonl")] = filepath.Join(pdir, n)
+			}
+		}
+	}
+	return m
+}
+
+// 「等待用户」缓存：jsonl 路径 → (mtime, waiting)，按 mtime 失效，免每次轮询重读尾部。
+var (
+	waitCache = map[string]struct {
+		mtime   int64
+		waiting bool
+	}{}
+	waitMu sync.Mutex
+)
+
+// sessionWaiting：会话是否卡在「等你回答 / 授权」。判据（见实证）——jsonl 最后一条可解析记录
+// 是 assistant 且 message.stop_reason=="tool_use"：AskUserQuestion 待答、或工具待授权都属此态；
+// 轮次正常结束是 end_turn（不亮），工具已执行则末条是 tool_result/attachment（不亮）。按 mtime 缓存。
+func sessionWaiting(path string) bool {
+	if path == "" {
+		return false
+	}
+	mt := statMtime(path)
+	waitMu.Lock()
+	if c, ok := waitCache[path]; ok && c.mtime == mt {
+		waitMu.Unlock()
+		return c.waiting
+	}
+	waitMu.Unlock()
+
+	w := tailWaiting(readTail(path, 256*1024))
+	waitMu.Lock()
+	waitCache[path] = struct {
+		mtime   int64
+		waiting bool
+	}{mt, w}
+	waitMu.Unlock()
+	return w
+}
+
+// readTail：读文件末尾最多 n 字节（jsonl 末几条足够判断等待态）。
+func readTail(path string, n int64) []byte {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil
+	}
+	defer f.Close()
+	info, err := f.Stat()
+	if err != nil {
+		return nil
+	}
+	if start := info.Size() - n; start > 0 {
+		if _, err := f.Seek(start, 0); err != nil {
+			return nil
+		}
+	}
+	b, _ := io.ReadAll(f)
+	return b
+}
+
+// tailWaiting：纯逻辑（便于单测）——取尾部内容里最后一条可解析 json 记录，判断是否等待态。
+// 从末尾往前找第一条能解析的行（尾部首行可能被 readTail 截断，跳过）。
+func tailWaiting(tail []byte) bool {
+	lines := bytes.Split(tail, []byte("\n"))
+	for i := len(lines) - 1; i >= 0; i-- {
+		ln := bytes.TrimSpace(lines[i])
+		if len(ln) == 0 {
+			continue
+		}
+		var o struct {
+			Type    string `json:"type"`
+			Message struct {
+				Role       string `json:"role"`
+				StopReason string `json:"stop_reason"`
+			} `json:"message"`
+		}
+		if json.Unmarshal(ln, &o) != nil {
+			continue
+		}
+		return (o.Type == "assistant" || o.Message.Role == "assistant") && o.Message.StopReason == "tool_use"
+	}
+	return false
 }
 
 // ---------------- Claude Desktop 会话库（一次数据源） ----------------
@@ -655,10 +757,13 @@ func httpTmuxErr(w http.ResponseWriter, err error) {
 
 func handleSessions(w http.ResponseWriter, r *http.Request) {
 	all := scanSessions()
-	// 标记每个会话是否已有 fleet tmux 进程（前端据此显示「终止」「进入连接」）
+	// 标记每个会话：是否已有 fleet tmux 进程（pty，前端显示「终止」「进入连接」）、
+	// 是否卡在等你回答/授权（waiting，前端显示棕色点）。jsonl 路径一次性建映射避免逐会话扫目录。
 	ptySet := fleetTmuxSet()
+	paths := jsonlPaths()
 	for i := range all {
 		all[i].Pty = ptySet[shortSid(all[i].SessionID)]
+		all[i].Waiting = sessionWaiting(paths[all[i].SessionID])
 	}
 	scope := r.URL.Query().Get("scope")
 	list := all

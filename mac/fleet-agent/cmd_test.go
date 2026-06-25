@@ -94,3 +94,31 @@ func TestHttpTmuxErr(t *testing.T) {
 		t.Fatalf("normal: body=%+v", body)
 	}
 }
+
+// tailWaiting 钉死「等你回答/授权」判据（实证：两个等待会话末条都是 assistant + stop_reason=tool_use）：
+// 只看尾部最后一条可解析记录；assistant+tool_use=等待，end_turn / 工具已出结果 / 截断行都不算。
+func TestTailWaiting(t *testing.T) {
+	asstWait := `{"type":"assistant","message":{"role":"assistant","stop_reason":"tool_use","content":[{"type":"tool_use","name":"AskUserQuestion"}]}}`
+	asstDone := `{"type":"assistant","message":{"role":"assistant","stop_reason":"end_turn","content":[{"type":"text"}]}}`
+	userResult := `{"type":"user","message":{"role":"user","content":[{"type":"tool_result"}]}}`
+	attachment := `{"type":"attachment"}`
+
+	cases := []struct {
+		name string
+		tail string
+		want bool
+	}{
+		{"asking/permission 末条 tool_use", asstWait, true},
+		{"轮次正常结束 end_turn", asstDone, false},
+		{"工具已出结果 user.tool_result", userResult, false},
+		{"末条是工具执行后的 attachment", asstWait + "\n" + attachment, false},
+		{"多行尾部 + 末条等待 + 末尾换行", asstDone + "\n" + asstWait + "\n", true},
+		{"尾部首行被截断也能跳过取下一条", "ble}\n" + asstWait, true},
+		{"空", "", false},
+	}
+	for _, c := range cases {
+		if got := tailWaiting([]byte(c.tail)); got != c.want {
+			t.Errorf("%s: tailWaiting=%v want %v", c.name, got, c.want)
+		}
+	}
+}
