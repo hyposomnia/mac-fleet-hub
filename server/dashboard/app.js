@@ -697,8 +697,7 @@ function init() {
   $('#reconnect-btn').onclick = () => { try { $('#frame').contentWindow.location.reload(); } catch (_) { const f = $('#frame'); f.src = f.src; } };
   $('#fullscreen-btn').onclick = () => $('.win-body').requestFullscreen?.();
 
-  // 主题 / 用户菜单
-  $('#theme-btn').onclick = toggleTheme;
+  // 用户菜单（主题切换已收进菜单内 data-act="theme"，不再单独占一行）
   $('#user-btn').onclick = (e) => toggleMenu('usermenu', e);
   $('#m-menu-btn').onclick = (e) => toggleMenu('m-menu', e);
   $$('#usermenu button, #m-menu button').forEach((b) => {

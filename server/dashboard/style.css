@@ -305,9 +305,6 @@ button { cursor: pointer; border: none; background: none; }
 .host .i:hover { background: var(--surface-2); color: var(--text); }
 
 .railfoot { margin-top: auto; display: flex; flex-direction: column; gap: 6px; padding-top: var(--s3); border-top: 1px solid var(--border); position: relative; }
-.ghost-btn { display: flex; align-items: center; gap: 9px; padding: 9px 11px; border-radius: 10px; color: var(--text-1); font-size: var(--t-sm); font-weight: 540; transition: all var(--dur-1) var(--ease); }
-.ghost-btn:hover { background: var(--surface-hover); color: var(--text); }
-.ghost-btn .gi { width: 18px; text-align: center; }
 .userrow { display: flex; align-items: center; gap: 9px; padding: 8px 10px; border-radius: 10px; width: 100%; transition: background var(--dur-1) var(--ease); }
 .userrow:hover { background: var(--surface-hover); }
 .avatar { width: 28px; height: 28px; border-radius: 50%; display: grid; place-items: center; font-size: 12px; font-weight: 650; background: var(--surface-2); color: var(--accent-text); flex: none; }
