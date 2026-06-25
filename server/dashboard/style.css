@@ -117,7 +117,7 @@
    ============================================================ */
 * { box-sizing: border-box; margin: 0; padding: 0; }
 [hidden] { display: none !important; }
-html, body { height: 100%; }
+html, body { height: 100%; overflow-x: hidden; max-width: 100%; }
 body {
   font-family: var(--font);
   background: var(--bg);
@@ -390,7 +390,7 @@ button { cursor: pointer; border: none; background: none; }
 .empty-state b { color: var(--text-1); }
 
 /* 移动端输入坞（终端） */
-#mobile-input { flex: none; background: var(--surface); border-top: 1px solid var(--border); padding: 8px 10px calc(8px + env(safe-area-inset-bottom, 0px)); }
+#mobile-input { flex: none; background: var(--surface); border-top: 1px solid var(--border); padding: 8px 10px calc(8px + env(safe-area-inset-bottom, 0px)); transform: translateY(calc(-1 * var(--kb, 0px))); transition: transform var(--dur-2) var(--ease); }
 .keybar { display: flex; gap: 7px; overflow-x: auto; padding-bottom: 8px; }
 .keybar::-webkit-scrollbar { height: 0; }
 .keybar button { flex: none; min-width: 46px; height: 44px; padding: 0 14px; border-radius: 11px; background: var(--surface-2); border: 1px solid var(--border); color: var(--text-1); font-family: var(--mono); font-size: 13px; display: grid; place-items: center; }

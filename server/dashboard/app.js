@@ -664,6 +664,18 @@ function init() {
   addEventListener('resize', () => {
     if (state.mode === 'claude' && state.termSid) $('#mobile-input').hidden = !isMobile();
   });
+  // 移动端软键盘弹起时把输入坞顶到键盘之上。iOS 键盘不缩布局视口（100dvh/fixed 不变），
+  // 用 VisualViewport 算键盘高度 → CSS 变量 --kb，输入坞据此上移（见 style.css #mobile-input transform）。
+  if (window.visualViewport) {
+    const vv = window.visualViewport;
+    const syncKb = () => {
+      const kb = Math.max(0, window.innerHeight - vv.height - vv.offsetTop);
+      document.documentElement.style.setProperty('--kb', kb + 'px');
+    };
+    vv.addEventListener('resize', syncKb);
+    vv.addEventListener('scroll', syncKb);
+    syncKb();
+  }
 
   setMode('claude');
   restoreTermOrEmpty();
