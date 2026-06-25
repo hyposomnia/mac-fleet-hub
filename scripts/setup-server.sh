@@ -10,13 +10,52 @@ set -euo pipefail
 [[ $EUID -eq 0 ]] || { echo "请用 sudo 运行。" >&2; exit 1; }
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SRV="$ROOT/server"
-[[ -f "$SRV/.env" ]] || { echo "缺少 server/.env，请先 cp server/.env.example server/.env 并填写。" >&2; exit 1; }
+if [[ ! -f "$SRV/.env" ]]; then
+  if [[ -t 0 ]]; then
+    echo "未找到 server/.env，进入交互配置（回车用方括号里的默认/推荐值）："
+    read -r -p "  根域名（通配符证书 *.域名 的注册域，如 example.com） > " WZ_DOMAIN < /dev/tty
+    while [[ -z "${WZ_DOMAIN}" ]]; do read -r -p "  不能为空，请输入根域名 > " WZ_DOMAIN < /dev/tty; done
+    read -r -p "  服务子域 [fleet.${WZ_DOMAIN}] > " WZ_FLEET < /dev/tty; WZ_FLEET="${WZ_FLEET:-fleet.${WZ_DOMAIN}}"
+    # 证书自动探测（acme.sh / certbot 常见路径）
+    WZ_CERT=""; for c in "/root/.acme.sh/${WZ_DOMAIN}_ecc/fullchain.cer" "/etc/letsencrypt/live/${WZ_DOMAIN}/fullchain.pem"; do [[ -f "$c" ]] && { WZ_CERT="$c"; break; }; done
+    WZ_KEY="";  for k in "/root/.acme.sh/${WZ_DOMAIN}_ecc/${WZ_DOMAIN}.key" "/etc/letsencrypt/live/${WZ_DOMAIN}/privkey.pem"; do [[ -f "$k" ]] && { WZ_KEY="$k"; break; }; done
+    read -r -p "  证书完整链路径 [${WZ_CERT:-需手填}] > " IN < /dev/tty; WZ_CERT="${IN:-$WZ_CERT}"
+    read -r -p "  证书私钥路径 [${WZ_KEY:-需手填}] > " IN < /dev/tty; WZ_KEY="${IN:-$WZ_KEY}"
+    read -r -p "  你的网络封了 80/443 吗（需高位端口+路由NAT）？[y/N] > " WZ_NAT < /dev/tty
+    if [[ "${WZ_NAT}" =~ ^[Yy] ]]; then
+      read -r -p "    web 对外端口 [20443] > " IN < /dev/tty; WZ_GP="${IN:-20443}"
+      read -r -p "    Headscale 对外端口 [28443] > " IN < /dev/tty; WZ_HPP="${IN:-28443}"
+      echo "    ⚠️ 记得在路由器映射：公网 ${WZ_GP}→本机443、公网 ${WZ_HPP}→本机8443。"
+    else WZ_GP=443; WZ_HPP=8443; fi
+    read -r -p "  各 Mac 的 mesh IP（空格分隔；首次装可留空，Mac 入网后再回填） > " WZ_MACIPS < /dev/tty
+    cat > "$SRV/.env" <<ENVEOF
+DOMAIN=${WZ_DOMAIN}
+FLEET_HOST=${WZ_FLEET}
+SSL_CERT=${WZ_CERT}
+SSL_KEY=${WZ_KEY}
+GATEWAY_PORT=${WZ_GP}
+HEADSCALE_PUBLIC_PORT=${WZ_HPP}
+HEADSCALE_LISTEN_PORT=8443
+MAC_IPS=${WZ_MACIPS}
+TTYD_PORT=7681
+FB_PORT=8080
+AGENT_PORT=7682
+NGINX_SITE=/etc/nginx/sites-enabled/mac-fleet-hub.conf
+ENVEOF
+    echo "  ✓ 已写入 server/.env（细调可直接编辑后重跑；参数含义见 AGENTS.md）"
+  else
+    echo "缺少 server/.env：请 cp server/.env.example server/.env 填写，或在交互终端运行本脚本进入向导。" >&2
+    exit 1
+  fi
+fi
 set -a; source "$SRV/.env"; set +a
 : "${DOMAIN:?在 .env 设置 DOMAIN}"
 : "${FLEET_HOST:?在 .env 设置 FLEET_HOST（服务子域，如 fleet.example.com）}"
 : "${SSL_CERT:?在 .env 设置 SSL_CERT（证书完整链路径）}"
 : "${SSL_KEY:?在 .env 设置 SSL_KEY（证书私钥路径）}"
-: "${MAC_IPS:?在 .env 设置 MAC_IPS（空格分隔的各 Mac mesh IP，按 m1 m2 … 顺序）}"
+# MAC_IPS 首轮可空：只装网关，Mac 入网后把其 mesh IP 填进 .env 重跑即可。
+MAC_IPS="${MAC_IPS:-}"
+[[ -n "$MAC_IPS" ]] || echo "  ⚠️ MAC_IPS 为空：本次仅部署网关（暂不生成 Mac 反代块）；Mac 入网后回填重跑。"
 NGINX_SITE="${NGINX_SITE:-/etc/nginx/sites-enabled/mac-fleet-hub.conf}"
 # 对外端口：默认标准端口、无 NAT（见 .env 注释）。nginx 内部恒听 443。
 GATEWAY_PORT="${GATEWAY_PORT:-443}"
