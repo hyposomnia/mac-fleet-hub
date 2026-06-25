@@ -18,6 +18,7 @@ mac-fleet-hub 变更记录（日期为本地时间）。
 - **禁页面缩放 + 全宽不溢出**：viewport 加 `maximum-scale=1, user-scalable=no, interactive-widget=resizes-content`；`html,body` 加 `overflow-x:hidden`。
 
 ### dashboard 交互优化
+- **运行态会话行：静态绿点 + hover 才出停止按钮**：已起 fleet 进程的会话行，正常态显示一个**静态绿点**（`--online`，不脉冲，表示进程在跑）；鼠标 hover 时切换成**红色停止按钮**（露出 ⏹ SVG）。停止按钮边框由原圆角方块改为**圆形**（`border-radius: 50%`）。纯 CSS（`.stopbtn` 用 `::before` 画绿点、hover 互斥显隐绿点/图标）。
 - **会话行去掉常驻状态点**：默认不显示行首点；仅「等待你回复 / 选择」的会话显示**棕色点**（由 fleet-agent `waiting` 信号驱动，见下）。行首点位**恒定留出**（无点时透明占位，标题统一对齐）；行距收紧；棕色点**静态不脉冲**。
 - **分组折叠箭头**改用清晰的内联 SVG chevron（原 Unicode `▾` 太淡）。
 - **「终止 ⏹」按钮**改由真实进程状态驱动（fleet-agent 新增 `pty` 字段）：仅对**已起 fleet 进程**的会话显示，且**不选中也显示**；未起进程的不显示。
