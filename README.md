@@ -6,8 +6,8 @@
 ## 架构（实测后定稿）
 
 ```
-手机 PWA  →  https://fleet.example.com:20443/        (通配符证书 *.example.com)
-   │  路由 20443→本机443，SNI 区分子域
+手机 PWA  →  https://fleet.example.com/             (通配符证书 *.example.com)
+   │  默认 443，SNI 区分子域（ISP 封 443 时可改高位端口 + 路由 NAT，见 server/.env）
    ▼
 Ubuntu 网关：nginx（与同机其它站点共存，靠 SNI 区分，互不影响）
    └─ fleet.example.com      本项目独立 server 块（你的通配符证书）
@@ -17,7 +17,7 @@ Ubuntu 网关：nginx（与同机其它站点共存，靠 SNI 区分，互不影
         ├─ /m{N}/term  → mesh → 各 Mac ttyd（→ tmux → claude --resume）
         ├─ /m{N}/files → mesh → 各 Mac filebrowser（整个 home）
         └─ /m{N}/api   → mesh → 各 Mac fleet-agent（列出/打开/新建会话）
-Headscale（原生 systemd, 控制面 fleet.example.com:28443→本机8443）：自托管组网 + 内置 DERP
+Headscale（原生 systemd, 控制面 fleet.example.com:8443）：自托管组网 + 内置 DERP
    └─ mesh →  Mac1 … MacN（仅 mesh 可达；mac↔mac 全端口互通）
 ```
 
@@ -40,18 +40,18 @@ Headscale（原生 systemd, 控制面 fleet.example.com:28443→本机8443）：
 
 ## 快速上手
 
-> ⚠️ 网页终端=把 shell 暴露给网关。务必：公网只放 443/20443/28443、Mac 服务仅绑 mesh、
+> ⚠️ 网页终端=把 shell 暴露给网关。务必：公网只放 web 与 Headscale 两个端口（默认 443/8443）、Mac 服务仅绑 mesh、
 > Authelia 2FA 必开、Headscale ACL 写严（Mac 端访问控制只靠 ACL 这一道）。
 
 1. **网关**（Ubuntu，需 sudo）：`cp server/.env.example server/.env` 填好域名 →
    `sudo bash scripts/setup-server.sh`（装 Headscale+Authelia、部署 PWA、注入 nginx、打印 preauthkey）。
-2. **路由**：确认端口映射 公网 `20443→本机443`、`28443→本机8443`。
+2. **（可选）端口**：默认标准端口 443/8443，无需任何路由设置。仅当 ISP 封 443 时，在 `server/.env` 改高位端口并在路由器做 NAT 映射（如 `20443→本机443`、`28443→本机8443`）。
 3. **每台 Mac（一键）**：装好 Homebrew 后 clone 本仓库，跑
    `MAC_INDEX=1 AUTHKEY=<preauthkey> bash mac/install.sh`（第 2、3、… 台改 `MAC_INDEX`）。
    脚本自动装 Tailscale、起守护进程、入网 Headscale（这几步会要 sudo 密码），再装 ttyd/filebrowser/fleet-agent 并起服务。
 4. **回填**：把各 Mac 的 mesh IP 按顺序写进 `server/.env` 的 `MAC_IPS`（空格分隔，第 N 个对应 mac N），
    重跑 `setup-server.sh` 刷新 nginx（按台数自动生成反代块）；给网关节点打 `tag:fleet-gw`。
-5. **用**：手机开 `https://<你的子域>:20443/`（如 `https://fleet.example.com:20443/`）→ 2FA 登录 → 选 Mac → 续接会话；可「添加到主屏」当 App。
+5. **用**：手机开 `https://<你的子域>/`（如 `https://fleet.example.com/`）→ 2FA 登录 → 选 Mac → 续接会话；可「添加到主屏」当 App。
 
 ## 配置约定
 

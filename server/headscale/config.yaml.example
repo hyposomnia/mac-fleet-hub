@@ -2,11 +2,13 @@
 # 占位 {{FLEET_HOST}} 由 scripts/setup-server.sh 用 .env 的 FLEET_HOST 替换。
 # 完整字段参考官方 config-example.yaml；这里只列与本方案相关的关键项。
 
-# 客户端连这个地址；公网 28443 → 本机 8443（路由端口映射）。
-server_url: https://{{FLEET_HOST}}:28443
+# 客户端连这个对外地址（占位 {{HS_BASE}} = https://FLEET_HOST[:HEADSCALE_PUBLIC_PORT]，
+# 对外用标准 443 时省略端口）。默认无 NAT 时对外端口 = 监听端口 8443。
+server_url: {{HS_BASE}}
 
-# 本机监听（路由把公网 28443 转到这里）。直接用现有 LE 证书自带 TLS。
-listen_addr: 0.0.0.0:8443
+# 本机实际监听端口（占位 {{HEADSCALE_LISTEN_PORT}}，默认 8443，避开 nginx 的 443）。
+# 若做了 NAT（对外 28443 → 本机 8443），监听仍是 8443、对外端口在 .env 设。直接用 LE 证书自带 TLS。
+listen_addr: 0.0.0.0:{{HEADSCALE_LISTEN_PORT}}
 metrics_listen_addr: 127.0.0.1:9090
 
 # 复用 nginx 用的同一张通配符证书（按 host 生效、与端口无关）。占位 {{SSL_CERT}}/{{SSL_KEY}}

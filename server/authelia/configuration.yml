@@ -1,5 +1,6 @@
 # Authelia 主配置 —— 单用户 + TOTP 两步验证，保护整个子域 fleet.example.com。
-# 占位 {{FLEET_HOST}} 部署时由 scripts/setup-server.sh 用 .env 的 FLEET_HOST 替换。
+# 占位 {{FLEET_HOST}} / {{WEB_BASE}} 部署时由 scripts/setup-server.sh 用 .env 替换
+# （WEB_BASE = https://FLEET_HOST[:GATEWAY_PORT]，对外 443 时省略端口）。
 # 敏感密钥(jwt/session/storage_encryption)从环境变量 *_FILE 注入（见 systemd/authelia.service），不写死。
 #
 # 部署位置：/etc/authelia/configuration.yml ；数据：/var/lib/authelia ；门户路径：/auth
@@ -25,8 +26,8 @@ session:
   name: authelia_session
   cookies:
     - domain: '{{FLEET_HOST}}'
-      authelia_url: 'https://{{FLEET_HOST}}:20443/auth'
-      default_redirection_url: 'https://{{FLEET_HOST}}:20443/'
+      authelia_url: '{{WEB_BASE}}/auth'
+      default_redirection_url: '{{WEB_BASE}}/'
       # F3：登录有效期 ~30 天。expiration=会话绝对寿命，inactivity=空闲超时。
       # 二者都设 30d 才能「30 天内（含长时间不操作）无需重新认证」——这是用户明确
       # 接受的便利/安全权衡（单用户 + 已有 TOTP + 登录失败锁定 regulation 兜底）。

@@ -13,7 +13,7 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-LOGIN_SERVER="${LOGIN_SERVER:-https://fleet.example.com:28443}"   # Headscale 控制面；请改成你的网关地址（或经 enroll/bootstrap.sh 自动注入）
+LOGIN_SERVER="${LOGIN_SERVER:-https://fleet.example.com:8443}"   # Headscale 控制面；请改成你的网关地址（默认监听 8443；ISP 封 443 用高位端口时改成你的对外端口，如 :28443。也可经 enroll/bootstrap.sh 自动注入）
 MAC_INDEX="${MAC_INDEX:-${1:-}}"
 AUTHKEY="${AUTHKEY:-${2:-}}"
 
@@ -81,6 +81,6 @@ cat <<EOF
   # 这是第 ${MAC_INDEX} 台 → 放在第 ${MAC_INDEX} 个位置）
   sudo bash scripts/setup-server.sh        # 重渲染并 reload nginx（幂等）
 
-然后浏览器开 https://<你的子域>:20443/ → 选 Mac ${MAC_INDEX} → 续接会话。
+然后浏览器开 https://<你的子域>/ → 选 Mac ${MAC_INDEX} → 续接会话。
 （如需 mac↔mac 的 SSH/VNC，请自行在「系统设置 > 通用 > 共享」开启。）
 EOF

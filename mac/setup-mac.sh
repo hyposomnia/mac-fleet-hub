@@ -3,7 +3,7 @@
 #
 # 用法：
 #   MAC_INDEX=1 \
-#   LOGIN_SERVER=https://fleet.example.com:28443 AUTHKEY=<preauthkey> \
+#   LOGIN_SERVER=https://fleet.example.com:8443 AUTHKEY=<preauthkey> \
 #   bash mac/setup-mac.sh
 #
 #   - MAC_INDEX 必填(1/2/3/…)：决定终端/文件路径 /m{idx}/...，且要与网关 .env 的 MAC_IPS 第几个对应一致

@@ -18,6 +18,14 @@ set -a; source "$SRV/.env"; set +a
 : "${SSL_KEY:?在 .env 设置 SSL_KEY（证书私钥路径）}"
 : "${MAC_IPS:?在 .env 设置 MAC_IPS（空格分隔的各 Mac mesh IP，按 m1 m2 … 顺序）}"
 NGINX_SITE="${NGINX_SITE:-/etc/nginx/sites-enabled/mac-fleet-hub.conf}"
+# 对外端口：默认标准端口、无 NAT（见 .env 注释）。nginx 内部恒听 443。
+GATEWAY_PORT="${GATEWAY_PORT:-443}"
+HEADSCALE_PUBLIC_PORT="${HEADSCALE_PUBLIC_PORT:-8443}"
+HEADSCALE_LISTEN_PORT="${HEADSCALE_LISTEN_PORT:-8443}"
+# 生成对外 URL 基址：对外端口为标准 443 时省略端口后缀。
+url_base() { [[ "$2" == "443" ]] && echo "https://$1" || echo "https://$1:$2"; }
+WEB_BASE="$(url_base "$FLEET_HOST" "$GATEWAY_PORT")"
+HS_BASE="$(url_base "$FLEET_HOST" "$HEADSCALE_PUBLIC_PORT")"
 
 ARCH=amd64
 gh_latest() { curl -fsSL "https://api.github.com/repos/$1/releases/latest" | grep -oE '"tag_name": *"[^"]+"' | head -1 | sed -E 's/.*"v?([^"]+)".*/\1/'; }
@@ -35,6 +43,7 @@ fi
 id headscale >/dev/null 2>&1 || useradd --system --home /var/lib/headscale --shell /usr/sbin/nologin headscale || true
 install -d -o headscale -g headscale /var/lib/headscale /etc/headscale
 sed -e "s/{{DOMAIN}}/${DOMAIN}/g" -e "s/{{FLEET_HOST}}/${FLEET_HOST}/g" \
+    -e "s|{{HS_BASE}}|${HS_BASE}|g" -e "s/{{HEADSCALE_LISTEN_PORT}}/${HEADSCALE_LISTEN_PORT}/g" \
     -e "s|{{SSL_CERT}}|${SSL_CERT}|g" -e "s|{{SSL_KEY}}|${SSL_KEY}|g" \
     "$SRV/headscale/config.yaml.example" > /etc/headscale/config.yaml
 cp "$SRV/headscale/acl.hujson" /etc/headscale/acl.hujson
@@ -57,7 +66,7 @@ if [[ ! -x /usr/local/bin/authelia ]]; then
 fi
 id authelia >/dev/null 2>&1 || useradd --system --home /var/lib/authelia --shell /usr/sbin/nologin authelia || true
 install -d -o authelia -g authelia /var/lib/authelia /etc/authelia /etc/authelia/secrets
-sed -e "s/{{DOMAIN}}/${DOMAIN}/g" -e "s/{{FLEET_HOST}}/${FLEET_HOST}/g" "$SRV/authelia/configuration.yml" > /etc/authelia/configuration.yml
+sed -e "s/{{DOMAIN}}/${DOMAIN}/g" -e "s/{{FLEET_HOST}}/${FLEET_HOST}/g" -e "s|{{WEB_BASE}}|${WEB_BASE}|g" "$SRV/authelia/configuration.yml" > /etc/authelia/configuration.yml
 # 用户库（含 argon2 哈希），不入库，从模板拷一次
 if [[ ! -f /etc/authelia/users_database.yml ]]; then
   cp "$SRV/authelia/users_database.yml.example" /etc/authelia/users_database.yml
@@ -111,7 +120,6 @@ fi
 echo "==> [6/7] 启动 Headscale / Authelia / 状态定时器 + 网关入网"
 cp "$SRV/systemd/fleet-nodes.service" /etc/systemd/system/
 cp "$SRV/systemd/fleet-nodes.timer"   /etc/systemd/system/
-cp "$SRV/systemd/fleet-derp-redirect.service" /etc/systemd/system/
 systemctl daemon-reload
 # enable 开机自启；headscale/authelia 用 restart 而非 enable --now：重跑脚本时配置常已变
 # （换域名/换证书），而 enable --now 对已运行服务是 no-op，不会重载配置——旧域名残留会直接
@@ -126,12 +134,22 @@ FLEET_UID="$(headscale users list -o json 2>/dev/null | grep -oE '"id":[0-9]+' |
 FLEET_UID="${FLEET_UID:-1}"
 PAK="$(headscale preauthkeys create -u "$FLEET_UID" --reusable --expiration 24h --tags tag:fleet-mac 2>/dev/null | tail -1 || true)"
 
-# 网关自身入 mesh（nginx 要经 mesh 到各 Mac）。家宽 hairpin 不通 → 用本地解析 + 28443→8443 重定向。
+# 网关自身入 mesh（nginx 要经 mesh 到各 Mac）。用本地解析让网关直连自己的 headscale。
 if ! tailscale status >/dev/null 2>&1; then
   command -v tailscale >/dev/null 2>&1 || curl -fsSL https://tailscale.com/install.sh | sh || true
 fi
 grep -q '127.0.0.1 '"${FLEET_HOST}" /etc/hosts || echo "127.0.0.1 ${FLEET_HOST}" >> /etc/hosts
-systemctl enable --now fleet-derp-redirect.service 2>/dev/null || true
+# DERP 回环重定向：仅当对外端口 ≠ 监听端口（即你做了 NAT 映射）才需要，解决网关 hairpin。
+if [[ "$HEADSCALE_PUBLIC_PORT" != "$HEADSCALE_LISTEN_PORT" ]]; then
+  sed -e "s/__HS_PUBLIC_PORT__/${HEADSCALE_PUBLIC_PORT}/g" -e "s/__HS_LISTEN_PORT__/${HEADSCALE_LISTEN_PORT}/g" \
+      "$SRV/systemd/fleet-derp-redirect.service" > /etc/systemd/system/fleet-derp-redirect.service
+  systemctl daemon-reload
+  systemctl enable --now fleet-derp-redirect.service 2>/dev/null || true
+  echo "  已启用 DERP 回环重定向（${HEADSCALE_PUBLIC_PORT}→${HEADSCALE_LISTEN_PORT}，NAT hairpin）"
+else
+  systemctl disable --now fleet-derp-redirect.service 2>/dev/null || true
+  rm -f /etc/systemd/system/fleet-derp-redirect.service; systemctl daemon-reload
+fi
 if ! tailscale ip -4 >/dev/null 2>&1; then
   GWKEY="$(headscale preauthkeys create -u "$FLEET_UID" --reusable --expiration 1h --tags tag:fleet-gw 2>/dev/null | tail -1)"
   tailscale up --login-server="https://${FLEET_HOST}:${HEADSCALE_LISTEN_PORT:-8443}" --authkey="$GWKEY" --hostname=gateway --accept-dns=false || true
@@ -150,7 +168,7 @@ chmod 600 /etc/fleet-enroll/totp.secret
 cat > /etc/fleet-enroll/env <<EOF
 ENROLL_LISTEN=127.0.0.1:7090
 ENROLL_SECRET_FILE=/etc/fleet-enroll/totp.secret
-ENROLL_LOGIN_SERVER=https://${FLEET_HOST}:${HEADSCALE_PUBLIC_PORT:-28443}
+ENROLL_LOGIN_SERVER=${HS_BASE}
 ENROLL_HS_USER=${FLEET_UID}
 ENROLL_KEY_TTL=10m
 ENROLL_NAMES_FILE=/var/lib/fleet-enroll/names.json
@@ -177,17 +195,17 @@ cat <<EOF
 ✅ 网关部署完成。
 
 【推荐】在每台新 Mac 上免 clone 一行安装（会问域名/第几台/入网验证码）：
-  curl -fsSL https://${FLEET_HOST}:${GATEWAY_PORT:-20443}/enroll/bootstrap.sh | bash
+  curl -fsSL ${WEB_BASE}/enroll/bootstrap.sh | bash
   （验证码来自上面打印的入网二维码；卸载：curl -fsSL .../enroll/uninstall.sh | bash）
 
 【或】手动方式（注意 MAC_INDEX 各不同）：
-  MAC_INDEX=1 LOGIN_SERVER=https://${FLEET_HOST}:${HEADSCALE_PUBLIC_PORT:-28443} AUTHKEY=${PAK:-<preauthkey>} bash mac/setup-mac.sh
+  MAC_INDEX=1 LOGIN_SERVER=${HS_BASE} AUTHKEY=${PAK:-<preauthkey>} bash mac/setup-mac.sh
 
 入网后：把各 Mac 的 mesh IP 按顺序填进 server/.env 的 MAC_IPS（空格分隔，第 N 个对应 mac N），
 重跑本脚本（仅刷新 nginx 站点即可）。
 然后给网关节点打 tag：headscale nodes list ; headscale nodes tag -i <网关node-id> -t tag:fleet-gw
-确认路由端口映射：公网 20443→本机443、28443→本机8443。
-访问：https://${FLEET_HOST}:${GATEWAY_PORT:-20443}/  → Authelia 登录(2FA) → 选 Mac → 会话。
+（若用了高位端口：确认路由器已做 NAT 映射 公网${GATEWAY_PORT}→本机443、公网${HEADSCALE_PUBLIC_PORT}→本机${HEADSCALE_LISTEN_PORT}。默认标准端口则无需 NAT。）
+访问：${WEB_BASE}/  → Authelia 登录(2FA) → 选 Mac → 会话。
 
 排错：journalctl -u headscale -u authelia -f ; tail -f /var/www/fleet/api/nodes.json
 EOF
