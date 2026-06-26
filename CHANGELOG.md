@@ -4,6 +4,14 @@ mac-fleet-hub 变更记录（日期为本地时间）。
 
 ## 2026-06-26
 
+### 连接权限模式：新增 Auto（三按钮 连接 / Bypass / Auto）
+- **未在池的会话行展开三种权限模式**：`连接`（普通，逐项确认）/ `Bypass`（红，`--dangerously-skip-permissions`）/ `Auto`（琥珀，`--permission-mode auto`——自动批准 + 后台安全分类器，介于二者之间）。已在池的会话点行即瞬时切换，无按钮。
+- **fleet-agent**：`/api/open|new` 的 `bypass` 布尔泛化为三态 `mode`（default/bypass/auto），`permFlag` 白名单映射（不放行任意 `--permission-mode`，`normMode` 把 plan 等收敛成 default），兼容旧前端 `bypass:true`。`watcher`/reload 沿用 mode。终端头按模式显 `⚠ 跳过权限` / `⚡ Auto` 徽标。改 main.go → 已重建 dist 双架构并升级三台 Mac。
+- **rail 模式 tab 图标**：`Claude会话` 用 Claude 官方 logo（Bootstrap claude，描边填充），`文件` 用 file-text 文档图标。
+
+### 工具栏图标 → 规整内联 SVG
+- 刷新 / 重连 / 全屏 / ⓘ / ⋮ / 返回 / 设置 / 主题 / 退出 / 复制 / 发送 / 新建 / 关闭 / 空状态大图标 等 Unicode 字形换成 Feather 风格内联 SVG（统一 `.ic` 描边样式），放大到 17–18px，不再细小。品牌 logo 与 keybar 键标签保留文字。
+
 ### 终端 iframe 池（切换丝滑 + 上限可调）
 - **单 iframe「导航式」终端 → iframe 池**：每个打开过的会话一个常驻 iframe，全尺寸叠放在 `#frames`，靠 `.show`（`visibility` 而非 `display:none`——后者会把 iframe 尺寸塌成 0、ttyd 把 pty resize 成 0×0、Claude TUI 排版炸掉）显隐切换。切换 = 改 class，瞬时；池内会话全程保持实时、不掉线。`#frame` 仅留给「文件」模式。
 - **超上限按「最后收到输出时间」LRU 释放（排除当前窗口）**：包 `term.write` 记每个窗口的最后收到输出时刻；超上限时释放非当前窗口里最早的那个——关 iframe → WS 断 → tmux detach → 释放 1 个 pty，后台 Claude 进程不受影响，再点回来重新 attach。真实 Chrome 实测：单终端 iframe 边际成本 ~2.1MB JS 堆（+ 几 MB GPU 后备），浏览器内存非瓶颈，真正天花板是系统 pty 池。
