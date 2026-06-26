@@ -31,6 +31,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 )
@@ -122,6 +123,62 @@ func loadConfig() Config {
 }
 
 var cfg Config
+
+// ---------------- 空闲回收时长（运行时可配） ----------------
+// idleSec：reaper 用的空闲回收秒数。configSync 周期从网关更新；初值 = cfg.IdleSec
+// （来自 FLEET_IDLE_SEC env，网关不可达/未配置时的永久回退默认）。
+var idleSec atomic.Int64
+
+// configURL：daemon 拉设置的网关地址，由 plist 注入 FLEET_CONFIG_URL。
+// 未配置（旧装机 / 未开启）则空 → configSync 不启动，沿用 FLEET_IDLE_SEC 默认。
+func configURL() string { return strings.TrimSpace(os.Getenv("FLEET_CONFIG_URL")) }
+
+// fetchIdleSec：GET 网关 /agent-config 解析 {idleSec}。越界(<=0)/非 200/坏 JSON 均报错，
+// 调用方据此保留旧值。
+func fetchIdleSec(url string) (int64, error) {
+	c := &http.Client{Timeout: 10 * time.Second}
+	resp, err := c.Get(url)
+	if err != nil {
+		return 0, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		return 0, fmt.Errorf("HTTP %d", resp.StatusCode)
+	}
+	var body struct {
+		IdleSec int64 `json:"idleSec"`
+	}
+	if err := json.NewDecoder(io.LimitReader(resp.Body, 1<<12)).Decode(&body); err != nil {
+		return 0, err
+	}
+	if body.IdleSec <= 0 {
+		return 0, fmt.Errorf("非法 idleSec=%d", body.IdleSec)
+	}
+	return body.IdleSec, nil
+}
+
+// configSync：启动拉一次 + 每 5min 拉，成功则更新 idleSec；任何失败保留当前值。
+func configSync() {
+	url := configURL()
+	if url == "" {
+		log.Printf("FLEET_CONFIG_URL 未配置，空闲回收沿用本地默认 %ds", idleSec.Load())
+		return
+	}
+	pull := func() {
+		if v, err := fetchIdleSec(url); err != nil {
+			log.Printf("拉取 agent-config 失败（保留 %ds）：%v", idleSec.Load(), err)
+		} else if v != idleSec.Load() {
+			idleSec.Store(v)
+			log.Printf("空闲回收时长更新为 %ds", v)
+		}
+	}
+	pull()
+	t := time.NewTicker(5 * time.Minute)
+	defer t.Stop()
+	for range t.C {
+		pull()
+	}
+}
 
 // ---------------- 数据类型 ----------------
 type Session struct {
@@ -1039,7 +1096,7 @@ func reaper() {
 			}
 			attached, _ := strconv.Atoi(f[1])
 			act, _ := strconv.ParseInt(f[2], 10, 64)
-			if attached == 0 && now-act > cfg.IdleSec {
+			if attached == 0 && now-act > idleSec.Load() {
 				onSessionEnd(f[0])
 				tmux("kill-session", "-t", f[0])
 			}
@@ -1114,6 +1171,8 @@ func runServer() {
 	mux.HandleFunc("/api/info", handleInfo)
 	mux.HandleFunc("/api/health", func(w http.ResponseWriter, r *http.Request) { w.Write([]byte("ok")) })
 
+	idleSec.Store(cfg.IdleSec) // 初值 = FLEET_IDLE_SEC，configSync 成功后覆盖
+	go configSync()
 	go reaper()
 	log.Printf("fleet-agent listening on %s (mac index %s, idle %ds)", cfg.Listen, cfg.MacIndex, cfg.IdleSec)
 	log.Fatal(http.ListenAndServe(cfg.Listen, mux))
