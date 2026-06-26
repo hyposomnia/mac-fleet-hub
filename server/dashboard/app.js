@@ -445,6 +445,22 @@ function poolFind(macId, sessionId) {
   return state.pool.find((e) => e.macId === macId && e.sessionId === sessionId) || null;
 }
 
+const POOL_SNAP_KEY = 'fleet-pool';
+// 把当前池序列化成最小重建标识存 sessionStorage（刷新/崩溃恢复用，关标签即清）。
+// 只存重建所需：macId/sessionId/permMode/title/cwd——sid/url 是 attach 时新生成的，不存。
+function savePoolSnapshot() {
+  try {
+    const snap = {
+      macId: state.macId,
+      cur: state.current ? state.current.sessionId : null,
+      items: state.pool
+        .filter((e) => e.sessionId) // 无 sessionId 的新建会话不持久化（无法 resume 定位）
+        .map((e) => ({ macId: e.macId, sessionId: e.sessionId, permMode: e.permMode, title: e.title, cwd: e.cwd })),
+    };
+    sessionStorage.setItem(POOL_SNAP_KEY, JSON.stringify(snap));
+  } catch (_) {}
+}
+
 // xterm 就绪后（ttyd 异步初始化，轮询等它出现）：套主题 + 设回滚行数 + 包 term.write
 // 记「最后收到输出时间」（LRU 释放依据）。
 function hookTerm(entry, retries = 30) {
@@ -467,6 +483,7 @@ function poolDrop(entry) {
   if (i >= 0) state.pool.splice(i, 1);
   try { entry.iframe.remove(); } catch (_) {}
   if (state.current === entry) state.current = null;
+  savePoolSnapshot();
 }
 
 // 超上限释放：非当前窗口里「最后收到输出时间」最早的先释放。
@@ -529,6 +546,7 @@ function poolAdd(macId, sessionId, sid, url, title, cwd, permMode) {
   state.pool.push(entry);
   poolShow(entry);
   poolEvict();
+  savePoolSnapshot();
   return entry;
 }
 
