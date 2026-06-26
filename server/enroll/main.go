@@ -400,10 +400,11 @@ type dashSettings struct {
 	DesktopScrollback int `json:"desktopScrollback"`
 	MobileMaxWindows  int `json:"mobileMaxWindows"`
 	MobileScrollback  int `json:"mobileScrollback"`
+	AutoCloseMinutes  int `json:"autoCloseMinutes"` // 窗口无新输出超过此分钟数后自动释放（断连，后台进程不动）
 }
 
 func defaultSettings() dashSettings {
-	return dashSettings{DesktopMaxWindows: 10, DesktopScrollback: 5000, MobileMaxWindows: 4, MobileScrollback: 5000}
+	return dashSettings{DesktopMaxWindows: 10, DesktopScrollback: 5000, MobileMaxWindows: 4, MobileScrollback: 5000, AutoCloseMinutes: 30}
 }
 
 // clampOr：v 为 0（缺省/未填）回退 def，否则钳到 [lo,hi]。
@@ -427,6 +428,7 @@ func (s *dashSettings) normalize() {
 	s.MobileMaxWindows = clampOr(s.MobileMaxWindows, 1, 12, d.MobileMaxWindows)
 	s.DesktopScrollback = clampOr(s.DesktopScrollback, 200, 100000, d.DesktopScrollback)
 	s.MobileScrollback = clampOr(s.MobileScrollback, 200, 100000, d.MobileScrollback)
+	s.AutoCloseMinutes = clampOr(s.AutoCloseMinutes, 1, 1440, d.AutoCloseMinutes) // 1 分钟 ~ 24 小时
 }
 
 var settingsMu sync.Mutex

@@ -268,7 +268,10 @@ svg.ic.fill { fill: currentColor; stroke: none; }
 .kv .v { display: flex; align-items: center; gap: 8px; font-weight: 550; font-size: var(--t-sm); }
 .field { margin-top: var(--s3); }
 .field > label { display: block; font-size: var(--t-xs); color: var(--text-1); margin-bottom: 6px; }
-/* 设置弹窗分节小标题（桌面端 / 移动端） */
+/* 设置弹窗分组（终端设置 / 以后可加别的组）：组标题 + 组内若干小节 */
+.set-group + .set-group { margin-top: var(--s5); padding-top: var(--s4); border-top: 1px solid var(--border); }
+.set-group-title { font-size: var(--t-sm); font-weight: 650; color: var(--text-1); margin-bottom: var(--s2); }
+/* 设置弹窗分节小标题（桌面端 / 移动端 / 自动关闭） */
 .set-sec { margin-top: var(--s4); margin-bottom: 2px; font-size: var(--t-2xs); font-weight: 700; letter-spacing: .4px; text-transform: uppercase; color: var(--text-2); }
 .set-sec:first-child { margin-top: 0; }
 .hint { color: var(--text-2); font-size: var(--t-xs); line-height: 1.5; margin-top: var(--s3); }

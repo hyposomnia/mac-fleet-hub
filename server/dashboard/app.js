@@ -83,7 +83,7 @@ const state = {
 };
 
 // 偏好默认（拉取失败/未设时回退，与 server/enroll defaultSettings 对齐）
-const SETTINGS_DEFAULT = { desktopMaxWindows: 10, desktopScrollback: 5000, mobileMaxWindows: 4, mobileScrollback: 5000 };
+const SETTINGS_DEFAULT = { desktopMaxWindows: 10, desktopScrollback: 5000, mobileMaxWindows: 4, mobileScrollback: 5000, autoCloseMinutes: 30 };
 
 // ---------- 工具 ----------
 const isMobile = () => matchMedia('(max-width: 860px)').matches;
@@ -283,6 +283,7 @@ function openSettings() {
   $('#st-dscroll').value = s.desktopScrollback;
   $('#st-mmax').value = s.mobileMaxWindows;
   $('#st-mscroll').value = s.mobileScrollback;
+  $('#st-autoclose').value = s.autoCloseMinutes;
   openOverlay('settings-modal');
 }
 async function saveSettings() {
@@ -291,6 +292,7 @@ async function saveSettings() {
     desktopScrollback: parseInt($('#st-dscroll').value, 10) || 0,
     mobileMaxWindows: parseInt($('#st-mmax').value, 10) || 0,
     mobileScrollback: parseInt($('#st-mscroll').value, 10) || 0,
+    autoCloseMinutes: parseInt($('#st-autoclose').value, 10) || 0,
   };
   try {
     const r = await fetch(`${BASE}/api/settings`, {
@@ -472,6 +474,18 @@ function poolEvict() {
     }
     if (!victim) break; // 只剩当前窗口，不再释放
     poolDrop(victim);
+  }
+}
+
+// 无操作自动关闭：窗口「最后收到输出时间」距今超过设定时长就释放（当前正看的窗口不动）。
+// 与 LRU 不同——这里不看窗口数，纯按空闲时长回收，给后台跑完即闲的会话腾 pty。
+function poolReapIdle() {
+  const s = state.settings || SETTINGS_DEFAULT;
+  const ms = (s.autoCloseMinutes || SETTINGS_DEFAULT.autoCloseMinutes) * 60000;
+  const now = Date.now();
+  for (const e of [...state.pool]) {
+    if (e === state.current) continue;
+    if (now - e.lastOutput > ms) poolDrop(e);
   }
 }
 
@@ -807,6 +821,7 @@ function init() {
   refreshNames();
   refreshSettings();
   refreshNodes(); setInterval(refreshNodes, 30000);
+  setInterval(poolReapIdle, 60000); // 每分钟扫一遍空闲窗口，按自动关闭时长释放
   wireMobileInput();
 
   // 模式 / 范围 / 刷新 / 新建

@@ -18,10 +18,11 @@ func TestSettingsNormalizeClamp(t *testing.T) {
 		in   dashSettings
 		want dashSettings
 	}{
-		{"超上限钳到上限", dashSettings{999, 999999, 999, 999999}, dashSettings{30, 100000, 12, 100000}},
-		{"低于下限钳到下限", dashSettings{-5, 10, -1, 1}, dashSettings{1, 200, 1, 200}},
-		{"合法值原样保留", dashSettings{10, 5000, 4, 5000}, dashSettings{10, 5000, 4, 5000}},
-		{"部分缺省只补缺项", dashSettings{DesktopMaxWindows: 6}, dashSettings{6, 5000, 4, 5000}},
+		{"超上限钳到上限", dashSettings{999, 999999, 999, 999999, 99999}, dashSettings{30, 100000, 12, 100000, 1440}},
+		{"低于下限钳到下限", dashSettings{-5, 10, -1, 1, -3}, dashSettings{1, 200, 1, 200, 1}},
+		{"合法值原样保留", dashSettings{10, 5000, 4, 5000, 30}, dashSettings{10, 5000, 4, 5000, 30}},
+		{"部分缺省只补缺项", dashSettings{DesktopMaxWindows: 6}, dashSettings{6, 5000, 4, 5000, 30}},
+		{"自动关闭超上限钳到 24h", dashSettings{AutoCloseMinutes: 5000}, dashSettings{10, 5000, 4, 5000, 1440}},
 	}
 	for _, c := range cases {
 		got := c.in

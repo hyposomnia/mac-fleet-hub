@@ -4,6 +4,11 @@ mac-fleet-hub 变更记录（日期为本地时间）。
 
 ## 2026-06-26
 
+### 设置弹窗分组化 + 终端无操作自动关闭
+- **设置项包进「终端设置」分组**：弹窗 body 外包一层 `.set-group`（组标题「终端设置」），现有桌面 / 移动小节归入其下，为以后加别的设置组留位（`.set-group + .set-group` 自带分隔线）。
+- **新增「自动关闭」设置项（默认 30 分钟）**：窗口「无新输出」超过设定时长后，前端每分钟扫一遍 `poolReapIdle` 按空闲时长释放（当前正看的窗口不动），与按窗口数的 LRU 互补——给后台跑完即闲的会话主动腾 pty。范围 1～1440 分钟。
+- **存储**：`fleet-enroll` `dashSettings` 加 `autoCloseMinutes`，`normalize` 钳 [1,1440]、缺省回退 30；已补单测并重建 `dist/fleet-enroll-linux-amd64`。前端 `SETTINGS_DEFAULT` 同步默认 30，拉取失败 / 旧网关无此字段时回退默认照常工作。
+
 ### 连接权限模式：新增 Auto（三按钮 连接 / Bypass / Auto）
 - **未在池的会话行展开三种权限模式**：`连接`（普通，逐项确认）/ `Bypass`（红，`--dangerously-skip-permissions`）/ `Auto`（琥珀，`--permission-mode auto`——自动批准 + 后台安全分类器，介于二者之间）。已在池的会话点行即瞬时切换，无按钮。
 - **fleet-agent**：`/api/open|new` 的 `bypass` 布尔泛化为三态 `mode`（default/bypass/auto），`permFlag` 白名单映射（不放行任意 `--permission-mode`，`normMode` 把 plan 等收敛成 default），兼容旧前端 `bypass:true`。`watcher`/reload 沿用 mode。终端头按模式显 `⚠ 跳过权限` / `⚡ Auto` 徽标。改 main.go → 已重建 dist 双架构并升级三台 Mac。
