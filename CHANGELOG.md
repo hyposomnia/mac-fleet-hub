@@ -4,10 +4,12 @@ mac-fleet-hub 变更记录（日期为本地时间）。
 
 ## 2026-06-26
 
-### 设置弹窗分组化 + 终端无操作自动关闭
+### 设置弹窗分组化 + 终端自动关闭时长端到端可配 + 刷新后终端恢复
 - **设置项包进「终端设置」分组**：弹窗 body 外包一层 `.set-group`（组标题「终端设置」），现有桌面 / 移动小节归入其下，为以后加别的设置组留位（`.set-group + .set-group` 自带分隔线）。
-- **新增「自动关闭」设置项（默认 30 分钟）**：窗口「无新输出」超过设定时长后，前端每分钟扫一遍 `poolReapIdle` 按空闲时长释放（当前正看的窗口不动），与按窗口数的 LRU 互补——给后台跑完即闲的会话主动腾 pty。范围 1～1440 分钟。
-- **存储**：`fleet-enroll` `dashSettings` 加 `autoCloseMinutes`，`normalize` 钳 [1,1440]、缺省回退 30；已补单测并重建 `dist/fleet-enroll-linux-amd64`。前端 `SETTINGS_DEFAULT` 同步默认 30，拉取失败 / 旧网关无此字段时回退默认照常工作。
+- **「自动关闭」设置真正驱动各 Mac 后台回收（默认 30 分钟，范围 1～1440）**：`fleet-enroll` `dashSettings.autoCloseMinutes`（`normalize` 钳 [1,1440]、缺省回退 30）→ 新增公开只读端点 `GET /enroll/agent-config` 投影 `idleSec`（nginx 加无 `auth_request` 的 location）→ 各 Mac `fleet-agent` 启动 + 每 5min 拉取（`configSync`，地址由 plist 注入的 `FLEET_CONFIG_URL` 给出，由 `FLEET_UPDATE_BASE` 推导）→ 运行时原子更新 `idleSec`，既有 `reaper()`（`attached==0 && 空闲>idleSec` → `kill-session` 释放 pty）读它。网关不可达 / 旧网关无端点 → 保留 `FLEET_IDLE_SEC` 本地默认，全局最终一致、故障不停摆。
+- **撤销前一版无效的前端 `poolReapIdle`**：那只 detach 当前页 iframe、不 kill 后台、刷新即失效——真正的空闲回收一直是 agent `reaper()`，上面把它的时长接成网页可配。
+- **刷新 / 崩溃后自动恢复终端**：池变化时把 `[{macId,sessionId,permMode,title,cwd}]` 写 `sessionStorage`（`poolAdd`/`poolDrop` 内），`init` 时逐条重连恢复（受 `poolMax` 约束，复位到刷新前的当前会话、不抢焦点）。用 `sessionStorage` 故关标签即清，不会哪天恢复一堆陈年旧窗口。与 agent `reaper()` 正交：恢复后会话重新 attach 不被回收；没恢复的孤儿无 attach 到点被回收，pool 不爆。
+- **绿点会话点行直接进入**：有运行中进程（行尾绿点 `s.pty`）的会话点行即直接重连 / 瞬时切换，不再展开三权限模式按钮——`ensureTmux` 对已存在 tmux 是复用、权限模式启动时已固定，三按钮只对「冷会话」有意义。
 
 ### 连接权限模式：新增 Auto（三按钮 连接 / Bypass / Auto）
 - **未在池的会话行展开三种权限模式**：`连接`（普通，逐项确认）/ `Bypass`（红，`--dangerously-skip-permissions`）/ `Auto`（琥珀，`--permission-mode auto`——自动批准 + 后台安全分类器，介于二者之间）。已在池的会话点行即瞬时切换，无按钮。
