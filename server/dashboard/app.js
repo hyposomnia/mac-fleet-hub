@@ -63,16 +63,18 @@ function svgStop() {
 
 const state = {
   macId: null,
-  mode: 'claude',        // claude | files
+  mode: 'sessions',      // sessions | files
+  assistant: 'claude',   // claude | codex
   scope: 'active',       // active | all
   termSid: null,         // 当前终端 tmux 会话名（watch / reload 用）
-  termUrl: null,         // 当前终端 iframe URL（files↔claude 切换后恢复用）
-  termSessionId: null,   // 当前终端对应的 claude sessionId（判断「进入连接」是否就是当前终端）
-  selectedSid: null,     // 当前选中的 claude sessionId（高亮 + 展开按钮）
+  termUrl: null,         // 当前终端 iframe URL（files↔sessions 切换后恢复用）
+  termSessionId: null,   // 当前终端对应的 sessionId（判断「进入连接」是否就是当前终端）
+  selectedSid: null,     // 当前选中的 sessionId（高亮 + 展开按钮）
   curTitle: '',          // 当前终端标题
   curCwd: '',            // 当前终端会话目录（用于头部 meta）
   curMode: 'default',    // 当前终端的权限模式：default | bypass | auto
   killTarget: null,      // 待终止的 sessionId（二次确认用）
+  killAssistant: null,   // 待终止会话所属助手
   nodes: {},             // id -> online
   counts: {},            // id -> 活跃会话数（主机栏/主机条展示）
   collapsed: new Set(),  // 已折叠的分组 cwd
@@ -98,6 +100,7 @@ function projName(cwd) { return cwd ? cwd.split('/').filter(Boolean).pop() : '(�
 function projDir(cwd) { const p = (cwd || '').split('/'); return p.slice(0, -1).join('/').replace(/^\/Users\/[^/]+/, '~'); }
 function projFull(cwd) { return (cwd || '(未知路径)').replace(/^\/Users\/[^/]+/, '~'); }
 function macName(id) { return macNames[id] || ('Mac ' + id.slice(1)); }
+function assistantLabel(a = state.assistant) { return a === 'codex' ? 'Codex' : 'Claude'; }
 async function api(id, path, opts) {
   const r = await fetch(`${apiBase(id)}/api/${path}`, opts);
   if (!r.ok) {
@@ -251,7 +254,7 @@ async function refreshNodes() {
 // 各在线主机的活跃会话数（主机栏/主机条角标）。失败静默：数字非关键。
 async function refreshHostCounts() {
   await Promise.all(MACS.filter((m) => state.nodes[m.id]).map(async (m) => {
-    try { const d = await api(m.id, 'sessions?scope=active'); state.counts[m.id] = (d.sessions || []).length; }
+    try { const d = await api(m.id, `sessions?assistant=${state.assistant}&scope=active`); state.counts[m.id] = (d.sessions || []).length; }
     catch (_) {}
   }));
   renderHosts();
@@ -315,22 +318,30 @@ function applyScrollbackToPool() {
 }
 
 // ============================================================
-//  模式切换（Claude会话 / 文件）
+//  模式切换（会话 / 文件）
 // ============================================================
 function setMode(mode) {
   state.mode = mode;
   $('#app').dataset.mode = mode;
-  if (mode !== 'claude') $('#app').classList.remove('term-open'); // 离开会话模式收起终端 push
+  if (mode !== 'sessions') $('#app').classList.remove('term-open'); // 离开会话模式收起终端 push
   $$('button[data-mode]').forEach((b) => b.setAttribute('aria-selected', String(b.dataset.mode === mode)));
   if (mode === 'files') loadFiles();
   else { loadSessions(); restoreTermOrEmpty(); }
 }
 
+function setAssistant(assistant) {
+  state.assistant = assistant === 'codex' ? 'codex' : 'claude';
+  state.selectedSid = null;
+  $$('[data-assistant]').forEach((b) => b.setAttribute('aria-selected', String(b.dataset.assistant === state.assistant)));
+  loadSessions();
+  refreshHostCounts();
+}
+
 // ============================================================
-//  Claude会话 列表
+//  会话列表
 // ============================================================
 async function loadSessions() {
-  if (state.mode !== 'claude' || !state.macId) return;
+  if (state.mode !== 'sessions' || !state.macId) return;
   const wrap = $('#session-groups');
   // 仅列表为空（首次/切主机）才显示骨架；刷新已有内容时保留旧内容直到新数据就绪，避免闪
   if (!wrap.querySelector('.grp, .empty')) {
@@ -339,7 +350,7 @@ async function loadSessions() {
   }
 
   let data;
-  try { data = await api(state.macId, `sessions?scope=${state.scope}`); }
+  try { data = await api(state.macId, `sessions?assistant=${state.assistant}&scope=${state.scope}`); }
   catch (e) {
     clear(wrap);
     wrap.append(h('div', { class: 'empty' }, '连不上 ' + macName(state.macId), h('br'), h('small', { text: e.message })));
@@ -388,7 +399,8 @@ async function loadSessions() {
 // 开了 pty 的会话另显「终止 ⏹」（与是否在池无关）。
 function sessionRow(s) {
   const sid = s.sessionId;
-  const inPool = !!poolFind(state.macId, sid);
+  const assistant = s.assistant || state.assistant;
+  const inPool = !!poolFind(state.macId, sid, assistant);
   const live = !!s.pty; // 有运行中进程（行尾绿点）：再连只是重新 attach，不需选权限模式
   const stop = s.pty && h('span', { class: 'stopbtn', title: '终止进程（会话保留）',
     onclick: (e) => { e.stopPropagation(); termSes(sid, s.title); } }, svgStop());
@@ -405,9 +417,9 @@ function sessionRow(s) {
     h('button', { class: 'btn sm accent', title: '普通连接（逐项确认工具权限）',
       onclick: (e) => { e.stopPropagation(); connect(sid, s.title, s.cwd, 'default'); } },
       h('span', { class: 'gi', text: '→' }), '连接'),
-    h('button', { class: 'btn sm danger', title: 'claude --dangerously-skip-permissions（跳过全部工具权限确认）',
+    h('button', { class: 'btn sm danger', title: assistant === 'codex' ? 'codex --dangerously-bypass-approvals-and-sandbox' : 'claude --dangerously-skip-permissions（跳过全部工具权限确认）',
       onclick: (e) => { e.stopPropagation(); connect(sid, s.title, s.cwd, 'bypass'); } }, 'Bypass'),
-    h('button', { class: 'btn sm warn', title: 'claude --permission-mode auto（自动批准 + 后台安全分类器）',
+    h('button', { class: 'btn sm warn', title: assistant === 'codex' ? 'codex --ask-for-approval never' : 'claude --permission-mode auto（自动批准 + 后台安全分类器）',
       onclick: (e) => { e.stopPropagation(); connect(sid, s.title, s.cwd, 'auto'); } }, 'Auto'));
   const row = h('div', {
     class: 'ses' + (s.pty ? ' conn' : '') + (sid === state.selectedSid ? ' sel' : ''),
@@ -440,22 +452,23 @@ function selectSes(sid) {
 const curFrame = () => (state.current ? state.current.iframe : $('#frame'));
 function poolMax() { const s = state.settings || SETTINGS_DEFAULT; return isMobile() ? s.mobileMaxWindows : s.desktopMaxWindows; }
 function poolScrollback() { const s = state.settings || SETTINGS_DEFAULT; return isMobile() ? s.mobileScrollback : s.desktopScrollback; }
-function poolFind(macId, sessionId) {
+function poolFind(macId, sessionId, assistant = state.assistant) {
   if (!sessionId) return null;
-  return state.pool.find((e) => e.macId === macId && e.sessionId === sessionId) || null;
+  return state.pool.find((e) => e.macId === macId && e.assistant === assistant && e.sessionId === sessionId) || null;
 }
 
 const POOL_SNAP_KEY = 'fleet-pool';
 // 把当前池序列化成最小重建标识存 sessionStorage（刷新/崩溃恢复用，关标签即清）。
-// 只存重建所需：macId/sessionId/permMode/title/cwd——sid/url 是 attach 时新生成的，不存。
+// 只存重建所需：macId/assistant/sessionId/permMode/title/cwd——sid/url 是 attach 时新生成的，不存。
+// 池条目按 (macId,assistant,sessionId) 唯一，故 assistant 必带；cur 同样带 assistant 以精确定位焦点窗口。
 function savePoolSnapshot() {
   try {
     const snap = {
       macId: state.macId,
-      cur: state.current ? state.current.sessionId : null,
+      cur: state.current ? { sessionId: state.current.sessionId, assistant: state.current.assistant } : null,
       items: state.pool
         .filter((e) => e.sessionId) // 无 sessionId 的新建会话不持久化（无法 resume 定位）
-        .map((e) => ({ macId: e.macId, sessionId: e.sessionId, permMode: e.permMode, title: e.title, cwd: e.cwd })),
+        .map((e) => ({ macId: e.macId, assistant: e.assistant, sessionId: e.sessionId, permMode: e.permMode, title: e.title, cwd: e.cwd })),
     };
     sessionStorage.setItem(POOL_SNAP_KEY, JSON.stringify(snap));
   } catch (_) {}
@@ -504,6 +517,8 @@ function poolEvict() {
 function poolShow(entry) {
   state.current = entry;
   // 同步老字段，watch / reload / resize / 移动输入坞复用
+  state.assistant = entry.assistant || state.assistant;
+  $$('[data-assistant]').forEach((b) => b.setAttribute('aria-selected', String(b.dataset.assistant === state.assistant)));
   state.termSid = entry.sid; state.termUrl = entry.url; state.termSessionId = entry.sessionId;
   state.curTitle = entry.title; state.curCwd = entry.cwd; state.curMode = entry.permMode;
   $('#frame').classList.remove('show');
@@ -534,12 +549,12 @@ function showEmpty() {
 }
 
 // 新建一个池条目（新 iframe）并显示，随后按上限 LRU 回收。
-function poolAdd(macId, sessionId, sid, url, title, cwd, permMode) {
+function poolAdd(macId, assistant, sessionId, sid, url, title, cwd, permMode) {
   const iframe = document.createElement('iframe');
   iframe.className = 'term-frame';
   iframe.title = 'window';
   iframe.setAttribute('allow', 'clipboard-read; clipboard-write');
-  const entry = { macId, sessionId: sessionId || null, sid, url, title: title || '会话', cwd: cwd || '', permMode: permMode || 'default', iframe, lastOutput: Date.now() };
+  const entry = { macId, assistant: assistant || 'claude', sessionId: sessionId || null, sid, url, title: title || '会话', cwd: cwd || '', permMode: permMode || 'default', iframe, lastOutput: Date.now() };
   iframe.addEventListener('load', () => hookTerm(entry)); // 每次加载/重连后套主题+回滚+记输出
   $('#frames').appendChild(iframe);
   iframe.src = url;
@@ -562,10 +577,10 @@ async function connect(sessionId, title, cwd, mode) {
   try {
     const r = await api(state.macId, 'open', {
       method: 'POST', headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ sessionId, mode }),
+      body: JSON.stringify({ assistant: state.assistant, sessionId, mode }),
     });
     state.selectedSid = sessionId;
-    poolAdd(state.macId, sessionId, r.sid, r.url, title || '会话', cwd, r.mode || mode);
+    poolAdd(state.macId, state.assistant, sessionId, r.sid, r.url, title || '会话', cwd, r.mode || mode);
     loadSessions(); // 刷新 pty 标记：该会话现在有进程 → 行变「进入连接」+ 显示 ⏹（无骨架闪）
   } catch (e) { toast('连接失败：' + e.message, 'err'); }
 }
@@ -574,10 +589,10 @@ function newSessionIn(cwd) {
   closeOverlay('projects-modal');
   api(state.macId, 'new', {
     method: 'POST', headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ cwd, mode: 'default' }),
+    body: JSON.stringify({ assistant: state.assistant, cwd, mode: 'default' }),
   }).then((r) => {
     state.selectedSid = null;
-    poolAdd(state.macId, null, r.sid, r.url, '新会话 · ' + projName(cwd), cwd, r.mode || 'default');
+    poolAdd(state.macId, state.assistant, null, r.sid, r.url, '新' + assistantLabel() + '会话 · ' + projName(cwd), cwd, r.mode || 'default');
   }).catch((e) => toast('新建失败：' + e.message, 'err'));
 }
 
@@ -600,9 +615,9 @@ function restoreTermOrEmpty() {
 }
 
 // 刷新/崩溃后从 sessionStorage 快照恢复终端（init 唯一入口；无快照则退回空态）。
-// connect 签名是 connect(sessionId,title,cwd,mode)，macId 取自 state.macId——故恢复每条前
-// 先把 state.macId 切到该条；逐条重连（受 poolMax 上限约束，poolAdd 内已 poolEvict）；
-// 全部恢复后复位到快照当前主机、刷新侧栏、显示其当前会话，不抢焦点切走。
+// connect 取 state.macId / state.assistant，故恢复每条前先把这两者切到该条；逐条重连
+// （受 poolMax 上限约束，poolAdd 内已 poolEvict）；全部恢复后复位到快照当前主机/助手、
+// 刷新侧栏、显示其当前会话，不抢焦点切走。
 async function restorePoolSnapshot() {
   let snap;
   try { snap = JSON.parse(sessionStorage.getItem(POOL_SNAP_KEY) || 'null'); } catch (_) { snap = null; }
@@ -617,13 +632,16 @@ async function restorePoolSnapshot() {
   for (const it of snap.items) {
     if (!known.has(it.macId)) continue; // 已不在册的 Mac：其会话无从 attach，跳过
     state.macId = it.macId;
+    state.assistant = it.assistant === 'codex' ? 'codex' : 'claude'; // connect 用 state.assistant 起对的助手
     try { await connect(it.sessionId, it.title, it.cwd, it.permMode || 'default'); } catch (_) {}
   }
   state.macId = snap.macId;
-  state.selectedSid = snap.cur || null; // 侧栏高亮对齐快照当前会话
+  state.assistant = snap.cur && snap.cur.assistant === 'codex' ? 'codex' : 'claude';
+  state.selectedSid = snap.cur ? snap.cur.sessionId : null; // 侧栏高亮对齐快照当前会话
+  $$('[data-assistant]').forEach((b) => b.setAttribute('aria-selected', String(b.dataset.assistant === state.assistant)));
   renderHosts();
   loadSessions();
-  const cur = snap.cur && poolFind(state.macId, snap.cur);
+  const cur = snap.cur && poolFind(state.macId, snap.cur.sessionId, snap.cur.assistant);
   if (cur) poolShow(cur); else restoreTermOrEmpty();
 }
 
@@ -683,7 +701,7 @@ async function showProjects() {
   openOverlay('projects-modal');
   const list = $('#project-list'); clear(list); list.append(h('div', { class: 'empty', text: '加载中…' }));
   try {
-    const data = await api(state.macId, 'projects');
+    const data = await api(state.macId, `projects?assistant=${state.assistant}`);
     const ps = data.projects || [];
     clear(list);
     if (!ps.length) { list.append(h('div', { class: 'empty', text: '没有已知项目目录' })); return; }
@@ -705,21 +723,23 @@ async function showProjects() {
 // ============================================================
 function termSes(sessionId, title) {
   state.killTarget = sessionId;
+  state.killAssistant = state.assistant;
   $('#ck-name').textContent = title || '该会话';
   openOverlay('confirm-kill');
 }
 async function closeSession() {
   const sid = state.killTarget;
+  const assistant = state.killAssistant || state.assistant;
   closeOverlay('confirm-kill');
   if (!sid) return;
   try {
     const r = await api(state.macId, 'close', {
       method: 'POST', headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ sessionId: sid }),
+      body: JSON.stringify({ assistant, sessionId: sid }),
     });
     toast(r.killed ? '已终止该会话进程（会话保留）' : '该会话没有正在运行的控制台进程', r.killed ? 'ok' : 'info');
     // 终止后把该会话从池里移除（进程已结束，留着 iframe 只会停在 [exited]/Press ⏎ to Reconnect）。
-    const ent = poolFind(state.macId, sid);
+    const ent = poolFind(state.macId, sid, assistant);
     if (ent) {
       const wasCurrent = ent === state.current;
       poolDrop(ent);
@@ -867,6 +887,7 @@ function init() {
   // 注意 button[data-mode]：#app 本身带 data-mode（CSS 切栅格用），裸 [data-mode] 会把 #app 也选中，
   // 给根容器挂上 onclick → 点页面任意处都冒泡触发 setMode→loadSessions（每次点击闪一下）。
   $$('button[data-mode]').forEach((b) => b.onclick = () => setMode(b.dataset.mode));
+  $$('[data-assistant]').forEach((b) => b.onclick = () => setAssistant(b.dataset.assistant));
   $$('[data-scope]').forEach((b) => b.onclick = () => {
     state.scope = b.dataset.scope;
     $$('[data-scope]').forEach((x) => x.setAttribute('aria-selected', String(x === b)));
@@ -914,7 +935,7 @@ function init() {
   });
   // 跨断点时同步移动输入坞可见性
   addEventListener('resize', () => {
-    if (state.mode === 'claude' && state.termSid) $('#mobile-input').hidden = !isMobile();
+    if (state.mode === 'sessions' && state.termSid) $('#mobile-input').hidden = !isMobile();
   });
   // 移动端软键盘弹起时把输入坞顶到键盘之上。iOS 键盘不缩布局视口（100dvh/fixed 不变），
   // 用 VisualViewport 算键盘高度 → CSS 变量 --kb，输入坞据此上移（见 style.css #mobile-input transform）。
@@ -929,7 +950,7 @@ function init() {
     syncKb();
   }
 
-  setMode('claude');
+  setMode('sessions');
   restorePoolSnapshot();
 
   if ('serviceWorker' in navigator) navigator.serviceWorker.register(`${BASE}/sw.js`).catch(() => {});

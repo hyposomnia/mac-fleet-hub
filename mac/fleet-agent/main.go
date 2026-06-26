@@ -1,17 +1,21 @@
 // fleet-agent —— 每台 Mac 的会话管理服务（纯标准库，零运行时依赖）。
 //
 // 职责：
-//   GET  /api/sessions?scope=active|all   列出 Claude 会话（按 cwd 由前端分组）
-//   GET  /api/projects                    历史会话的 cwd 去重 → 项目目录列表
-//   POST /api/open    {sessionId,mode}    在 tmux 起/复用窗口跑 claude --resume，返回终端入口
-//   POST /api/new     {cwd,mode}           在指定目录起新 claude
-//   POST /api/close   {sessionId|sid}      终止该会话对应的 fleet tmux（进程结束，会话记录保留）
-//   GET  /api/watch?sid=fleet-xxx         检测是否有 Desktop 外部写入（DAG 分叉判定）
-//   POST /api/reload  {sid}               kill+resume 该窗口（拉取 Desktop 最新）
 //
-//   open/new 的 mode：default=普通逐项确认；bypass=--dangerously-skip-permissions；
-//   auto=--permission-mode auto（自动批准+后台安全分类器）。白名单映射（见 permFlag/normMode）。
-//   旧前端的 bypass:true 仍兼容（→ mode=bypass）。
+//	GET  /api/sessions?assistant=claude|codex&scope=active|all
+//	                                         列出会话（按 cwd 由前端分组）
+//	GET  /api/projects?assistant=claude|codex
+//	                                         历史会话的 cwd 去重 → 项目目录列表
+//	POST /api/open    {assistant,sessionId,mode}
+//	                                         在 tmux 起/复用窗口跑 claude/codex resume，返回终端入口
+//	POST /api/new     {assistant,cwd,mode}    在指定目录起新 claude/codex
+//	POST /api/close   {sessionId|sid}      终止该会话对应的 fleet tmux（进程结束，会话记录保留）
+//	GET  /api/watch?sid=fleet-xxx         检测是否有 Desktop 外部写入（DAG 分叉判定）
+//	POST /api/reload  {sid}               kill+resume 该窗口（拉取 Desktop 最新）
+//
+//	open/new 的 mode：default=普通逐项确认；bypass=--dangerously-skip-permissions；
+//	auto=--permission-mode auto（自动批准+后台安全分类器）。白名单映射（见 permFlag/normMode）。
+//	旧前端的 bypass:true 仍兼容（→ mode=bypass）。
 //
 // 仅绑 mesh IP，不公网；访问控制交给 Headscale ACL（见 plan §5.1）。
 package main
@@ -38,12 +42,14 @@ import (
 
 // ---------------- 配置 ----------------
 type Config struct {
-	Listen     string // 绑定地址，如 100.x.x.x:7682
-	ClaudeHome string // ~/.claude
-	ClaudeBin  string // claude 可执行文件
-	MacIndex   string // 1/2/3 → 终端入口 /m{idx}/term
-	IdleSec    int64  // 空闲回收秒数（默认 1800）
-	AutoCmdR   bool   // 会话结束自动给 Desktop 发 Cmd+R
+	Listen       string // 绑定地址，如 100.x.x.x:7682
+	ClaudeHome   string // ~/.claude
+	ClaudeBin    string // claude 可执行文件
+	CodexHome    string // ~/.codex
+	CodexBin     string // codex 可执行文件
+	MacIndex     string // 1/2/3 → 终端入口 /m{idx}/term
+	IdleSec      int64  // 空闲回收秒数（默认 1800）
+	AutoCmdR     bool   // 会话结束自动给 Desktop 发 Cmd+R
 	DesktopApp   string // osascript 目标应用名（默认 Claude）
 	ProxyFile    string // 代理配置持久化文件（~/.macfleet-proxy.json）
 	DesktopStore string // Claude Desktop 会话库目录（一次数据源）
@@ -109,13 +115,15 @@ func loadConfig() Config {
 	home, _ := os.UserHomeDir()
 	idle, _ := strconv.ParseInt(envOr("FLEET_IDLE_SEC", "1800"), 10, 64)
 	return Config{
-		Listen:     envOr("FLEET_LISTEN", "127.0.0.1:7682"),
-		ClaudeHome: envOr("FLEET_CLAUDE_HOME", filepath.Join(home, ".claude")),
-		ClaudeBin:  envOr("FLEET_CLAUDE_BIN", "claude"),
-		MacIndex:   envOr("FLEET_MAC_INDEX", "1"),
-		IdleSec:    idle,
-		AutoCmdR:   envOr("FLEET_AUTO_CMDR", "1") == "1",
-		DesktopApp: envOr("FLEET_DESKTOP_APP", "Claude"),
+		Listen:       envOr("FLEET_LISTEN", "127.0.0.1:7682"),
+		ClaudeHome:   envOr("FLEET_CLAUDE_HOME", filepath.Join(home, ".claude")),
+		ClaudeBin:    envOr("FLEET_CLAUDE_BIN", "claude"),
+		CodexHome:    envOr("FLEET_CODEX_HOME", filepath.Join(home, ".codex")),
+		CodexBin:     envOr("FLEET_CODEX_BIN", "codex"),
+		MacIndex:     envOr("FLEET_MAC_INDEX", "1"),
+		IdleSec:      idle,
+		AutoCmdR:     envOr("FLEET_AUTO_CMDR", "1") == "1",
+		DesktopApp:   envOr("FLEET_DESKTOP_APP", "Claude"),
 		ProxyFile:    envOr("FLEET_PROXY_FILE", filepath.Join(home, ".macfleet-proxy.json")),
 		DesktopStore: envOr("FLEET_DESKTOP_STORE", filepath.Join(home, "Library", "Application Support", "Claude", "claude-code-sessions")),
 		TmuxConf:     envOr("FLEET_TMUX_CONF", filepath.Join(home, ".macfleet-tmux.conf")),
@@ -183,10 +191,11 @@ func configSync() {
 // ---------------- 数据类型 ----------------
 type Session struct {
 	SessionID string `json:"sessionId"`
+	Assistant string `json:"assistant"`
 	Cwd       string `json:"cwd"`
 	Title     string `json:"title"`
 	GitBranch string `json:"gitBranch"`
-	Mtime     int64  `json:"mtime"` // 毫秒
+	Mtime     int64  `json:"mtime"`   // 毫秒
 	Live      bool   `json:"live"`    // Desktop 未归档（活跃）
 	Pty       bool   `json:"pty"`     // 控制台已为该会话起过 fleet tmux（有可终止/可回到的进程）
 	Waiting   bool   `json:"waiting"` // 卡在「等你回答/授权」：jsonl 最后一条 assistant 且 stop_reason==tool_use
@@ -219,6 +228,15 @@ var (
 	metaCache = map[string]meta{} // path -> meta
 	metaMu    sync.Mutex
 )
+
+func normAssistant(a string) string {
+	switch strings.ToLower(strings.TrimSpace(a)) {
+	case "codex":
+		return "codex"
+	default:
+		return "claude"
+	}
+}
 
 // ---------------- 会话扫描 ----------------
 func pidAlive(pid int) bool {
@@ -416,7 +434,7 @@ func scanJSONL() []Session {
 			m := fileMeta(path, mtimeMs)
 			sid := strings.TrimSuffix(f.Name(), ".jsonl")
 			out = append(out, Session{
-				SessionID: sid, Cwd: m.cwd, Title: m.title, GitBranch: m.branch,
+				SessionID: sid, Assistant: "claude", Cwd: m.cwd, Title: m.title, GitBranch: m.branch,
 				Mtime: mtimeMs, Live: active[sid],
 			})
 		}
@@ -606,7 +624,7 @@ func desktopSessions() []Session {
 			title = "(无标题)"
 		}
 		out = append(out, Session{
-			SessionID: d.cli, Cwd: d.group, Title: title, GitBranch: d.branch,
+			SessionID: d.cli, Assistant: "claude", Cwd: d.group, Title: title, GitBranch: d.branch,
 			Mtime: d.activity, Live: !d.archived,
 		})
 	}
@@ -636,6 +654,202 @@ func cwdOf(sid string) string {
 		}
 	}
 	return ""
+}
+
+type codexIdx struct {
+	title string
+	mtime int64
+}
+
+func parseTimeMs(s string) int64 {
+	if s == "" {
+		return 0
+	}
+	for _, layout := range []string{time.RFC3339Nano, time.RFC3339} {
+		if t, err := time.Parse(layout, s); err == nil {
+			return t.UnixMilli()
+		}
+	}
+	return 0
+}
+
+func codexIndex() map[string]codexIdx {
+	out := map[string]codexIdx{}
+	f, err := os.Open(filepath.Join(cfg.CodexHome, "session_index.jsonl"))
+	if err != nil {
+		return out
+	}
+	defer f.Close()
+	sc := bufio.NewScanner(f)
+	sc.Buffer(make([]byte, 1024*1024), 16*1024*1024)
+	for sc.Scan() {
+		var x struct {
+			ID         string `json:"id"`
+			ThreadName string `json:"thread_name"`
+			UpdatedAt  string `json:"updated_at"`
+		}
+		if json.Unmarshal(sc.Bytes(), &x) != nil || x.ID == "" {
+			continue
+		}
+		out[x.ID] = codexIdx{title: strings.TrimSpace(x.ThreadName), mtime: parseTimeMs(x.UpdatedAt)}
+	}
+	return out
+}
+
+func codexExtractText(raw json.RawMessage) string {
+	if len(raw) == 0 {
+		return ""
+	}
+	var s string
+	if json.Unmarshal(raw, &s) == nil {
+		return trim(s)
+	}
+	var parts []struct {
+		Type string `json:"type"`
+		Text string `json:"text"`
+	}
+	if json.Unmarshal(raw, &parts) == nil {
+		for _, p := range parts {
+			if (p.Type == "input_text" || p.Type == "text" || p.Type == "") && p.Text != "" {
+				return trim(p.Text)
+			}
+		}
+	}
+	return ""
+}
+
+func codexFileMeta(path string) (id, cwd, title string, mtime int64) {
+	if info, err := os.Stat(path); err == nil {
+		mtime = info.ModTime().UnixMilli()
+	}
+	f, err := os.Open(path)
+	if err != nil {
+		return
+	}
+	defer f.Close()
+	sc := bufio.NewScanner(f)
+	sc.Buffer(make([]byte, 1024*1024), 16*1024*1024)
+	for sc.Scan() {
+		var row struct {
+			Type    string `json:"type"`
+			Payload struct {
+				ID        string          `json:"id"`
+				Cwd       string          `json:"cwd"`
+				Timestamp string          `json:"timestamp"`
+				Role      string          `json:"role"`
+				Content   json.RawMessage `json:"content"`
+			} `json:"payload"`
+		}
+		if json.Unmarshal(sc.Bytes(), &row) != nil {
+			continue
+		}
+		switch row.Type {
+		case "session_meta":
+			if row.Payload.ID != "" {
+				id = row.Payload.ID
+			}
+			if row.Payload.Cwd != "" {
+				cwd = row.Payload.Cwd
+			}
+			if t := parseTimeMs(row.Payload.Timestamp); t > mtime {
+				mtime = t
+			}
+		case "turn_context":
+			if cwd == "" && row.Payload.Cwd != "" {
+				cwd = row.Payload.Cwd
+			}
+		case "response_item":
+			if title == "" && row.Payload.Role == "user" {
+				title = codexExtractText(row.Payload.Content)
+			}
+		}
+	}
+	if id == "" {
+		base := filepath.Base(path)
+		if i := strings.LastIndex(base, "-"); i >= 0 {
+			id = strings.TrimSuffix(base[i+1:], ".jsonl")
+		}
+	}
+	return
+}
+
+func scanCodexSessions() []Session {
+	idx := codexIndex()
+	files, _ := filepath.Glob(filepath.Join(cfg.CodexHome, "sessions", "*", "*", "*", "*.jsonl"))
+	out := make([]Session, 0, len(files))
+	seen := map[string]bool{}
+	for _, f := range files {
+		id, cwd, title, mt := codexFileMeta(f)
+		if id == "" || seen[id] {
+			continue
+		}
+		seen[id] = true
+		if x, ok := idx[id]; ok {
+			if x.title != "" {
+				title = x.title
+			}
+			if x.mtime > mt {
+				mt = x.mtime
+			}
+		}
+		if title == "" {
+			title = "(无标题)"
+		}
+		out = append(out, Session{
+			SessionID: id, Assistant: "codex", Cwd: cwd, Title: title,
+			Mtime: mt, Live: true,
+		})
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Mtime > out[j].Mtime })
+	return out
+}
+
+func scanSessionsFor(assistant string) []Session {
+	if normAssistant(assistant) == "codex" {
+		return scanCodexSessions()
+	}
+	return scanSessions()
+}
+
+func cwdOfFor(assistant, sid string) string {
+	if normAssistant(assistant) == "codex" {
+		for _, s := range scanCodexSessions() {
+			if s.SessionID == sid {
+				return s.Cwd
+			}
+		}
+		return ""
+	}
+	return cwdOf(sid)
+}
+
+func jsonlPathFor(assistant, sid string) string {
+	if normAssistant(assistant) == "codex" {
+		files, _ := filepath.Glob(filepath.Join(cfg.CodexHome, "sessions", "*", "*", "*", "*.jsonl"))
+		for _, f := range files {
+			id, _, _, _ := codexFileMeta(f)
+			if id == sid {
+				return f
+			}
+		}
+		return ""
+	}
+	return jsonlPath(sid)
+}
+
+func jsonlPathsFor(assistant string) map[string]string {
+	if normAssistant(assistant) == "codex" {
+		m := map[string]string{}
+		files, _ := filepath.Glob(filepath.Join(cfg.CodexHome, "sessions", "*", "*", "*", "*.jsonl"))
+		for _, f := range files {
+			id, _, _, _ := codexFileMeta(f)
+			if id != "" {
+				m[id] = f
+			}
+		}
+		return m
+	}
+	return jsonlPaths()
 }
 
 // ---------------- tmux ----------------
@@ -670,12 +884,24 @@ func shortSid(sessionID string) string {
 	}
 	return "fleet-" + id
 }
+func shortSidFor(assistant, sessionID string) string {
+	if normAssistant(assistant) == "claude" {
+		return shortSid(sessionID)
+	}
+	id := strings.ReplaceAll(sessionID, "-", "")
+	if len(id) > 10 {
+		id = id[:10]
+	}
+	return "fleet-codex" + id
+}
 
 // fleet-agent 自管理的 tmux 配置，经 `tmux -f` 在 server 启动时加载：
-//   history-limit：默认仅 2000 行 → 5 万，网页里能往上翻很多历史。此值在「建 pane」时
-//     由 server 读取，必须在建 pane 前就位才对新 pane 生效（建后再改无效）。
-//   mouse on：默认关闭时网页终端滚轮/上滑进不了 tmux copy-mode，只能看当前一屏；开了才能滚。
-//     副作用：桌面端拖选复制改为 Shift+拖选；移动端无影响。
+//
+//	history-limit：默认仅 2000 行 → 5 万，网页里能往上翻很多历史。此值在「建 pane」时
+//	  由 server 读取，必须在建 pane 前就位才对新 pane 生效（建后再改无效）。
+//	mouse on：默认关闭时网页终端滚轮/上滑进不了 tmux copy-mode，只能看当前一屏；开了才能滚。
+//	  副作用：桌面端拖选复制改为 Shift+拖选；移动端无影响。
+//
 // 走 -f conf 而非「建会话前 set-option -g」：冷启动（空闲会话全回收、server 已退出）时
 // 无 server 可 set，单起空 server 又因默认 exit-empty 立即自杀，set 必然哑火；-f 在 server
 // 启动时加载 conf，冷/温都生效。
@@ -726,6 +952,7 @@ func termURL(name string) string {
 
 // ---------------- watch 注册表（Desktop→ttyd 检测） ----------------
 type watcher struct {
+	assistant string
 	sessionID string
 	path      string
 	offset    int64
@@ -739,9 +966,10 @@ var (
 	watchMu  sync.Mutex
 )
 
-func registerWatch(sid, sessionID, mode string) {
-	path := jsonlPath(sessionID)
-	w := &watcher{sessionID: sessionID, path: path, mode: mode}
+func registerWatch(sid, assistant, sessionID, mode string) {
+	assistant = normAssistant(assistant)
+	path := jsonlPathFor(assistant, sessionID)
+	w := &watcher{assistant: assistant, sessionID: sessionID, path: path, mode: mode}
 	if path != "" {
 		if info, err := os.Stat(path); err == nil {
 			w.offset = info.Size()
@@ -851,13 +1079,14 @@ func httpTmuxErr(w http.ResponseWriter, err error) {
 }
 
 func handleSessions(w http.ResponseWriter, r *http.Request) {
-	all := scanSessions()
+	assistant := normAssistant(r.URL.Query().Get("assistant"))
+	all := scanSessionsFor(assistant)
 	// 标记每个会话：是否已有 fleet tmux 进程（pty，前端显示「终止」「进入连接」）、
 	// 是否卡在等你回答/授权（waiting，前端显示棕色点）。jsonl 路径一次性建映射避免逐会话扫目录。
 	ptySet := fleetTmuxSet()
-	paths := jsonlPaths()
+	paths := jsonlPathsFor(assistant)
 	for i := range all {
-		all[i].Pty = ptySet[shortSid(all[i].SessionID)]
+		all[i].Pty = ptySet[shortSidFor(assistant, all[i].SessionID)]
 		all[i].Waiting = sessionWaiting(paths[all[i].SessionID])
 	}
 	scope := r.URL.Query().Get("scope")
@@ -874,12 +1103,13 @@ func handleSessions(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleProjects(w http.ResponseWriter, r *http.Request) {
+	assistant := normAssistant(r.URL.Query().Get("assistant"))
 	seen := map[string]*struct {
 		Cwd   string `json:"cwd"`
 		Count int    `json:"count"`
 		Mtime int64  `json:"mtime"`
 	}{}
-	for _, s := range scanSessions() {
+	for _, s := range scanSessionsFor(assistant) {
 		if s.Cwd == "" {
 			continue
 		}
@@ -916,9 +1146,11 @@ func handleProjects(w http.ResponseWriter, r *http.Request) {
 }
 
 // permFlag：把前端权限模式映射到 claude 启动 flag。
-//   bypass → --dangerously-skip-permissions（跳过全部工具权限确认，高风险）
-//   auto   → --permission-mode auto（自动批准 + 后台安全分类器，介于普通与 bypass 之间）
-//   其它/空 → 普通（逐项确认）
+//
+//	bypass → --dangerously-skip-permissions（跳过全部工具权限确认，高风险）
+//	auto   → --permission-mode auto（自动批准 + 后台安全分类器，介于普通与 bypass 之间）
+//	其它/空 → 普通（逐项确认）
+//
 // 取值经白名单映射，前端传入不直接拼进命令行，避免注入。
 func permFlag(mode string) string {
 	switch mode {
@@ -931,6 +1163,17 @@ func permFlag(mode string) string {
 	}
 }
 
+func codexFlag(mode string) string {
+	switch mode {
+	case "bypass":
+		return " --dangerously-bypass-approvals-and-sandbox"
+	case "auto":
+		return " --ask-for-approval never"
+	default:
+		return ""
+	}
+}
+
 // claudeResumeCmd / claudeNewCmd：构造 tmux 内启动 claude 的 shell 命令。代理前缀按会话注入。
 func claudeResumeCmd(sessionID, mode string) string {
 	return proxyEnvPrefix() + fmt.Sprintf("%s --resume %s", cfg.ClaudeBin, shellQuote(sessionID)) + permFlag(mode)
@@ -938,6 +1181,32 @@ func claudeResumeCmd(sessionID, mode string) string {
 
 func claudeNewCmd(mode string) string {
 	return proxyEnvPrefix() + cfg.ClaudeBin + permFlag(mode)
+}
+
+func codexResumeCmd(sessionID, mode string) string {
+	return proxyEnvPrefix() + fmt.Sprintf("%s resume%s %s", cfg.CodexBin, codexFlag(mode), shellQuote(sessionID))
+}
+
+func codexNewCmd(cwd, mode string) string {
+	cmd := proxyEnvPrefix() + cfg.CodexBin
+	if cwd != "" {
+		cmd += " -C " + shellQuote(cwd)
+	}
+	return cmd + codexFlag(mode)
+}
+
+func resumeCmd(assistant, sessionID, mode string) string {
+	if normAssistant(assistant) == "codex" {
+		return codexResumeCmd(sessionID, mode)
+	}
+	return claudeResumeCmd(sessionID, mode)
+}
+
+func newCmd(assistant, cwd, mode string) string {
+	if normAssistant(assistant) == "codex" {
+		return codexNewCmd(cwd, mode)
+	}
+	return claudeNewCmd(mode)
 }
 
 // normMode：把前端权限模式收敛到白名单（default/bypass/auto）；兼容旧前端的 bypass 布尔。
@@ -954,6 +1223,7 @@ func normMode(mode string, legacyBypass bool) string {
 
 func handleOpen(w http.ResponseWriter, r *http.Request) {
 	var req struct {
+		Assistant string `json:"assistant"`
 		SessionID string `json:"sessionId"`
 		Mode      string `json:"mode"`
 		Bypass    bool   `json:"bypass"` // 兼容旧前端
@@ -962,30 +1232,37 @@ func handleOpen(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "bad request", 400)
 		return
 	}
+	assistant := normAssistant(req.Assistant)
 	mode := normMode(req.Mode, req.Bypass)
-	cwd := cwdOf(req.SessionID)
-	name := shortSid(req.SessionID)
-	if err := ensureTmux(name, cwd, claudeResumeCmd(req.SessionID, mode)); err != nil {
+	cwd := cwdOfFor(assistant, req.SessionID)
+	name := shortSidFor(assistant, req.SessionID)
+	if err := ensureTmux(name, cwd, resumeCmd(assistant, req.SessionID, mode)); err != nil {
 		httpTmuxErr(w, err)
 		return
 	}
-	registerWatch(name, req.SessionID, mode)
+	registerWatch(name, assistant, req.SessionID, mode)
 	writeJSON(w, map[string]interface{}{"url": termURL(name), "sid": name, "mode": mode})
 }
 
 func handleNew(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		Cwd    string `json:"cwd"`
-		Mode   string `json:"mode"`
-		Bypass bool   `json:"bypass"` // 兼容旧前端
+		Assistant string `json:"assistant"`
+		Cwd       string `json:"cwd"`
+		Mode      string `json:"mode"`
+		Bypass    bool   `json:"bypass"` // 兼容旧前端
 	}
 	if json.NewDecoder(r.Body).Decode(&req) != nil {
 		http.Error(w, "bad request", 400)
 		return
 	}
+	assistant := normAssistant(req.Assistant)
 	mode := normMode(req.Mode, req.Bypass)
-	name := fmt.Sprintf("fleet-new%d", time.Now().Unix())
-	if err := ensureTmux(name, req.Cwd, claudeNewCmd(mode)); err != nil {
+	prefix := "new"
+	if assistant == "codex" {
+		prefix = "codexnew"
+	}
+	name := fmt.Sprintf("fleet-%s%d", prefix, time.Now().Unix())
+	if err := ensureTmux(name, req.Cwd, newCmd(assistant, req.Cwd, mode)); err != nil {
 		httpTmuxErr(w, err)
 		return
 	}
@@ -998,6 +1275,7 @@ func handleNew(w http.ResponseWriter, r *http.Request) {
 // 返回 killed 表示是否真的杀掉了一个由控制台启动的进程（无对应 tmux 时为 false，便于前端如实提示）。
 func handleClose(w http.ResponseWriter, r *http.Request) {
 	var req struct {
+		Assistant string `json:"assistant"`
 		SessionID string `json:"sessionId"`
 		Sid       string `json:"sid"`
 	}
@@ -1005,9 +1283,10 @@ func handleClose(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "bad request", 400)
 		return
 	}
+	assistant := normAssistant(req.Assistant)
 	name := req.Sid
 	if name == "" && req.SessionID != "" {
-		name = shortSid(req.SessionID)
+		name = shortSidFor(assistant, req.SessionID)
 	}
 	if name == "" {
 		http.Error(w, "bad request", 400)
@@ -1074,8 +1353,8 @@ func handleReload(w http.ResponseWriter, r *http.Request) {
 	watchMu.Unlock()
 	tmux("kill-session", "-t", req.Sid)
 	if wt != nil && wt.sessionID != "" {
-		ensureTmux(req.Sid, cwdOf(wt.sessionID), claudeResumeCmd(wt.sessionID, wt.mode))
-		registerWatch(req.Sid, wt.sessionID, wt.mode) // 重置 offset/tip/external，沿用权限模式
+		ensureTmux(req.Sid, cwdOfFor(wt.assistant, wt.sessionID), resumeCmd(wt.assistant, wt.sessionID, wt.mode))
+		registerWatch(req.Sid, wt.assistant, wt.sessionID, wt.mode) // 重置 offset/tip/external，沿用权限模式
 	}
 	writeJSON(w, map[string]bool{"ok": true})
 }
@@ -1110,7 +1389,7 @@ func onSessionEnd(sid string) {
 	wt := watchers[sid]
 	delete(watchers, sid)
 	watchMu.Unlock()
-	if !cfg.AutoCmdR || wt == nil {
+	if !cfg.AutoCmdR || wt == nil || wt.assistant != "claude" {
 		return
 	}
 	// 护栏：Desktop 在运行 且 当前打开的正是这个 sessionId 才发

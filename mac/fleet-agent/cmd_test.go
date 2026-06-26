@@ -41,6 +41,37 @@ func TestClaudeNewCmd(t *testing.T) {
 	}
 }
 
+func TestCodexResumeCmd(t *testing.T) {
+	cfg = Config{CodexBin: "codex"}
+	base := "codex resume '019f02d3-5ef8-7b01-a740-c3e6afe0bd16'"
+	cases := map[string]string{
+		"default": base,
+		"":        base,
+		"bogus":   base,
+		"bypass":  "codex resume --dangerously-bypass-approvals-and-sandbox '019f02d3-5ef8-7b01-a740-c3e6afe0bd16'",
+		"auto":    "codex resume --ask-for-approval never '019f02d3-5ef8-7b01-a740-c3e6afe0bd16'",
+	}
+	for mode, want := range cases {
+		if got := codexResumeCmd("019f02d3-5ef8-7b01-a740-c3e6afe0bd16", mode); got != want {
+			t.Errorf("codex resume mode=%q: got %q want %q", mode, got, want)
+		}
+	}
+}
+
+func TestCodexNewCmd(t *testing.T) {
+	cfg = Config{CodexBin: "codex"}
+	cases := map[string]string{
+		"default": "codex -C '/tmp/proj'",
+		"bypass":  "codex -C '/tmp/proj' --dangerously-bypass-approvals-and-sandbox",
+		"auto":    "codex -C '/tmp/proj' --ask-for-approval never",
+	}
+	for mode, want := range cases {
+		if got := codexNewCmd("/tmp/proj", mode); got != want {
+			t.Errorf("codex new mode=%q: got %q want %q", mode, got, want)
+		}
+	}
+}
+
 // normMode：白名单收敛 + 兼容旧前端 bypass 布尔。
 func TestNormMode(t *testing.T) {
 	cases := []struct {
@@ -50,8 +81,8 @@ func TestNormMode(t *testing.T) {
 	}{
 		{"auto", false, "auto"},
 		{"bypass", false, "bypass"},
-		{"", true, "bypass"},     // 旧前端 bypass=true
-		{"", false, "default"},   // 普通
+		{"", true, "bypass"},   // 旧前端 bypass=true
+		{"", false, "default"}, // 普通
 		{"bogus", false, "default"},
 		{"plan", false, "default"}, // 不在白名单 → default（不放行任意 permission-mode）
 	}
