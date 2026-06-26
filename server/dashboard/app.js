@@ -599,6 +599,26 @@ function restoreTermOrEmpty() {
   else showEmpty();
 }
 
+// 刷新/崩溃后从 sessionStorage 快照恢复终端（init 唯一入口；无快照则退回空态）。
+// connect 签名是 connect(sessionId,title,cwd,mode)，macId 取自 state.macId——故恢复每条前
+// 先把 state.macId 切到该条；逐条重连（受 poolMax 上限约束，poolAdd 内已 poolEvict）；
+// 全部恢复后复位到快照当前主机、刷新侧栏、显示其当前会话，不抢焦点切走。
+async function restorePoolSnapshot() {
+  let snap;
+  try { snap = JSON.parse(sessionStorage.getItem(POOL_SNAP_KEY) || 'null'); } catch (_) { snap = null; }
+  if (!snap || !Array.isArray(snap.items) || !snap.items.length) { restoreTermOrEmpty(); return; }
+  state.macId = snap.macId; // 先占位，避免 refreshNodes 自动选 MACS[0]
+  for (const it of snap.items) {
+    state.macId = it.macId;
+    try { await connect(it.sessionId, it.title, it.cwd, it.permMode || 'default'); } catch (_) {}
+  }
+  state.macId = snap.macId;
+  renderHosts();
+  loadSessions();
+  const cur = snap.cur && poolFind(state.macId, snap.cur);
+  if (cur) poolShow(cur); else restoreTermOrEmpty();
+}
+
 // 移动端从终端「返回」：仅收起 push，不结束进程（tmux 持久）
 function backToList() { $('#app').classList.remove('term-open'); }
 
@@ -902,7 +922,7 @@ function init() {
   }
 
   setMode('claude');
-  restoreTermOrEmpty();
+  restorePoolSnapshot();
 
   if ('serviceWorker' in navigator) navigator.serviceWorker.register(`${BASE}/sw.js`).catch(() => {});
 }
