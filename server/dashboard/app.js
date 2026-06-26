@@ -186,14 +186,14 @@ function renderHosts() {
   if (!MACS.length) { nav.append(h('div', { class: 'empty', text: '暂无已入网的 Mac' })); return; }
   for (const m of MACS) {
     const online = state.nodes[m.id];
-    const cnt = state.counts[m.id];
     // 桌面行
     const info = h('span', { class: 'i', title: '设置 / 代理', text: 'ⓘ' });
     info.onclick = (e) => { e.stopPropagation(); openHostModal(m.id); };
     const row = h('button', { class: 'host', dataset: { mac: m.id }, 'aria-current': String(m.id === state.macId) },
       h('span', { class: 'dot ' + (online ? 'on' : 'off') }),
       h('span', { class: 'nm', text: macName(m.id) }),
-      h('span', { class: 'ct tnum', text: online ? (cnt != null ? String(cnt) : '') : '离线' }),
+      // 会话数不再显示；仅离线时标「离线」（在线/离线 dot 已在前面）
+      h('span', { class: 'ct', text: online ? '' : '离线' }),
       info,
     );
     row.onclick = () => selectMac(m.id);
@@ -202,7 +202,7 @@ function renderHosts() {
     const chip = h('button', { class: 'chip', dataset: { mac: m.id }, 'aria-current': String(m.id === state.macId) },
       h('span', { class: 'dot ' + (online ? 'on' : 'off') }),
       macName(m.id),
-      online && cnt != null ? h('span', { class: 'ct tnum', text: String(cnt) }) : null,
+      online ? null : h('span', { class: 'ct', text: '离线' }), // 会话数不显示，仅离线状态
     );
     chip.onclick = () => selectMac(m.id);
     chips.append(chip);
