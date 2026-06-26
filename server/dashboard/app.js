@@ -607,12 +607,20 @@ async function restorePoolSnapshot() {
   let snap;
   try { snap = JSON.parse(sessionStorage.getItem(POOL_SNAP_KEY) || 'null'); } catch (_) { snap = null; }
   if (!snap || !Array.isArray(snap.items) || !snap.items.length) { restoreTermOrEmpty(); return; }
-  state.macId = snap.macId; // 先占位，避免 refreshNodes 自动选 MACS[0]
+  // 同步先占位 state.macId：init 同步执行到此早于任何 refreshNodes 的 fetch 回调，故能抑制
+  // refreshNodes 的 `!state.macId → selectMac(MACS[0])` 自动选台。再 await 一次 refreshNodes
+  // 确保 MACS 已就绪，据此校验快照里的 Mac 仍在册（改名/下架的不强行恢复）。
+  state.macId = snap.macId;
+  await refreshNodes();
+  const known = new Set(MACS.map((m) => m.id));
+  if (!known.has(snap.macId)) { if (MACS.length) selectMac(MACS[0].id); else showEmpty(); return; }
   for (const it of snap.items) {
+    if (!known.has(it.macId)) continue; // 已不在册的 Mac：其会话无从 attach，跳过
     state.macId = it.macId;
     try { await connect(it.sessionId, it.title, it.cwd, it.permMode || 'default'); } catch (_) {}
   }
   state.macId = snap.macId;
+  state.selectedSid = snap.cur || null; // 侧栏高亮对齐快照当前会话
   renderHosts();
   loadSessions();
   const cur = snap.cur && poolFind(state.macId, snap.cur);
