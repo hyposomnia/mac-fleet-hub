@@ -71,7 +71,7 @@ const state = {
   selectedSid: null,     // 当前选中的 claude sessionId（高亮 + 展开按钮）
   curTitle: '',          // 当前终端标题
   curCwd: '',            // 当前终端会话目录（用于头部 meta）
-  bypass: false,         // 当前终端是否 bypass 权限（F1）
+  curMode: 'default',    // 当前终端的权限模式：default | bypass | auto
   killTarget: null,      // 待终止的 sessionId（二次确认用）
   nodes: {},             // id -> online
   counts: {},            // id -> 活跃会话数（主机栏/主机条展示）
@@ -381,7 +381,7 @@ async function loadSessions() {
 
 // 会话行：
 // 已在池中的会话：点行即瞬时切换（selectSes 内 poolShow），无展开按钮。
-// 不在池中的会话：点行仅选中并展开「连接 / ⚠ Bypass连接」（须显式选权限模式）。
+// 不在池中的会话：点行仅选中并展开「连接 / Bypass / Auto」（三种权限模式，须显式选）。
 // 开了 pty 的会话另显「终止 ⏹」（与是否在池无关）。
 function sessionRow(s) {
   const sid = s.sessionId;
@@ -396,12 +396,15 @@ function sessionRow(s) {
     h('span', { class: 'ses-time', text: relTime(s.mtime) }),
     stop,
   );
-  // 已在池中的会话点行即瞬时切换，不需要按钮；不在池中的才展开「连接 / Bypass」。
+  // 已在池中的会话点行即瞬时切换，不需要按钮；不在池中的才展开三种权限模式。
   const acts = inPool ? null : h('div', { class: 'ses-acts' },
-    h('button', { class: 'btn sm accent', onclick: (e) => { e.stopPropagation(); connect(sid, s.title, s.cwd, false); } },
+    h('button', { class: 'btn sm accent', title: '普通连接（逐项确认工具权限）',
+      onclick: (e) => { e.stopPropagation(); connect(sid, s.title, s.cwd, 'default'); } },
       h('span', { class: 'gi', text: '→' }), '连接'),
-    h('button', { class: 'btn sm danger', title: 'claude --dangerously-skip-permissions（跳过工具权限确认）',
-      onclick: (e) => { e.stopPropagation(); connect(sid, s.title, s.cwd, true); } }, '⚠ Bypass连接'));
+    h('button', { class: 'btn sm danger', title: 'claude --dangerously-skip-permissions（跳过全部工具权限确认）',
+      onclick: (e) => { e.stopPropagation(); connect(sid, s.title, s.cwd, 'bypass'); } }, 'Bypass'),
+    h('button', { class: 'btn sm warn', title: 'claude --permission-mode auto（自动批准 + 后台安全分类器）',
+      onclick: (e) => { e.stopPropagation(); connect(sid, s.title, s.cwd, 'auto'); } }, 'Auto'));
   const row = h('div', {
     class: 'ses' + (s.pty ? ' conn' : '') + (sid === state.selectedSid ? ' sel' : ''),
     dataset: { sid },
@@ -477,7 +480,7 @@ function poolShow(entry) {
   state.current = entry;
   // 同步老字段，watch / reload / resize / 移动输入坞复用
   state.termSid = entry.sid; state.termUrl = entry.url; state.termSessionId = entry.sessionId;
-  state.curTitle = entry.title; state.curCwd = entry.cwd; state.bypass = entry.bypass;
+  state.curTitle = entry.title; state.curCwd = entry.cwd; state.curMode = entry.permMode;
   $('#frame').classList.remove('show');
   for (const e of state.pool) e.iframe.classList.toggle('show', e === entry);
   $('#empty-state').hidden = true;
@@ -506,12 +509,12 @@ function showEmpty() {
 }
 
 // 新建一个池条目（新 iframe）并显示，随后按上限 LRU 回收。
-function poolAdd(macId, sessionId, sid, url, title, cwd, bypass) {
+function poolAdd(macId, sessionId, sid, url, title, cwd, permMode) {
   const iframe = document.createElement('iframe');
   iframe.className = 'term-frame';
   iframe.title = 'window';
   iframe.setAttribute('allow', 'clipboard-read; clipboard-write');
-  const entry = { macId, sessionId: sessionId || null, sid, url, title: title || '会话', cwd: cwd || '', bypass: !!bypass, iframe, lastOutput: Date.now() };
+  const entry = { macId, sessionId: sessionId || null, sid, url, title: title || '会话', cwd: cwd || '', permMode: permMode || 'default', iframe, lastOutput: Date.now() };
   iframe.addEventListener('load', () => hookTerm(entry)); // 每次加载/重连后套主题+回滚+记输出
   $('#frames').appendChild(iframe);
   iframe.src = url;
@@ -522,20 +525,21 @@ function poolAdd(macId, sessionId, sid, url, title, cwd, bypass) {
 }
 
 // ============================================================
-//  连接 / 新建 → 终端 iframe（F1：bypass）
+//  连接 / 新建 → 终端 iframe（权限模式：default / bypass / auto）
 // ============================================================
-async function connect(sessionId, title, cwd, bypass) {
+async function connect(sessionId, title, cwd, mode) {
+  mode = mode || 'default';
   selectSes(sessionId); // 已在池则 selectSes 已瞬时切过去；这里再确保权限模式一致
   const exist = poolFind(state.macId, sessionId);
-  if (exist && exist.bypass === !!bypass) { poolShow(exist); return; } // 池内：瞬时切回，不重连
-  if (exist) poolDrop(exist); // 权限模式变了（普通↔bypass）→ 丢弃旧窗口重开
+  if (exist && exist.permMode === mode) { poolShow(exist); return; } // 池内同模式：瞬时切回，不重连
+  if (exist) poolDrop(exist); // 权限模式变了 → 丢弃旧窗口按新模式重开
   try {
     const r = await api(state.macId, 'open', {
       method: 'POST', headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ sessionId, bypass: !!bypass }),
+      body: JSON.stringify({ sessionId, mode }),
     });
     state.selectedSid = sessionId;
-    poolAdd(state.macId, sessionId, r.sid, r.url, title || '会话', cwd, !!r.bypass);
+    poolAdd(state.macId, sessionId, r.sid, r.url, title || '会话', cwd, r.mode || mode);
     loadSessions(); // 刷新 pty 标记：该会话现在有进程 → 行变「进入连接」+ 显示 ⏹（无骨架闪）
   } catch (e) { toast('连接失败：' + e.message, 'err'); }
 }
@@ -544,21 +548,23 @@ function newSessionIn(cwd) {
   closeOverlay('projects-modal');
   api(state.macId, 'new', {
     method: 'POST', headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ cwd }),
+    body: JSON.stringify({ cwd, mode: 'default' }),
   }).then((r) => {
     state.selectedSid = null;
-    poolAdd(state.macId, null, r.sid, r.url, '新会话 · ' + projName(cwd), cwd, !!r.bypass);
+    poolAdd(state.macId, null, r.sid, r.url, '新会话 · ' + projName(cwd), cwd, r.mode || 'default');
   }).catch((e) => toast('新建失败：' + e.message, 'err'));
 }
 
-// 终端头：状态点 + 标题（bypass 时追加「⚠ 跳过权限」徽标）+ 权限模式 meta
+// 终端头：状态点 + 标题（bypass/auto 追加权限徽标）+ 权限模式 meta
+const MODE_BADGE = { bypass: { cls: 'err', tt: '⚠ 跳过权限', meta: '⚠ 跳过权限模式' }, auto: { cls: 'warn', tt: '⚡ Auto', meta: '⚡ Auto 自动批准模式' } };
 function renderTermHead() {
   const tt = $('#win-title'); clear(tt);
   tt.append(h('span', { class: 'dot live' }), h('span', { class: 'ttl', text: state.curTitle }));
-  if (state.bypass) tt.append(h('span', { class: 'badge err', text: '⚠ 跳过权限' }));
+  const mb = MODE_BADGE[state.curMode];
+  if (mb) tt.append(h('span', { class: 'badge ' + mb.cls, text: mb.tt }));
   $('#win-meta').textContent = macName(state.macId) + ' · '
     + (state.curCwd ? projName(state.curCwd) + ' · ' : '')
-    + (state.bypass ? '⚠ 跳过权限模式' : '正常权限');
+    + (mb ? mb.meta : '正常权限');
 }
 
 // 切回会话模式：当前池条目仍在则显示，否则空态。

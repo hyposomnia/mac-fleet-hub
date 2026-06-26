@@ -3,13 +3,15 @@
 // 职责：
 //   GET  /api/sessions?scope=active|all   列出 Claude 会话（按 cwd 由前端分组）
 //   GET  /api/projects                    历史会话的 cwd 去重 → 项目目录列表
-//   POST /api/open    {sessionId,bypass}  在 tmux 起/复用窗口跑 claude --resume，返回终端入口
-//   POST /api/new     {cwd,bypass}         在指定目录起新 claude
+//   POST /api/open    {sessionId,mode}    在 tmux 起/复用窗口跑 claude --resume，返回终端入口
+//   POST /api/new     {cwd,mode}           在指定目录起新 claude
 //   POST /api/close   {sessionId|sid}      终止该会话对应的 fleet tmux（进程结束，会话记录保留）
 //   GET  /api/watch?sid=fleet-xxx         检测是否有 Desktop 外部写入（DAG 分叉判定）
 //   POST /api/reload  {sid}               kill+resume 该窗口（拉取 Desktop 最新）
 //
-//   open/new 的 bypass=true → claude 带 --dangerously-skip-permissions（跳过工具权限确认）。
+//   open/new 的 mode：default=普通逐项确认；bypass=--dangerously-skip-permissions；
+//   auto=--permission-mode auto（自动批准+后台安全分类器）。白名单映射（见 permFlag/normMode）。
+//   旧前端的 bypass:true 仍兼容（→ mode=bypass）。
 //
 // 仅绑 mesh IP，不公网；访问控制交给 Headscale ACL（见 plan §5.1）。
 package main
@@ -672,7 +674,7 @@ type watcher struct {
 	offset    int64
 	tip       string // mobileTip：当前手机分支叶子 uuid
 	external  bool
-	bypass    bool // F1：本会话以 --dangerously-skip-permissions 启动，reload 时须沿用
+	mode      string // 启动权限模式（""/default、bypass、auto），reload 时须沿用
 }
 
 var (
@@ -680,9 +682,9 @@ var (
 	watchMu  sync.Mutex
 )
 
-func registerWatch(sid, sessionID string, bypass bool) {
+func registerWatch(sid, sessionID, mode string) {
 	path := jsonlPath(sessionID)
-	w := &watcher{sessionID: sessionID, path: path, bypass: bypass}
+	w := &watcher{sessionID: sessionID, path: path, mode: mode}
 	if path != "" {
 		if info, err := os.Stat(path); err == nil {
 			w.offset = info.Size()
@@ -856,59 +858,81 @@ func handleProjects(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, map[string]interface{}{"projects": ps})
 }
 
-// claudeResumeCmd / claudeNewCmd：构造 tmux 内启动 claude 的 shell 命令。
-// bypass=true 追加 --dangerously-skip-permissions（F1「Bypass连接」，跳过工具权限确认，
-// 属高风险，前端用 danger 样式 + 警示徽标区分）。代理前缀按会话注入（见 proxyEnvPrefix）。
-func claudeResumeCmd(sessionID string, bypass bool) string {
-	cmd := proxyEnvPrefix() + fmt.Sprintf("%s --resume %s", cfg.ClaudeBin, shellQuote(sessionID))
-	if bypass {
-		cmd += " --dangerously-skip-permissions"
+// permFlag：把前端权限模式映射到 claude 启动 flag。
+//   bypass → --dangerously-skip-permissions（跳过全部工具权限确认，高风险）
+//   auto   → --permission-mode auto（自动批准 + 后台安全分类器，介于普通与 bypass 之间）
+//   其它/空 → 普通（逐项确认）
+// 取值经白名单映射，前端传入不直接拼进命令行，避免注入。
+func permFlag(mode string) string {
+	switch mode {
+	case "bypass":
+		return " --dangerously-skip-permissions"
+	case "auto":
+		return " --permission-mode auto"
+	default:
+		return ""
 	}
-	return cmd
 }
 
-func claudeNewCmd(bypass bool) string {
-	cmd := proxyEnvPrefix() + cfg.ClaudeBin
-	if bypass {
-		cmd += " --dangerously-skip-permissions"
+// claudeResumeCmd / claudeNewCmd：构造 tmux 内启动 claude 的 shell 命令。代理前缀按会话注入。
+func claudeResumeCmd(sessionID, mode string) string {
+	return proxyEnvPrefix() + fmt.Sprintf("%s --resume %s", cfg.ClaudeBin, shellQuote(sessionID)) + permFlag(mode)
+}
+
+func claudeNewCmd(mode string) string {
+	return proxyEnvPrefix() + cfg.ClaudeBin + permFlag(mode)
+}
+
+// normMode：把前端权限模式收敛到白名单（default/bypass/auto）；兼容旧前端的 bypass 布尔。
+func normMode(mode string, legacyBypass bool) string {
+	switch mode {
+	case "bypass", "auto":
+		return mode
 	}
-	return cmd
+	if legacyBypass {
+		return "bypass"
+	}
+	return "default"
 }
 
 func handleOpen(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		SessionID string `json:"sessionId"`
-		Bypass    bool   `json:"bypass"`
+		Mode      string `json:"mode"`
+		Bypass    bool   `json:"bypass"` // 兼容旧前端
 	}
 	if json.NewDecoder(r.Body).Decode(&req) != nil || req.SessionID == "" {
 		http.Error(w, "bad request", 400)
 		return
 	}
+	mode := normMode(req.Mode, req.Bypass)
 	cwd := cwdOf(req.SessionID)
 	name := shortSid(req.SessionID)
-	if err := ensureTmux(name, cwd, claudeResumeCmd(req.SessionID, req.Bypass)); err != nil {
+	if err := ensureTmux(name, cwd, claudeResumeCmd(req.SessionID, mode)); err != nil {
 		httpTmuxErr(w, err)
 		return
 	}
-	registerWatch(name, req.SessionID, req.Bypass)
-	writeJSON(w, map[string]interface{}{"url": termURL(name), "sid": name, "bypass": req.Bypass})
+	registerWatch(name, req.SessionID, mode)
+	writeJSON(w, map[string]interface{}{"url": termURL(name), "sid": name, "mode": mode})
 }
 
 func handleNew(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Cwd    string `json:"cwd"`
-		Bypass bool   `json:"bypass"`
+		Mode   string `json:"mode"`
+		Bypass bool   `json:"bypass"` // 兼容旧前端
 	}
 	if json.NewDecoder(r.Body).Decode(&req) != nil {
 		http.Error(w, "bad request", 400)
 		return
 	}
+	mode := normMode(req.Mode, req.Bypass)
 	name := fmt.Sprintf("fleet-new%d", time.Now().Unix())
-	if err := ensureTmux(name, req.Cwd, claudeNewCmd(req.Bypass)); err != nil {
+	if err := ensureTmux(name, req.Cwd, claudeNewCmd(mode)); err != nil {
 		httpTmuxErr(w, err)
 		return
 	}
-	writeJSON(w, map[string]interface{}{"url": termURL(name), "sid": name, "bypass": req.Bypass})
+	writeJSON(w, map[string]interface{}{"url": termURL(name), "sid": name, "mode": mode})
 }
 
 // handleClose：F2 终止会话进程 —— kill 该会话对应的 fleet tmux（claude/tmux 进程随之结束）。
@@ -993,8 +1017,8 @@ func handleReload(w http.ResponseWriter, r *http.Request) {
 	watchMu.Unlock()
 	tmux("kill-session", "-t", req.Sid)
 	if wt != nil && wt.sessionID != "" {
-		ensureTmux(req.Sid, cwdOf(wt.sessionID), claudeResumeCmd(wt.sessionID, wt.bypass))
-		registerWatch(req.Sid, wt.sessionID, wt.bypass) // 重置 offset/tip/external，沿用 bypass
+		ensureTmux(req.Sid, cwdOf(wt.sessionID), claudeResumeCmd(wt.sessionID, wt.mode))
+		registerWatch(req.Sid, wt.sessionID, wt.mode) // 重置 offset/tip/external，沿用权限模式
 	}
 	writeJSON(w, map[string]bool{"ok": true})
 }

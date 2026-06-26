@@ -162,6 +162,7 @@ button { cursor: pointer; border: none; background: none; }
 .badge.live .d { background: var(--accent); animation: pulse 1.8s var(--ease) infinite; }
 .badge.ok { background: var(--online-soft); color: var(--online); border-color: transparent; }
 .badge.err { background: var(--danger-soft); color: var(--danger); border-color: transparent; }
+.badge.warn { background: var(--wait-soft); color: var(--wait); border-color: transparent; }
 
 /* 按钮 */
 .btn {
@@ -182,6 +183,9 @@ button { cursor: pointer; border: none; background: none; }
 /* danger：用于「Bypass连接」(claude --dangerously-skip-permissions) 与「终止进程」 */
 .btn.danger { background: var(--danger-soft); color: var(--danger); border-color: transparent; }
 .btn.danger:hover { background: color-mix(in srgb, var(--danger) 20%, transparent); color: var(--danger); }
+/* Auto 模式：琥珀色（介于普通 accent 蓝与 bypass 红之间）*/
+.btn.warn { background: var(--wait-soft); color: var(--wait); border-color: transparent; }
+.btn.warn:hover { background: color-mix(in srgb, var(--wait) 20%, transparent); color: var(--wait); }
 .btn.accent { background: var(--accent-soft); color: var(--accent-text); border-color: var(--accent-line); }
 .btn.accent:hover { background: color-mix(in srgb, var(--accent) 24%, transparent); color: var(--accent-text); }
 
