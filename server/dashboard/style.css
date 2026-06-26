@@ -180,7 +180,7 @@ button { cursor: pointer; border: none; background: none; }
 .btn.ghost { background: transparent; }
 .btn.sm { padding: 6px 11px; font-size: var(--t-xs); border-radius: 8px; }
 .btn .gi { font-size: 1.05em; opacity: .85; }
-/* danger：用于「Bypass连接」(claude --dangerously-skip-permissions) 与「终止进程」 */
+/* danger：用于「Bypass连接」与「终止进程」 */
 .btn.danger { background: var(--danger-soft); color: var(--danger); border-color: transparent; }
 .btn.danger:hover { background: color-mix(in srgb, var(--danger) 20%, transparent); color: var(--danger); }
 /* Auto 模式：琥珀色（介于普通 accent 蓝与 bypass 红之间）*/
@@ -292,7 +292,7 @@ svg.ic.fill { fill: currentColor; stroke: none; }
 .menu .sep { height: 1px; background: var(--border); margin: 5px 4px; }
 
 /* ============================================================
-   总体网格：主机栏 | Claude会话列 | 窗口
+   总体网格：主机栏 | 会话列 | 窗口
    ============================================================ */
 #app { height: 100dvh; display: grid; grid-template-columns: var(--rail-w) var(--sess-w) 1fr; }
 #app[data-mode="files"] { grid-template-columns: var(--rail-w) 1fr; }
@@ -335,12 +335,12 @@ svg.ic.fill { fill: currentColor; stroke: none; }
 #usermenu { bottom: calc(100% + 6px); left: 0; right: 0; }
 
 /* ============================================================
-   Claude会话 列
+   会话列
    ============================================================ */
 #sescol { background: var(--bg); border-right: 1px solid var(--border); display: flex; flex-direction: column; }
-.sc-head { display: flex; align-items: center; gap: 10px; padding: 14px 14px 10px; border-bottom: 1px solid var(--border); }
+.sc-head { display: flex; align-items: center; gap: 10px; padding: 14px 14px 10px; border-bottom: 1px solid var(--border); flex-wrap: wrap; }
 /* 筛选条撑满本行后，按钮也各占一半填满（否则容器被 flex:1 拉宽、按钮却挤在左边留大片空白） */
-.sc-head .seg { flex: 1; }
+.sc-head .seg { flex: 1 1 128px; min-width: 0; }
 .sc-head .seg button { flex: 1; text-align: center; }
 .sc-body { flex: 1; overflow-y: auto; padding: 10px; }
 
@@ -487,7 +487,7 @@ svg.ic.fill { fill: currentColor; stroke: none; }
   #app[data-mode="files"] #sescol { display: none; }
   .sc-head { padding: 12px 14px 10px; }
 
-  /* 窗口：files 模式 → 内联铺满；claude 未连接 → 隐藏；连接后 → push 覆盖 */
+  /* 窗口：files 模式 → 内联铺满；会话未连接 → 隐藏；连接后 → push 覆盖 */
   #win { display: none; }
   #app[data-mode="files"] #win { display: flex; flex: 1; min-height: 0; }
   #app.term-open #win {
