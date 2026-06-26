@@ -679,6 +679,8 @@ async function closeSession() {
 // ============================================================
 //  主机设置弹窗（Mesh IP / 代理 / 显示名）
 // ============================================================
+// 代理默认值：未配置时直接填进输入框作为真实值（不靠 placeholder，避免"看着像填了其实是空"的陷阱）
+const DEFAULT_PROXY = 'http://127.0.0.1:7897';
 async function openHostModal(id) {
   state.killTarget = null;
   state.hostModalMac = id;
@@ -696,8 +698,8 @@ async function openHostModal(id) {
     const info = await api(id, 'info');
     $('#hm-ip').textContent = info.meshIP || '—';
     const p = info.proxy || {};
-    $('#hm-http').value = p.http || '';
-    $('#hm-https').value = p.https || '';
+    $('#hm-http').value = p.http || DEFAULT_PROXY;
+    $('#hm-https').value = p.https || DEFAULT_PROXY;
     $('#hm-proxy-on').checked = !!p.enabled;
   } catch (e) { $('#hm-ip').textContent = '连不上（' + e.message + '）'; }
 }

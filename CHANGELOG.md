@@ -29,6 +29,9 @@ mac-fleet-hub 变更记录（日期为本地时间）。
 ### 品牌
 - 新 app 图标（`icons/icon.svg`）：品牌渐变圆角砖（`#6e8bff→#9b7bff`）+ 两张等大会话窗叠层 + 品牌色提示符，体现「多 Mac 多终端会话」；矢量，各尺寸锐利。补 `<link rel="icon">` 浏览器标签页 favicon、manifest 加 `maskable`、`theme_color`/`background_color` 对齐 `#090c12`。
 
+### dashboard
+- **主机设置代理框填默认值**：未配置时 HTTP/HTTPS 代理框直接填入真实默认值 `http://127.0.0.1:7897`（而非仅 placeholder），避免「看着像填了、实际存成空 → 开关 on 但不注入代理 → claude 403」的陷阱。
+
 ### dashboard 移动端
 - **终止按钮改 SVG**：原 Unicode `⏹` 在 iOS 渲染成彩色 emoji，换成内联 SVG 实心圆角方块（`currentColor`，跟随悬停变红）。
 - **软键盘弹起顶起输入坞**：VisualViewport 算键盘高度 → `--kb`，移动端输入坞上移到键盘之上（修 iOS 输入框被键盘遮挡）。
