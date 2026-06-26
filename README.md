@@ -37,7 +37,7 @@
 
 **接入一台 Mac**（网关装好后，发给跑在那台 Mac 上的 AI）：
 
-> 把 https://github.com/hyposomnia/mac-fleet-hub 克隆到这台 Mac，阅读 `AGENTS.md` 并按「Mac 接入」流程接入我的 fleet。只问我网关地址和入网验证码。
+> 在这台 Mac 上接入我的 mac-fleet-hub fleet（**不要克隆仓库**，Mac 客户端只需从网关下载客户端包）：读 https://github.com/hyposomnia/mac-fleet-hub 的 `AGENTS.md`「Mac 接入」一节并照做。只问我网关地址和入网验证码，别问"第几台"。
 
 ---
 
