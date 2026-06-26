@@ -170,9 +170,9 @@
             <div class="field"><label>最大同时打开的终端窗口数</label><input id="st-mmax" class="input mono" type="number" min="1" max="12" inputmode="numeric" /></div>
             <div class="field"><label>每个窗口的最大回滚行数</label><input id="st-mscroll" class="input mono" type="number" min="200" max="100000" step="100" inputmode="numeric" /></div>
             <div class="set-sec">自动关闭</div>
-            <div class="field"><label>无新输出多久后自动关闭窗口（分钟）</label><input id="st-autoclose" class="input mono" type="number" min="1" max="1440" inputmode="numeric" /></div>
+            <div class="field"><label>后台会话空闲多久后自动释放（分钟）</label><input id="st-autoclose" class="input mono" type="number" min="1" max="1440" inputmode="numeric" /></div>
             <p class="hint">超出窗口数上限时，按「最后收到输出时间」最早的窗口先释放（当前正看的窗口不会被释放）。被释放的会话后台进程不受影响，再次点开会重新连接。</p>
-            <p class="hint">窗口在「无新输出」超过自动关闭时长后也会被释放（当前正看的窗口不会被关闭）。同样只断开连接，后台进程不受影响。</p>
+            <p class="hint">「自动关闭」是各 Mac 后台会话的空闲回收时长：超过该时长无人连接、且无新活动的终端会话会被自动释放（结束进程、释放 pty，会话记录保留，再次点开会重新连接）。改动几分钟内同步到所有在线 Mac。</p>
           </section>
         </div>
         <div class="modal-foot">

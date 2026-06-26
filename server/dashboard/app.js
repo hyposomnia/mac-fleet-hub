@@ -483,18 +483,6 @@ function poolEvict() {
   }
 }
 
-// 无操作自动关闭：窗口「最后收到输出时间」距今超过设定时长就释放（当前正看的窗口不动）。
-// 与 LRU 不同——这里不看窗口数，纯按空闲时长回收，给后台跑完即闲的会话腾 pty。
-function poolReapIdle() {
-  const s = state.settings || SETTINGS_DEFAULT;
-  const ms = (s.autoCloseMinutes || SETTINGS_DEFAULT.autoCloseMinutes) * 60000;
-  const now = Date.now();
-  for (const e of [...state.pool]) {
-    if (e === state.current) continue;
-    if (now - e.lastOutput > ms) poolDrop(e);
-  }
-}
-
 // 显示某个池条目（隐藏文件 iframe 与其余终端，仅它 .show）。
 function poolShow(entry) {
   state.current = entry;
@@ -827,7 +815,6 @@ function init() {
   refreshNames();
   refreshSettings();
   refreshNodes(); setInterval(refreshNodes, 30000);
-  setInterval(poolReapIdle, 60000); // 每分钟扫一遍空闲窗口，按自动关闭时长释放
   wireMobileInput();
 
   // 模式 / 范围 / 刷新 / 新建
