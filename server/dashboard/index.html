@@ -25,21 +25,21 @@
       <div class="brand"><span class="logo">◧</span><span>fleet hub</span></div>
 
       <div class="modeseg" role="tablist">
-        <button data-mode="claude" role="tab" aria-selected="true"><span class="gi">▤</span>Claude会话</button>
-        <button data-mode="files" role="tab" aria-selected="false"><span class="gi">▦</span>文件</button>
+        <button data-mode="claude" role="tab" aria-selected="true"><svg class="ic" viewBox="0 0 24 24"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>Claude会话</button>
+        <button data-mode="files" role="tab" aria-selected="false"><svg class="ic" viewBox="0 0 24 24"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>文件</button>
       </div>
 
       <nav id="host-list" class="hostlist"><div class="hd eyebrow">主机</div></nav>
 
       <div class="railfoot">
         <button id="user-btn" class="userrow" aria-haspopup="true">
-          <span class="avatar">U</span><span class="un" id="user-name">user</span><span class="cv">▾</span>
+          <span class="avatar">U</span><span class="un" id="user-name">user</span><span class="cv"><svg class="ic" viewBox="0 0 24 24"><polyline points="6 9 12 15 18 9"/></svg></span>
         </button>
         <div id="usermenu" class="menu" hidden>
-          <button data-act="theme"><span class="gi">◐</span>切换主题</button>
-          <button data-act="settings"><span class="gi">⚙</span>设置</button>
+          <button data-act="theme"><svg class="ic" viewBox="0 0 24 24"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>切换主题</button>
+          <button data-act="settings"><svg class="ic" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>设置</button>
           <div class="sep"></div>
-          <button data-act="logout" class="danger"><span class="gi">⏻</span>退出登录</button>
+          <button data-act="logout" class="danger"><svg class="ic" viewBox="0 0 24 24"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>退出登录</button>
         </div>
       </div>
     </aside>
@@ -47,13 +47,13 @@
     <!-- ───────── 移动端头部（品牌 + 当前主机ⓘ + ⋮菜单） ───────── -->
     <header id="mtopbar">
       <span class="logo">◧</span><span class="tt">fleet hub</span>
-      <button id="m-info-btn" class="iconbtn" title="当前主机设置">ⓘ</button>
-      <button id="m-menu-btn" class="iconbtn" title="菜单" aria-haspopup="true">⋮</button>
+      <button id="m-info-btn" class="iconbtn" title="当前主机设置"><svg class="ic" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg></button>
+      <button id="m-menu-btn" class="iconbtn" title="菜单" aria-haspopup="true"><svg class="ic fill" viewBox="0 0 24 24"><circle cx="12" cy="5" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="12" cy="19" r="1.6"/></svg></button>
       <div id="m-menu" class="menu" hidden>
-        <button data-act="theme"><span class="gi">◐</span>切换主题</button>
-        <button data-act="settings"><span class="gi">⚙</span>设置</button>
+        <button data-act="theme"><svg class="ic" viewBox="0 0 24 24"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>切换主题</button>
+        <button data-act="settings"><svg class="ic" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>设置</button>
         <div class="sep"></div>
-        <button data-act="logout" class="danger"><span class="gi">⏻</span>退出登录</button>
+        <button data-act="logout" class="danger"><svg class="ic" viewBox="0 0 24 24"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>退出登录</button>
       </div>
     </header>
 
@@ -73,28 +73,28 @@
           <button data-scope="active" role="tab" aria-selected="true">活跃 <b id="cnt-active">0</b></button>
           <button data-scope="all" role="tab" aria-selected="false">全部 <b id="cnt-all">0</b></button>
         </div>
-        <button id="refresh-btn" class="iconbtn" title="刷新">⟳</button>
+        <button id="refresh-btn" class="iconbtn" title="刷新"><svg class="ic" viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg></button>
       </header>
       <div id="session-groups" class="sc-body"></div>
-      <button id="new-session" class="newbtn"><span class="gi">＋</span> 新建会话</button>
+      <button id="new-session" class="newbtn"><svg class="ic" viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg> 新建会话</button>
     </section>
 
     <!-- ───────── 窗口（终端 / 文件） ───────── -->
     <section id="win" class="pane">
       <header class="win-head">
-        <button id="win-back" class="iconbtn bare win-back" title="返回（不结束进程）">←</button>
+        <button id="win-back" class="iconbtn bare win-back" title="返回（不结束进程）"><svg class="ic" viewBox="0 0 24 24"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg></button>
         <div class="info">
           <span id="win-title" class="tt"><span class="ttl">选择一个会话</span></span>
           <span id="win-meta" class="mt">选中会话后点「连接」打开终端</span>
         </div>
-        <button id="reconnect-btn" class="iconbtn" title="重连" hidden>⟳</button>
-        <button id="fullscreen-btn" class="iconbtn" title="全屏" hidden>⤢</button>
+        <button id="reconnect-btn" class="iconbtn" title="重连" hidden><svg class="ic" viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg></button>
+        <button id="fullscreen-btn" class="iconbtn" title="全屏" hidden><svg class="ic" viewBox="0 0 24 24"><path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"/></svg></button>
       </header>
 
       <div id="reload-banner" hidden>
         <span class="rb-dot"></span>桌面端有新内容
         <button id="reload-btn" class="btn sm primary rb-act">重载会话</button>
-        <button id="reload-dismiss" class="iconbtn bare" title="忽略">✕</button>
+        <button id="reload-dismiss" class="iconbtn bare" title="忽略"><svg class="ic" viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
       </div>
 
       <div class="win-body">
@@ -102,7 +102,7 @@
         <iframe id="frame" title="window" allow="clipboard-read; clipboard-write"></iframe>
         <div id="frames"></div>
         <div id="empty-state" class="empty-state">
-          <div class="g">▤</div>
+          <div class="g"><svg class="ic" viewBox="0 0 24 24"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg></div>
           <div>选中一个会话，点 <b>「连接」</b> 或 <b>「Bypass连接」</b> 打开终端<br />
             <span class="dim" style="font-size:var(--t-xs)">点击会话本身只是选中，不会连接</span>
           </div>
@@ -122,7 +122,7 @@
         </div>
         <div class="inrow">
           <textarea id="cmd-input" rows="1" placeholder="输入命令…" autocapitalize="off" autocomplete="off" autocorrect="off" spellcheck="false"></textarea>
-          <button id="send-btn" class="send-btn" title="发送">↑</button>
+          <button id="send-btn" class="send-btn" title="发送"><svg class="ic" viewBox="0 0 24 24"><line x1="12" y1="19" x2="12" y2="5"/><polyline points="5 12 12 5 19 12"/></svg></button>
         </div>
       </div>
     </section>
@@ -133,12 +133,12 @@
         <div class="modal-head">
           <span id="hm-dot" class="dot"></span><span id="hm-title">Mac</span>
           <span id="hm-state" class="badge">—</span>
-          <button class="iconbtn bare x" data-close="host-modal">✕</button>
+          <button class="iconbtn bare x" data-close="host-modal"><svg class="ic" viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
         </div>
         <div class="modal-body">
           <div class="kv"><span class="k">Mesh IP</span>
             <span class="v mono"><span id="hm-ip">—</span>
-              <button id="hm-copy" class="iconbtn bare" style="width:24px;height:24px;font-size:12px" title="复制">⧉</button>
+              <button id="hm-copy" class="iconbtn bare" style="width:26px;height:26px" title="复制"><svg class="ic" viewBox="0 0 24 24" style="width:14px;height:14px"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button>
             </span>
           </div>
           <div class="kv"><span class="k">代理（按会话注入）</span>
@@ -159,7 +159,7 @@
     <!-- ───────── 设置（终端窗口上限 / 回滚行数，桌面与移动各一套；存网关，所有浏览器共享） ───────── -->
     <div id="settings-modal" class="overlay" hidden>
       <div class="modal">
-        <div class="modal-head"><span class="gi">⚙</span><span>设置</span><button class="iconbtn bare x" data-close="settings-modal">✕</button></div>
+        <div class="modal-head"><svg class="ic" viewBox="0 0 24 24" style="width:18px;height:18px"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg><span>设置</span><button class="iconbtn bare x" data-close="settings-modal"><svg class="ic" viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button></div>
         <div class="modal-body">
           <div class="set-sec">桌面端</div>
           <div class="field"><label>最大同时打开的终端窗口数</label><input id="st-dmax" class="input mono" type="number" min="1" max="30" inputmode="numeric" /></div>
@@ -179,7 +179,7 @@
     <!-- ───────── 项目目录选择（新建会话） ───────── -->
     <div id="projects-modal" class="overlay" hidden>
       <div class="modal">
-        <div class="modal-head"><span>选择项目目录</span><button class="iconbtn bare x" data-close="projects-modal">✕</button></div>
+        <div class="modal-head"><span>选择项目目录</span><button class="iconbtn bare x" data-close="projects-modal"><svg class="ic" viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button></div>
         <div id="project-list" class="project-list"></div>
       </div>
     </div>
@@ -187,7 +187,7 @@
     <!-- ───────── 终止进程二次确认（样式化，非原生 confirm；移动端为底部抽屉） ───────── -->
     <div id="confirm-kill" class="overlay" hidden>
       <div class="modal" style="max-width:380px">
-        <div class="modal-head">终止会话进程<button class="iconbtn bare x" data-close="confirm-kill">✕</button></div>
+        <div class="modal-head">终止会话进程<button class="iconbtn bare x" data-close="confirm-kill"><svg class="ic" viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button></div>
         <div class="modal-body">
           <p class="wrap-pretty">终止「<b id="ck-name"></b>」在 Mac 上的进程？<br />
             <span class="muted" style="font-size:var(--t-sm)">会话条目会保留，仅结束其 claude / tmux 进程。</span>

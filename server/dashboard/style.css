@@ -194,6 +194,18 @@ button { cursor: pointer; border: none; background: none; }
 .iconbtn:hover { background: var(--surface-hover); color: var(--text); }
 .iconbtn.bare { border-color: transparent; background: transparent; }
 
+/* 内联 SVG 图标统一描边样式（Feather 风格）；尺寸按所在位置在下方各自给定 */
+svg.ic { fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; display: block; }
+svg.ic.fill { fill: currentColor; stroke: none; }
+.iconbtn svg.ic { width: 18px; height: 18px; }
+.menu button svg.ic { width: 17px; height: 17px; flex: none; }
+.modeseg button svg.ic { width: 15px; height: 15px; }
+.newbtn svg.ic { width: 16px; height: 16px; }
+.userrow .cv svg.ic { width: 14px; height: 14px; }
+.send-btn svg.ic { width: 20px; height: 20px; }
+.btn svg.ic { width: 15px; height: 15px; }
+.empty-state .g svg.ic { width: 30px; height: 30px; stroke-width: 1.8; }
+
 /* 分段控件 */
 .seg { display: inline-flex; gap: 3px; background: var(--surface-2); border: 1px solid var(--border); border-radius: 10px; padding: 3px; }
 .seg button { padding: 6px 12px; border-radius: 7px; color: var(--text-1); font-weight: 550; font-size: var(--t-sm); transition: all var(--dur-1) var(--ease); }
