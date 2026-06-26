@@ -100,8 +100,15 @@ fi
 
 # --- 5. 渲染并安装 launchd 服务 ---
 LA="$HOME/Library/LaunchAgents"; mkdir -p "$LA"
+# fleet-agent daemon 拉空闲回收时长的网关地址：由 FLEET_UPDATE_BASE（.../enroll/dist）推导
+# 为 .../enroll/agent-config；未给则留空 → agent 沿用本地 FLEET_IDLE_SEC 默认。
+FLEET_CONFIG_URL=""
+if [[ -n "${FLEET_UPDATE_BASE:-}" ]]; then
+  FLEET_CONFIG_URL="${FLEET_UPDATE_BASE%/}"; FLEET_CONFIG_URL="${FLEET_CONFIG_URL%/dist}/agent-config"
+fi
 render() { # src dst
   sed -e "s#__BREW_PREFIX__#${BREW_PREFIX}#g" \
+      -e "s#__FLEET_CONFIG_URL__#${FLEET_CONFIG_URL}#g" \
       -e "s#__TS_IP__#${TS_IP}#g" \
       -e "s#__PORT__#${PORT:-}#g" \
       -e "s#__ROOT__#${FB_ROOT}#g" \
