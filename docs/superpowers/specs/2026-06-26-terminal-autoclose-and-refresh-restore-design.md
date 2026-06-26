@@ -53,8 +53,9 @@
 ## 设计 B：刷新后终端自动恢复（G2）
 
 **机制**：纯前端 `sessionStorage` 快照。
-- **写快照**：池变化时（`poolAdd` / `poolDrop` / 权限模式变更）把池序列化为 `[{macId, sessionId, permMode}]` 存 `sessionStorage['fleet-pool']`。只存重建所需的最小标识——`sid`/`url` 是 attach 时新生成的，不存。
-- **恢复**：`init()` 末尾读快照，对每条 `connect(macId, sessionId, ..., permMode)` 重新 `api open` + `poolAdd`。受 `poolMax` 上限约束（超出走 `poolEvict`）。恢复时不抢焦点——保持快照里的 `current` 或落到最后一个。
+- **写快照**：在 `poolAdd` / `poolDrop` 内（**不**拦 `connect`——权限模式变更在 `connect` 里是 `poolDrop`+`poolAdd` 一对，挂在 add/drop 才不会双写）把池序列化为 `[{macId, sessionId, permMode, title, cwd}]` 存 `sessionStorage['fleet-pool']`。只存重建所需的最小标识——`sid`/`url` 是 attach 时新生成的，不存。
+- **恢复**：`init()` 末尾读快照。注意 `connect` 签名是 `connect(sessionId, title, cwd, mode)`，macId 取自全局 `state.macId`——所以恢复每条前需先把 `state.macId` 切到该条的 `macId`（故快照需存 `title`/`cwd` 供 `connect` 用）。逐条 `api open` + `poolAdd`，受 `poolMax` 上限约束（超出走 `poolEvict`）。恢复完把 `state.macId` 复位到快照里的当前主机，不抢焦点。
+- 实现时优先评估给 `connect` 显式加 `macId` 形参（比临时改全局再复位更清晰）——以实际代码可读性为准，二选一。
 - 无快照 / 解析失败 → 空态，照旧。
 
 **与 reaper 配合**：恢复后这些会话又有 attach client → reaper 不会 kill。无快照时孤儿无 attach → 到 idle 阈值被 reaper 收。两机制正交，互补覆盖「不爆」。
