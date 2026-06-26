@@ -379,9 +379,10 @@ async function loadSessions() {
   }
 }
 
-// 会话行：点行 = 仅选中。
-// 已开 pty（控制台起过进程）的会话：恒显「终止 ⏹」（不论是否选中），选中后按钮为「进入连接」(回到已有终端，不重连)。
-// 未开 pty 的会话：无 ⏹，选中后展开「连接 / ⚠ Bypass连接」。
+// 会话行：
+// 已开 pty（控制台起过进程）的会话：恒显「终止 ⏹」；点行即进入终端（在池则瞬时，否则 attach），
+//   不再单独「进入连接」按钮——选中即切换已让它多余。
+// 未开 pty 的会话：无 ⏹，点行仅选中并展开「连接 / ⚠ Bypass连接」（连接=新起 claude，须显式选权限模式）。
 function sessionRow(s) {
   const sid = s.sessionId;
   const stop = s.pty && h('span', { class: 'stopbtn', title: '终止进程（会话保留）',
@@ -394,21 +395,20 @@ function sessionRow(s) {
     h('span', { class: 'ses-time', text: relTime(s.mtime) }),
     stop,
   );
-  const acts = s.pty
-    ? h('div', { class: 'ses-acts' },
-        h('button', { class: 'btn sm accent', title: '回到已有终端（进程已在运行，不重连）',
-          onclick: (e) => { e.stopPropagation(); connect(sid, s.title, s.cwd, false); } },
-          h('span', { class: 'gi', text: '→' }), '进入连接'))
-    : h('div', { class: 'ses-acts' },
-        h('button', { class: 'btn sm accent', onclick: (e) => { e.stopPropagation(); connect(sid, s.title, s.cwd, false); } },
-          h('span', { class: 'gi', text: '→' }), '连接'),
-        h('button', { class: 'btn sm danger', title: 'claude --dangerously-skip-permissions（跳过工具权限确认）',
-          onclick: (e) => { e.stopPropagation(); connect(sid, s.title, s.cwd, true); } }, '⚠ Bypass连接'));
+  // 只有未开 pty 的会话才有展开按钮（连接 / Bypass）；pty 会话点行直接进入。
+  const acts = s.pty ? null : h('div', { class: 'ses-acts' },
+    h('button', { class: 'btn sm accent', onclick: (e) => { e.stopPropagation(); connect(sid, s.title, s.cwd, false); } },
+      h('span', { class: 'gi', text: '→' }), '连接'),
+    h('button', { class: 'btn sm danger', title: 'claude --dangerously-skip-permissions（跳过工具权限确认）',
+      onclick: (e) => { e.stopPropagation(); connect(sid, s.title, s.cwd, true); } }, '⚠ Bypass连接'));
   const row = h('div', {
     class: 'ses' + (s.pty ? ' conn' : '') + (sid === state.selectedSid ? ' sel' : ''),
     dataset: { sid },
   }, top, acts);
-  row.onclick = () => selectSes(sid);
+  row.onclick = () => {
+    selectSes(sid); // 高亮；已在池则瞬时显示
+    if (s.pty && !poolFind(state.macId, sid)) connect(sid, s.title, s.cwd, false); // pty 但不在池 → 直接 attach
+  };
   return row;
 }
 
