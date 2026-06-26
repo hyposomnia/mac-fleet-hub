@@ -382,12 +382,14 @@ async function loadSessions() {
 }
 
 // 会话行：
-// 已在池中的会话：点行即瞬时切换（selectSes 内 poolShow），无展开按钮。
-// 不在池中的会话：点行仅选中并展开「连接 / Bypass / Auto」（三种权限模式，须显式选）。
+// 已在池中 / 有运行中进程（行尾绿点）的会话：点行即直接进入——池内 poolShow 瞬时切换，
+//   仅有进程未在池时 api open 重新 attach（tmux 复用，权限模式启动时已固定，不再让选）。
+// 仅「冷会话」（无进程且未在池）点行才展开「连接 / Bypass / Auto」——那才是真正新起 Claude。
 // 开了 pty 的会话另显「终止 ⏹」（与是否在池无关）。
 function sessionRow(s) {
   const sid = s.sessionId;
   const inPool = !!poolFind(state.macId, sid);
+  const live = !!s.pty; // 有运行中进程（行尾绿点）：再连只是重新 attach，不需选权限模式
   const stop = s.pty && h('span', { class: 'stopbtn', title: '终止进程（会话保留）',
     onclick: (e) => { e.stopPropagation(); termSes(sid, s.title); } }, svgStop());
   const top = h('div', { class: 'ses-top' },
@@ -398,8 +400,8 @@ function sessionRow(s) {
     h('span', { class: 'ses-time', text: relTime(s.mtime) }),
     stop,
   );
-  // 已在池中的会话点行即瞬时切换，不需要按钮；不在池中的才展开三种权限模式。
-  const acts = inPool ? null : h('div', { class: 'ses-acts' },
+  // 池内 / 有进程的会话点行即直接进入，不需按钮；仅冷会话才展开三种权限模式。
+  const acts = (inPool || live) ? null : h('div', { class: 'ses-acts' },
     h('button', { class: 'btn sm accent', title: '普通连接（逐项确认工具权限）',
       onclick: (e) => { e.stopPropagation(); connect(sid, s.title, s.cwd, 'default'); } },
       h('span', { class: 'gi', text: '→' }), '连接'),
@@ -411,7 +413,11 @@ function sessionRow(s) {
     class: 'ses' + (s.pty ? ' conn' : '') + (sid === state.selectedSid ? ' sel' : ''),
     dataset: { sid },
   }, top, acts);
-  row.onclick = () => selectSes(sid); // 已在池 → poolShow 瞬时切换；否则仅高亮 + 展开按钮
+  // 池内 → poolShow 瞬时切换；有进程未在池 → 直接重新 attach；冷会话 → 仅高亮 + 展开三按钮。
+  row.onclick = () => {
+    if (!inPool && live) { connect(sid, s.title, s.cwd, 'default'); return; }
+    selectSes(sid);
+  };
   return row;
 }
 
