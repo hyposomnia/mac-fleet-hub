@@ -481,6 +481,16 @@ func handleSettings(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// /agent-config：公开只读，给各 Mac fleet-agent 拉取空闲回收时长（秒）。
+// 仅投影 AutoCloseMinutes*60，无敏感性；写设置仍走 /settings（Authelia 保护）。
+func handleAgentConfig(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeErr(w, 405, "只读")
+		return
+	}
+	writeJSON(w, 200, map[string]int64{"idleSec": int64(loadSettings().AutoCloseMinutes) * 60})
+}
+
 func main() {
 	// 子命令：-show-uri 打印 otpauth URI（供 setup 显示二维码）；secret 不存在则报错提示先生成。
 	if len(os.Args) > 1 && os.Args[1] == "-show-uri" {
@@ -496,6 +506,7 @@ func main() {
 	mux.HandleFunc("/join", handleJoin)
 	mux.HandleFunc("/names", handleNames)
 	mux.HandleFunc("/settings", handleSettings)
+	mux.HandleFunc("/agent-config", handleAgentConfig)
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) { w.Write([]byte("ok")) })
 	log.Printf("fleet-enroll 监听 %s（login=%s, hsUser=%s）", listen, loginServer, hsUser)
 	srv := &http.Server{Addr: listen, Handler: mux, ReadTimeout: 10 * time.Second, WriteTimeout: 15 * time.Second}
