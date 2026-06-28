@@ -392,6 +392,43 @@ async function loadSessions() {
   }
 }
 
+// 软刷新会话列表：定时静默拉取，只就地更新「易变字段」——棕点 waiting / 相对时间 / 计数，
+// 不 clear 重建整列表（避免每周期把 hover 的路径 tooltip、冷会话展开按钮闪断）。这是棕点的
+// 「退出机制」：用户答完 AskUserQuestion / 授权后 jsonl 末条已变、后端 waiting 转 false，
+// 这里把对应行的棕点摘掉，不必等手动刷新。会话集合发生增删（结构变了）才回退全量 loadSessions。
+async function refreshSessionsSoft() {
+  if (state.mode !== 'sessions' || !state.macId) return;
+  const rows = $$('#session-groups .ses');
+  if (!rows.length) return; // 尚无已渲染列表（首次 / 骨架中）→ 交给 loadSessions
+  let data;
+  try { data = await api(state.macId, `sessions?assistant=${state.assistant}&scope=${state.scope}`); }
+  catch (_) { return; } // 软刷新失败静默，不打断用户
+  const sessions = data.sessions || [];
+  const domSids = new Set(rows.map((el) => el.dataset.sid));
+  // 会话集合变化（新增 / 消失）→ 结构变了，交给全量重建（含重新分组与排序）
+  if (domSids.size !== sessions.length || sessions.some((s) => !domSids.has(s.sessionId))) {
+    loadSessions();
+    return;
+  }
+  const bySid = {};
+  for (const s of sessions) bySid[s.sessionId] = s;
+  for (const el of rows) {
+    const s = bySid[el.dataset.sid];
+    if (!s) continue;
+    const dot = el.querySelector('.dot');
+    if (dot) {
+      dot.classList.toggle('wait', !!s.waiting);
+      dot.title = s.waiting ? '等待你的回复 / 选择' : ''; // 置空 = 移除 tooltip（勿用 null，会渲染成 "null"）
+    }
+    const tEl = el.querySelector('.ses-time');
+    if (tEl) tEl.textContent = relTime(s.mtime);
+  }
+  const activeN = state.scope === 'active' ? sessions.length : sessions.filter((s) => s.live).length;
+  $('#cnt-active').textContent = activeN;
+  $('#cnt-all').textContent = data.total ?? sessions.length;
+  state.counts[state.macId] = activeN;
+}
+
 // 会话行：
 // 已在池中 / 有运行中进程（行尾绿点）的会话：点行即直接进入——池内 poolShow 瞬时切换，
 //   仅有进程未在池时 api open 重新 attach（tmux 复用，权限模式启动时已固定，不再让选）。
@@ -881,6 +918,7 @@ function init() {
   refreshNames();
   refreshSettings();
   refreshNodes(); setInterval(refreshNodes, 30000);
+  setInterval(refreshSessionsSoft, 5000); // 会话列表轻量轮询：棕点(waiting)在用户答复 / 授权后自动退出（函数自带 mode/macId guard）
   wireMobileInput();
 
   // 模式 / 范围 / 刷新 / 新建

@@ -2,6 +2,12 @@
 
 mac-fleet-hub 变更记录（日期为本地时间）。
 
+## 2026-06-28
+
+### 棕点（等待你回复 / 选择）退出机制：会话列表轻量轮询
+- **问题**：棕点（`s.waiting`）后端判定本是动态的——jsonl 末条 `assistant + stop_reason==tool_use` 即「等你答 AskUserQuestion / 授权」，你答完末条变 `user.tool_result`，`sessionWaiting` 立即重算为 `false`。但前端会话列表**从不定时刷新**：`loadSessions` 只在手动刷新 / 切台 / 切 mode / 关会话后才重拉，`watchTimer` 只管重载 banner。于是答复后棕点 DOM 停在旧 `wait`，一直亮、不退出。
+- **修复**：新增 `refreshSessionsSoft()` 每 5s 静默拉一次会话，**只就地** toggle 各行棕点、更新相对时间与计数，不 `clear` 重建整列表（避免把 hover 的路径 tooltip、冷会话展开的「连接/Bypass/Auto」按钮周期性闪断）；会话**增删**（结构变化）时才回退全量 `loadSessions`。`init` 挂 `setInterval(refreshSessionsSoft, 5000)`，函数自带 `mode/macId` guard。答复 / 授权后最多 5s 棕点自动消失。纯前端改动，不动 fleet-agent / dist。
+
 ## 2026-06-26
 
 ### 设置弹窗分组化 + 终端自动关闭时长端到端可配 + 刷新后终端恢复
