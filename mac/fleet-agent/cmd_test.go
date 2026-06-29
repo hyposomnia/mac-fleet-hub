@@ -49,7 +49,7 @@ func TestCodexResumeCmd(t *testing.T) {
 		"":        base,
 		"bogus":   base,
 		"bypass":  "codex resume --dangerously-bypass-approvals-and-sandbox '019f02d3-5ef8-7b01-a740-c3e6afe0bd16'",
-		"auto":    "codex resume --ask-for-approval never '019f02d3-5ef8-7b01-a740-c3e6afe0bd16'",
+		"auto":    "codex resume --ask-for-approval never --sandbox workspace-write '019f02d3-5ef8-7b01-a740-c3e6afe0bd16'",
 	}
 	for mode, want := range cases {
 		if got := codexResumeCmd("019f02d3-5ef8-7b01-a740-c3e6afe0bd16", mode); got != want {
@@ -63,7 +63,7 @@ func TestCodexNewCmd(t *testing.T) {
 	cases := map[string]string{
 		"default": "codex -C '/tmp/proj'",
 		"bypass":  "codex -C '/tmp/proj' --dangerously-bypass-approvals-and-sandbox",
-		"auto":    "codex -C '/tmp/proj' --ask-for-approval never",
+		"auto":    "codex -C '/tmp/proj' --ask-for-approval never --sandbox workspace-write",
 	}
 	for mode, want := range cases {
 		if got := codexNewCmd("/tmp/proj", mode); got != want {

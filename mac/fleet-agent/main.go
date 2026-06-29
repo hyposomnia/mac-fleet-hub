@@ -1170,12 +1170,20 @@ func permFlag(mode string) string {
 	}
 }
 
+// codexFlag：前端权限模式 → codex 启动 flag（白名单映射，对应 claude 侧 permFlag）。
+//
+//	bypass → --dangerously-bypass-approvals-and-sandbox（跳过全部审批 + 无沙箱，全访问，最高风险）
+//	auto   → --ask-for-approval never --sandbox workspace-write（不弹审批，但只在工作区可写、越界/网络受限）
+//	其它/空 → 普通（用 codex config 默认：on-request 审批 + read-only 沙箱，逐项确认）
+//
+// 注意 auto 必须同时给 --sandbox workspace-write：只给 --ask-for-approval never 而不设沙箱，
+// 默认 read-only 会让模型既无法写、又不弹审批 → 实际跑不动。
 func codexFlag(mode string) string {
 	switch mode {
 	case "bypass":
 		return " --dangerously-bypass-approvals-and-sandbox"
 	case "auto":
-		return " --ask-for-approval never"
+		return " --ask-for-approval never --sandbox workspace-write"
 	default:
 		return ""
 	}
