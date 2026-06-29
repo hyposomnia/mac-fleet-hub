@@ -359,8 +359,6 @@ async function loadSessions() {
 
   const sessions = data.sessions || [];
   const activeN = state.scope === 'active' ? sessions.length : sessions.filter((s) => s.live).length;
-  $('#cnt-active').textContent = activeN;
-  $('#cnt-all').textContent = data.total ?? sessions.length;
   state.counts[state.macId] = activeN;
 
   const groups = {};
@@ -424,8 +422,6 @@ async function refreshSessionsSoft() {
     if (tEl) tEl.textContent = relTime(s.mtime);
   }
   const activeN = state.scope === 'active' ? sessions.length : sessions.filter((s) => s.live).length;
-  $('#cnt-active').textContent = activeN;
-  $('#cnt-all').textContent = data.total ?? sessions.length;
   state.counts[state.macId] = activeN;
 }
 

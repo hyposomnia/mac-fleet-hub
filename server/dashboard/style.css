@@ -214,7 +214,6 @@ svg.ic.fill { fill: currentColor; stroke: none; }
 .seg { display: inline-flex; gap: 3px; background: var(--surface-2); border: 1px solid var(--border); border-radius: 10px; padding: 3px; }
 .seg button { padding: 6px 12px; border-radius: 7px; color: var(--text-1); font-weight: 550; font-size: var(--t-sm); transition: all var(--dur-1) var(--ease); }
 .seg button[aria-selected="true"] { background: var(--surface-1); color: var(--text); box-shadow: var(--e1); }
-.seg button b { opacity: .6; margin-left: 4px; font-weight: 700; }
 .seg.full { display: flex; width: 100%; }
 .seg.full button { flex: 1; padding: 9px 0; }
 
