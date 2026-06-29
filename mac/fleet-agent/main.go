@@ -720,7 +720,7 @@ func codexText(raw json.RawMessage) string {
 
 // codex 把环境上下文 / AGENTS.md / 权限说明等当作「user 消息」注入在对话开头，
 // 取回退标题时要跳过这些伪 user 文本，否则标题会变成「<environment_context>…」之类。
-var codexInjectedPrefixes = []string{"<environment_context", "<user_instructions", "# AGENTS.md", "<permissions", "# Codex", "<approval", "<plan_mode"}
+var codexInjectedPrefixes = []string{"<environment_context", "<user_instructions", "# AGENTS.md", "<permissions", "# Codex", "# Files mentioned by the user", "<approval", "<plan_mode"}
 
 func codexInjected(s string) bool {
 	for _, p := range codexInjectedPrefixes {
@@ -731,9 +731,11 @@ func codexInjected(s string) bool {
 	return false
 }
 
-// codexRolloutMeta：读一个 rollout 的元信息——id / cwd / mtime / thread_source（user|subagent…）
-// / 首条非注入 user 文本（作回退标题）。thread_source 用来滤掉 subagent 子代理线程。
-func codexRolloutMeta(path string) (id, cwd string, mtime int64, source, title string) {
+// codexRolloutMeta：读一个 rollout 的元信息——id / cwd / mtime / originator（"Codex Desktop"
+// 才是桌面 app 会话；"codex-tui"/"codex_exec" 是命令行运行，排除）/ srcStr（source 是否为字符串：
+// 交互式会话 source 是 "vscode" 等字符串，subagent 子代理 source 是对象，据此排除子代理）/
+// 首条非注入 user 文本（作回退标题）。
+func codexRolloutMeta(path string) (id, cwd string, mtime int64, originator string, srcStr bool, title string) {
 	if info, err := os.Stat(path); err == nil {
 		mtime = info.ModTime().UnixMilli()
 	}
@@ -748,12 +750,13 @@ func codexRolloutMeta(path string) (id, cwd string, mtime int64, source, title s
 		var row struct {
 			Type    string `json:"type"`
 			Payload struct {
-				ID           string          `json:"id"`
-				Cwd          string          `json:"cwd"`
-				Timestamp    string          `json:"timestamp"`
-				ThreadSource string          `json:"thread_source"`
-				Role         string          `json:"role"`
-				Content      json.RawMessage `json:"content"`
+				ID         string          `json:"id"`
+				Cwd        string          `json:"cwd"`
+				Timestamp  string          `json:"timestamp"`
+				Originator string          `json:"originator"`
+				Source     json.RawMessage `json:"source"`
+				Role       string          `json:"role"`
+				Content    json.RawMessage `json:"content"`
 			} `json:"payload"`
 		}
 		if json.Unmarshal(sc.Bytes(), &row) != nil {
@@ -767,8 +770,11 @@ func codexRolloutMeta(path string) (id, cwd string, mtime int64, source, title s
 			if row.Payload.Cwd != "" {
 				cwd = row.Payload.Cwd
 			}
-			if row.Payload.ThreadSource != "" {
-				source = row.Payload.ThreadSource
+			if row.Payload.Originator != "" {
+				originator = row.Payload.Originator
+			}
+			if s := bytes.TrimSpace(row.Payload.Source); len(s) > 0 {
+				srcStr = s[0] == '"' // 字符串 source=交互式；对象 source=subagent 子代理
 			}
 			if t := parseTimeMs(row.Payload.Timestamp); t > mtime {
 				mtime = t
@@ -844,7 +850,8 @@ func codexRolloutPaths() map[string]string {
 }
 
 // scanCodexSessions：列出 Codex desktop app 的活跃会话——即 ~/.codex/sessions 下
-// thread_source==user（排除 subagent 子代理线程，如「重做大对话图」那种 worker）且未被归档
+// originator=="Codex Desktop"（排除 codex-tui/codex_exec 命令行运行）、source 为字符串
+// （排除 subagent 子代理线程，如「重做大对话图」那种 worker——其 source 是对象）、且未被归档
 // （rollout 不在 archived_sessions）的会话。标题优先取 session_index 的 thread_name（润色过），
 // 否则取首条非注入 user 文本；cwd 取自 session_meta（故不会出现空 cwd 的「未知项目」）。
 // 同 id 多 rollout（resume/fork）取最新一份。
@@ -854,8 +861,8 @@ func scanCodexSessions() []Session {
 	files, _ := filepath.Glob(filepath.Join(cfg.CodexHome, "sessions", "*", "*", "*", "*.jsonl"))
 	best := map[string]Session{}
 	for _, f := range files {
-		id, cwd, mt, source, ftitle := codexRolloutMeta(f)
-		if id == "" || source != "user" || archived[id] {
+		id, cwd, mt, originator, srcStr, ftitle := codexRolloutMeta(f)
+		if id == "" || originator != "Codex Desktop" || !srcStr || archived[id] {
 			continue
 		}
 		title := ftitle
