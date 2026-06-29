@@ -696,10 +696,44 @@ func codexIndex() map[string]codexIdx {
 	return out
 }
 
-// codexFileMeta：从 rollout 读 cwd + mtime（标题由 desktop index 提供，不从此处取——
-// rollout 的首条 user 消息其实是注入的 # AGENTS.md/env 文本，不是真实标题）。
-// cwd 取到即可早停（session_meta/turn_context 都在文件头部）。
-func codexFileMeta(path string) (cwd string, mtime int64) {
+// codexText：把 response_item 的 content（可能是字符串或 [{text}] 数组）取成纯文本。
+func codexText(raw json.RawMessage) string {
+	if len(raw) == 0 {
+		return ""
+	}
+	var s string
+	if json.Unmarshal(raw, &s) == nil {
+		return s
+	}
+	var parts []struct {
+		Text string `json:"text"`
+	}
+	if json.Unmarshal(raw, &parts) == nil {
+		for _, p := range parts {
+			if p.Text != "" {
+				return p.Text
+			}
+		}
+	}
+	return ""
+}
+
+// codex 把环境上下文 / AGENTS.md / 权限说明等当作「user 消息」注入在对话开头，
+// 取回退标题时要跳过这些伪 user 文本，否则标题会变成「<environment_context>…」之类。
+var codexInjectedPrefixes = []string{"<environment_context", "<user_instructions", "# AGENTS.md", "<permissions", "# Codex", "<approval", "<plan_mode"}
+
+func codexInjected(s string) bool {
+	for _, p := range codexInjectedPrefixes {
+		if strings.HasPrefix(s, p) {
+			return true
+		}
+	}
+	return false
+}
+
+// codexRolloutMeta：读一个 rollout 的元信息——id / cwd / mtime / thread_source（user|subagent…）
+// / 首条非注入 user 文本（作回退标题）。thread_source 用来滤掉 subagent 子代理线程。
+func codexRolloutMeta(path string) (id, cwd string, mtime int64, source, title string) {
 	if info, err := os.Stat(path); err == nil {
 		mtime = info.ModTime().UnixMilli()
 	}
@@ -714,8 +748,12 @@ func codexFileMeta(path string) (cwd string, mtime int64) {
 		var row struct {
 			Type    string `json:"type"`
 			Payload struct {
-				Cwd       string `json:"cwd"`
-				Timestamp string `json:"timestamp"`
+				ID           string          `json:"id"`
+				Cwd          string          `json:"cwd"`
+				Timestamp    string          `json:"timestamp"`
+				ThreadSource string          `json:"thread_source"`
+				Role         string          `json:"role"`
+				Content      json.RawMessage `json:"content"`
 			} `json:"payload"`
 		}
 		if json.Unmarshal(sc.Bytes(), &row) != nil {
@@ -723,8 +761,14 @@ func codexFileMeta(path string) (cwd string, mtime int64) {
 		}
 		switch row.Type {
 		case "session_meta":
+			if row.Payload.ID != "" {
+				id = row.Payload.ID
+			}
 			if row.Payload.Cwd != "" {
 				cwd = row.Payload.Cwd
+			}
+			if row.Payload.ThreadSource != "" {
+				source = row.Payload.ThreadSource
 			}
 			if t := parseTimeMs(row.Payload.Timestamp); t > mtime {
 				mtime = t
@@ -733,12 +777,39 @@ func codexFileMeta(path string) (cwd string, mtime int64) {
 			if cwd == "" && row.Payload.Cwd != "" {
 				cwd = row.Payload.Cwd
 			}
-		}
-		if cwd != "" {
-			break // cwd 已得，文件头部即够，不必读完整个 rollout
+		case "response_item":
+			if title == "" && row.Payload.Role == "user" {
+				if t := strings.TrimSpace(codexText(row.Payload.Content)); t != "" && !codexInjected(t) {
+					if i := strings.IndexByte(t, '\n'); i >= 0 {
+						t = strings.TrimSpace(t[:i]) // 只取首行，多行 prompt 标题不溢出
+					}
+					title = t
+				}
+			}
 		}
 	}
+	if id == "" {
+		id = codexIDFromName(filepath.Base(path))
+	}
 	return
+}
+
+// codexArchivedIDs：archived_sessions 下所有 rollout 的会话 id 集合（= 已归档）。
+// 该目录平铺（rollout-*.jsonl），也兼容按日期分层的布局。
+func codexArchivedIDs() map[string]bool {
+	out := map[string]bool{}
+	for _, pat := range []string{
+		filepath.Join(cfg.CodexHome, "archived_sessions", "*.jsonl"),
+		filepath.Join(cfg.CodexHome, "archived_sessions", "*", "*", "*", "*.jsonl"),
+	} {
+		files, _ := filepath.Glob(pat)
+		for _, f := range files {
+			if id := codexIDFromName(filepath.Base(f)); id != "" {
+				out[id] = true
+			}
+		}
+	}
+	return out
 }
 
 // codexIDFromName：从 rollout 文件名末尾解析会话 uuid（= session_meta.id，免读文件）。
@@ -772,55 +843,40 @@ func codexRolloutPaths() map[string]string {
 	return out
 }
 
-// codexWorkspaceHints：从 desktop app 全局状态读「线程→工作目录」提示，作为 cwd 兜底来源
-// （多数 desktop 会话本地无 rollout，cwd 取不到时退到这里；该映射通常很稀疏）。
-func codexWorkspaceHints() map[string]string {
-	out := map[string]string{}
-	b, err := os.ReadFile(filepath.Join(cfg.CodexHome, ".codex-global-state.json"))
-	if err != nil {
-		return out
-	}
-	var st struct {
-		Hints map[string]string `json:"thread-workspace-root-hints"`
-	}
-	if json.Unmarshal(b, &st) == nil {
-		for id, p := range st.Hints {
-			out[id] = p
-		}
-	}
-	return out
-}
-
-// scanCodexSessions：以 desktop app 的 session_index.jsonl 为权威会话列表（真实 thread_name 标题），
-// 用本地 rollout 的 session_meta 补 cwd（无则退 workspace hint）。不再把每个原始 rollout 当会话
-// 列出——那会混入大量一次性 CLI 运行（标题还会错取注入的 # AGENTS.md/env 文本）。
+// scanCodexSessions：列出 Codex desktop app 的活跃会话——即 ~/.codex/sessions 下
+// thread_source==user（排除 subagent 子代理线程，如「重做大对话图」那种 worker）且未被归档
+// （rollout 不在 archived_sessions）的会话。标题优先取 session_index 的 thread_name（润色过），
+// 否则取首条非注入 user 文本；cwd 取自 session_meta（故不会出现空 cwd 的「未知项目」）。
+// 同 id 多 rollout（resume/fork）取最新一份。
 func scanCodexSessions() []Session {
 	idx := codexIndex()
-	if len(idx) == 0 {
-		return nil
-	}
-	paths := codexRolloutPaths()
-	hints := codexWorkspaceHints()
-	out := make([]Session, 0, len(idx))
-	for id, ix := range idx {
-		title := ix.title
+	archived := codexArchivedIDs()
+	files, _ := filepath.Glob(filepath.Join(cfg.CodexHome, "sessions", "*", "*", "*", "*.jsonl"))
+	best := map[string]Session{}
+	for _, f := range files {
+		id, cwd, mt, source, ftitle := codexRolloutMeta(f)
+		if id == "" || source != "user" || archived[id] {
+			continue
+		}
+		title := ftitle
+		if x, ok := idx[id]; ok {
+			if x.title != "" {
+				title = x.title
+			}
+			if x.mtime > mt {
+				mt = x.mtime
+			}
+		}
 		if title == "" {
 			title = "(无标题)"
 		}
-		cwd, mt := hints[id], ix.mtime
-		if p, ok := paths[id]; ok {
-			c, fileMt := codexFileMeta(p)
-			if c != "" {
-				cwd = c
-			}
-			if fileMt > mt {
-				mt = fileMt
-			}
+		if cur, ok := best[id]; !ok || mt > cur.Mtime {
+			best[id] = Session{SessionID: id, Assistant: "codex", Cwd: cwd, Title: title, Mtime: mt, Live: true}
 		}
-		out = append(out, Session{
-			SessionID: id, Assistant: "codex", Cwd: cwd, Title: title,
-			Mtime: mt, Live: true,
-		})
+	}
+	out := make([]Session, 0, len(best))
+	for _, s := range best {
+		out = append(out, s)
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Mtime > out[j].Mtime })
 	return out

@@ -1,49 +1,71 @@
 package main
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
-// 用临时 CodexHome 搭一个最小数据集：session_index.jsonl（desktop app 权威会话列表）
-// + 两个 rollout（一个在 index 内、一个不在）。验证 scanCodexSessions：
-//   ① 只返回 index 内的会话（不在册的 rollout 不混入）；
-//   ② 标题取 index 的 thread_name（不取 rollout 里注入的 # AGENTS.md/env 文本）；
-//   ③ cwd 从匹配 rollout 的 session_meta 补全。
-func TestScanCodexDrivesFromDesktopIndex(t *testing.T) {
+// 用临时 CodexHome 搭最小数据集，验证 scanCodexSessions 只列「desktop app 活跃会话」：
+//   thread_source==user（排除 subagent 子代理线程）且未归档（rollout 不在 archived_sessions）。
+//   标题优先 session_index 的 thread_name，否则取首条「非注入」user 文本；cwd 取自 session_meta。
+func TestScanCodexActiveUserNonArchived(t *testing.T) {
 	home := t.TempDir()
 	cfg.CodexHome = home
 
-	idA := "019e0000-0000-7000-8000-00000000000a"
-	idB := "019e0000-0000-7000-8000-00000000000b" // 不在 index → 应被排除
-	os.WriteFile(filepath.Join(home, "session_index.jsonl"),
-		[]byte(`{"id":"`+idA+`","thread_name":"真实标题","updated_at":"2026-05-18T08:18:37.970572Z"}`+"\n"), 0644)
+	idA := "019e0000-0000-7000-8000-00000000000a"   // user + 在 index → index 标题
+	idB := "019e0000-0000-7000-8000-00000000000b"   // user + 不在 index → 首条非注入 user 标题
+	idSub := "019e0000-0000-7000-8000-00000000005b" // subagent → 排除
+	idArc := "019e0000-0000-7000-8000-0000000000ac" // user 但已归档 → 排除
 
-	dir := filepath.Join(home, "sessions", "2026", "05", "18")
+	os.WriteFile(filepath.Join(home, "session_index.jsonl"),
+		[]byte(`{"id":"`+idA+`","thread_name":"索引标题","updated_at":"2026-06-18T08:18:37Z"}`+"\n"), 0644)
+
+	dir := filepath.Join(home, "sessions", "2026", "06", "18")
 	os.MkdirAll(dir, 0755)
-	os.WriteFile(filepath.Join(dir, "rollout-2026-05-18T08-18-37-"+idA+".jsonl"), []byte(
-		`{"type":"session_meta","payload":{"id":"`+idA+`","cwd":"/Users/x/proj","timestamp":"2026-05-18T08:18:37.970572Z"}}`+"\n"+
-			`{"type":"response_item","payload":{"role":"user","content":"# AGENTS.md instructions for /Users/x/proj"}}`+"\n"), 0644)
-	os.WriteFile(filepath.Join(dir, "rollout-2026-05-18T09-00-00-"+idB+".jsonl"), []byte(
-		`{"type":"session_meta","payload":{"id":"`+idB+`","cwd":"/Users/x/junk"}}`+"\n"), 0644)
+	write := func(id, src string, msgs ...string) {
+		var b strings.Builder
+		b.WriteString(`{"type":"session_meta","payload":{"id":"` + id + `","cwd":"/proj/` + id[len(id)-1:] + `","thread_source":"` + src + `","timestamp":"2026-06-18T08:18:37Z"}}` + "\n")
+		for _, m := range msgs {
+			mb, _ := json.Marshal(m)
+			b.WriteString(`{"type":"response_item","payload":{"role":"user","content":` + string(mb) + `}}` + "\n")
+		}
+		os.WriteFile(filepath.Join(dir, "rollout-2026-06-18T08-18-37-"+id+".jsonl"), []byte(b.String()), 0644)
+	}
+	write(idA, "user", "<environment_context>\n  <cwd>x", "真实首条A")
+	write(idB, "user", "<environment_context>\n  <cwd>x", "把本地ssh服务器设置上")
+	write(idSub, "subagent", "真实首条sub")
+	write(idArc, "user", "真实首条arc")
+	// idArc 已归档：archived_sessions 放一个同 id 的 rollout（平铺）
+	os.MkdirAll(filepath.Join(home, "archived_sessions"), 0755)
+	os.WriteFile(filepath.Join(home, "archived_sessions", "rollout-2026-06-01T00-00-00-"+idArc+".jsonl"), []byte("{}\n"), 0644)
 
 	got := scanCodexSessions()
-	if len(got) != 1 {
-		t.Fatalf("应只返回 index 内的 1 个会话（排除未在册 rollout），得到 %d", len(got))
+	byID := map[string]Session{}
+	for _, s := range got {
+		byID[s.SessionID] = s
 	}
-	s := got[0]
-	if s.SessionID != idA {
-		t.Fatalf("sessionId=%s want %s", s.SessionID, idA)
+	if len(got) != 2 {
+		t.Fatalf("应只返回 2 个活跃会话(A,B)，得到 %d: %+v", len(got), got)
 	}
-	if s.Title != "真实标题" {
-		t.Fatalf("title 应取 index thread_name，得到 %q", s.Title)
+	if byID[idA].Title != "索引标题" {
+		t.Errorf("A 标题应取 index thread_name，得到 %q", byID[idA].Title)
 	}
-	if s.Cwd != "/Users/x/proj" {
-		t.Fatalf("cwd 应取 rollout session_meta，得到 %q", s.Cwd)
+	if byID[idB].Title != "把本地ssh服务器设置上" {
+		t.Errorf("B 标题应取首条非注入 user，得到 %q", byID[idB].Title)
 	}
-	if s.Assistant != "codex" {
-		t.Fatalf("assistant=%q", s.Assistant)
+	if _, ok := byID[idSub]; ok {
+		t.Errorf("subagent 子代理线程不应出现")
+	}
+	if _, ok := byID[idArc]; ok {
+		t.Errorf("已归档会话不应出现")
+	}
+	for _, s := range got {
+		if s.Cwd == "" {
+			t.Errorf("不应有空 cwd（会渲染成「未知项目」）: %+v", s)
+		}
 	}
 }
 
