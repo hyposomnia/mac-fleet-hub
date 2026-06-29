@@ -4,6 +4,9 @@ mac-fleet-hub 变更记录（日期为本地时间）。
 
 ## 2026-06-29
 
+### 修复 Codex auto 权限模式参数
+- **auto 补 `--sandbox workspace-write`**：之前 codex auto 只给 `--ask-for-approval never`，但不设沙箱时默认 `read-only` → 模型既不能写文件、又不弹审批，实际跑不动。改为 `--ask-for-approval never --sandbox workspace-write`（自动批准 + 工作区可写、越界/网络受限）。`bypass` 不变（`--dangerously-bypass-approvals-and-sandbox`）。dashboard auto 按钮 title 同步。改 main.go → 已重建 dist 双架构（待部署三台 Mac）。
+
 ### 修复 Codex 会话列表（以 desktop app 为权威源）
 - **不再把每个原始 rollout 当会话列出**：`scanCodexSessions` 之前 glob `~/.codex/sessions/**/*.jsonl` 把数百个一次性 CLI 运行全列成会话，标题还错取注入的 `# AGENTS.md`/env 文本（如「zsh 2026-05-14 Asia/Shanghai」）。改为以 Codex desktop app 的 `~/.codex/session_index.jsonl` 为权威列表（真实 `thread_name` 标题），用本地 rollout 的 `session_meta` 补 `cwd`（无则退 `.codex-global-state.json` 的 workspace hint）。实测会话数从 349→48、标题恢复为真实线程名。
 - **顺手清理**：rollout 文件名即含完整 uuid，`jsonlPathFor/jsonlPathsFor` 从「逐个读文件取 id」改为文件名解析；`codexFileMeta` 精简为只取 `cwd+mtime` 且 cwd 到手即早停。改 main.go → 已重建 dist 双架构（待部署三台 Mac）。
