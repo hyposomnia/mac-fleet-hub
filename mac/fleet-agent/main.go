@@ -696,29 +696,10 @@ func codexIndex() map[string]codexIdx {
 	return out
 }
 
-func codexExtractText(raw json.RawMessage) string {
-	if len(raw) == 0 {
-		return ""
-	}
-	var s string
-	if json.Unmarshal(raw, &s) == nil {
-		return trim(s)
-	}
-	var parts []struct {
-		Type string `json:"type"`
-		Text string `json:"text"`
-	}
-	if json.Unmarshal(raw, &parts) == nil {
-		for _, p := range parts {
-			if (p.Type == "input_text" || p.Type == "text" || p.Type == "") && p.Text != "" {
-				return trim(p.Text)
-			}
-		}
-	}
-	return ""
-}
-
-func codexFileMeta(path string) (id, cwd, title string, mtime int64) {
+// codexFileMeta：从 rollout 读 cwd + mtime（标题由 desktop index 提供，不从此处取——
+// rollout 的首条 user 消息其实是注入的 # AGENTS.md/env 文本，不是真实标题）。
+// cwd 取到即可早停（session_meta/turn_context 都在文件头部）。
+func codexFileMeta(path string) (cwd string, mtime int64) {
 	if info, err := os.Stat(path); err == nil {
 		mtime = info.ModTime().UnixMilli()
 	}
@@ -733,11 +714,8 @@ func codexFileMeta(path string) (id, cwd, title string, mtime int64) {
 		var row struct {
 			Type    string `json:"type"`
 			Payload struct {
-				ID        string          `json:"id"`
-				Cwd       string          `json:"cwd"`
-				Timestamp string          `json:"timestamp"`
-				Role      string          `json:"role"`
-				Content   json.RawMessage `json:"content"`
+				Cwd       string `json:"cwd"`
+				Timestamp string `json:"timestamp"`
 			} `json:"payload"`
 		}
 		if json.Unmarshal(sc.Bytes(), &row) != nil {
@@ -745,9 +723,6 @@ func codexFileMeta(path string) (id, cwd, title string, mtime int64) {
 		}
 		switch row.Type {
 		case "session_meta":
-			if row.Payload.ID != "" {
-				id = row.Payload.ID
-			}
 			if row.Payload.Cwd != "" {
 				cwd = row.Payload.Cwd
 			}
@@ -758,42 +733,89 @@ func codexFileMeta(path string) (id, cwd, title string, mtime int64) {
 			if cwd == "" && row.Payload.Cwd != "" {
 				cwd = row.Payload.Cwd
 			}
-		case "response_item":
-			if title == "" && row.Payload.Role == "user" {
-				title = codexExtractText(row.Payload.Content)
-			}
 		}
-	}
-	if id == "" {
-		base := filepath.Base(path)
-		if i := strings.LastIndex(base, "-"); i >= 0 {
-			id = strings.TrimSuffix(base[i+1:], ".jsonl")
+		if cwd != "" {
+			break // cwd 已得，文件头部即够，不必读完整个 rollout
 		}
 	}
 	return
 }
 
-func scanCodexSessions() []Session {
-	idx := codexIndex()
+// codexIDFromName：从 rollout 文件名末尾解析会话 uuid（= session_meta.id，免读文件）。
+// 文件名形如 rollout-<时间戳>-<8-4-4-4-12>.jsonl。非法则返回空。
+func codexIDFromName(name string) string {
+	b := strings.TrimSuffix(name, ".jsonl")
+	if len(b) < 36 {
+		return ""
+	}
+	id := b[len(b)-36:]
+	if id[8] == '-' && id[13] == '-' && id[18] == '-' && id[23] == '-' {
+		return id
+	}
+	return ""
+}
+
+// codexRolloutPaths：id → 最新 rollout 路径（按文件名解析 uuid，不读文件内容）。
+// 路径含 年/月/日 + 时间戳，字典序≈时间序，同 id 多文件取最大（最新）。
+func codexRolloutPaths() map[string]string {
+	out := map[string]string{}
 	files, _ := filepath.Glob(filepath.Join(cfg.CodexHome, "sessions", "*", "*", "*", "*.jsonl"))
-	out := make([]Session, 0, len(files))
-	seen := map[string]bool{}
 	for _, f := range files {
-		id, cwd, title, mt := codexFileMeta(f)
-		if id == "" || seen[id] {
+		id := codexIDFromName(filepath.Base(f))
+		if id == "" {
 			continue
 		}
-		seen[id] = true
-		if x, ok := idx[id]; ok {
-			if x.title != "" {
-				title = x.title
-			}
-			if x.mtime > mt {
-				mt = x.mtime
-			}
+		if cur, ok := out[id]; !ok || f > cur {
+			out[id] = f
 		}
+	}
+	return out
+}
+
+// codexWorkspaceHints：从 desktop app 全局状态读「线程→工作目录」提示，作为 cwd 兜底来源
+// （多数 desktop 会话本地无 rollout，cwd 取不到时退到这里；该映射通常很稀疏）。
+func codexWorkspaceHints() map[string]string {
+	out := map[string]string{}
+	b, err := os.ReadFile(filepath.Join(cfg.CodexHome, ".codex-global-state.json"))
+	if err != nil {
+		return out
+	}
+	var st struct {
+		Hints map[string]string `json:"thread-workspace-root-hints"`
+	}
+	if json.Unmarshal(b, &st) == nil {
+		for id, p := range st.Hints {
+			out[id] = p
+		}
+	}
+	return out
+}
+
+// scanCodexSessions：以 desktop app 的 session_index.jsonl 为权威会话列表（真实 thread_name 标题），
+// 用本地 rollout 的 session_meta 补 cwd（无则退 workspace hint）。不再把每个原始 rollout 当会话
+// 列出——那会混入大量一次性 CLI 运行（标题还会错取注入的 # AGENTS.md/env 文本）。
+func scanCodexSessions() []Session {
+	idx := codexIndex()
+	if len(idx) == 0 {
+		return nil
+	}
+	paths := codexRolloutPaths()
+	hints := codexWorkspaceHints()
+	out := make([]Session, 0, len(idx))
+	for id, ix := range idx {
+		title := ix.title
 		if title == "" {
 			title = "(无标题)"
+		}
+		cwd, mt := hints[id], ix.mtime
+		if p, ok := paths[id]; ok {
+			c, fileMt := codexFileMeta(p)
+			if c != "" {
+				cwd = c
+			}
+			if fileMt > mt {
+				mt = fileMt
+			}
 		}
 		out = append(out, Session{
 			SessionID: id, Assistant: "codex", Cwd: cwd, Title: title,
@@ -825,29 +847,14 @@ func cwdOfFor(assistant, sid string) string {
 
 func jsonlPathFor(assistant, sid string) string {
 	if normAssistant(assistant) == "codex" {
-		files, _ := filepath.Glob(filepath.Join(cfg.CodexHome, "sessions", "*", "*", "*", "*.jsonl"))
-		for _, f := range files {
-			id, _, _, _ := codexFileMeta(f)
-			if id == sid {
-				return f
-			}
-		}
-		return ""
+		return codexRolloutPaths()[sid] // 文件名即含 uuid，免逐个读
 	}
 	return jsonlPath(sid)
 }
 
 func jsonlPathsFor(assistant string) map[string]string {
 	if normAssistant(assistant) == "codex" {
-		m := map[string]string{}
-		files, _ := filepath.Glob(filepath.Join(cfg.CodexHome, "sessions", "*", "*", "*", "*.jsonl"))
-		for _, f := range files {
-			id, _, _, _ := codexFileMeta(f)
-			if id != "" {
-				m[id] = f
-			}
-		}
-		return m
+		return codexRolloutPaths()
 	}
 	return jsonlPaths()
 }
