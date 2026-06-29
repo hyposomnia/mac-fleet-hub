@@ -4,9 +4,12 @@ mac-fleet-hub 变更记录（日期为本地时间）。
 
 ## 2026-06-29
 
-### 修复 Codex 会话列表：只列活跃会话、消除「未知项目」
-- **不再列归档与子代理线程**：之前以 `session_index.jsonl` 全量（50 条，含已归档）为源，且无 cwd 的会话堆成「未知项目」。改为扫 `~/.codex/sessions/` 下 `thread_source=="user"`（排除 subagent 子代理线程——如并行子任务「重做大对话图」的 worker）且 rollout 不在 `~/.codex/archived_sessions/`（= 未归档）的会话——精确对应 Codex desktop app 的活跃集。
-- **标题/项目**：标题优先 `session_index` 的 `thread_name`，否则取首条「非注入」user 文本的首行（跳过 `<environment_context>`/`# AGENTS.md`/权限说明等注入消息）；cwd 取自 `session_meta`，故不再出现空 cwd 的「未知项目」分组。本机实测会话数 48→6（5 个与 desktop 活跃集一一对应 + 1 个真实但未归入项目的会话）。改 main.go → 已重建 dist 双架构（待部署三台 Mac）。
+### 修复 Codex 会话列表：只列 desktop app 活跃会话、消除「未知项目」
+- **不再列归档 / 命令行 / 子代理会话**：之前以 `session_index.jsonl` 全量（含已归档）为源，且无 cwd 的会话堆成「未知项目」。改为扫 `~/.codex/sessions/`，只保留同时满足以下条件的会话——精确对应 Codex desktop app 的活跃集：
+  - `originator == "Codex Desktop"`（排除命令行 `codex-tui` / `codex_exec` 运行——mac1 实测有 340 条 CLI 运行）；
+  - `source` 为字符串（如 `"vscode"`；subagent 子代理线程的 `source` 是对象，如并行子任务「重做大对话图」的 worker，排除）；
+  - rollout 不在 `~/.codex/archived_sessions/`（即未归档）。
+- **标题/项目**：标题优先 `session_index` 的 `thread_name`，否则取首条「非注入」user 文本首行（跳过 `<environment_context>`/`# AGENTS.md`/`# Files mentioned by the user`/权限说明等注入消息）；cwd 取自 `session_meta`，故不再出现空 cwd 的「未知项目」分组。实测会话数：mac2 48→5（与 desktop 活跃集一一对应）、mac1 342→7。已重建 dist 双架构并部署三台 Mac。
 
 ### 修复 Codex auto 权限模式参数
 - **auto 补 `--sandbox workspace-write`**：之前 codex auto 只给 `--ask-for-approval never`，但不设沙箱时默认 `read-only` → 模型既不能写文件、又不弹审批，实际跑不动。改为 `--ask-for-approval never --sandbox workspace-write`（自动批准 + 工作区可写、越界/网络受限）。`bypass` 不变（`--dangerously-bypass-approvals-and-sandbox`）。dashboard auto 按钮 title 同步。改 main.go → 已重建 dist 双架构（待部署三台 Mac）。
