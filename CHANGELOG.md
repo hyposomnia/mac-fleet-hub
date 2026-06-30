@@ -2,6 +2,12 @@
 
 mac-fleet-hub 变更记录（日期为本地时间）。
 
+## 2026-06-30
+
+### 修复「重载会话」横幅在纯 CLI 会话上误报
+- **问题**：网页终端打开的会话（只有自己这个 CLI 在写）也时不时弹「桌面端有新内容 / 重载会话」。根因——`evalWatch` 用 DAG 父子拓扑判「Desktop 外部写入」：新追加行的 `parentUuid` 不等于当前跟踪的叶子 `tip` 就判外部。但 claude CLI 自身就会因 **api_error 重试 / 消息编辑 / 上下文压缩** 产生合法分叉（同一父节点多个子节点、文件里多叶子），拓扑法把这些当成 Desktop 写入。实测本地 40 个纯 CLI 会话有 **24 个被误判**；截图里出问题的 `0b50106f` 会话近 40 行全是 `cli` 写入、零 `claude-desktop`，仍弹横幅。
+- **修复**：改用 jsonl 行的 `entrypoint` 字段直接区分写入端——`cli`＝本网页终端，`claude-desktop`＝Claude Desktop 等外部客户端。`evalWatch` 仅当新追加行 `entrypoint` 非 `cli` 时才判外部写入。缺省 / 空 / 其它格式（Codex rollout 无此字段）一律不误判，保持 Codex「从不弹」的原行为。顺手移除只服务于旧拓扑法的 `watcher.tip`。新增 `watch_test.go` 覆盖：纯 cli 分叉不报、出现 claude-desktop 行才报、external 粘滞。改 main.go → 已重建 dist 双架构并部署三台 Mac。
+
 ## 2026-06-29
 
 ### 修复 Codex 会话列表：只列 desktop app 活跃会话、消除「未知项目」
