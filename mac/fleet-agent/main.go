@@ -212,6 +212,7 @@ type line struct {
 	UUID        string          `json:"uuid"`
 	ParentUUID  *string         `json:"parentUuid"`
 	IsSidechain bool            `json:"isSidechain"`
+	Entrypoint  string          `json:"entrypoint"` // 写入端：cli=本网页终端；claude-desktop=Claude Desktop 等外部客户端
 	Message     json.RawMessage `json:"message"`
 }
 
@@ -1026,7 +1027,6 @@ type watcher struct {
 	sessionID string
 	path      string
 	offset    int64
-	tip       string // mobileTip：当前手机分支叶子 uuid
 	external  bool
 	mode      string // 启动权限模式（""/default、bypass、auto），reload 时须沿用
 }
@@ -1044,7 +1044,6 @@ func registerWatch(sid, assistant, sessionID, mode string) {
 		if info, err := os.Stat(path); err == nil {
 			w.offset = info.Size()
 		}
-		w.tip = fileMeta(path, statMtime(path)).lastUUID
 	}
 	watchMu.Lock()
 	watchers[sid] = w
@@ -1057,7 +1056,13 @@ func statMtime(path string) int64 {
 	return 0
 }
 
-// 读取新追加行，按 DAG 分叉判定是否有 Desktop 外部写入
+// evalWatch：自注册以来文件是否被「非本网页终端」（Claude Desktop 等）写入。
+// 判据：新追加行里出现 entrypoint 非 "cli"（如 claude-desktop）即判外部写入。
+//
+// 不再用 DAG 父子拓扑（旧法）——claude CLI 自身就会因 api_error 重试 / 消息编辑 /
+// 压缩等产生合法分叉（同一父节点多个子节点、多叶子），拓扑法把这些当成「Desktop
+// 外部写」，在纯 CLI 单写入者会话上实测误报率约 60%，导致无谓的「重载会话」横幅。
+// entrypoint 直接标明写入端，是真正可靠的判据。
 func evalWatch(sid string) bool {
 	watchMu.Lock()
 	w := watchers[sid]
@@ -1083,21 +1088,15 @@ func evalWatch(sid string) bool {
 		b := sc.Bytes()
 		consumed += int64(len(b)) + 1
 		var l line
-		if json.Unmarshal(b, &l) != nil || l.UUID == "" {
+		if json.Unmarshal(b, &l) != nil {
 			continue
 		}
-		if l.IsSidechain { // 子 agent 行归入手机自身活动
-			w.tip = l.UUID
+		if l.IsSidechain { // 子 agent 自身活动，忽略
 			continue
 		}
-		parent := ""
-		if l.ParentUUID != nil {
-			parent = *l.ParentUUID
-		}
-		if w.tip == "" || parent == w.tip {
-			w.tip = l.UUID // 手机自写，推进分支
-		} else {
-			w.external = true // 接到别的父/冒出第二叶子 → Desktop 外部写
+		// 仅在 entrypoint 明确为非 cli 时判外部；缺省 / 空 / 其它格式（如 Codex rollout）不误判。
+		if l.Entrypoint != "" && l.Entrypoint != "cli" {
+			w.external = true // 非 CLI 客户端（Claude Desktop）写入 → 需重载
 		}
 	}
 	w.offset += consumed
