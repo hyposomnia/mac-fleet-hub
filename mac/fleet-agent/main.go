@@ -373,16 +373,25 @@ func trim(s string) string {
 	return s
 }
 
+func tagText(s, tag string) string {
+	open := "<" + tag + ">"
+	close := "</" + tag + ">"
+	if i := strings.Index(s, open); i >= 0 {
+		rest := s[i+len(open):]
+		if j := strings.Index(rest, close); j >= 0 {
+			return strings.TrimSpace(rest[:j])
+		}
+	}
+	return ""
+}
+
 // cleanTitle：slash 命令首条消息形如
 // "<command-message>x</command-message> <command-name>/y</command-name> ..."，
-// 优先取 /y 作标题；否则剥掉所有 <...> 标签。
+// 优先取 command-args（真实任务），再取 /y；否则剥掉所有 <...> 标签。
 func cleanTitle(s string) string {
-	if i := strings.Index(s, "<command-name>"); i >= 0 {
-		rest := s[i+len("<command-name>"):]
-		if j := strings.Index(rest, "</command-name>"); j >= 0 {
-			if name := strings.TrimSpace(rest[:j]); name != "" {
-				return name
-			}
+	for _, tag := range []string{"command-args", "command-name", "command-message"} {
+		if text := tagText(s, tag); text != "" {
+			return text
 		}
 	}
 	if strings.Contains(s, "<") && strings.Contains(s, ">") {
@@ -405,6 +414,7 @@ func cleanTitle(s string) string {
 		if t := strings.TrimSpace(b.String()); t != "" {
 			return t
 		}
+		return ""
 	}
 	return s
 }
@@ -787,10 +797,7 @@ func codexRolloutMeta(path string) (id, cwd string, mtime int64, originator stri
 		case "response_item":
 			if title == "" && row.Payload.Role == "user" {
 				if t := strings.TrimSpace(codexText(row.Payload.Content)); t != "" && !codexInjected(t) {
-					if i := strings.IndexByte(t, '\n'); i >= 0 {
-						t = strings.TrimSpace(t[:i]) // 只取首行，多行 prompt 标题不溢出
-					}
-					title = t
+					title = trim(t)
 				}
 			}
 		}
@@ -868,8 +875,8 @@ func scanCodexSessions() []Session {
 		}
 		title := ftitle
 		if x, ok := idx[id]; ok {
-			if x.title != "" {
-				title = x.title
+			if t := strings.TrimSpace(x.title); t != "" && !codexInjected(t) {
+				title = trim(t)
 			}
 			if x.mtime > mt {
 				mt = x.mtime
