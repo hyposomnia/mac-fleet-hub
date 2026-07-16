@@ -71,7 +71,7 @@ func TestCodexChatBackendInputUsesTurnStartTextInput(t *testing.T) {
 		return rpc, func() {}, nil
 	})
 
-	res, err := b.Input(context.Background(), "codex", "thread-1", "hello")
+	res, err := b.Input(context.Background(), "codex", "thread-1", "hello", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -90,6 +90,30 @@ func TestCodexChatBackendInputUsesTurnStartTextInput(t *testing.T) {
 		t.Fatalf("input got %#v", got["input"])
 	}
 	if !reflect.DeepEqual(input[0], map[string]interface{}{"type": "text", "text": "hello"}) {
+		t.Fatalf("input[0] got %#v", input[0])
+	}
+}
+
+func TestCodexChatBackendInputUsesLocalImages(t *testing.T) {
+	rpc := newFakeRPCConn()
+	rpc.reply["turn/start"] = json.RawMessage(`{"turn":{"id":"turn-img","items":[],"status":"running"}}`)
+	b := newCodexChatBackend(func(ctx context.Context) (codexRPCConn, func(), error) {
+		return rpc, func() {}, nil
+	})
+
+	res, err := b.Input(context.Background(), "codex", "thread-1", "", []ChatAttachment{{Path: "/tmp/shot.png"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.TurnID != "turn-img" {
+		t.Fatalf("turn id got %q", res.TurnID)
+	}
+	got := mapFromParams(t, rpc.calls[0].params)
+	input, ok := got["input"].([]interface{})
+	if !ok || len(input) != 1 {
+		t.Fatalf("input got %#v", got["input"])
+	}
+	if !reflect.DeepEqual(input[0], map[string]interface{}{"type": "localImage", "path": "/tmp/shot.png"}) {
 		t.Fatalf("input[0] got %#v", input[0])
 	}
 }

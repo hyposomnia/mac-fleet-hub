@@ -30,10 +30,10 @@
     return item;
   }
 
-  function appendUserMessage(state, text, id) {
+  function appendUserMessage(state, text, id, images) {
     const next = cloneState(state);
     const itemId = id || ('user-' + Date.now());
-    next.items[itemId] = { id: itemId, type: 'user', text: text || '' };
+    next.items[itemId] = { id: itemId, type: 'user', text: text || '', images: (images || []).slice() };
     next.messages.push(itemId);
     return next;
   }

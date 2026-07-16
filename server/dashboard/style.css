@@ -468,8 +468,20 @@ svg.ic.fill { fill: currentColor; stroke: none; }
 .chat-error { border-color: color-mix(in srgb, var(--danger) 34%, var(--border)); background: var(--danger-soft); color: var(--danger); }
 #chat-composer { flex: none; display: flex; gap: 10px; align-items: flex-end; padding: 12px clamp(18px, 4vw, 52px) calc(14px + env(safe-area-inset-bottom, 0px)); border-top: 1px solid var(--border); background: color-mix(in srgb, var(--surface) 88%, transparent); backdrop-filter: blur(18px); }
 #chat-composer::before { content: ''; flex: 1; max-width: calc((100% - 860px) / 2); }
-#chat-input { flex: 1; max-width: 790px; min-height: 46px; max-height: 180px; resize: none; padding: 12px 14px; border-radius: 15px; outline: none; background: var(--surface-1); border: 1px solid var(--border); line-height: 1.45; }
-#chat-input:focus { border-color: var(--accent); box-shadow: var(--ring); }
+.chat-attach { flex: none; width: 46px; height: 46px; border-radius: 15px; background: var(--surface-1); border-color: var(--border); }
+.chat-input-shell { flex: 1; max-width: 790px; min-width: 0; border-radius: 15px; background: var(--surface-1); border: 1px solid var(--border); overflow: hidden; }
+.chat-input-shell:focus-within { border-color: var(--accent); box-shadow: var(--ring); }
+#chat-input { width: 100%; min-height: 44px; max-height: 180px; resize: none; padding: 12px 14px; outline: none; background: transparent; border: 0; line-height: 1.45; }
+#chat-input:focus { outline: none; }
+#chat-attachments { display: flex; gap: 8px; padding: 9px 10px 0; flex-wrap: wrap; }
+#chat-attachments[hidden] { display: none; }
+.chat-att { position: relative; width: 68px; height: 68px; border-radius: 12px; overflow: hidden; background: var(--surface-2); border: 1px solid var(--border); box-shadow: inset 0 0 0 1px color-mix(in srgb, #fff 7%, transparent); }
+.chat-att img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.chat-att .st { position: absolute; inset: auto 4px 4px 4px; padding: 2px 5px; border-radius: 999px; font-size: 10px; text-align: center; background: color-mix(in srgb, var(--bg) 72%, transparent); color: var(--text-1); backdrop-filter: blur(8px); }
+.chat-att.err { border-color: color-mix(in srgb, var(--danger) 55%, var(--border)); }
+.chat-att button { position: absolute; top: 3px; right: 3px; width: 20px; height: 20px; border: 0; border-radius: 999px; background: color-mix(in srgb, var(--bg) 72%, transparent); color: var(--text); cursor: pointer; }
+.chat-images { display: grid; grid-template-columns: repeat(auto-fit, minmax(118px, 180px)); gap: 8px; margin-top: 8px; }
+.chat-img { max-width: 180px; max-height: 180px; object-fit: cover; border-radius: 12px; border: 1px solid var(--border); background: var(--surface-2); }
 #chat-jump { position: absolute; right: 22px; bottom: 78px; z-index: 3; box-shadow: var(--e2); }
 
 /* 移动端输入坞（终端） */

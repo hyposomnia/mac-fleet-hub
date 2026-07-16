@@ -686,6 +686,7 @@ function restoreTermOrEmpty() {
 function closeChatPane(reset = true) {
   const chat = state.chat;
   if (chat && chat.events) { try { chat.events.close(); } catch (_) {} }
+  if (chat && chat.objectUrls) for (const u of chat.objectUrls) { try { URL.revokeObjectURL(u); } catch (_) {} }
   if (reset) state.chat = null;
   const pane = $('#chat-pane');
   if (pane) pane.hidden = true;
@@ -736,7 +737,17 @@ function chatRow(body, cls = '') {
 }
 
 function renderChatItem(item) {
-  if (item.type === 'user') return chatRow(h('div', { class: 'chat-card', text: item.text }), 'user');
+  if (item.type === 'user') {
+    const parts = [];
+    if (item.text) parts.push(h('div', { text: item.text }));
+    if (item.images && item.images.length) {
+      parts.push(h('div', { class: 'chat-images' }, item.images.map((img) => {
+        const src = chatImageSrc(img);
+        return src ? h('img', { class: 'chat-img', src, alt: img.name || 'image' }) : h('div', { class: 'chat-img muted', text: img.name || '图片' });
+      })));
+    }
+    return chatRow(h('div', { class: 'chat-card' }, parts.length ? parts : h('div', { text: '' })), 'user');
+  }
   if (item.type === 'assistant') return chatRow(h('div', { class: 'chat-card', text: item.text || '…' }), 'assistant');
   if (item.type === 'tool') return chatRow(h('div', { class: 'chat-tool' },
     h('div', { class: 'chat-tool-h' }, h('span', { text: item.title || '命令执行' }), item.cwd ? h('span', { class: 'muted mono', text: item.cwd }) : null),
@@ -754,6 +765,78 @@ function renderChatItem(item) {
   return chatRow(h('div', { class: 'chat-card muted', text: JSON.stringify(item) }));
 }
 
+function chatImageSrc(img) {
+  if (!img) return '';
+  if (img.previewUrl) return img.previewUrl;
+  if (img.url && img.url.startsWith('/api/')) return `${apiBase(state.macId)}${img.url}`;
+  return img.url || '';
+}
+
+function renderChatAttachments() {
+  const box = $('#chat-attachments');
+  const chat = state.chat;
+  if (!box || !chat) return;
+  const atts = chat.attachments || [];
+  box.hidden = atts.length === 0;
+  clear(box);
+  for (const att of atts) {
+    box.append(h('div', { class: 'chat-att' + (att.error ? ' err' : '') },
+      att.previewUrl ? h('img', { src: att.previewUrl, alt: att.name || 'image' }) : null,
+      h('span', { class: 'st', text: att.error ? '失败' : (att.uploading ? '...' : '已就绪') }),
+      h('button', { type: 'button', title: '移除', onclick: () => removeChatAttachment(att.localId) }, '×')));
+  }
+}
+
+function removeChatAttachment(localId) {
+  const chat = state.chat;
+  if (!chat) return;
+  chat.attachments = (chat.attachments || []).filter((att) => att.localId !== localId);
+  renderChatAttachments();
+}
+
+async function addChatFiles(files) {
+  const chat = state.chat;
+  if (!chat || !files || !files.length) return;
+  chat.attachments = chat.attachments || [];
+  chat.objectUrls = chat.objectUrls || [];
+  for (const file of Array.from(files)) {
+    if (!file || !String(file.type || '').startsWith('image/')) {
+      toast('只能上传图片。', 'err');
+      continue;
+    }
+    const previewUrl = URL.createObjectURL(file);
+    chat.objectUrls.push(previewUrl);
+    const att = { localId: 'local-' + Date.now() + '-' + Math.random().toString(16).slice(2), name: file.name, size: file.size, mime: file.type, previewUrl, uploading: true };
+    chat.attachments.push(att);
+    renderChatAttachments();
+    uploadChatFile(chat, att, file);
+  }
+}
+
+async function uploadChatFile(chat, att, file) {
+  try {
+    const fd = new FormData();
+    fd.append('assistant', 'codex');
+    fd.append('sessionId', chat.sessionId);
+    fd.append('file', file, file.name || 'image');
+    const r = await fetch(`${apiBase(state.macId)}/api/chat/upload`, { method: 'POST', body: fd });
+    if (!r.ok) {
+      let msg = `上传失败：${r.status}`;
+      try { const j = await r.json(); if (j && j.message) msg = j.message; } catch (_) {}
+      throw new Error(msg);
+    }
+    const saved = await r.json();
+    if (!state.chat || state.chat !== chat) return;
+    Object.assign(att, saved, { uploading: false, error: '' });
+  } catch (e) {
+    att.uploading = false;
+    att.error = e.message || '上传失败';
+    toast('图片上传失败：' + att.error, 'err');
+  } finally {
+    if (state.chat === chat) renderChatAttachments();
+  }
+}
+
 function renderChatError(msg) {
   return chatRow(h('div', { class: 'chat-error' },
     h('div', { text: msg }),
@@ -768,7 +851,7 @@ async function openChatSession(s) {
   stopWatch(); hideBanner(); closeMenus();
   state.chat = {
     sessionId: s.sessionId, title: s.title || 'Codex 会话', cwd: s.cwd || '',
-    model: FleetChatModel.createChatState(), loading: true, events: null,
+    model: FleetChatModel.createChatState(), loading: true, events: null, attachments: [], objectUrls: [],
   };
   showChatPane(state.chat.title, state.chat.cwd);
   renderChat();
@@ -804,24 +887,32 @@ function startChatEvents() {
   };
   es.onerror = () => {
     if (!state.chat || state.chat !== chat || chat.loading) return;
-    chat.model = FleetChatModel.reduceChatEvent(chat.model, { type: 'error', data: { message: '事件流已断开，可用终端打开。' } });
-    renderChat();
+    // EventSource 会自动重连；瞬时断流不要写进消息流，否则会像真实回复一样污染历史。
+    chat.streamState = 'reconnecting';
   };
 }
 
 async function submitChatInput() {
   const chat = state.chat;
   const input = $('#chat-input');
-  const text = input.value.trim();
-  if (!chat || !text) return;
+  const raw = typeof input.value === 'string' ? input.value : '';
+  const text = raw.trim();
+  if (!chat) return;
+  const pending = chat.attachments || [];
+  if (pending.some((att) => att.uploading)) { toast('图片还在上传，稍等一下。'); return; }
+  if (pending.some((att) => att.error || !att.id)) { toast('有图片上传失败，先移除或重新选择。', 'err'); return; }
+  if (!text && pending.length === 0) return;
+  const images = pending.map((att) => ({ id: att.id, name: att.name, mime: att.mime, size: att.size, url: att.url, previewUrl: att.previewUrl }));
   input.value = '';
-  chat.model = FleetChatModel.appendUserMessage(chat.model, text, 'user-' + Date.now());
+  chat.attachments = [];
+  renderChatAttachments();
+  chat.model = FleetChatModel.appendUserMessage(chat.model, text, 'user-' + Date.now(), images);
   chat.loading = false;
   renderChat();
   try {
     await api(state.macId, 'chat/input', {
       method: 'POST', headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ assistant: 'codex', sessionId: chat.sessionId, text }),
+      body: JSON.stringify({ assistant: 'codex', sessionId: chat.sessionId, text: raw, images: images.map((img) => ({ id: img.id })) }),
     });
   } catch (e) {
     if (state.chat === chat) {
@@ -1176,8 +1267,14 @@ function init() {
   $('#reconnect-btn').onclick = () => { const f = curFrame(); try { f.contentWindow.location.reload(); } catch (_) { f.src = f.src; } };
   $('#fullscreen-btn').onclick = () => $('.win-body').requestFullscreen?.();
   $('#chat-composer').onsubmit = (e) => { e.preventDefault(); submitChatInput(); };
+  $('#chat-attach').onclick = () => $('#chat-file').click();
+  $('#chat-file').addEventListener('change', (e) => { addChatFiles(e.target.files); e.target.value = ''; });
   $('#chat-input').addEventListener('keydown', (e) => {
     if (e.key === 'Enter' && !e.shiftKey && !isIMEComposing(e, chatIMEComposing)) { e.preventDefault(); submitChatInput(); }
+  });
+  $('#chat-input').addEventListener('paste', (e) => {
+    const files = [...(e.clipboardData?.files || [])].filter((f) => String(f.type || '').startsWith('image/'));
+    if (files.length) { e.preventDefault(); addChatFiles(files); }
   });
   $('#chat-input').addEventListener('compositionstart', () => { chatIMEComposing = true; });
   $('#chat-input').addEventListener('compositionend', () => { chatIMEComposing = false; });

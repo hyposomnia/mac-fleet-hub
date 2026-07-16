@@ -92,7 +92,7 @@ func (b *codexChatBackend) Resume(ctx context.Context, assistant, sessionID, mod
 	return ChatResumeResult{SessionID: sessionID, ThreadID: threadID, Status: "connected"}, nil
 }
 
-func (b *codexChatBackend) Input(ctx context.Context, assistant, sessionID, text string) (ChatInputResult, error) {
+func (b *codexChatBackend) Input(ctx context.Context, assistant, sessionID, text string, images []ChatAttachment) (ChatInputResult, error) {
 	if assistant != "codex" {
 		return ChatInputResult{}, errUnsupportedChatAssistant
 	}
@@ -100,11 +100,19 @@ func (b *codexChatBackend) Input(ctx context.Context, assistant, sessionID, text
 	if err != nil {
 		return ChatInputResult{}, err
 	}
+	input := make([]map[string]string, 0, 1+len(images))
+	if text != "" {
+		input = append(input, map[string]string{"type": "text", "text": text})
+	}
+	for _, img := range images {
+		if img.Path == "" {
+			continue
+		}
+		input = append(input, map[string]string{"type": "localImage", "path": img.Path})
+	}
 	raw, err := rpc.call(ctx, "turn/start", map[string]interface{}{
 		"threadId": sessionID,
-		"input": []map[string]string{
-			{"type": "text", "text": text},
-		},
+		"input":    input,
 	})
 	if err != nil {
 		return ChatInputResult{}, err

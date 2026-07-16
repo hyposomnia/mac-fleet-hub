@@ -4,15 +4,19 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"io"
+	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
 
 type fakeChatBackend struct {
 	resumeFn    func(context.Context, string, string, string) (ChatResumeResult, error)
-	inputFn     func(context.Context, string, string, string) (ChatInputResult, error)
+	inputFn     func(context.Context, string, string, string, []ChatAttachment) (ChatInputResult, error)
 	eventsFn    func(context.Context, string, string) (<-chan ChatEvent, error)
 	approveFn   func(context.Context, string, string, string, string) error
 	interruptFn func(context.Context, string, string) error
@@ -25,9 +29,9 @@ func (f fakeChatBackend) Resume(ctx context.Context, assistant, sessionID, mode 
 	return ChatResumeResult{}, nil
 }
 
-func (f fakeChatBackend) Input(ctx context.Context, assistant, sessionID, text string) (ChatInputResult, error) {
+func (f fakeChatBackend) Input(ctx context.Context, assistant, sessionID, text string, images []ChatAttachment) (ChatInputResult, error) {
 	if f.inputFn != nil {
-		return f.inputFn(ctx, assistant, sessionID, text)
+		return f.inputFn(ctx, assistant, sessionID, text, images)
 	}
 	return ChatInputResult{}, nil
 }
@@ -107,7 +111,7 @@ func TestChatResumeBadRequest(t *testing.T) {
 
 func TestChatInputCallsBackend(t *testing.T) {
 	withChatBackend(t, fakeChatBackend{
-		inputFn: func(ctx context.Context, assistant, sessionID, text string) (ChatInputResult, error) {
+		inputFn: func(ctx context.Context, assistant, sessionID, text string, images []ChatAttachment) (ChatInputResult, error) {
 			if assistant != "codex" || sessionID != "s1" || text != "hello" {
 				t.Fatalf("input args got assistant=%s sessionID=%s text=%s", assistant, sessionID, text)
 			}
@@ -128,6 +132,87 @@ func TestChatInputCallsBackend(t *testing.T) {
 	}
 	if got.TurnID != "turn-1" {
 		t.Fatalf("turn id got %q", got.TurnID)
+	}
+}
+
+func TestChatUploadAndImageOnlyInput(t *testing.T) {
+	tmp := t.TempDir()
+	prevRoot := chatUploadRoot
+	chatUploadRoot = func() string { return tmp }
+	t.Cleanup(func() { chatUploadRoot = prevRoot })
+
+	var body bytes.Buffer
+	mw := multipart.NewWriter(&body)
+	_ = mw.WriteField("assistant", "codex")
+	_ = mw.WriteField("sessionId", "s1")
+	fw, err := mw.CreateFormFile("file", "shot.png")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _ = fw.Write([]byte{0x89, 'P', 'N', 'G', '\r', '\n', 0x1a, '\n', 0, 0, 0, 0})
+	if err := mw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest(http.MethodPost, "/api/chat/upload", &body)
+	req.Header.Set("Content-Type", mw.FormDataContentType())
+	rr := httptest.NewRecorder()
+
+	handleChatUpload(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("upload status got %d body %s", rr.Code, rr.Body.String())
+	}
+	var upload ChatAttachment
+	if err := json.Unmarshal(rr.Body.Bytes(), &upload); err != nil {
+		t.Fatal(err)
+	}
+	if upload.ID == "" || upload.URL == "" || upload.Path != "" {
+		t.Fatalf("bad upload response: %+v", upload)
+	}
+
+	withChatBackend(t, fakeChatBackend{
+		inputFn: func(ctx context.Context, assistant, sessionID, text string, images []ChatAttachment) (ChatInputResult, error) {
+			if text != "" || len(images) != 1 {
+				t.Fatalf("input got text=%q images=%+v", text, images)
+			}
+			if _, err := os.Stat(images[0].Path); err != nil {
+				t.Fatalf("image path not resolved: %v", err)
+			}
+			if filepath.Base(images[0].Path) != upload.ID {
+				t.Fatalf("image path got %s want basename %s", images[0].Path, upload.ID)
+			}
+			return ChatInputResult{TurnID: "turn-img"}, nil
+		},
+	})
+	req = httptest.NewRequest(http.MethodPost, "/api/chat/input", bytes.NewBufferString(`{"assistant":"codex","sessionId":"s1","images":[{"id":"`+upload.ID+`"}]}`))
+	rr = httptest.NewRecorder()
+	handleChatInput(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("input status got %d body %s", rr.Code, rr.Body.String())
+	}
+}
+
+func TestChatUploadRejectsNonImage(t *testing.T) {
+	var body bytes.Buffer
+	mw := multipart.NewWriter(&body)
+	_ = mw.WriteField("assistant", "codex")
+	_ = mw.WriteField("sessionId", "s1")
+	fw, err := mw.CreateFormFile("file", "note.txt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _ = io.WriteString(fw, "not an image")
+	if err := mw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest(http.MethodPost, "/api/chat/upload", &body)
+	req.Header.Set("Content-Type", mw.FormDataContentType())
+	rr := httptest.NewRecorder()
+
+	handleChatUpload(rr, req)
+
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("status got %d body %s", rr.Code, rr.Body.String())
 	}
 }
 

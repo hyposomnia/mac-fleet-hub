@@ -1,10 +1,21 @@
 package main
 
 import (
+	"bytes"
 	"context"
+	"crypto/rand"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"io"
+	"mime"
 	"net/http"
+	"os"
+	"path/filepath"
+	"strings"
+	"time"
 )
 
 // ChatEvent is the stable dashboard-facing projection for self-rendered agent
@@ -144,13 +155,22 @@ type ChatResumeResult struct {
 	Status    string `json:"status"`
 }
 
+type ChatAttachment struct {
+	ID   string `json:"id"`
+	Name string `json:"name,omitempty"`
+	MIME string `json:"mime,omitempty"`
+	Size int64  `json:"size,omitempty"`
+	URL  string `json:"url,omitempty"`
+	Path string `json:"-"`
+}
+
 type ChatInputResult struct {
 	TurnID string `json:"turnId,omitempty"`
 }
 
 type chatBackend interface {
 	Resume(ctx context.Context, assistant, sessionID, mode string) (ChatResumeResult, error)
-	Input(ctx context.Context, assistant, sessionID, text string) (ChatInputResult, error)
+	Input(ctx context.Context, assistant, sessionID, text string, images []ChatAttachment) (ChatInputResult, error)
 	Events(ctx context.Context, assistant, sessionID string) (<-chan ChatEvent, error)
 	Approve(ctx context.Context, assistant, sessionID, requestID, decision string) error
 	Interrupt(ctx context.Context, assistant, sessionID string) error
@@ -163,7 +183,7 @@ type unavailableChatBackend struct{}
 func (unavailableChatBackend) Resume(context.Context, string, string, string) (ChatResumeResult, error) {
 	return ChatResumeResult{}, errAppServerUnavailable
 }
-func (unavailableChatBackend) Input(context.Context, string, string, string) (ChatInputResult, error) {
+func (unavailableChatBackend) Input(context.Context, string, string, string, []ChatAttachment) (ChatInputResult, error) {
 	return ChatInputResult{}, errAppServerUnavailable
 }
 func (unavailableChatBackend) Events(context.Context, string, string) (<-chan ChatEvent, error) {
@@ -224,8 +244,16 @@ func handleChatInput(w http.ResponseWriter, r *http.Request) {
 		Assistant string `json:"assistant"`
 		SessionID string `json:"sessionId"`
 		Text      string `json:"text"`
+		Images    []struct {
+			ID string `json:"id"`
+		} `json:"images"`
 	}
-	if json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&req) != nil || req.SessionID == "" || req.Text == "" {
+	if json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&req) != nil || req.SessionID == "" {
+		http.Error(w, "bad request", http.StatusBadRequest)
+		return
+	}
+	text := strings.TrimSpace(req.Text)
+	if text == "" && len(req.Images) == 0 {
 		http.Error(w, "bad request", http.StatusBadRequest)
 		return
 	}
@@ -234,12 +262,185 @@ func handleChatInput(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusNotImplemented, "unsupported_assistant", "自绘界面暂只支持 Codex。")
 		return
 	}
-	res, err := agentChatBackend.Input(r.Context(), assistant, req.SessionID, req.Text)
+	images := make([]ChatAttachment, 0, len(req.Images))
+	for _, img := range req.Images {
+		att, err := resolveChatUpload(req.SessionID, img.ID)
+		if err != nil {
+			writeErr(w, http.StatusBadRequest, "bad_attachment", err.Error())
+			return
+		}
+		images = append(images, att)
+	}
+	res, err := agentChatBackend.Input(r.Context(), assistant, req.SessionID, req.Text, images)
 	if err != nil {
 		writeChatErr(w, err)
 		return
 	}
 	writeJSON(w, res)
+}
+
+const maxChatUploadBytes int64 = 20 << 20
+
+var chatUploadRoot = defaultChatUploadRoot
+
+func defaultChatUploadRoot() string {
+	if d, err := os.UserCacheDir(); err == nil && d != "" {
+		return filepath.Join(d, "mac-fleet-hub", "chat-uploads")
+	}
+	return filepath.Join(os.TempDir(), "mac-fleet-hub", "chat-uploads")
+}
+
+func chatUploadSessionDir(sessionID string) string {
+	sum := sha256.Sum256([]byte(sessionID))
+	return filepath.Join(chatUploadRoot(), hex.EncodeToString(sum[:]))
+}
+
+func chatAttachmentURL(sessionID, id string) string {
+	return "/api/chat/attachment?sessionId=" + urlQueryEscape(sessionID) + "&id=" + urlQueryEscape(id)
+}
+
+func urlQueryEscape(s string) string {
+	r := strings.NewReplacer("%", "%25", " ", "%20", "&", "%26", "?", "%3F", "=", "%3D", "#", "%23", "+", "%2B")
+	return r.Replace(s)
+}
+
+func handleChatUpload(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, maxChatUploadBytes+1<<20)
+	if err := r.ParseMultipartForm(maxChatUploadBytes); err != nil {
+		writeErr(w, http.StatusBadRequest, "bad_upload", "图片过大或上传格式不正确。")
+		return
+	}
+	assistant := normAssistant(r.FormValue("assistant"))
+	sessionID := r.FormValue("sessionId")
+	if assistant != "codex" || sessionID == "" {
+		http.Error(w, "bad request", http.StatusBadRequest)
+		return
+	}
+	file, header, err := r.FormFile("file")
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, "bad_upload", "没有收到图片文件。")
+		return
+	}
+	defer file.Close()
+
+	sniff := make([]byte, 512)
+	n, _ := file.Read(sniff)
+	detected := http.DetectContentType(sniff[:n])
+	declared, _, _ := mime.ParseMediaType(header.Header.Get("Content-Type"))
+	mimeType := declared
+	if !strings.HasPrefix(mimeType, "image/") && strings.HasPrefix(detected, "image/") {
+		mimeType = detected
+	}
+	ext := strings.ToLower(filepath.Ext(header.Filename))
+	if !allowedChatImage(mimeType, ext) {
+		writeErr(w, http.StatusBadRequest, "bad_upload", "只支持上传图片。")
+		return
+	}
+	if ext == "" {
+		ext = extFromImageMIME(mimeType)
+	}
+	id, err := randomChatUploadID(ext)
+	if err != nil {
+		writeChatErr(w, err)
+		return
+	}
+	dir := chatUploadSessionDir(sessionID)
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		writeChatErr(w, err)
+		return
+	}
+	dst := filepath.Join(dir, id)
+	out, err := os.OpenFile(dst, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0600)
+	if err != nil {
+		writeChatErr(w, err)
+		return
+	}
+	reader := io.MultiReader(bytes.NewReader(sniff[:n]), file)
+	size, copyErr := io.Copy(out, io.LimitReader(reader, maxChatUploadBytes+1))
+	closeErr := out.Close()
+	if copyErr != nil || closeErr != nil {
+		_ = os.Remove(dst)
+		if copyErr != nil {
+			writeChatErr(w, copyErr)
+		} else {
+			writeChatErr(w, closeErr)
+		}
+		return
+	}
+	if size > maxChatUploadBytes {
+		_ = os.Remove(dst)
+		writeErr(w, http.StatusRequestEntityTooLarge, "upload_too_large", "图片不能超过 20MB。")
+		return
+	}
+	writeJSON(w, ChatAttachment{
+		ID: id, Name: filepath.Base(header.Filename), MIME: mimeType, Size: size,
+		URL: chatAttachmentURL(sessionID, id),
+	})
+}
+
+func handleChatAttachment(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	att, err := resolveChatUpload(r.URL.Query().Get("sessionId"), r.URL.Query().Get("id"))
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	http.ServeFile(w, r, att.Path)
+}
+
+func resolveChatUpload(sessionID, id string) (ChatAttachment, error) {
+	if sessionID == "" || id == "" || filepath.Base(id) != id || strings.Contains(id, "/") || strings.Contains(id, "\\") {
+		return ChatAttachment{}, fmt.Errorf("无效的图片附件")
+	}
+	path := filepath.Join(chatUploadSessionDir(sessionID), id)
+	st, err := os.Stat(path)
+	if err != nil || st.IsDir() {
+		return ChatAttachment{}, fmt.Errorf("图片附件不存在或已失效")
+	}
+	return ChatAttachment{ID: id, Path: path, Size: st.Size(), URL: chatAttachmentURL(sessionID, id)}, nil
+}
+
+func allowedChatImage(mimeType, ext string) bool {
+	switch strings.ToLower(ext) {
+	case ".png", ".jpg", ".jpeg", ".gif", ".webp":
+		return true
+	}
+	switch strings.ToLower(mimeType) {
+	case "image/png", "image/jpeg", "image/gif", "image/webp":
+		return true
+	default:
+		return false
+	}
+}
+
+func extFromImageMIME(mimeType string) string {
+	switch strings.ToLower(mimeType) {
+	case "image/png":
+		return ".png"
+	case "image/jpeg":
+		return ".jpg"
+	case "image/gif":
+		return ".gif"
+	case "image/webp":
+		return ".webp"
+	default:
+		return ".img"
+	}
+}
+
+func randomChatUploadID(ext string) (string, error) {
+	var b [16]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(b[:]) + ext, nil
 }
 
 func handleChatEvents(w http.ResponseWriter, r *http.Request) {
@@ -265,6 +466,8 @@ func handleChatEvents(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-store")
 	flusher, _ := w.(http.Flusher)
+	heartbeat := time.NewTicker(15 * time.Second)
+	defer heartbeat.Stop()
 	for {
 		select {
 		case ev, ok := <-events:
@@ -275,6 +478,11 @@ func handleChatEvents(w http.ResponseWriter, r *http.Request) {
 			_, _ = w.Write([]byte("data: "))
 			_, _ = w.Write(b)
 			_, _ = w.Write([]byte("\n\n"))
+			if flusher != nil {
+				flusher.Flush()
+			}
+		case <-heartbeat.C:
+			_, _ = w.Write([]byte(": ping\n\n"))
 			if flusher != nil {
 				flusher.Flush()
 			}

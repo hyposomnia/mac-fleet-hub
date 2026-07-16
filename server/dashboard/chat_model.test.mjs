@@ -41,3 +41,10 @@ test('local user message is appended immediately', () => {
   assert.deepEqual(Array.from(state.messages), ['u1']);
   assert.equal(state.items.u1.text, 'hello');
 });
+
+test('local user message keeps image attachments', () => {
+  const state = appendUserMessage(createChatState(), '', 'u-img', [{ id: 'img1', url: 'blob:img1', name: 'shot.png' }]);
+  assert.equal(state.items['u-img'].type, 'user');
+  assert.equal(state.items['u-img'].images.length, 1);
+  assert.equal(state.items['u-img'].images[0].name, 'shot.png');
+});
