@@ -115,6 +115,8 @@ async function api(id, path, opts) {
 }
 
 const SELF_DRAW_KEY = 'fleet-experiment-selfdraw';
+let chatIMEComposing = false;
+let mobileIMEComposing = false;
 function initExperimentFlags() {
   try { state.selfDraw = localStorage.getItem(SELF_DRAW_KEY) === '1'; } catch (_) { state.selfDraw = false; }
   updateExperimentMenus();
@@ -134,6 +136,9 @@ function toggleSelfDraw() {
   }
 }
 function canSelfDrawChat() { return state.selfDraw && state.assistant === 'codex' && state.mode === 'sessions'; }
+function isIMEComposing(e, composingFlag) {
+  return !!(composingFlag || e.isComposing || e.keyCode === 229);
+}
 
 // ============================================================
 //  主题（默认跟随系统 prefers-color-scheme，切换后写 localStorage 覆盖）
@@ -1132,8 +1137,10 @@ function wireMobileInput() {
   };
   // Enter 发送、Shift+Enter 换行
   $('#cmd-input').addEventListener('keydown', (e) => {
-    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); $('#send-btn').click(); }
+    if (e.key === 'Enter' && !e.shiftKey && !isIMEComposing(e, mobileIMEComposing)) { e.preventDefault(); $('#send-btn').click(); }
   });
+  $('#cmd-input').addEventListener('compositionstart', () => { mobileIMEComposing = true; });
+  $('#cmd-input').addEventListener('compositionend', () => { mobileIMEComposing = false; });
 }
 
 // ============================================================
@@ -1170,8 +1177,10 @@ function init() {
   $('#fullscreen-btn').onclick = () => $('.win-body').requestFullscreen?.();
   $('#chat-composer').onsubmit = (e) => { e.preventDefault(); submitChatInput(); };
   $('#chat-input').addEventListener('keydown', (e) => {
-    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submitChatInput(); }
+    if (e.key === 'Enter' && !e.shiftKey && !isIMEComposing(e, chatIMEComposing)) { e.preventDefault(); submitChatInput(); }
   });
+  $('#chat-input').addEventListener('compositionstart', () => { chatIMEComposing = true; });
+  $('#chat-input').addEventListener('compositionend', () => { chatIMEComposing = false; });
   $('#chat-scroll').addEventListener('scroll', () => { $('#chat-jump').hidden = chatAtBottom(); });
   $('#chat-jump').onclick = () => { const sc = $('#chat-scroll'); sc.scrollTop = sc.scrollHeight; $('#chat-jump').hidden = true; };
 
