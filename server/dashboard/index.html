@@ -39,6 +39,9 @@
           <button data-act="theme"><svg class="ic" viewBox="0 0 24 24"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>切换主题</button>
           <button data-act="settings"><svg class="ic" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>设置</button>
           <div class="sep"></div>
+          <div class="menu-label">实验</div>
+          <button data-act="selfdraw"><span class="toggle-dot selfdraw-mark"></span>自绘界面</button>
+          <div class="sep"></div>
           <button data-act="logout" class="danger"><svg class="ic" viewBox="0 0 24 24"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>退出登录</button>
         </div>
       </div>
@@ -52,6 +55,9 @@
       <div id="m-menu" class="menu" hidden>
         <button data-act="theme"><svg class="ic" viewBox="0 0 24 24"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>切换主题</button>
         <button data-act="settings"><svg class="ic" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>设置</button>
+        <div class="sep"></div>
+        <div class="menu-label">实验</div>
+        <button data-act="selfdraw"><span class="toggle-dot selfdraw-mark"></span>自绘界面</button>
         <div class="sep"></div>
         <button data-act="logout" class="danger"><svg class="ic" viewBox="0 0 24 24"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>退出登录</button>
       </div>
@@ -105,6 +111,14 @@
         <!-- #frame：仅「文件」模式用；#frames：终端 iframe 池（每会话一个，JS 动态建，靠 .show 显隐切换） -->
         <iframe id="frame" title="window" allow="clipboard-read; clipboard-write"></iframe>
         <div id="frames"></div>
+        <section id="chat-pane" hidden>
+          <div id="chat-scroll"></div>
+          <button id="chat-jump" class="btn sm ghost" hidden>跳到底部</button>
+          <form id="chat-composer">
+            <textarea id="chat-input" rows="1" placeholder="给 Codex 发送消息…" autocapitalize="off" autocomplete="off" autocorrect="off" spellcheck="false"></textarea>
+            <button id="chat-send" class="send-btn" title="发送"><svg class="ic" viewBox="0 0 24 24"><line x1="12" y1="19" x2="12" y2="5"/><polyline points="5 12 12 5 19 12"/></svg></button>
+          </form>
+        </section>
         <div id="empty-state" class="empty-state">
           <div class="g"><svg class="ic" viewBox="0 0 24 24"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg></div>
           <div>选中一个会话，点 <b>「连接」</b> / <b>「Bypass」</b> / <b>「Auto」</b> 打开终端<br />
@@ -214,6 +228,7 @@
     <div id="toast-wrap"></div>
 
   </div>
+  <script src="chat_model.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

@@ -1520,6 +1520,7 @@ func main() {
 
 func runServer() {
 	cfg = loadConfig()
+	agentChatBackend = newAgentChatBackend()
 	loadProxy()
 	writeTmuxConf()
 	mux := http.NewServeMux()
@@ -1532,6 +1533,11 @@ func runServer() {
 	mux.HandleFunc("/api/reload", handleReload)
 	mux.HandleFunc("/api/proxy", handleProxy)
 	mux.HandleFunc("/api/info", handleInfo)
+	mux.HandleFunc("/api/chat/resume", handleChatResume)
+	mux.HandleFunc("/api/chat/input", handleChatInput)
+	mux.HandleFunc("/api/chat/events", handleChatEvents)
+	mux.HandleFunc("/api/chat/approve", handleChatApprove)
+	mux.HandleFunc("/api/chat/interrupt", handleChatInterrupt)
 	mux.HandleFunc("/api/health", func(w http.ResponseWriter, r *http.Request) { w.Write([]byte("ok")) })
 
 	idleSec.Store(cfg.IdleSec) // 初值 = FLEET_IDLE_SEC，configSync 成功后覆盖

@@ -18,6 +18,10 @@
 
 ## 第一阶段验收切片
 
+Codex Desktop 的对话交互复刻细则见：
+
+- `docs/desktop-backed-agent-chat-ui/codex-desktop-parity-matrix.md`
+
 ### 后端（fleet-agent）
 
 - 新增 Codex app-server JSON-RPC client：可初始化、请求/响应匹配、接收 notification。
@@ -28,6 +32,8 @@
   - `GET /api/chat/events`（SSE）
   - `POST /api/chat/interrupt`（可先 no-op/501，但 API 形状固定）
 - app-server 不可用时返回结构化错误 `appserver_unavailable`，前端显示终端 fallback。
+- 当前本机 Codex 0.142.4 实测：`codex app-server --stdio` 可完成 initialize/thread-list；
+  `codex app-server proxy` 连接 daemon 后无回包。POC 先用 stdio 直连本机 app-server，仍不暴露浏览器/nginx。
 
 ### 前端（dashboard）
 
