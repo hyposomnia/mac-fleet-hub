@@ -718,7 +718,7 @@ function renderChat() {
   if (!chat || !sc) return;
   const stick = chatAtBottom();
   const stack = h('div', { class: 'chat-stack' });
-  if (chat.loading) stack.append(chatRow('·', h('div', { class: 'chat-card muted', text: '正在连接 Codex app-server…' })));
+  if (chat.loading) stack.append(chatRow(h('div', { class: 'chat-card muted', text: '正在连接 Codex app-server…' })));
   const model = chat.model || FleetChatModel.createChatState();
   for (const id of model.messages) {
     const item = model.items[id];
@@ -731,17 +731,17 @@ function renderChat() {
   $('#chat-jump').hidden = chatAtBottom();
 }
 
-function chatRow(mark, body, cls = '') {
-  return h('div', { class: 'chat-row ' + cls }, h('div', { class: 'chat-av', text: mark }), body);
+function chatRow(body, cls = '') {
+  return h('div', { class: 'chat-row ' + cls }, body);
 }
 
 function renderChatItem(item) {
-  if (item.type === 'user') return chatRow('U', h('div', { class: 'chat-card', text: item.text }), 'user');
-  if (item.type === 'assistant') return chatRow('C', h('div', { class: 'chat-card', text: item.text || '…' }), 'assistant');
-  if (item.type === 'tool') return chatRow('⌘', h('div', { class: 'chat-tool' },
+  if (item.type === 'user') return chatRow(h('div', { class: 'chat-card', text: item.text }), 'user');
+  if (item.type === 'assistant') return chatRow(h('div', { class: 'chat-card', text: item.text || '…' }), 'assistant');
+  if (item.type === 'tool') return chatRow(h('div', { class: 'chat-tool' },
     h('div', { class: 'chat-tool-h' }, h('span', { text: item.title || '命令执行' }), item.cwd ? h('span', { class: 'muted mono', text: item.cwd }) : null),
     h('pre', { text: item.output || '…' })), 'tool');
-  if (item.type === 'approval') return chatRow('!', h('div', { class: 'chat-approval' },
+  if (item.type === 'approval') return chatRow(h('div', { class: 'chat-approval' },
     h('div', { class: 'chat-approval-h', text: item.status === 'resolved' ? '审批已处理' : (item.kind === 'command' ? '需要批准命令执行' : '需要批准权限 / 文件改动') }),
     h('div', { class: 'chat-approval-body' },
       item.reason ? h('div', { text: item.reason }) : null,
@@ -750,12 +750,12 @@ function renderChatItem(item) {
       item.status === 'resolved' ? h('div', { class: 'muted', text: '已发送决定。' }) : h('div', { class: 'chat-approval-actions' },
         h('button', { class: 'btn sm primary', onclick: () => resolveApproval(item.requestId, 'approved') }, '批准'),
         h('button', { class: 'btn sm', onclick: () => resolveApproval(item.requestId, 'denied') }, '拒绝')))), 'approval');
-  if (item.type === 'diff') return chatRow('Δ', h('div', { class: 'chat-diff' }, h('div', { class: 'chat-diff-h', text: '文件改动' }), h('div', { class: 'chat-diff-body', text: '已收到文件改动更新（diff 展开后续补齐）' })), 'diff');
-  return chatRow('·', h('div', { class: 'chat-card muted', text: JSON.stringify(item) }));
+  if (item.type === 'diff') return chatRow(h('div', { class: 'chat-diff' }, h('div', { class: 'chat-diff-h', text: '文件改动' }), h('div', { class: 'chat-diff-body', text: '已收到文件改动更新（diff 展开后续补齐）' })), 'diff');
+  return chatRow(h('div', { class: 'chat-card muted', text: JSON.stringify(item) }));
 }
 
 function renderChatError(msg) {
-  return chatRow('!', h('div', { class: 'chat-error' },
+  return chatRow(h('div', { class: 'chat-error' },
     h('div', { text: msg }),
     h('div', { class: 'chat-error-actions' }, h('button', { class: 'btn sm accent', onclick: openChatFallback }, '用终端打开'))), 'error');
 }

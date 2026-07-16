@@ -453,13 +453,13 @@ svg.ic.fill { fill: currentColor; stroke: none; }
 #chat-pane { position: absolute; inset: 0; display: flex; flex-direction: column; background: var(--bg); z-index: 2; }
 #chat-scroll { flex: 1; min-height: 0; overflow-y: auto; padding: 24px clamp(18px, 4vw, 52px) 18px; scroll-behavior: smooth; }
 .chat-stack { max-width: 860px; margin: 0 auto; display: flex; flex-direction: column; gap: 14px; }
-.chat-row { display: grid; grid-template-columns: 26px minmax(0, 1fr); gap: 11px; align-items: start; }
-.chat-av { width: 26px; height: 26px; border-radius: 9px; display: grid; place-items: center; background: var(--surface-1); border: 1px solid var(--border); color: var(--text-1); font-size: var(--t-xs); font-weight: 700; }
-.chat-row.user .chat-av { background: var(--accent-soft); border-color: var(--accent-line); color: var(--accent-text); }
+.chat-row { display: flex; align-items: flex-start; justify-content: flex-start; }
+.chat-row.user { justify-content: flex-end; }
 .chat-card { min-width: 0; color: var(--text); font-size: var(--t-sm); line-height: 1.62; white-space: pre-wrap; overflow-wrap: anywhere; }
-.chat-row.user .chat-card { background: var(--surface-1); border: 1px solid var(--border); border-radius: 14px; padding: 10px 12px; width: fit-content; max-width: 100%; }
+.chat-row.user .chat-card { background: var(--surface-1); border: 1px solid var(--border); border-radius: 14px; padding: 10px 12px; width: fit-content; max-width: min(74%, 680px); }
+.chat-row.assistant .chat-card { max-width: min(82%, 760px); }
 .chat-card.muted { color: var(--text-2); }
-.chat-tool, .chat-approval, .chat-error, .chat-diff { border: 1px solid var(--border); background: var(--surface-1); border-radius: 14px; overflow: hidden; }
+.chat-tool, .chat-approval, .chat-error, .chat-diff { border: 1px solid var(--border); background: var(--surface-1); border-radius: 14px; overflow: hidden; max-width: min(86%, 780px); }
 .chat-tool-h, .chat-approval-h, .chat-diff-h { display: flex; align-items: center; gap: 8px; padding: 9px 11px; color: var(--text-1); font-weight: 620; font-size: var(--t-xs); border-bottom: 1px solid var(--border); }
 .chat-tool pre { margin: 0; padding: 11px; max-height: 260px; overflow: auto; color: var(--text-1); font-family: var(--mono); font-size: var(--t-xs); line-height: 1.5; white-space: pre-wrap; }
 .chat-approval-body, .chat-error, .chat-diff-body { padding: 11px; color: var(--text-1); font-size: var(--t-xs); }
