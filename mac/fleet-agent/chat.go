@@ -257,6 +257,10 @@ func handleChatInput(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "bad request", http.StatusBadRequest)
 		return
 	}
+	sendText := req.Text
+	if text == "" {
+		sendText = ""
+	}
 	assistant := normAssistant(req.Assistant)
 	if assistant != "codex" {
 		writeErr(w, http.StatusNotImplemented, "unsupported_assistant", "自绘界面暂只支持 Codex。")
@@ -271,7 +275,7 @@ func handleChatInput(w http.ResponseWriter, r *http.Request) {
 		}
 		images = append(images, att)
 	}
-	res, err := agentChatBackend.Input(r.Context(), assistant, req.SessionID, req.Text, images)
+	res, err := agentChatBackend.Input(r.Context(), assistant, req.SessionID, sendText, images)
 	if err != nil {
 		writeChatErr(w, err)
 		return
@@ -309,7 +313,7 @@ func handleChatUpload(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	r.Body = http.MaxBytesReader(w, r.Body, maxChatUploadBytes+1<<20)
+	r.Body = http.MaxBytesReader(w, r.Body, maxChatUploadBytes+(1<<20))
 	if err := r.ParseMultipartForm(maxChatUploadBytes); err != nil {
 		writeErr(w, http.StatusBadRequest, "bad_upload", "图片过大或上传格式不正确。")
 		return
