@@ -1,0 +1,3 @@
+[agents.pm]
+description = "Use for product-minded feature discovery, feasibility research, small technical spikes, UI/UX framing, and landing plans before implementation."
+config_file = "agents/pm.toml"
