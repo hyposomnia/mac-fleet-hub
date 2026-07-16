@@ -57,6 +57,10 @@ func (b *codexChatBackend) ensure(ctx context.Context) (codexRPCConn, error) {
 		b.rpc = rpc
 		b.cleanup = cleanup
 		go b.dispatch(rpc.notifications())
+	} else {
+		if cleanup != nil {
+			cleanup()
+		}
 	}
 	rpc = b.rpc
 	b.mu.Unlock()
