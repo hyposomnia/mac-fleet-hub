@@ -788,6 +788,32 @@ async function closeSession() {
 // ============================================================
 // 代理默认值：未配置时直接填进输入框作为真实值（不靠 placeholder，避免"看着像填了其实是空"的陷阱）
 const DEFAULT_PROXY = 'http://127.0.0.1:7897';
+function setPingChip(text, tone = '') {
+  const el = $('#hm-ping');
+  if (!el) return;
+  el.textContent = text;
+  el.className = 'ping-chip' + (tone ? ' ' + tone : '');
+}
+async function pingHost(id) {
+  if (!id) return;
+  setPingChip('...', 'pending');
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 5000);
+  const t0 = performance.now();
+  try {
+    const r = await fetch(`${apiBase(id)}/api/health?probe=${Date.now()}`, {
+      cache: 'no-store',
+      signal: ctrl.signal,
+    });
+    const ms = Math.max(1, Math.round(performance.now() - t0));
+    clearTimeout(timer);
+    if (!r.ok) { setPingChip('失败', 'bad'); return; }
+    setPingChip(ms + 'ms', ms <= 80 ? 'good' : (ms <= 200 ? 'warn' : 'bad'));
+  } catch (_) {
+    clearTimeout(timer);
+    setPingChip('超时', 'bad');
+  }
+}
 async function openHostModal(id) {
   state.killTarget = null;
   state.hostModalMac = id;
@@ -798,17 +824,19 @@ async function openHostModal(id) {
   $('#hm-dot').className = 'dot ' + (online ? 'on' : 'off');
   const st = $('#hm-state'); st.textContent = online ? '在线' : '离线'; st.className = 'badge ' + (online ? 'ok' : '');
   $('#hm-ip').textContent = '加载中…';
+  setPingChip('...', 'pending');
   $('#hm-http').value = ''; $('#hm-https').value = ''; $('#hm-proxy-on').checked = false;
   closeMenus();
   openOverlay('host-modal');
   try {
     const info = await api(id, 'info');
     $('#hm-ip').textContent = info.meshIP || '—';
+    pingHost(id);
     const p = info.proxy || {};
     $('#hm-http').value = p.http || DEFAULT_PROXY;
     $('#hm-https').value = p.https || DEFAULT_PROXY;
     $('#hm-proxy-on').checked = !!p.enabled;
-  } catch (e) { $('#hm-ip').textContent = '连不上（' + e.message + '）'; }
+  } catch (e) { $('#hm-ip').textContent = '连不上（' + e.message + '）'; setPingChip('失败', 'bad'); }
 }
 
 async function saveHost() {
@@ -956,11 +984,7 @@ function init() {
   $$('[data-close]').forEach((b) => b.onclick = () => closeOverlay(b.dataset.close));
   $$('.overlay').forEach((o) => o.addEventListener('click', (e) => { if (e.target === o) closeOverlay(o.id); }));
   $('#hm-save').onclick = saveHost;
-  $('#hm-copy').onclick = async () => {
-    const ip = $('#hm-ip').textContent;
-    try { await navigator.clipboard.writeText(ip); toast('已复制 ' + ip, 'ok'); }
-    catch (_) { toast('复制失败', 'err'); }
-  };
+  $('#hm-ping').onclick = () => pingHost(state.hostModalMac);
   $('#ck-confirm').onclick = closeSession;
 
   // 点空白处关菜单

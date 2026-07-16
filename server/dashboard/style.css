@@ -265,6 +265,18 @@ svg.ic.fill { fill: currentColor; stroke: none; }
 .kv:last-child { border-bottom: none; }
 .kv .k { color: var(--text-1); font-size: var(--t-sm); }
 .kv .v { display: flex; align-items: center; gap: 8px; font-weight: 550; font-size: var(--t-sm); }
+.ping-chip {
+  display: inline-flex; align-items: center; justify-content: center;
+  min-width: 48px; height: 26px; padding: 0 9px; border-radius: var(--r-pill);
+  font-family: var(--mono); font-size: var(--t-2xs); font-weight: 700;
+  background: var(--surface-2); color: var(--text-1); border: 1px solid var(--border);
+  cursor: pointer; transition: background var(--dur-1) var(--ease), color var(--dur-1) var(--ease), border-color var(--dur-1) var(--ease), transform var(--dur-1) var(--ease);
+}
+.ping-chip:hover { transform: translateY(-1px); background: var(--surface-hover); color: var(--text); }
+.ping-chip.pending { color: var(--text-2); background: var(--surface-2); border-color: var(--border); }
+.ping-chip.good { background: var(--online-soft); color: var(--online); border-color: transparent; }
+.ping-chip.warn { background: var(--wait-soft); color: var(--wait); border-color: transparent; }
+.ping-chip.bad { background: var(--danger-soft); color: var(--danger); border-color: transparent; }
 .field { margin-top: var(--s3); }
 .field > label { display: block; font-size: var(--t-xs); color: var(--text-1); margin-bottom: 6px; }
 /* 设置弹窗分组（终端设置 / 以后可加别的组）：组标题 + 组内若干小节 */
