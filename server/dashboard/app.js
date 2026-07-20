@@ -447,7 +447,12 @@ async function loadSessions(opts = {}) {
 async function refreshSessionsSoft() {
   if (state.mode !== 'sessions' || !state.macId) return;
   const rows = $$('#session-groups .ses');
-  if (!rows.length) return; // 尚无已渲染列表（首次 / 骨架中）→ 交给 loadSessions
+  if (!rows.length) {
+    // 已经渲染成「没有会话」时也要继续探测；否则 agent 修复/会话新建后，
+    // 页面会永远停在空态，必须手动点刷新。
+    if ($('#session-groups .empty')) loadSessions();
+    return; // 首次 / 骨架中 → 交给正在进行的 loadSessions
+  }
   let data;
   try { data = await api(state.macId, `sessions?assistant=${state.assistant}&scope=${state.scope}`); }
   catch (_) { return; } // 软刷新失败静默，不打断用户
