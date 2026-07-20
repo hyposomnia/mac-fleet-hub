@@ -23,6 +23,7 @@ package main
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -672,6 +673,20 @@ type codexIdx struct {
 	mtime int64
 }
 
+type codexThreadRow struct {
+	ID           string `json:"id"`
+	Title        string `json:"title"`
+	Preview      string `json:"preview"`
+	Cwd          string `json:"cwd"`
+	GitBranch    string `json:"git_branch"`
+	RolloutPath  string `json:"rollout_path"`
+	Source       string `json:"source"`
+	ThreadSource string `json:"thread_source"`
+	UpdatedAt    int64  `json:"updated_at"`
+	UpdatedAtMs  int64  `json:"updated_at_ms"`
+	RecencyAtMs  int64  `json:"recency_at_ms"`
+}
+
 func parseTimeMs(s string) int64 {
 	if s == "" {
 		return 0
@@ -704,6 +719,107 @@ func codexIndex() map[string]codexIdx {
 		}
 		out[x.ID] = codexIdx{title: strings.TrimSpace(x.ThreadName), mtime: parseTimeMs(x.UpdatedAt)}
 	}
+	return out
+}
+
+func codexStateDB() string {
+	for _, p := range []string{
+		filepath.Join(cfg.CodexHome, "state_5.sqlite"),
+		filepath.Join(cfg.CodexHome, "sqlite", "state_5.sqlite"),
+	} {
+		if st, err := os.Stat(p); err == nil && !st.IsDir() {
+			return p
+		}
+	}
+	return ""
+}
+
+func codexThreadTimeMs(r codexThreadRow) int64 {
+	if r.RecencyAtMs > 0 {
+		return r.RecencyAtMs
+	}
+	if r.UpdatedAtMs > 0 {
+		return r.UpdatedAtMs
+	}
+	if r.UpdatedAt > 0 {
+		return r.UpdatedAt * 1000
+	}
+	return 0
+}
+
+func codexThreadTitle(r codexThreadRow, idx map[string]codexIdx) string {
+	if x, ok := idx[r.ID]; ok {
+		if t := strings.TrimSpace(x.title); t != "" && !codexInjected(t) {
+			return trim(t)
+		}
+	}
+	for _, cand := range []string{r.Title, r.Preview} {
+		if t := strings.TrimSpace(cand); t != "" && !codexInjected(t) {
+			return trim(t)
+		}
+	}
+	return "(无标题)"
+}
+
+func codexSessionFromThreadRow(r codexThreadRow, idx map[string]codexIdx) (Session, bool) {
+	if r.ID == "" {
+		return Session{}, false
+	}
+	if strings.HasPrefix(strings.TrimSpace(r.Source), "{") || r.ThreadSource == "subagent" {
+		return Session{}, false
+	}
+	mt := codexThreadTimeMs(r)
+	if mt <= 0 {
+		if r.RolloutPath != "" {
+			mt = statMtime(r.RolloutPath)
+		}
+		if mt <= 0 {
+			mt = time.Now().UnixMilli()
+		}
+	}
+	return Session{
+		SessionID: r.ID, Assistant: "codex", Cwd: r.Cwd, Title: codexThreadTitle(r, idx),
+		GitBranch: r.GitBranch, Mtime: mt, Live: true,
+	}, true
+}
+
+func scanCodexSQLiteSessions(idx map[string]codexIdx) []Session {
+	db := codexStateDB()
+	if db == "" {
+		return nil
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	const q = `select id,substr(title,1,500) as title,substr(preview,1,500) as preview,cwd,git_branch,rollout_path,source,thread_source,updated_at,updated_at_ms,recency_at_ms
+from threads
+where archived=0
+  and coalesce(has_user_event, 1) != 0
+  and coalesce(thread_source, 'user') != 'subagent'
+  and source not like '{%'
+order by coalesce(nullif(recency_at_ms,0), nullif(updated_at_ms,0), updated_at*1000) desc, id desc
+limit 500;`
+	b, err := exec.CommandContext(ctx, "sqlite3", "-readonly", "-json", db, q).Output()
+	if err != nil || len(bytes.TrimSpace(b)) == 0 {
+		return nil
+	}
+	var rows []codexThreadRow
+	if json.Unmarshal(b, &rows) != nil {
+		return nil
+	}
+	out := make([]Session, 0, len(rows))
+	seen := map[string]bool{}
+	for _, r := range rows {
+		s, ok := codexSessionFromThreadRow(r, idx)
+		if !ok || seen[s.SessionID] {
+			continue
+		}
+		seen[s.SessionID] = true
+		out = append(out, s)
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Mtime > out[j].Mtime })
 	return out
 }
 
@@ -865,6 +981,9 @@ func codexRolloutPaths() map[string]string {
 // 同 id 多 rollout（resume/fork）取最新一份。
 func scanCodexSessions() []Session {
 	idx := codexIndex()
+	if ss := scanCodexSQLiteSessions(idx); len(ss) > 0 {
+		return ss
+	}
 	archived := codexArchivedIDs()
 	files, _ := filepath.Glob(filepath.Join(cfg.CodexHome, "sessions", "*", "*", "*", "*.jsonl"))
 	best := map[string]Session{}
