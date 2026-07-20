@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"reflect"
 	"testing"
 	"time"
@@ -17,17 +18,24 @@ type fakeRPCConn struct {
 	calls []recordedCall
 	notes chan rpcNotification
 	reply map[string]json.RawMessage
+	errs  map[string][]error
 }
 
 func newFakeRPCConn() *fakeRPCConn {
 	return &fakeRPCConn{
 		notes: make(chan rpcNotification, 8),
 		reply: map[string]json.RawMessage{},
+		errs:  map[string][]error{},
 	}
 }
 
 func (f *fakeRPCConn) call(ctx context.Context, method string, params interface{}) (json.RawMessage, error) {
 	f.calls = append(f.calls, recordedCall{method: method, params: params})
+	if len(f.errs[method]) > 0 {
+		err := f.errs[method][0]
+		f.errs[method] = f.errs[method][1:]
+		return nil, err
+	}
 	if raw := f.reply[method]; raw != nil {
 		return raw, nil
 	}
@@ -66,6 +74,7 @@ func TestCodexChatBackendResumeUsesThreadResume(t *testing.T) {
 
 func TestCodexChatBackendInputUsesTurnStartTextInput(t *testing.T) {
 	rpc := newFakeRPCConn()
+	rpc.reply["thread/resume"] = json.RawMessage(`{"thread":{"id":"thread-1"}}`)
 	rpc.reply["turn/start"] = json.RawMessage(`{"turn":{"id":"turn-1","items":[],"status":"running"}}`)
 	b := newCodexChatBackend(func(ctx context.Context) (codexRPCConn, func(), error) {
 		return rpc, func() {}, nil
@@ -78,10 +87,10 @@ func TestCodexChatBackendInputUsesTurnStartTextInput(t *testing.T) {
 	if res.TurnID != "turn-1" {
 		t.Fatalf("turn id got %q", res.TurnID)
 	}
-	if len(rpc.calls) != 1 || rpc.calls[0].method != "turn/start" {
+	if len(rpc.calls) != 2 || rpc.calls[0].method != "thread/resume" || rpc.calls[1].method != "turn/start" {
 		t.Fatalf("calls: %+v", rpc.calls)
 	}
-	got := mapFromParams(t, rpc.calls[0].params)
+	got := mapFromParams(t, rpc.calls[1].params)
 	if got["threadId"] != "thread-1" {
 		t.Fatalf("threadId got %v", got["threadId"])
 	}
@@ -96,6 +105,7 @@ func TestCodexChatBackendInputUsesTurnStartTextInput(t *testing.T) {
 
 func TestCodexChatBackendInputUsesLocalImages(t *testing.T) {
 	rpc := newFakeRPCConn()
+	rpc.reply["thread/resume"] = json.RawMessage(`{"thread":{"id":"thread-1"}}`)
 	rpc.reply["turn/start"] = json.RawMessage(`{"turn":{"id":"turn-img","items":[],"status":"running"}}`)
 	b := newCodexChatBackend(func(ctx context.Context) (codexRPCConn, func(), error) {
 		return rpc, func() {}, nil
@@ -108,13 +118,50 @@ func TestCodexChatBackendInputUsesLocalImages(t *testing.T) {
 	if res.TurnID != "turn-img" {
 		t.Fatalf("turn id got %q", res.TurnID)
 	}
-	got := mapFromParams(t, rpc.calls[0].params)
+	got := mapFromParams(t, rpc.calls[1].params)
 	input, ok := got["input"].([]interface{})
 	if !ok || len(input) != 1 {
 		t.Fatalf("input got %#v", got["input"])
 	}
 	if !reflect.DeepEqual(input[0], map[string]interface{}{"type": "localImage", "path": "/tmp/shot.png"}) {
 		t.Fatalf("input[0] got %#v", input[0])
+	}
+}
+
+func TestCodexChatBackendInputRetriesThreadNotFoundOnFreshRPC(t *testing.T) {
+	rpc1 := newFakeRPCConn()
+	rpc1.reply["thread/resume"] = json.RawMessage(`{"thread":{"id":"thread-1"}}`)
+	rpc1.errs["turn/start"] = []error{errors.New("codex app-server turn/start failed: thread not found: thread-1")}
+
+	rpc2 := newFakeRPCConn()
+	rpc2.reply["thread/resume"] = json.RawMessage(`{"thread":{"id":"thread-1"}}`)
+	rpc2.reply["turn/start"] = json.RawMessage(`{"turn":{"id":"turn-2","items":[],"status":"running"}}`)
+
+	connects := 0
+	cleanups := 0
+	b := newCodexChatBackend(func(ctx context.Context) (codexRPCConn, func(), error) {
+		connects++
+		if connects == 1 {
+			return rpc1, func() { cleanups++ }, nil
+		}
+		return rpc2, func() { cleanups++ }, nil
+	})
+
+	res, err := b.Input(context.Background(), "codex", "thread-1", "hello", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.TurnID != "turn-2" {
+		t.Fatalf("turn id got %q", res.TurnID)
+	}
+	if connects != 2 || cleanups != 1 {
+		t.Fatalf("connects=%d cleanups=%d", connects, cleanups)
+	}
+	if got := methods(rpc1.calls); !reflect.DeepEqual(got, []string{"thread/resume", "turn/start"}) {
+		t.Fatalf("rpc1 calls got %#v", got)
+	}
+	if got := methods(rpc2.calls); !reflect.DeepEqual(got, []string{"thread/resume", "turn/start"}) {
+		t.Fatalf("rpc2 calls got %#v", got)
 	}
 }
 
@@ -175,6 +222,14 @@ func TestCodexChatBackendApproveRespondsToServerRequestID(t *testing.T) {
 	if len(rpc.calls) != 1 || rpc.calls[0].method != "response:42" || rpc.calls[0].params != "accept" {
 		t.Fatalf("calls got %+v", rpc.calls)
 	}
+}
+
+func methods(calls []recordedCall) []string {
+	out := make([]string, 0, len(calls))
+	for _, c := range calls {
+		out = append(out, c.method)
+	}
+	return out
 }
 
 func mapFromParams(t *testing.T, params interface{}) map[string]interface{} {

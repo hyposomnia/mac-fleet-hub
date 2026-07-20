@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"sync"
 )
 
@@ -67,17 +68,25 @@ func (b *codexChatBackend) ensure(ctx context.Context) (codexRPCConn, error) {
 	return rpc, nil
 }
 
-func (b *codexChatBackend) Resume(ctx context.Context, assistant, sessionID, mode string) (ChatResumeResult, error) {
-	if assistant != "codex" {
-		return ChatResumeResult{}, errUnsupportedChatAssistant
+func (b *codexChatBackend) resetRPC() {
+	b.mu.Lock()
+	cleanup := b.cleanup
+	b.rpc = nil
+	b.cleanup = nil
+	b.mu.Unlock()
+	if cleanup != nil {
+		cleanup()
 	}
-	rpc, err := b.ensure(ctx)
-	if err != nil {
-		return ChatResumeResult{}, err
-	}
+}
+
+func codexThreadNotFound(err error) bool {
+	return err != nil && strings.Contains(strings.ToLower(err.Error()), "thread not found")
+}
+
+func (b *codexChatBackend) resumeThread(ctx context.Context, rpc codexRPCConn, sessionID string) (string, error) {
 	raw, err := rpc.call(ctx, "thread/resume", map[string]interface{}{"threadId": sessionID})
 	if err != nil {
-		return ChatResumeResult{}, err
+		return "", err
 	}
 	var res struct {
 		Thread struct {
@@ -89,6 +98,21 @@ func (b *codexChatBackend) Resume(ctx context.Context, assistant, sessionID, mod
 	if threadID == "" {
 		threadID = sessionID
 	}
+	return threadID, nil
+}
+
+func (b *codexChatBackend) Resume(ctx context.Context, assistant, sessionID, mode string) (ChatResumeResult, error) {
+	if assistant != "codex" {
+		return ChatResumeResult{}, errUnsupportedChatAssistant
+	}
+	rpc, err := b.ensure(ctx)
+	if err != nil {
+		return ChatResumeResult{}, err
+	}
+	threadID, err := b.resumeThread(ctx, rpc, sessionID)
+	if err != nil {
+		return ChatResumeResult{}, err
+	}
 	return ChatResumeResult{SessionID: sessionID, ThreadID: threadID, Status: "connected"}, nil
 }
 
@@ -99,6 +123,19 @@ func (b *codexChatBackend) Input(ctx context.Context, assistant, sessionID, text
 	rpc, err := b.ensure(ctx)
 	if err != nil {
 		return ChatInputResult{}, err
+	}
+	if _, err := b.resumeThread(ctx, rpc, sessionID); err != nil {
+		if !codexThreadNotFound(err) {
+			return ChatInputResult{}, err
+		}
+		b.resetRPC()
+		rpc, err = b.ensure(ctx)
+		if err != nil {
+			return ChatInputResult{}, err
+		}
+		if _, err := b.resumeThread(ctx, rpc, sessionID); err != nil {
+			return ChatInputResult{}, err
+		}
 	}
 	input := make([]map[string]string, 0, 1+len(images))
 	if text != "" {
@@ -115,7 +152,24 @@ func (b *codexChatBackend) Input(ctx context.Context, assistant, sessionID, text
 		"input":    input,
 	})
 	if err != nil {
-		return ChatInputResult{}, err
+		if !codexThreadNotFound(err) {
+			return ChatInputResult{}, err
+		}
+		b.resetRPC()
+		rpc, err = b.ensure(ctx)
+		if err != nil {
+			return ChatInputResult{}, err
+		}
+		if _, err := b.resumeThread(ctx, rpc, sessionID); err != nil {
+			return ChatInputResult{}, err
+		}
+		raw, err = rpc.call(ctx, "turn/start", map[string]interface{}{
+			"threadId": sessionID,
+			"input":    input,
+		})
+		if err != nil {
+			return ChatInputResult{}, err
+		}
 	}
 	var res struct {
 		Turn struct {
