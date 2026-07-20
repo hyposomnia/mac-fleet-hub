@@ -1277,17 +1277,26 @@ func httpTmuxErr(w http.ResponseWriter, err error) {
 	writeErr(w, http.StatusInternalServerError, "tmux_failed", "启动终端会话失败："+err.Error())
 }
 
+func markSessionRuntime(assistant string, all []Session, ptySet map[string]bool, paths map[string]string) {
+	for i := range all {
+		all[i].Pty = ptySet[shortSidFor(assistant, all[i].SessionID)]
+		// Codex Desktop 的 thread/list / state DB 会把未归档但完全未加载的旧
+		// legacy thread 也列出来；它们的语义更接近「历史/全部」，不是当前
+		// fleet 上真正打开的会话。Codex 的「活跃」按 fleet pty 进程收紧，
+		// 避免一批 notLoaded 迁移旧会话挤在活跃页。
+		if assistant == "codex" {
+			all[i].Live = all[i].Pty
+		}
+		all[i].Waiting = sessionWaiting(paths[all[i].SessionID])
+	}
+}
+
 func handleSessions(w http.ResponseWriter, r *http.Request) {
 	assistant := normAssistant(r.URL.Query().Get("assistant"))
 	all := scanSessionsFor(assistant)
 	// 标记每个会话：是否已有 fleet tmux 进程（pty，前端显示「终止」「进入连接」）、
 	// 是否卡在等你回答/授权（waiting，前端显示棕色点）。jsonl 路径一次性建映射避免逐会话扫目录。
-	ptySet := fleetTmuxSet()
-	paths := jsonlPathsFor(assistant)
-	for i := range all {
-		all[i].Pty = ptySet[shortSidFor(assistant, all[i].SessionID)]
-		all[i].Waiting = sessionWaiting(paths[all[i].SessionID])
-	}
+	markSessionRuntime(assistant, all, fleetTmuxSet(), jsonlPathsFor(assistant))
 	scope := r.URL.Query().Get("scope")
 	list := all
 	if scope == "active" {

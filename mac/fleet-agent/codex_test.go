@@ -161,3 +161,19 @@ func TestCodexThreadTitleSkipsSystemTitles(t *testing.T) {
 		t.Fatalf("system title should be skipped, got %q", got)
 	}
 }
+
+func TestCodexActiveIsFleetPtyNotUnarchivedHistory(t *testing.T) {
+	idOpen := "019e865e-55cc-7362-9cd4-77b6fdf68509"
+	idHistory := "029e865e-55cc-7362-9cd4-77b6fdf68510"
+	all := []Session{
+		{SessionID: idOpen, Assistant: "codex", Live: true},
+		{SessionID: idHistory, Assistant: "codex", Live: true},
+	}
+	markSessionRuntime("codex", all, map[string]bool{shortSidFor("codex", idOpen): true}, nil)
+	if !all[0].Live || !all[0].Pty {
+		t.Fatalf("opened Codex pty should remain active: %+v", all[0])
+	}
+	if all[1].Live || all[1].Pty {
+		t.Fatalf("unopened Codex history should not be active: %+v", all[1])
+	}
+}
