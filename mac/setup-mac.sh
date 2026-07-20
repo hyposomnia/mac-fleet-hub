@@ -28,7 +28,15 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 command -v brew >/dev/null 2>&1 || { echo "未找到 Homebrew，请先装：https://brew.sh" >&2; exit 1; }
 BREW_PREFIX="$(brew --prefix)"
 CLAUDE_BIN="$(command -v claude || echo "$BREW_PREFIX/bin/claude")"
-CODEX_BIN="$(command -v codex || echo "$BREW_PREFIX/bin/codex")"
+if [[ -n "${CODEX_BIN:-}" ]]; then
+  CODEX_BIN="$CODEX_BIN"
+elif command -v codex >/dev/null 2>&1; then
+  CODEX_BIN="$(command -v codex)"
+elif [[ -x "/Applications/ChatGPT.app/Contents/Resources/codex" ]]; then
+  CODEX_BIN="/Applications/ChatGPT.app/Contents/Resources/codex"
+else
+  CODEX_BIN="$BREW_PREFIX/bin/codex"
+fi
 
 # --- 1. Tailscale 客户端 + （可选）入网 Headscale ---
 TS_BIN="$(command -v tailscale || echo /Applications/Tailscale.app/Contents/MacOS/Tailscale)"
