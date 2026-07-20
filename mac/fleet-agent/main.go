@@ -682,6 +682,8 @@ type codexThreadRow struct {
 	RolloutPath  string `json:"rollout_path"`
 	Source       string `json:"source"`
 	ThreadSource string `json:"thread_source"`
+	CreatedAt    int64  `json:"created_at"`
+	CreatedAtMs  int64  `json:"created_at_ms"`
 	UpdatedAt    int64  `json:"updated_at"`
 	UpdatedAtMs  int64  `json:"updated_at_ms"`
 	RecencyAtMs  int64  `json:"recency_at_ms"`
@@ -747,6 +749,25 @@ func codexThreadTimeMs(r codexThreadRow) int64 {
 	return 0
 }
 
+func codexThreadCreatedMs(r codexThreadRow) int64 {
+	if r.CreatedAtMs > 0 {
+		return r.CreatedAtMs
+	}
+	if r.CreatedAt > 0 {
+		return r.CreatedAt * 1000
+	}
+	return 0
+}
+
+func codexThreadHasRealActivity(r codexThreadRow) bool {
+	created := codexThreadCreatedMs(r)
+	latest := codexThreadTimeMs(r)
+	if created <= 0 || latest <= 0 {
+		return true
+	}
+	return latest-created > time.Minute.Milliseconds()
+}
+
 func codexThreadTitle(r codexThreadRow, idx map[string]codexIdx) string {
 	if x, ok := idx[r.ID]; ok {
 		if t := strings.TrimSpace(x.title); t != "" && !codexInjected(t) {
@@ -779,7 +800,7 @@ func codexSessionFromThreadRow(r codexThreadRow, idx map[string]codexIdx) (Sessi
 	}
 	return Session{
 		SessionID: r.ID, Assistant: "codex", Cwd: r.Cwd, Title: codexThreadTitle(r, idx),
-		GitBranch: r.GitBranch, Mtime: mt, Live: true,
+		GitBranch: r.GitBranch, Mtime: mt, Live: codexThreadHasRealActivity(r),
 	}, true
 }
 
@@ -790,10 +811,9 @@ func scanCodexSQLiteSessions(idx map[string]codexIdx) []Session {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
-	const q = `select id,substr(title,1,500) as title,substr(preview,1,500) as preview,cwd,git_branch,rollout_path,source,thread_source,updated_at,updated_at_ms,recency_at_ms
+	const q = `select id,substr(title,1,500) as title,substr(preview,1,500) as preview,cwd,git_branch,rollout_path,source,thread_source,created_at,created_at_ms,updated_at,updated_at_ms,recency_at_ms
 from threads
 where archived=0
-  and coalesce(has_user_event, 1) != 0
   and coalesce(thread_source, 'user') != 'subagent'
   and source not like '{%'
 order by coalesce(nullif(recency_at_ms,0), nullif(updated_at_ms,0), updated_at*1000) desc, id desc
@@ -1280,12 +1300,12 @@ func httpTmuxErr(w http.ResponseWriter, err error) {
 func markSessionRuntime(assistant string, all []Session, ptySet map[string]bool, paths map[string]string) {
 	for i := range all {
 		all[i].Pty = ptySet[shortSidFor(assistant, all[i].SessionID)]
-		// Codex Desktop 的 thread/list / state DB 会把未归档但完全未加载的旧
-		// legacy thread 也列出来；它们的语义更接近「历史/全部」，不是当前
-		// fleet 上真正打开的会话。Codex 的「活跃」按 fleet pty 进程收紧，
-		// 避免一批 notLoaded 迁移旧会话挤在活跃页。
+		// Codex Desktop 的 thread/list / state DB 会把未归档但导入后从未真实
+		// 活动过的旧 legacy thread 也列出来；它们更接近「历史/全部」。Codex
+		// 的「活跃」保留有真实后续活动的未归档线程，同时当前 fleet 已打开
+		// pty 的会话必须算活跃。
 		if assistant == "codex" {
-			all[i].Live = all[i].Pty
+			all[i].Live = all[i].Live || all[i].Pty
 		}
 		all[i].Waiting = sessionWaiting(paths[all[i].SessionID])
 	}
