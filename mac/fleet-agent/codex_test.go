@@ -135,3 +135,55 @@ func TestCodexRolloutMetaSkipsFallbackTitleWhenIndexHasTitle(t *testing.T) {
 		t.Fatalf("needTitle=true 应保持 fallback title，得到 %q", title)
 	}
 }
+
+func TestCodexThreadRowUsesIndexTitleAndRecencyTime(t *testing.T) {
+	row := codexThreadRow{
+		ID:           "019e865e-55cc-7362-9cd4-77b6fdf68509",
+		Title:        "这是一条非常长的首条用户消息，不能直接当列表标题",
+		Preview:      "预览",
+		Cwd:          "/repo",
+		GitBranch:    "main",
+		Source:       "vscode",
+		ThreadSource: "user",
+		UpdatedAt:    100,
+		UpdatedAtMs:  200_000,
+		RecencyAtMs:  300_000,
+	}
+	idx := map[string]codexIdx{row.ID: {title: "短标题", mtime: 123}}
+
+	got, ok := codexSessionFromThreadRow(row, idx)
+	if !ok {
+		t.Fatal("row should be accepted")
+	}
+	if got.Title != "短标题" {
+		t.Fatalf("title got %q", got.Title)
+	}
+	if got.Mtime != 300_000 {
+		t.Fatalf("mtime got %d", got.Mtime)
+	}
+	if got.Cwd != "/repo" || got.GitBranch != "main" {
+		t.Fatalf("bad session: %+v", got)
+	}
+}
+
+func TestCodexThreadRowRejectsSubagents(t *testing.T) {
+	for _, row := range []codexThreadRow{
+		{ID: "019e865e-55cc-7362-9cd4-77b6fdf68509", Source: `{"subagent":{"other":"guardian"}}`, ThreadSource: "user"},
+		{ID: "019e865e-55cc-7362-9cd4-77b6fdf68509", Source: "vscode", ThreadSource: "subagent"},
+	} {
+		if _, ok := codexSessionFromThreadRow(row, nil); ok {
+			t.Fatalf("subagent row should be rejected: %+v", row)
+		}
+	}
+}
+
+func TestCodexThreadTitleSkipsSystemTitles(t *testing.T) {
+	row := codexThreadRow{
+		ID:      "019e865e-55cc-7362-9cd4-77b6fdf68509",
+		Title:   "The user interrupted the previous turn on purpose. Any running work should stop.",
+		Preview: "<codex_delegation>\n  <source_thread_id>abc</source_thread_id>",
+	}
+	if got := codexThreadTitle(row, nil); got != "(无标题)" {
+		t.Fatalf("system title should be skipped, got %q", got)
+	}
+}

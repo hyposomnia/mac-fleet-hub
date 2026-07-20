@@ -83,6 +83,8 @@ const state = {
   pool: [],              // 终端 iframe 池：每个打开的会话一个常驻 iframe（见「终端 iframe 池」段）
   current: null,         // 当前显示的池条目（null = 空态 / 文件模式）
   settings: null,        // dashboard 偏好（窗口上限/回滚行数，网关存；GET /api/settings）
+  selfDraw: false,       // 实验：Codex 自绘界面（localStorage，默认关）
+  chat: null,            // 当前自绘 Codex 会话状态（独立于 ttyd pool）
 };
 
 // 偏好默认（拉取失败/未设时回退，与 server/enroll defaultSettings 对齐）
@@ -111,6 +113,32 @@ async function api(id, path, opts) {
     throw new Error(msg);
   }
   return r.json();
+}
+
+const SELF_DRAW_KEY = 'fleet-experiment-selfdraw';
+let chatIMEComposing = false;
+let mobileIMEComposing = false;
+function initExperimentFlags() {
+  try { state.selfDraw = localStorage.getItem(SELF_DRAW_KEY) === '1'; } catch (_) { state.selfDraw = false; }
+  updateExperimentMenus();
+}
+function updateExperimentMenus() {
+  $$('.selfdraw-mark').forEach((el) => el.classList.toggle('on', !!state.selfDraw));
+}
+function toggleSelfDraw() {
+  state.selfDraw = !state.selfDraw;
+  try { localStorage.setItem(SELF_DRAW_KEY, state.selfDraw ? '1' : '0'); } catch (_) {}
+  updateExperimentMenus();
+  if (!state.selfDraw) {
+    closeChatPane();
+    restoreTermOrEmpty();
+  } else if (state.assistant === 'codex' && state.selectedSid) {
+    loadSessions();
+  }
+}
+function canSelfDrawChat() { return state.selfDraw && state.assistant === 'codex' && state.mode === 'sessions'; }
+function isIMEComposing(e, composingFlag) {
+  return !!(composingFlag || e.isComposing || e.keyCode === 229);
 }
 
 // ============================================================
@@ -334,6 +362,7 @@ function setMode(mode) {
 function setAssistant(assistant) {
   state.assistant = assistant === 'codex' ? 'codex' : 'claude';
   state.selectedSid = null;
+  closeChatPane();
   $$('[data-assistant]').forEach((b) => b.setAttribute('aria-selected', String(b.dataset.assistant === state.assistant)));
   loadSessions({ clear: true });
   refreshHostCounts();
@@ -454,6 +483,7 @@ async function refreshSessionsSoft() {
 function sessionRow(s) {
   const sid = s.sessionId;
   const assistant = s.assistant || state.assistant;
+  const selfDraw = canSelfDrawChat() && assistant === 'codex';
   const inPool = !!poolFind(state.macId, sid, assistant);
   const live = !!s.pty; // 有运行中进程（行尾绿点）：再连只是重新 attach，不需选权限模式
   const stop = s.pty && h('span', { class: 'stopbtn', title: '终止进程（会话保留）',
@@ -467,7 +497,7 @@ function sessionRow(s) {
     stop,
   );
   // 池内 / 有进程的会话点行即直接进入，不需按钮；仅冷会话才展开三种权限模式。
-  const acts = (inPool || live) ? null : h('div', { class: 'ses-acts' },
+  const acts = (selfDraw || inPool || live) ? null : h('div', { class: 'ses-acts' },
     h('button', { class: 'btn sm accent', title: '普通连接（逐项确认工具权限）',
       onclick: (e) => { e.stopPropagation(); connect(sid, s.title, s.cwd, 'default'); } },
       h('span', { class: 'gi', text: '→' }), '连接'),
@@ -481,6 +511,7 @@ function sessionRow(s) {
   }, top, acts);
   // 池内 → poolShow 瞬时切换；有进程未在池 → 直接重新 attach；冷会话 → 仅高亮 + 展开三按钮。
   row.onclick = () => {
+    if (selfDraw) { openChatSession(s); return; }
     if (!inPool && live) { connect(sid, s.title, s.cwd, 'default'); return; }
     selectSes(sid);
   };
@@ -569,6 +600,7 @@ function poolEvict() {
 
 // 显示某个池条目（隐藏文件 iframe 与其余终端，仅它 .show）。
 function poolShow(entry) {
+  closeChatPane();
   state.current = entry;
   // 同步老字段，watch / reload / resize / 移动输入坞复用
   state.assistant = entry.assistant || state.assistant;
@@ -589,6 +621,7 @@ function poolShow(entry) {
 
 // 空态：隐藏所有 iframe，复位头部。
 function showEmpty() {
+  closeChatPane();
   state.current = null;
   state.termSid = state.termUrl = state.termSessionId = null;
   for (const e of state.pool) e.iframe.classList.remove('show');
@@ -668,6 +701,271 @@ function restoreTermOrEmpty() {
   else showEmpty();
 }
 
+// ============================================================
+//  Codex 自绘会话（实验）：独立于 ttyd / iframe pool，仅替换右侧窗口区域
+// ============================================================
+function closeChatPane(reset = true) {
+  const chat = state.chat;
+  if (chat && chat.events) { try { chat.events.close(); } catch (_) {} }
+  if (chat && chat.objectUrls) for (const u of chat.objectUrls) { try { URL.revokeObjectURL(u); } catch (_) {} }
+  if (reset) state.chat = null;
+  const pane = $('#chat-pane');
+  if (pane) pane.hidden = true;
+}
+
+function showChatPane(title, cwd) {
+  state.current = null;
+  state.termSid = state.termUrl = null;
+  for (const e of state.pool) e.iframe.classList.remove('show');
+  $('#frame').classList.remove('show');
+  $('#empty-state').hidden = true;
+  $('#mobile-input').hidden = true;
+  $('#reconnect-btn').hidden = true;
+  $('#fullscreen-btn').hidden = false;
+  $('#chat-pane').hidden = false;
+  const tt = $('#win-title'); clear(tt);
+  tt.append(h('span', { class: 'dot live' }), h('span', { class: 'ttl', text: title || 'Codex 会话' }), h('span', { class: 'badge live', text: '自绘' }));
+  $('#win-meta').textContent = macName(state.macId) + ' · ' + (cwd ? projName(cwd) + ' · ' : '') + 'Codex Desktop-backed';
+  if (isMobile()) $('#app').classList.add('term-open');
+}
+
+function chatAtBottom() {
+  const sc = $('#chat-scroll');
+  return sc.scrollHeight - sc.scrollTop - sc.clientHeight < 64;
+}
+
+function renderChat() {
+  const chat = state.chat;
+  const sc = $('#chat-scroll');
+  if (!chat || !sc) return;
+  const stick = chatAtBottom();
+  const stack = h('div', { class: 'chat-stack' });
+  if (chat.loading) stack.append(chatRow(h('div', { class: 'chat-card muted', text: '正在连接 Codex app-server…' })));
+  const model = chat.model || FleetChatModel.createChatState();
+  for (const id of model.messages) {
+    const item = model.items[id];
+    if (!item) continue;
+    stack.append(renderChatItem(item));
+  }
+  if (model.error) stack.append(renderChatError(model.error));
+  clear(sc); sc.append(stack);
+  if (stick) sc.scrollTop = sc.scrollHeight;
+  $('#chat-jump').hidden = chatAtBottom();
+}
+
+function chatRow(body, cls = '') {
+  return h('div', { class: 'chat-row ' + cls }, body);
+}
+
+function renderChatItem(item) {
+  if (item.type === 'user') {
+    const parts = [];
+    if (item.text) parts.push(h('div', { text: item.text }));
+    if (item.images && item.images.length) {
+      parts.push(h('div', { class: 'chat-images' }, item.images.map((img) => {
+        const src = chatImageSrc(img);
+        return src ? h('img', { class: 'chat-img', src, alt: img.name || 'image' }) : h('div', { class: 'chat-img muted', text: img.name || '图片' });
+      })));
+    }
+    return chatRow(h('div', { class: 'chat-card' }, parts.length ? parts : h('div', { text: '' })), 'user');
+  }
+  if (item.type === 'assistant') return chatRow(h('div', { class: 'chat-card', text: item.text || '…' }), 'assistant');
+  if (item.type === 'tool') return chatRow(h('div', { class: 'chat-tool' },
+    h('div', { class: 'chat-tool-h' }, h('span', { text: item.title || '命令执行' }), item.cwd ? h('span', { class: 'muted mono', text: item.cwd }) : null),
+    h('pre', { text: item.output || '…' })), 'tool');
+  if (item.type === 'approval') return chatRow(h('div', { class: 'chat-approval' },
+    h('div', { class: 'chat-approval-h', text: item.status === 'resolved' ? '审批已处理' : (item.kind === 'command' ? '需要批准命令执行' : '需要批准权限 / 文件改动') }),
+    h('div', { class: 'chat-approval-body' },
+      item.reason ? h('div', { text: item.reason }) : null,
+      item.command ? h('code', { text: item.command }) : null,
+      item.cwd ? h('div', { class: 'muted mono', text: item.cwd }) : null,
+      item.status === 'resolved' ? h('div', { class: 'muted', text: '已发送决定。' }) : h('div', { class: 'chat-approval-actions' },
+        h('button', { class: 'btn sm primary', onclick: () => resolveApproval(item.requestId, 'approved') }, '批准'),
+        h('button', { class: 'btn sm', onclick: () => resolveApproval(item.requestId, 'denied') }, '拒绝')))), 'approval');
+  if (item.type === 'diff') return chatRow(h('div', { class: 'chat-diff' }, h('div', { class: 'chat-diff-h', text: '文件改动' }), h('div', { class: 'chat-diff-body', text: '已收到文件改动更新（diff 展开后续补齐）' })), 'diff');
+  return chatRow(h('div', { class: 'chat-card muted', text: JSON.stringify(item) }));
+}
+
+function chatImageSrc(img) {
+  if (!img) return '';
+  if (img.previewUrl) return img.previewUrl;
+  if (img.url && img.url.startsWith('/api/')) return `${apiBase(state.macId)}${img.url}`;
+  return img.url || '';
+}
+
+function renderChatAttachments() {
+  const box = $('#chat-attachments');
+  const chat = state.chat;
+  if (!box || !chat) return;
+  const atts = chat.attachments || [];
+  box.hidden = atts.length === 0;
+  clear(box);
+  for (const att of atts) {
+    box.append(h('div', { class: 'chat-att' + (att.error ? ' err' : '') },
+      att.previewUrl ? h('img', { src: att.previewUrl, alt: att.name || 'image' }) : null,
+      h('span', { class: 'st', text: att.error ? '失败' : (att.uploading ? '...' : '已就绪') }),
+      h('button', { type: 'button', title: '移除', onclick: () => removeChatAttachment(att.localId) }, '×')));
+  }
+}
+
+function removeChatAttachment(localId) {
+  const chat = state.chat;
+  if (!chat) return;
+  chat.attachments = (chat.attachments || []).filter((att) => att.localId !== localId);
+  renderChatAttachments();
+}
+
+async function addChatFiles(files) {
+  const chat = state.chat;
+  if (!chat || !files || !files.length) return;
+  chat.attachments = chat.attachments || [];
+  chat.objectUrls = chat.objectUrls || [];
+  for (const file of Array.from(files)) {
+    if (!file || !String(file.type || '').startsWith('image/')) {
+      toast('只能上传图片。', 'err');
+      continue;
+    }
+    const previewUrl = URL.createObjectURL(file);
+    chat.objectUrls.push(previewUrl);
+    const att = { localId: 'local-' + Date.now() + '-' + Math.random().toString(16).slice(2), name: file.name, size: file.size, mime: file.type, previewUrl, uploading: true };
+    chat.attachments.push(att);
+    renderChatAttachments();
+    uploadChatFile(chat, att, file);
+  }
+}
+
+async function uploadChatFile(chat, att, file) {
+  try {
+    const fd = new FormData();
+    fd.append('assistant', 'codex');
+    fd.append('sessionId', chat.sessionId);
+    fd.append('file', file, file.name || 'image');
+    const r = await fetch(`${apiBase(state.macId)}/api/chat/upload`, { method: 'POST', body: fd });
+    if (!r.ok) {
+      let msg = `上传失败：${r.status}`;
+      try { const j = await r.json(); if (j && j.message) msg = j.message; } catch (_) {}
+      throw new Error(msg);
+    }
+    const saved = await r.json();
+    if (!state.chat || state.chat !== chat) return;
+    Object.assign(att, saved, { uploading: false, error: '' });
+  } catch (e) {
+    att.uploading = false;
+    att.error = e.message || '上传失败';
+    toast('图片上传失败：' + att.error, 'err');
+  } finally {
+    if (state.chat === chat) renderChatAttachments();
+  }
+}
+
+function renderChatError(msg) {
+  return chatRow(h('div', { class: 'chat-error' },
+    h('div', { text: msg }),
+    h('div', { class: 'chat-error-actions' }, h('button', { class: 'btn sm accent', onclick: openChatFallback }, '用终端打开'))), 'error');
+}
+
+async function openChatSession(s) {
+  if (!canSelfDrawChat()) return;
+  state.selectedSid = s.sessionId;
+  $$('.ses').forEach((el) => el.classList.toggle('sel', el.dataset.sid === s.sessionId));
+  closeChatPane();
+  stopWatch(); hideBanner(); closeMenus();
+  state.chat = {
+    sessionId: s.sessionId, title: s.title || 'Codex 会话', cwd: s.cwd || '',
+    model: FleetChatModel.createChatState(), loading: true, events: null, attachments: [], objectUrls: [],
+  };
+  showChatPane(state.chat.title, state.chat.cwd);
+  renderChat();
+  startChatEvents();
+  try {
+    await api(state.macId, 'chat/resume', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ assistant: 'codex', sessionId: s.sessionId, mode: 'default' }),
+    });
+    if (state.chat && state.chat.sessionId === s.sessionId) { state.chat.loading = false; renderChat(); }
+  } catch (e) {
+    if (state.chat && state.chat.sessionId === s.sessionId) {
+      state.chat.loading = false;
+      state.chat.model = FleetChatModel.reduceChatEvent(state.chat.model, { type: 'error', data: { message: e.message } });
+      renderChat();
+    }
+  }
+}
+
+function startChatEvents() {
+  const chat = state.chat;
+  if (!chat) return;
+  const url = `${apiBase(state.macId)}/api/chat/events?assistant=codex&sessionId=${encodeURIComponent(chat.sessionId)}`;
+  const es = new EventSource(url);
+  chat.events = es;
+  es.onmessage = (e) => {
+    if (!state.chat || state.chat !== chat) return;
+    try {
+      const ev = JSON.parse(e.data);
+      chat.model = FleetChatModel.reduceChatEvent(chat.model, ev);
+      renderChat();
+    } catch (_) {}
+  };
+  es.onerror = () => {
+    if (!state.chat || state.chat !== chat || chat.loading) return;
+    // EventSource 会自动重连；瞬时断流不要写进消息流，否则会像真实回复一样污染历史。
+    chat.streamState = 'reconnecting';
+  };
+}
+
+async function submitChatInput() {
+  const chat = state.chat;
+  const input = $('#chat-input');
+  const raw = typeof input.value === 'string' ? input.value : '';
+  const text = raw.trim();
+  if (!chat) return;
+  const pending = chat.attachments || [];
+  if (pending.some((att) => att.uploading)) { toast('图片还在上传，稍等一下。'); return; }
+  if (pending.some((att) => att.error || !att.id)) { toast('有图片上传失败，先移除或重新选择。', 'err'); return; }
+  if (!text && pending.length === 0) return;
+  const images = pending.map((att) => ({ id: att.id, name: att.name, mime: att.mime, size: att.size, url: att.url, previewUrl: att.previewUrl }));
+  input.value = '';
+  chat.attachments = [];
+  renderChatAttachments();
+  chat.model = FleetChatModel.appendUserMessage(chat.model, text, 'user-' + Date.now(), images);
+  chat.loading = false;
+  renderChat();
+  try {
+    await api(state.macId, 'chat/input', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ assistant: 'codex', sessionId: chat.sessionId, text: raw, images: images.map((img) => ({ id: img.id })) }),
+    });
+  } catch (e) {
+    if (state.chat === chat) {
+      chat.model = FleetChatModel.reduceChatEvent(chat.model, { type: 'error', data: { message: e.message } });
+      renderChat();
+    }
+  }
+}
+
+async function resolveApproval(requestId, decision) {
+  const chat = state.chat;
+  if (!chat) return;
+  try {
+    await api(state.macId, 'chat/approve', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ assistant: 'codex', sessionId: chat.sessionId, requestId, decision }),
+    });
+    chat.model = FleetChatModel.reduceChatEvent(chat.model, { type: 'approval_resolved', data: { requestId, decision } });
+    renderChat();
+  } catch (e) {
+    toast('审批失败：' + e.message, 'err');
+  }
+}
+
+function openChatFallback() {
+  const chat = state.chat;
+  if (!chat) return;
+  const { sessionId, title, cwd } = chat;
+  closeChatPane();
+  connect(sessionId, title, cwd, 'default');
+}
+
 // 刷新/崩溃后从 sessionStorage 快照恢复终端（init 唯一入口；无快照则退回空态）。
 // connect 取 state.macId / state.assistant，故恢复每条前先把这两者切到该条；逐条重连
 // （受 poolMax 上限约束，poolAdd 内已 poolEvict）；全部恢复后复位到快照当前主机/助手、
@@ -707,6 +1005,7 @@ function backToList() { $('#app').classList.remove('term-open'); }
 // ============================================================
 function loadFiles() {
   if (!state.macId) return;
+  closeChatPane();
   stopWatch(); hideBanner();
   $('#app').classList.remove('term-open');
   state.current = null;                                  // 文件模式：脱离终端池（reconnect/reload 转而作用于 #frame）
@@ -950,8 +1249,10 @@ function wireMobileInput() {
   };
   // Enter 发送、Shift+Enter 换行
   $('#cmd-input').addEventListener('keydown', (e) => {
-    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); $('#send-btn').click(); }
+    if (e.key === 'Enter' && !e.shiftKey && !isIMEComposing(e, mobileIMEComposing)) { e.preventDefault(); $('#send-btn').click(); }
   });
+  $('#cmd-input').addEventListener('compositionstart', () => { mobileIMEComposing = true; });
+  $('#cmd-input').addEventListener('compositionend', () => { mobileIMEComposing = false; });
 }
 
 // ============================================================
@@ -959,6 +1260,7 @@ function wireMobileInput() {
 // ============================================================
 function init() {
   initTheme();
+  initExperimentFlags();
   renderHosts();
   refreshNames();
   refreshSettings();
@@ -985,6 +1287,20 @@ function init() {
   $('#reload-dismiss').onclick = hideBanner;
   $('#reconnect-btn').onclick = () => { const f = curFrame(); try { f.contentWindow.location.reload(); } catch (_) { f.src = f.src; } };
   $('#fullscreen-btn').onclick = () => $('.win-body').requestFullscreen?.();
+  $('#chat-composer').onsubmit = (e) => { e.preventDefault(); submitChatInput(); };
+  $('#chat-attach').onclick = () => $('#chat-file').click();
+  $('#chat-file').addEventListener('change', (e) => { addChatFiles(e.target.files); e.target.value = ''; });
+  $('#chat-input').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && !e.shiftKey && !isIMEComposing(e, chatIMEComposing)) { e.preventDefault(); submitChatInput(); }
+  });
+  $('#chat-input').addEventListener('paste', (e) => {
+    const files = [...(e.clipboardData?.files || [])].filter((f) => String(f.type || '').startsWith('image/'));
+    if (files.length) { e.preventDefault(); addChatFiles(files); }
+  });
+  $('#chat-input').addEventListener('compositionstart', () => { chatIMEComposing = true; });
+  $('#chat-input').addEventListener('compositionend', () => { chatIMEComposing = false; });
+  $('#chat-scroll').addEventListener('scroll', () => { $('#chat-jump').hidden = chatAtBottom(); });
+  $('#chat-jump').onclick = () => { const sc = $('#chat-scroll'); sc.scrollTop = sc.scrollHeight; $('#chat-jump').hidden = true; };
 
   // 用户菜单（主题切换已收进菜单内 data-act="theme"，不再单独占一行）
   $('#user-btn').onclick = (e) => toggleMenu('usermenu', e);
@@ -995,6 +1311,7 @@ function init() {
       closeMenus();
       if (b.dataset.act === 'theme') toggleTheme();
       else if (b.dataset.act === 'settings') openSettings();
+      else if (b.dataset.act === 'selfdraw') toggleSelfDraw();
       else if (b.dataset.act === 'logout') doLogout();
     };
   });
