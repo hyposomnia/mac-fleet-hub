@@ -847,7 +847,11 @@ func codexText(raw json.RawMessage) string {
 
 // codex 把环境上下文 / AGENTS.md / 权限说明等当作「user 消息」注入在对话开头，
 // 取回退标题时要跳过这些伪 user 文本，否则标题会变成「<environment_context>…」之类。
-var codexInjectedPrefixes = []string{"<environment_context", "<user_instructions", "# AGENTS.md", "<permissions", "# Codex", "# Files mentioned by the user", "<approval", "<plan_mode"}
+var codexInjectedPrefixes = []string{
+	"<environment_context", "<user_instructions", "# AGENTS.md", "<permissions", "# Codex",
+	"# Files mentioned by the user", "<approval", "<plan_mode", "<codex_delegation",
+	"The user interrupted the previous turn", "The following is the Codex agent history",
+}
 
 func codexInjected(s string) bool {
 	for _, p := range codexInjectedPrefixes {

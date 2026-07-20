@@ -150,3 +150,14 @@ func TestCodexThreadRowRejectsSubagents(t *testing.T) {
 		}
 	}
 }
+
+func TestCodexThreadTitleSkipsSystemTitles(t *testing.T) {
+	row := codexThreadRow{
+		ID:      "019e865e-55cc-7362-9cd4-77b6fdf68509",
+		Title:   "The user interrupted the previous turn on purpose. Any running work should stop.",
+		Preview: "<codex_delegation>\n  <source_thread_id>abc</source_thread_id>",
+	}
+	if got := codexThreadTitle(row, nil); got != "(无标题)" {
+		t.Fatalf("system title should be skipped, got %q", got)
+	}
+}
