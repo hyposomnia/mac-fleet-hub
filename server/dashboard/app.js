@@ -8,6 +8,7 @@ const BASE = '';   // 挂在子域根路径（如 fleet.example.com）；若改�
 // 故没入网的台不会出现空占位。显示名从 /api/names（gateway 存）覆盖默认「Mac N」。
 let MACS = [];          // [{id:'m1'}, ...]，按序号排
 let macNames = {};      // id -> 自定义显示名
+let sessionLoadSeq = 0; // 会话列表请求序号：切主机/切筛选时丢弃旧响应，避免慢请求回写旧列表
 
 // ============================================================
 const $ = (s, r = document) => r.querySelector(s);
@@ -213,6 +214,7 @@ function renderHosts() {
 }
 
 function selectMac(id) {
+  if (state.macId === id) return;
   state.macId = id;
   // 切主机：终端回空态（不自动复用上一台的窗口）。池条目按 macId 保留、仍占 pty；
   // 选中本台某个已开会话会瞬时显示（poolFind 按 macId 匹配）。
@@ -221,7 +223,7 @@ function selectMac(id) {
   renderHosts();
   closeMenus();
   if (state.mode === 'files') loadFiles();
-  else { loadSessions(); showEmpty(); }
+  else { loadSessions({ clear: true }); showEmpty(); }
 }
 
 // ============================================================
@@ -333,33 +335,52 @@ function setAssistant(assistant) {
   state.assistant = assistant === 'codex' ? 'codex' : 'claude';
   state.selectedSid = null;
   $$('[data-assistant]').forEach((b) => b.setAttribute('aria-selected', String(b.dataset.assistant === state.assistant)));
-  loadSessions();
+  loadSessions({ clear: true });
   refreshHostCounts();
 }
 
 // ============================================================
 //  会话列表
 // ============================================================
-async function loadSessions() {
+function setSessionsLoading(on) {
+  const btn = $('#refresh-btn');
+  if (!btn) return;
+  btn.classList.toggle('loading', on);
+  btn.setAttribute('aria-busy', String(on));
+}
+
+function renderSessionSkeleton(wrap) {
+  clear(wrap);
+  for (let i = 0; i < 3; i++) wrap.append(h('div', { class: 'skel-ses' }, h('div', { class: 'skel l1' }), h('div', { class: 'skel l2' })));
+}
+
+async function loadSessions(opts = {}) {
   if (state.mode !== 'sessions' || !state.macId) return;
   const wrap = $('#session-groups');
-  // 仅列表为空（首次/切主机）才显示骨架；刷新已有内容时保留旧内容直到新数据就绪，避免闪
-  if (!wrap.querySelector('.grp, .empty')) {
-    clear(wrap);
-    for (let i = 0; i < 3; i++) wrap.append(h('div', { class: 'skel-ses' }, h('div', { class: 'skel l1' }), h('div', { class: 'skel l2' })));
-  }
+  const req = ++sessionLoadSeq;
+  const macId = state.macId;
+  const assistant = state.assistant;
+  const scope = state.scope;
+  const stale = () => req !== sessionLoadSeq || state.mode !== 'sessions' || state.macId !== macId || state.assistant !== assistant || state.scope !== scope;
+  setSessionsLoading(true);
+  // 切主机/切助手/切范围时立即清空旧列表；普通刷新保留旧内容直到新数据就绪，避免闪。
+  if (opts.clear || !wrap.querySelector('.grp, .empty, .skel-ses')) renderSessionSkeleton(wrap);
 
   let data;
-  try { data = await api(state.macId, `sessions?assistant=${state.assistant}&scope=${state.scope}`); }
+  try { data = await api(macId, `sessions?assistant=${assistant}&scope=${scope}`); }
   catch (e) {
+    if (stale()) return;
     clear(wrap);
-    wrap.append(h('div', { class: 'empty' }, '连不上 ' + macName(state.macId), h('br'), h('small', { text: e.message })));
+    wrap.append(h('div', { class: 'empty' }, '连不上 ' + macName(macId), h('br'), h('small', { text: e.message })));
+    setSessionsLoading(false);
     return;
   }
+  if (stale()) return;
+  setSessionsLoading(false);
 
   const sessions = data.sessions || [];
-  const activeN = state.scope === 'active' ? sessions.length : sessions.filter((s) => s.live).length;
-  state.counts[state.macId] = activeN;
+  const activeN = scope === 'active' ? sessions.length : sessions.filter((s) => s.live).length;
+  state.counts[macId] = activeN;
 
   const groups = {};
   for (const s of sessions) (groups[s.cwd] ||= []).push(s);
@@ -953,7 +974,7 @@ function init() {
   $$('[data-scope]').forEach((b) => b.onclick = () => {
     state.scope = b.dataset.scope;
     $$('[data-scope]').forEach((x) => x.setAttribute('aria-selected', String(x === b)));
-    loadSessions();
+    loadSessions({ clear: true });
   });
   $('#refresh-btn').onclick = () => { loadSessions(); refreshHostCounts(); };
   $('#new-session').onclick = showProjects;

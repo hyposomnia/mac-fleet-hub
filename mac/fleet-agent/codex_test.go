@@ -109,3 +109,29 @@ func TestCodexIDFromName(t *testing.T) {
 		t.Fatalf("非法文件名应返回空，得到 %q", got)
 	}
 }
+
+func TestCodexRolloutMetaSkipsFallbackTitleWhenIndexHasTitle(t *testing.T) {
+	dir := t.TempDir()
+	id := "019e865e-55cc-7362-9cd4-77b6fdf68509"
+	path := filepath.Join(dir, "rollout-2026-06-02T11-26-29-"+id+".jsonl")
+	body := strings.Join([]string{
+		`{"type":"session_meta","payload":{"id":"` + id + `","cwd":"/proj/a","originator":"Codex Desktop","source":"vscode","timestamp":"2026-06-18T08:18:37Z"}}`,
+		`{"type":"response_item","payload":{"role":"user","content":"fallback title"}}`,
+	}, "\n")
+	if err := os.WriteFile(path, []byte(body), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	gotID, cwd, _, originator, srcStr, title := codexRolloutMeta(path, false)
+	if gotID != id || cwd != "/proj/a" || originator != "Codex Desktop" || !srcStr {
+		t.Fatalf("meta 解析异常: id=%q cwd=%q originator=%q srcStr=%v", gotID, cwd, originator, srcStr)
+	}
+	if title != "" {
+		t.Fatalf("needTitle=false 时不应读取 fallback title，得到 %q", title)
+	}
+
+	_, _, _, _, _, title = codexRolloutMeta(path, true)
+	if title != "fallback title" {
+		t.Fatalf("needTitle=true 应保持 fallback title，得到 %q", title)
+	}
+}

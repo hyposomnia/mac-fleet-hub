@@ -746,7 +746,7 @@ func codexInjected(s string) bool {
 // 才是桌面 app 会话；"codex-tui"/"codex_exec" 是命令行运行，排除）/ srcStr（source 是否为字符串：
 // 交互式会话 source 是 "vscode" 等字符串，subagent 子代理 source 是对象，据此排除子代理）/
 // 首条非注入 user 文本（作回退标题）。
-func codexRolloutMeta(path string) (id, cwd string, mtime int64, originator string, srcStr bool, title string) {
+func codexRolloutMeta(path string, needTitle bool) (id, cwd string, mtime int64, originator string, srcStr bool, title string) {
 	if info, err := os.Stat(path); err == nil {
 		mtime = info.ModTime().UnixMilli()
 	}
@@ -757,6 +757,7 @@ func codexRolloutMeta(path string) (id, cwd string, mtime int64, originator stri
 	defer f.Close()
 	sc := bufio.NewScanner(f)
 	sc.Buffer(make([]byte, 1024*1024), 16*1024*1024)
+	haveSource := false
 	for sc.Scan() {
 		var row struct {
 			Type    string `json:"type"`
@@ -785,6 +786,7 @@ func codexRolloutMeta(path string) (id, cwd string, mtime int64, originator stri
 				originator = row.Payload.Originator
 			}
 			if s := bytes.TrimSpace(row.Payload.Source); len(s) > 0 {
+				haveSource = true
 				srcStr = s[0] == '"' // 字符串 source=交互式；对象 source=subagent 子代理
 			}
 			if t := parseTimeMs(row.Payload.Timestamp); t > mtime {
@@ -795,11 +797,14 @@ func codexRolloutMeta(path string) (id, cwd string, mtime int64, originator stri
 				cwd = row.Payload.Cwd
 			}
 		case "response_item":
-			if title == "" && row.Payload.Role == "user" {
+			if needTitle && title == "" && row.Payload.Role == "user" {
 				if t := strings.TrimSpace(codexText(row.Payload.Content)); t != "" && !codexInjected(t) {
 					title = trim(t)
 				}
 			}
+		}
+		if id != "" && cwd != "" && originator != "" && haveSource && (!needTitle || title != "") {
+			break
 		}
 	}
 	if id == "" {
@@ -869,7 +874,12 @@ func scanCodexSessions() []Session {
 	files, _ := filepath.Glob(filepath.Join(cfg.CodexHome, "sessions", "*", "*", "*", "*.jsonl"))
 	best := map[string]Session{}
 	for _, f := range files {
-		id, cwd, mt, originator, srcStr, ftitle := codexRolloutMeta(f)
+		fileID := codexIDFromName(filepath.Base(f))
+		needTitle := true
+		if x, ok := idx[fileID]; ok {
+			needTitle = strings.TrimSpace(x.title) == "" || codexInjected(strings.TrimSpace(x.title))
+		}
+		id, cwd, mt, originator, srcStr, ftitle := codexRolloutMeta(f, needTitle)
 		if id == "" || originator != "Codex Desktop" || !srcStr || archived[id] {
 			continue
 		}

@@ -197,6 +197,8 @@ button { cursor: pointer; border: none; background: none; }
 }
 .iconbtn:hover { background: var(--surface-hover); color: var(--text); }
 .iconbtn.bare { border-color: transparent; background: transparent; }
+#refresh-btn.loading svg.ic { transform-origin: center; transform-box: fill-box; animation: spin .8s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
 
 /* 内联 SVG 图标统一描边样式（Feather 风格）；尺寸按所在位置在下方各自给定 */
 svg.ic { fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; display: block; }
