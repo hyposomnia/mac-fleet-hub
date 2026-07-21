@@ -199,6 +199,37 @@ func TestCodexThreadRowKeepsMigratedStringSourceThread(t *testing.T) {
 	}
 }
 
+func TestCodexThreadRowFiltersVSCodePluginOriginator(t *testing.T) {
+	for _, tc := range []struct {
+		originator string
+		want       bool
+	}{
+		{originator: "codex_vscode", want: false},
+		{originator: "Codex Desktop", want: true},
+		{originator: "codex-tui", want: true},
+	} {
+		t.Run(tc.originator, func(t *testing.T) {
+			dir := t.TempDir()
+			id := "019e865e-55cc-7362-9cd4-77b6fdf68509"
+			path := filepath.Join(dir, "rollout-2026-06-02T11-26-29-"+id+".jsonl")
+			body := `{"type":"session_meta","payload":{"id":"` + id + `","cwd":"/proj/a","originator":"` + tc.originator + `","source":"vscode","timestamp":"2026-06-18T08:18:37Z"}}`
+			if err := os.WriteFile(path, []byte(body+"\n"), 0644); err != nil {
+				t.Fatal(err)
+			}
+			_, got := codexSessionFromThreadRow(codexThreadRow{
+				ID:           id,
+				Title:        "会话",
+				Source:       "vscode",
+				ThreadSource: "user",
+				RolloutPath:  path,
+			}, nil)
+			if got != tc.want {
+				t.Fatalf("originator %q visibility=%v want %v", tc.originator, got, tc.want)
+			}
+		})
+	}
+}
+
 func TestCodexThreadTitleSkipsSystemTitles(t *testing.T) {
 	row := codexThreadRow{
 		ID:      "019e865e-55cc-7362-9cd4-77b6fdf68509",

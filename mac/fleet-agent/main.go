@@ -770,6 +770,12 @@ func codexSessionFromThreadRow(r codexThreadRow, idx map[string]codexIdx) (Sessi
 	if strings.HasPrefix(strings.TrimSpace(r.Source), "{") {
 		return Session{}, false
 	}
+	if r.RolloutPath != "" {
+		_, _, _, originator, _, _ := codexRolloutMeta(r.RolloutPath, false)
+		if originator == "codex_vscode" {
+			return Session{}, false
+		}
+	}
 	mt := codexThreadTimeMs(r)
 	if mt <= 0 {
 		if r.RolloutPath != "" {

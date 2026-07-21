@@ -7,6 +7,7 @@ mac-fleet-hub 变更记录（日期为本地时间）。
 ### 修复 MacBook Air M5 的 Codex 迁移会话被错误隐藏
 - **问题**：Codex Desktop 已迁移的顶层会话会保留 `thread_source=subagent`，但 `source` 仍是普通字符串 `vscode`。fleet-agent 的 SQLite 适配同时按 `thread_source=subagent` 和“创建后活动超过 1 分钟”过滤，导致 Desktop 侧可见的 `Emoji / Deploy / TTS / API / Upload / Ranking` 等会话在 dashboard「活跃」列表中消失，只剩 3 条。
 - **修复**：恢复与 Codex Desktop 一致的判定：`archived=0` 即活跃；字符串 `source` 的迁移会话保留，只有对象型 `source` 的真实 guardian/worker 子代理被排除。补充回归测试覆盖短时迁移会话与无后续活动的未归档会话。
+- **来源隔离**：字符串 `source=vscode` 也可能来自 VS Code Codex 插件，不能单独视为 Desktop 会话。SQLite 扫描现在读取 rollout 首条 `session_meta.originator`，排除明确的 `codex_vscode`，同时保留 `Codex Desktop` 迁移会话与已在 Desktop 中可见的 `codex-tui` 会话。
 
 ## 2026-06-30
 
