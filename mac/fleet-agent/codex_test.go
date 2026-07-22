@@ -181,11 +181,19 @@ func TestCodexThreadRowRejectsObjectSourceSubagents(t *testing.T) {
 }
 
 func TestCodexThreadRowKeepsMigratedStringSourceThread(t *testing.T) {
+	dir := t.TempDir()
+	id := "019e865e-55cc-7362-9cd4-77b6fdf68509"
+	path := filepath.Join(dir, "rollout-2026-06-02T11-26-29-"+id+".jsonl")
+	body := `{"type":"session_meta","payload":{"id":"` + id + `","cwd":"/proj/a","originator":"Codex Desktop","source":"vscode","timestamp":"2026-06-18T08:18:37Z"}}`
+	if err := os.WriteFile(path, []byte(body+"\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
 	row := codexThreadRow{
-		ID:           "019e865e-55cc-7362-9cd4-77b6fdf68509",
+		ID:           id,
 		Title:        "Emoji",
 		Source:       "vscode",
 		ThreadSource: "subagent",
+		RolloutPath:  path,
 		CreatedAtMs:  100_000,
 		UpdatedAtMs:  105_000,
 		RecencyAtMs:  105_000,
@@ -199,6 +207,18 @@ func TestCodexThreadRowKeepsMigratedStringSourceThread(t *testing.T) {
 	}
 }
 
+func TestCodexThreadRowRejectsNonDesktopSources(t *testing.T) {
+	for _, source := range []string{"cli", "exec", "appServer", "unknown"} {
+		t.Run(source, func(t *testing.T) {
+			if _, ok := codexSessionFromThreadRow(codexThreadRow{
+				ID: "019e865e-55cc-7362-9cd4-77b6fdf68509", Source: source,
+			}, nil); ok {
+				t.Fatalf("source %q should not appear in Desktop sessions", source)
+			}
+		})
+	}
+}
+
 func TestCodexThreadRowFiltersVSCodePluginOriginator(t *testing.T) {
 	for _, tc := range []struct {
 		originator string
@@ -206,7 +226,8 @@ func TestCodexThreadRowFiltersVSCodePluginOriginator(t *testing.T) {
 	}{
 		{originator: "codex_vscode", want: false},
 		{originator: "Codex Desktop", want: true},
-		{originator: "codex-tui", want: true},
+		{originator: "codex-tui", want: false},
+		{originator: "codex_exec", want: false},
 	} {
 		t.Run(tc.originator, func(t *testing.T) {
 			dir := t.TempDir()
