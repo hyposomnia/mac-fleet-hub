@@ -61,7 +61,7 @@ func TestCodexChatBackendResumeUsesThreadResume(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if res.ThreadID != "thread-1" || res.Status != "connected" {
+	if res.ThreadID != "thread-1" || res.Status != "idle" {
 		t.Fatalf("bad resume result: %+v", res)
 	}
 	if len(rpc.calls) != 3 || rpc.calls[0].method != "thread/resume" || rpc.calls[1].method != "thread/items/list" || rpc.calls[2].method != "model/list" {
@@ -70,6 +70,26 @@ func TestCodexChatBackendResumeUsesThreadResume(t *testing.T) {
 	got := mapFromParams(t, rpc.calls[0].params)
 	if got["threadId"] != "thread-1" {
 		t.Fatalf("threadId got %v", got["threadId"])
+	}
+}
+
+func TestCodexChatBackendResumeRestoresActiveTurnFromInitialPage(t *testing.T) {
+	rpc := newFakeRPCConn()
+	rpc.reply["thread/resume"] = json.RawMessage(`{
+		"thread":{"id":"thread-1","status":{"type":"active","activeFlags":[]}},
+		"initialTurnsPage":{"data":[{"id":"turn-live","status":"inProgress","items":[]}]}
+	}`)
+	rpc.reply["thread/items/list"] = json.RawMessage(`{"data":[{"turnId":"turn-old","item":{"id":"a-old","type":"agentMessage","text":"previous"}}]}`)
+	b := newCodexChatBackend(func(ctx context.Context) (codexRPCConn, func(), error) {
+		return rpc, func() {}, nil
+	})
+
+	res, err := b.Resume(context.Background(), "codex", "thread-1", "default")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Status != "active" || b.lastTurn["thread-1"] != "turn-live" {
+		t.Fatalf("active resume not restored: result=%+v lastTurn=%q", res, b.lastTurn["thread-1"])
 	}
 }
 
@@ -298,6 +318,34 @@ func TestCodexChatBackendInputPassesModelAndApprovalOverrides(t *testing.T) {
 	sandbox, ok := params["sandboxPolicy"].(map[string]interface{})
 	if !ok || sandbox["type"] != "dangerFullAccess" {
 		t.Fatalf("sandbox params: %#v", params["sandboxPolicy"])
+	}
+}
+
+func TestCodexChatBackendSteerUsesActiveTurnAndLocalImages(t *testing.T) {
+	rpc := newFakeRPCConn()
+	rpc.reply["turn/steer"] = json.RawMessage(`{"turnId":"turn-1"}`)
+	b := newCodexChatBackend(func(ctx context.Context) (codexRPCConn, func(), error) {
+		return rpc, func() {}, nil
+	})
+	b.lastTurn["thread-1"] = "turn-1"
+
+	res, err := b.Steer(context.Background(), "codex", "thread-1", "follow up", []ChatAttachment{{Path: "/tmp/shot.png"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.TurnID != "turn-1" {
+		t.Fatalf("turn id got %q", res.TurnID)
+	}
+	if len(rpc.calls) != 1 || rpc.calls[0].method != "turn/steer" {
+		t.Fatalf("calls: %+v", rpc.calls)
+	}
+	params := mapFromParams(t, rpc.calls[0].params)
+	if params["threadId"] != "thread-1" || params["expectedTurnId"] != "turn-1" {
+		t.Fatalf("steer params: %#v", params)
+	}
+	input, ok := params["input"].([]interface{})
+	if !ok || len(input) != 2 {
+		t.Fatalf("steer input: %#v", params["input"])
 	}
 }
 

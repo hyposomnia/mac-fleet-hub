@@ -806,6 +806,29 @@ function saveChatDraft(chat = state.chat) {
   if (chat && input) chat.draft = input.value || '';
 }
 
+function isChatRunning(chat) {
+  return !!chat && (chat.model?.phase === 'running' || chat.submitting === true);
+}
+
+function enqueueChatFollowup(chat, text, images, id) {
+  if (!chat) return null;
+  chat.followups = chat.followups || [];
+  const item = {
+    id: id || `follow-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+    text: typeof text === 'string' ? text : '',
+    images: Array.isArray(images) ? images.map((image) => ({ ...image })) : [],
+  };
+  chat.followups.push(item);
+  return item;
+}
+
+function removeChatFollowup(chat, id) {
+  if (!chat?.followups) return null;
+  const index = chat.followups.findIndex((item) => item.id === id);
+  if (index < 0) return null;
+  return chat.followups.splice(index, 1)[0];
+}
+
 function disposeChat(chat) {
   if (!chat) return;
   if (chat.events) { try { chat.events.close(); } catch (_) {} }
@@ -1159,8 +1182,54 @@ function updateChatComposerState() {
   const attachments = state.chat?.attachments || [];
   const blocked = attachments.some((att) => att.uploading || att.error || !att.id);
   const hasContent = Boolean(input?.value.trim()) || attachments.length > 0;
-  send.disabled = !state.chat || !hasContent || blocked;
-  send.title = blocked ? '等待图片上传完成' : '发送';
+  const running = isChatRunning(state.chat);
+  send.dataset.action = running ? 'interrupt' : 'send';
+  send.disabled = !state.chat || (running ? !!state.chat.interrupting : (!hasContent || blocked));
+  send.title = running ? '停止生成' : (blocked ? '等待图片上传完成' : '发送');
+  send.setAttribute('aria-label', send.title);
+}
+
+function renderChatFollowups() {
+  const box = $('#chat-followups');
+  const chat = state.chat;
+  if (!box) return;
+  clear(box);
+  const items = chat?.followups || [];
+  box.hidden = items.length === 0;
+  for (const item of items) {
+    const label = item.text || `${item.images.length} 张图片`;
+    box.append(h('div', { class: 'chat-followup', dataset: { id: item.id } },
+      svgIconParts('chat-followup-icon', [
+        { tag: 'path', attrs: { d: 'M8 6h11M8 12h11M8 18h7' } },
+        { tag: 'circle', attrs: { cx: '3.5', cy: '6', r: '1', fill: 'currentColor', stroke: 'none' } },
+        { tag: 'circle', attrs: { cx: '3.5', cy: '12', r: '1', fill: 'currentColor', stroke: 'none' } },
+        { tag: 'circle', attrs: { cx: '3.5', cy: '18', r: '1', fill: 'currentColor', stroke: 'none' } },
+      ]),
+      h('span', { class: 'chat-followup-text', text: label, title: label }),
+      item.images.length ? h('span', { class: 'chat-followup-images', text: `+${item.images.length} 图` }) : null,
+      h('div', { class: 'chat-followup-actions' },
+        h('button', { type: 'button', class: 'chat-followup-guide', title: '引导当前任务', onclick: () => guideChatFollowup(item.id) },
+          svgIconParts('ic', [{ tag: 'path', attrs: { d: 'M4 5v6a4 4 0 0 0 4 4h11M15 11l4 4-4 4' } }]), '引导'),
+        h('button', { type: 'button', class: 'iconbtn bare', title: '编辑追问', 'aria-label': '编辑追问', onclick: () => editChatFollowup(item.id) },
+          svgIconParts('ic', [{ tag: 'path', attrs: { d: 'M12 20h9M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z' } }])),
+        h('button', { type: 'button', class: 'iconbtn bare', title: '删除追问', 'aria-label': '删除追问', onclick: () => { removeChatFollowup(chat, item.id); renderChatFollowups(); } },
+          svgIconParts('ic', [{ tag: 'path', attrs: { d: 'M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6M10 11v5M14 11v5' } }])))));
+  }
+}
+
+function editChatFollowup(id) {
+  const chat = state.chat;
+  const item = removeChatFollowup(chat, id);
+  if (!item) return;
+  const input = $('#chat-input');
+  const current = input.value.trim();
+  input.value = [current, item.text].filter(Boolean).join(current ? '\n' : '');
+  chat.draft = input.value;
+  chat.attachments = [...(chat.attachments || []), ...item.images.map((image) => ({ ...image }))];
+  renderChatFollowups();
+  renderChatAttachments();
+  resizeChatInput();
+  input.focus();
 }
 
 function renderChatAttachments() {
@@ -1253,6 +1322,7 @@ async function openChatSession(s) {
       sessionId: s.sessionId, title: s.title || 'Codex 会话', cwd: s.cwd || '',
       model: FleetChatModel.createChatState(), loading: true, events: null, resumePromise: null,
       attachments: [], objectUrls: [], draft: '', updatedAt: Number(s.mtime) || Date.now(),
+      followups: [], sendingFollowup: false, interrupting: false,
       historyReady: false, historyLoading: false, historyCursor: '',
       models: [], efforts: [], serviceTiers: [], selectedModel: '', selectedEffort: '', selectedServiceTier: '',
       modelDirty: false, serviceTierDirty: false,
@@ -1267,6 +1337,7 @@ async function openChatSession(s) {
   $('#chat-input').value = chat.draft || '';
   resizeChatInput();
   renderChatAttachments();
+  renderChatFollowups();
   if (chat.historyReady) {
     $('#chat-approval').value = chat.approvalMode || 'on-request';
     $('#chat-approval').disabled = false;
@@ -1291,6 +1362,7 @@ async function openChatSession(s) {
     const resumed = await chat.resumePromise;
     if (state.chatCache.get(chat.cacheKey) === chat) {
       chat.model = FleetChatModel.prependHistory(chat.model, resumed.history?.events || []);
+      chat.model = FleetChatModel.reduceChatEvent(chat.model, { type: 'thread_status', data: { status: resumed.status } });
       chat.historyCursor = resumed.history?.nextCursor || '';
       chat.historyReady = true;
       chat.loading = false;
@@ -1300,6 +1372,7 @@ async function openChatSession(s) {
     if (state.chat === chat) {
       renderChat({ forceBottom: true });
       updateChatComposerState();
+      renderChatFollowups();
     }
   } catch (e) {
     chat.loading = false;
@@ -1519,8 +1592,14 @@ function startChatEvents(chat = state.chat) {
     try {
       const ev = JSON.parse(e.data);
       updateChatUpdatedAt(chat, Date.now());
+      const wasRunning = isChatRunning(chat);
       chat.model = FleetChatModel.reduceChatEvent(chat.model, ev);
-      if (state.chat === chat) renderChat();
+      if (state.chat === chat) {
+        renderChat();
+        updateChatComposerState();
+        renderChatFollowups();
+      }
+      if (wasRunning && !isChatRunning(chat)) flushChatFollowups(chat);
     } catch (_) {}
   };
   es.onerror = () => {
@@ -1546,26 +1625,96 @@ async function submitChatInput() {
   resizeChatInput();
   chat.attachments = [];
   renderChatAttachments();
-  chat.model = FleetChatModel.appendUserMessage(chat.model, text, 'user-' + Date.now(), images);
+  const item = { id: `follow-${Date.now()}-${Math.random().toString(16).slice(2)}`, text: raw, images };
+  if (isChatRunning(chat)) {
+    enqueueChatFollowup(chat, item.text, item.images, item.id);
+    renderChatFollowups();
+    return;
+  }
+  await sendChatTurn(chat, item);
+}
+
+function chatTurnOptions(chat) {
+  const turnOptions = {};
+  if (chat.modelDirty && chat.selectedModel) {
+    turnOptions.model = chat.selectedModel;
+    if (chat.selectedEffort) turnOptions.effort = chat.selectedEffort;
+  }
+  if (chat.serviceTierDirty) turnOptions.serviceTier = chat.selectedServiceTier;
+  if (chat.approvalDirty && chat.approvalMode) turnOptions.approvalMode = chat.approvalMode;
+  return turnOptions;
+}
+
+async function sendChatTurn(chat, item) {
+  chat.model = FleetChatModel.appendUserMessage(chat.model, item.text.trim(), 'user-' + Date.now(), item.images);
   chat.loading = false;
-  renderChat();
+  chat.submitting = true;
+  if (state.chat === chat) {
+    renderChat();
+    updateChatComposerState();
+  }
   try {
-    const turnOptions = {};
-    if (chat.modelDirty && chat.selectedModel) {
-      turnOptions.model = chat.selectedModel;
-      if (chat.selectedEffort) turnOptions.effort = chat.selectedEffort;
-    }
-    if (chat.serviceTierDirty) turnOptions.serviceTier = chat.selectedServiceTier;
-    if (chat.approvalDirty && chat.approvalMode) turnOptions.approvalMode = chat.approvalMode;
-    await api(chat.macId, 'chat/input', {
+    const started = await api(chat.macId, 'chat/input', {
       method: 'POST', headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ assistant: 'codex', sessionId: chat.sessionId, text: raw, images: images.map((img) => ({ id: img.id })), ...turnOptions }),
+      body: JSON.stringify({ assistant: 'codex', sessionId: chat.sessionId, text: item.text, images: item.images.map((img) => ({ id: img.id })), ...chatTurnOptions(chat) }),
     });
+    chat.model = FleetChatModel.reduceChatEvent(chat.model, { type: 'turn_started', turnId: started.turnId, data: { turnId: started.turnId } });
+    return true;
   } catch (e) {
     if (state.chat === chat) {
       chat.model = FleetChatModel.reduceChatEvent(chat.model, { type: 'error', data: { message: e.message } });
       renderChat();
     }
+    return false;
+  } finally {
+    chat.submitting = false;
+    if (state.chat === chat) updateChatComposerState();
+  }
+}
+
+async function flushChatFollowups(chat) {
+  if (!chat || chat.sendingFollowup || isChatRunning(chat) || !chat.followups?.length) return;
+  chat.sendingFollowup = true;
+  const item = chat.followups[0];
+  const sent = await sendChatTurn(chat, item);
+  if (sent) removeChatFollowup(chat, item.id);
+  chat.sendingFollowup = false;
+  if (state.chat === chat) renderChatFollowups();
+}
+
+async function guideChatFollowup(id) {
+  const chat = state.chat;
+  const item = chat?.followups?.find((entry) => entry.id === id);
+  if (!chat || !item || !isChatRunning(chat)) return;
+  try {
+    await api(chat.macId, 'chat/steer', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ assistant: 'codex', sessionId: chat.sessionId, text: item.text, images: item.images.map((img) => ({ id: img.id })) }),
+    });
+    removeChatFollowup(chat, id);
+    chat.model = FleetChatModel.appendUserMessage(chat.model, item.text.trim(), 'user-' + Date.now(), item.images);
+    renderChatFollowups();
+    renderChat();
+  } catch (e) {
+    toast('引导失败：' + e.message, 'err');
+  }
+}
+
+async function interruptChat() {
+  const chat = state.chat;
+  if (!chat || !isChatRunning(chat) || chat.interrupting) return;
+  chat.interrupting = true;
+  updateChatComposerState();
+  try {
+    await api(chat.macId, 'chat/interrupt', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ assistant: 'codex', sessionId: chat.sessionId }),
+    });
+  } catch (e) {
+    toast('停止失败：' + e.message, 'err');
+  } finally {
+    chat.interrupting = false;
+    updateChatComposerState();
   }
 }
 
@@ -1913,7 +2062,11 @@ function init() {
   $('#reload-dismiss').onclick = hideBanner;
   $('#reconnect-btn').onclick = () => { const f = curFrame(); try { f.contentWindow.location.reload(); } catch (_) { f.src = f.src; } };
   $('#fullscreen-btn').onclick = () => $('.win-body').requestFullscreen?.();
-  $('#chat-composer').onsubmit = (e) => { e.preventDefault(); submitChatInput(); };
+  $('#chat-composer').onsubmit = (e) => {
+    e.preventDefault();
+    if ($('#chat-send').dataset.action === 'interrupt') interruptChat();
+    else submitChatInput();
+  };
   $('#chat-attach').onclick = () => $('#chat-file').click();
   $('#chat-file').addEventListener('change', (e) => { addChatFiles(e.target.files); e.target.value = ''; });
   $('#chat-input').addEventListener('input', () => { saveChatDraft(); resizeChatInput(); updateChatComposerState(); });

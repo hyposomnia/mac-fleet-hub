@@ -126,11 +126,13 @@
               </button>
             </div>
             <input id="chat-file" type="file" accept="image/*" multiple hidden />
-            <div class="chat-composer-inner">
-              <div id="chat-attachments" hidden></div>
-              <textarea id="chat-input" rows="1" placeholder="给 Codex 发送消息…" autocapitalize="off" autocomplete="off" autocorrect="off" spellcheck="false"></textarea>
-              <div class="chat-composer-toolbar">
-                <div class="chat-tools-left">
+            <div class="chat-composer-shell">
+              <div id="chat-followups" hidden></div>
+              <div class="chat-composer-inner">
+                <div id="chat-attachments" hidden></div>
+                <textarea id="chat-input" rows="1" placeholder="给 Codex 发送消息…" autocapitalize="off" autocomplete="off" autocorrect="off" spellcheck="false"></textarea>
+                <div class="chat-composer-toolbar">
+                  <div class="chat-tools-left">
                   <button id="chat-attach" type="button" class="iconbtn chat-attach" title="添加图片" aria-label="添加图片"><svg class="ic" viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg></button>
                   <label class="chat-select" title="审批模式">
                     <svg class="ic" viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10"/><path d="m9 12 2 2 4-4"/></svg>
@@ -142,8 +144,8 @@
                     </select>
                     <svg class="chat-select-chevron" viewBox="0 0 24 24" aria-hidden="true"><polyline points="6 9 12 15 18 9"/></svg>
                   </label>
-                </div>
-                <div class="chat-tools-right">
+                  </div>
+                  <div class="chat-tools-right">
                   <div id="chat-options" class="chat-options" hidden>
                     <button id="chat-options-trigger" type="button" class="chat-options-trigger" title="模型选项" aria-label="模型选项" aria-haspopup="menu" aria-expanded="false">
                       <svg class="ic" viewBox="0 0 24 24"><path d="M12 2a4 4 0 0 0-4 4v1a4 4 0 0 0-3 6.65V16a4 4 0 0 0 4 4h6a4 4 0 0 0 4-4v-2.35A4 4 0 0 0 16 7V6a4 4 0 0 0-4-4Z"/><path d="M9 12h.01M15 12h.01M9 16h6"/></svg>
@@ -175,7 +177,11 @@
                       </div>
                     </div>
                   </div>
-                  <button id="chat-send" class="send-btn chat-send" title="发送" aria-label="发送" disabled><svg class="ic" viewBox="0 0 24 24"><line x1="12" y1="19" x2="12" y2="5"/><polyline points="5 12 12 5 19 12"/></svg></button>
+                  <button id="chat-send" class="send-btn chat-send" data-action="send" title="发送" aria-label="发送" disabled>
+                    <svg class="ic chat-send-icon" viewBox="0 0 24 24"><line x1="12" y1="19" x2="12" y2="5"/><polyline points="5 12 12 5 19 12"/></svg>
+                    <svg class="ic chat-stop-icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="8" y="8" width="8" height="8" rx="1" fill="currentColor" stroke="none"/></svg>
+                  </button>
+                  </div>
                 </div>
               </div>
             </div>

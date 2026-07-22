@@ -38,6 +38,16 @@ func TestMapCodexNotificationAgentMessageDelta(t *testing.T) {
 	}
 }
 
+func TestMapCodexTurnStartedNotification(t *testing.T) {
+	evs := mapCodexNotification(rpcNotification{
+		Method: "turn/started",
+		Params: json.RawMessage(`{"threadId":"t1","turn":{"id":"turn1","status":"inProgress","items":[]}}`),
+	})
+	if len(evs) != 1 || evs[0].Type != "turn_started" || evs[0].SessionID != "t1" || evs[0].TurnID != "turn1" {
+		t.Fatalf("bad turn started mapping: %+v", evs)
+	}
+}
+
 func TestMapCodexNotificationCommandOutputAndApproval(t *testing.T) {
 	out := mapCodexNotification(rpcNotification{
 		Method: "item/commandExecution/outputDelta",
