@@ -64,6 +64,29 @@ test('tool output appends to command card', () => {
   assert.equal(state.items.cmd1.output, 'pwd\n/tmp\n');
 });
 
+test('generic tool updates preserve kind, summary, status, and details', () => {
+  let state = createChatState();
+  state = reduceChatEvent(state, {
+    type: 'tool_update', itemId: 'mcp1', data: {
+      kind: 'mcpToolCall', title: 'Notion · Search', summary: 'fleet',
+      detail: '{"query":"fleet"}', status: 'inProgress', durationMs: 80,
+    },
+  });
+  state = reduceChatEvent(state, {
+    type: 'tool_delta', itemId: 'mcp1', data: { kind: 'mcpToolCall', message: '正在读取页面' },
+  });
+  state = reduceChatEvent(state, {
+    type: 'tool_update', itemId: 'mcp1', data: { kind: 'mcpToolCall', status: 'completed', output: '完成' },
+  });
+  assert.equal(state.items.mcp1.type, 'tool');
+  assert.equal(state.items.mcp1.kind, 'mcpToolCall');
+  assert.equal(state.items.mcp1.title, 'Notion · Search');
+  assert.equal(state.items.mcp1.summary, 'fleet');
+  assert.equal(state.items.mcp1.status, 'completed');
+  assert.equal(state.items.mcp1.output, '完成');
+  assert.equal(state.items.mcp1.progress, '正在读取页面');
+});
+
 test('file changes keep paths and count added and deleted diff lines', () => {
   const state = reduceChatEvent(createChatState(), {
     type: 'diff_update',
@@ -127,6 +150,7 @@ test('completed command history becomes a tool card', () => {
     { type: 'tool_done', itemId: 'cmd1', data: { command: 'pwd', cwd: '/tmp', output: '/tmp\n', status: 'completed' } },
   ]);
   assert.equal(state.items.cmd1.type, 'tool');
-  assert.equal(state.items.cmd1.title, 'pwd');
+  assert.equal(state.items.cmd1.title, '运行命令');
+  assert.equal(state.items.cmd1.summary, 'pwd');
   assert.equal(state.items.cmd1.output, '/tmp\n');
 });

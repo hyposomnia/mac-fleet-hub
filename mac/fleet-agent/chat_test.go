@@ -60,7 +60,7 @@ func TestMapCodexNotificationCommandOutputAndApproval(t *testing.T) {
 	}
 }
 
-func TestMapCodexNotificationCompletedOnlyAgentMessage(t *testing.T) {
+func TestMapCodexNotificationCompletedItems(t *testing.T) {
 	done := mapCodexNotification(rpcNotification{
 		Method: "item/completed",
 		Params: json.RawMessage(`{"threadId":"t1","turnId":"turn1","completedAtMs":1,"item":{"id":"msg1","type":"agentMessage","text":"done"}}`),
@@ -71,10 +71,49 @@ func TestMapCodexNotificationCompletedOnlyAgentMessage(t *testing.T) {
 
 	cmd := mapCodexNotification(rpcNotification{
 		Method: "item/completed",
-		Params: json.RawMessage(`{"threadId":"t1","turnId":"turn1","completedAtMs":1,"item":{"id":"cmd1","type":"commandExecution","command":"pwd","cwd":"/tmp","status":"completed","commandActions":[]}}`),
+		Params: json.RawMessage(`{"threadId":"t1","turnId":"turn1","completedAtMs":1,"item":{"id":"cmd1","type":"commandExecution","command":"pwd","cwd":"/tmp","status":"completed","aggregatedOutput":"/tmp\n","exitCode":0,"durationMs":12,"commandActions":[]}}`),
 	})
-	if len(cmd) != 0 {
-		t.Fatalf("command item completion should not be assistant_done: %+v", cmd)
+	if len(cmd) != 1 || cmd[0].Type != "tool_update" || cmd[0].ItemID != "cmd1" {
+		t.Fatalf("command completion should become a tool update: %+v", cmd)
+	}
+	for _, want := range []string{`"kind":"commandExecution"`, `"summary":"pwd"`, `"status":"completed"`, `"exitCode":0`} {
+		if !strings.Contains(string(cmd[0].Data), want) {
+			t.Fatalf("command tool data missing %s in %s", want, cmd[0].Data)
+		}
+	}
+
+	mcp := mapCodexNotification(rpcNotification{
+		Method: "item/completed",
+		Params: json.RawMessage(`{"threadId":"t1","turnId":"turn1","completedAtMs":1,"item":{"id":"mcp1","type":"mcpToolCall","server":"notion","tool":"search","status":"completed","arguments":{"query":"fleet"},"appContext":{"appName":"Notion","actionName":"Search"},"result":{"content":[{"type":"text","text":"ok"}],"structuredContent":null,"_meta":null},"error":null,"durationMs":80}}`),
+	})
+	if len(mcp) != 1 || mcp[0].Type != "tool_update" || mcp[0].ItemID != "mcp1" {
+		t.Fatalf("MCP completion should become a tool update: %+v", mcp)
+	}
+	for _, want := range []string{`"kind":"mcpToolCall"`, `"title":"Notion · Search"`, `"status":"completed"`} {
+		if !strings.Contains(string(mcp[0].Data), want) {
+			t.Fatalf("MCP tool data missing %s in %s", want, mcp[0].Data)
+		}
+	}
+}
+
+func TestMapCodexNotificationStartedAndMcpProgress(t *testing.T) {
+	started := mapCodexNotification(rpcNotification{
+		Method: "item/started",
+		Params: json.RawMessage(`{"threadId":"t1","turnId":"turn1","startedAtMs":1,"item":{"id":"web1","type":"webSearch","query":"Codex tools","action":{"type":"search","query":"Codex tools"}}}`),
+	})
+	if len(started) != 1 || started[0].Type != "tool_update" || started[0].ItemID != "web1" {
+		t.Fatalf("web search start should become a tool update: %+v", started)
+	}
+	if !strings.Contains(string(started[0].Data), `"kind":"webSearch"`) {
+		t.Fatalf("web search kind missing: %s", started[0].Data)
+	}
+
+	progress := mapCodexNotification(rpcNotification{
+		Method: "item/mcpToolCall/progress",
+		Params: json.RawMessage(`{"threadId":"t1","turnId":"turn1","itemId":"mcp1","message":"正在读取页面"}`),
+	})
+	if len(progress) != 1 || progress[0].Type != "tool_delta" || !strings.Contains(string(progress[0].Data), `"kind":"mcpToolCall"`) {
+		t.Fatalf("MCP progress mapping failed: %+v", progress)
 	}
 }
 

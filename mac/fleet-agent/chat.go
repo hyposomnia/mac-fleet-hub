@@ -55,17 +55,34 @@ func mapCodexNotification(n rpcNotification) []ChatEvent {
 	case "item/agentMessage/delta":
 		p := codexEventEnvelope(n.Params)
 		return []ChatEvent{newChatEvent("assistant_delta", "codex", p.ThreadID, p.TurnID, p.ItemID, p.asMap())}
+	case "item/started":
+		threadID, turnID, item := codexNotificationItem(n.Params)
+		if ev, ok := projectCodexToolItem(threadID, turnID, item, "inProgress"); ok {
+			return []ChatEvent{ev}
+		}
+		return nil
 	case "item/completed":
 		p := codexCompletedEnvelope(n.Params)
 		switch p.ItemType {
 		case "agentMessage":
 			return []ChatEvent{newChatEvent("assistant_done", "codex", p.ThreadID, p.TurnID, p.ItemID, p.asMap())}
 		default:
+			_, _, item := codexNotificationItem(n.Params)
+			if ev, ok := projectCodexToolItem(p.ThreadID, p.TurnID, item, "completed"); ok {
+				return []ChatEvent{ev}
+			}
 			return nil
 		}
 	case "item/commandExecution/outputDelta", "item/commandExec/outputDelta":
 		p := codexEventEnvelope(n.Params)
-		return []ChatEvent{newChatEvent("tool_delta", "codex", p.ThreadID, p.TurnID, p.ItemID, p.asMap())}
+		data := p.asMap()
+		data["kind"] = json.RawMessage(`"commandExecution"`)
+		return []ChatEvent{newChatEvent("tool_delta", "codex", p.ThreadID, p.TurnID, p.ItemID, data)}
+	case "item/mcpToolCall/progress":
+		p := codexEventEnvelope(n.Params)
+		data := p.asMap()
+		data["kind"] = json.RawMessage(`"mcpToolCall"`)
+		return []ChatEvent{newChatEvent("tool_delta", "codex", p.ThreadID, p.TurnID, p.ItemID, data)}
 	case "item/commandExecution/requestApproval", "item/fileChange/requestApproval", "item/permissions/requestApproval":
 		p := codexEventEnvelope(n.Params)
 		data := p.asMap()
@@ -135,6 +152,16 @@ func codexCompletedEnvelope(raw json.RawMessage) codexCompletedMeta {
 		ItemType: p.Item.Type,
 		raw:      append(json.RawMessage(nil), raw...),
 	}
+}
+
+func codexNotificationItem(raw json.RawMessage) (string, string, json.RawMessage) {
+	var p struct {
+		ThreadID string          `json:"threadId"`
+		TurnID   string          `json:"turnId"`
+		Item     json.RawMessage `json:"item"`
+	}
+	_ = json.Unmarshal(raw, &p)
+	return p.ThreadID, p.TurnID, p.Item
 }
 
 func (p codexCompletedMeta) asMap() map[string]json.RawMessage {

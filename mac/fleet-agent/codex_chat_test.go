@@ -192,6 +192,29 @@ func TestCodexChatBackendHistoryFallsBackToItemPagingWithinTurns(t *testing.T) {
 	}
 }
 
+func TestProjectCodexHistoryIncludesNonFileTools(t *testing.T) {
+	cases := []struct {
+		name string
+		raw  string
+		kind string
+	}{
+		{"web search", `{"id":"web1","type":"webSearch","query":"Codex tools","action":{"type":"search","query":"Codex tools"}}`, "webSearch"},
+		{"dynamic tool", `{"id":"dyn1","type":"dynamicToolCall","namespace":"browser","tool":"open","arguments":{"url":"https://example.com"},"status":"completed","contentItems":[{"type":"inputText","text":"ok"}],"success":true,"durationMs":10}`, "dynamicToolCall"},
+		{"image view", `{"id":"img1","type":"imageView","path":"/tmp/shot.png"}`, "imageView"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			ev, ok := projectCodexHistoryItem("thread-1", "turn-1", json.RawMessage(tc.raw))
+			if !ok || ev.Type != "tool_update" {
+				t.Fatalf("history tool projection failed: ok=%v event=%+v", ok, ev)
+			}
+			if !strings.Contains(string(ev.Data), `"kind":"`+tc.kind+`"`) {
+				t.Fatalf("history tool kind missing from %s", ev.Data)
+			}
+		})
+	}
+}
+
 func TestCodexChatBackendInputUsesTurnStartTextInput(t *testing.T) {
 	rpc := newFakeRPCConn()
 	rpc.reply["thread/resume"] = json.RawMessage(`{"thread":{"id":"thread-1"}}`)

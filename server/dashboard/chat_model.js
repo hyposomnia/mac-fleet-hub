@@ -79,6 +79,20 @@
     return next;
   }
 
+  function applyToolData(item, data) {
+    item.kind = data.kind || item.kind || (data.command ? 'commandExecution' : 'tool');
+    const defaultTitle = item.kind === 'commandExecution' ? '运行命令' : (item.kind === 'mcpToolCall' ? 'MCP 工具' : '工具调用');
+    item.title = data.title || item.title || (data.command ? '运行命令' : defaultTitle);
+    item.summary = data.summary || data.command || item.summary || '';
+    item.meta = data.meta || data.cwd || item.meta || '';
+    if (data.detail !== undefined) item.detail = data.detail || '';
+    if (data.output !== undefined) item.output = data.output || '';
+    if (data.status) item.status = data.status;
+    if (data.durationMs !== undefined && data.durationMs !== null) item.durationMs = data.durationMs;
+    if (data.exitCode !== undefined && data.exitCode !== null) item.exitCode = data.exitCode;
+    return item;
+  }
+
   function reduceChatEvent(state, ev) {
     const next = cloneState(state || createChatState());
     const data = dataOf(ev);
@@ -107,17 +121,17 @@
         return next;
       }
       case 'tool_delta': {
-        const item = upsertItem(next, itemId, () => ({ id: itemId, type: 'tool', title: data.command || '命令执行', cwd: data.cwd || '', output: '', stream: data.stream || 'stdout' }));
-        item.output = (item.output || '') + (data.delta || '');
+        const item = upsertItem(next, itemId, () => ({ id: itemId, type: 'tool', title: '', summary: '', meta: '', output: '', progress: '', stream: data.stream || 'stdout' }));
+        applyToolData(item, data);
+        if (data.delta) item.output = (item.output || '') + data.delta;
+        if (data.message) item.progress = data.message;
         item.stream = data.stream || item.stream;
         return next;
       }
+      case 'tool_update':
       case 'tool_done': {
-        const item = upsertItem(next, itemId, () => ({ id: itemId, type: 'tool', title: '命令执行', cwd: '', output: '', stream: 'stdout' }));
-        item.title = data.command || item.title;
-        item.cwd = data.cwd || item.cwd;
-        item.output = data.output || item.output;
-        item.status = data.status || item.status;
+        const item = upsertItem(next, itemId, () => ({ id: itemId, type: 'tool', title: '', summary: '', meta: '', detail: '', output: '', progress: '', stream: 'stdout' }));
+        applyToolData(item, data);
         return next;
       }
       case 'diff_update': {

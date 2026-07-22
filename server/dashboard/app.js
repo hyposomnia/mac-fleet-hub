@@ -794,6 +794,56 @@ function chatRow(body, cls = '') {
   return h('div', { class: 'chat-row ' + cls }, body);
 }
 
+function chatToolStatus(status) {
+  const value = String(status || '').toLowerCase();
+  if (['inprogress', 'running', 'pending', 'started', 'interacted'].includes(value)) return { key: 'running', label: '运行中' };
+  if (['failed', 'errored', 'error', 'interrupted'].includes(value)) return { key: 'failed', label: '失败' };
+  if (['completed', 'success', 'succeeded', 'shutdown'].includes(value)) return { key: 'completed', label: '完成' };
+  return { key: 'neutral', label: status || '' };
+}
+
+function chatToolDuration(ms) {
+  const value = Number(ms);
+  if (!Number.isFinite(value) || value <= 0) return '';
+  if (value < 1000) return `${Math.round(value)} ms`;
+  if (value < 60000) return `${(value / 1000).toFixed(value < 10000 ? 1 : 0)} 秒`;
+  const minutes = Math.floor(value / 60000);
+  const seconds = Math.round((value % 60000) / 1000);
+  return `${minutes} 分 ${seconds} 秒`;
+}
+
+function chatToolIcon(kind) {
+  if (kind === 'commandExecution') return svgIcon('ic', 'M4 17l6-6-6-6M12 19h8');
+  if (kind === 'webSearch') return svgIcon('ic', 'M21 21l-4.35-4.35M19 11a8 8 0 1 1-16 0 8 8 0 0 1 16 0Z');
+  if (kind === 'imageView' || kind === 'imageGeneration') return svgIcon('ic', 'M3 5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v14H3V5Zm0 11 5-5 4 4 2-2 7 6');
+  if (kind === 'collabAgentToolCall' || kind === 'subAgentActivity') return svgIcon('ic', 'M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8Zm13 10v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75');
+  if (kind === 'sleep') return svgIcon('ic', 'M17 4h4l-4 5h4M7 4h7l-7 9h7M4 20h16');
+  return svgIcon('ic', 'M12 2v6M12 16v6M4.93 4.93l4.24 4.24M14.83 14.83l4.24 4.24M2 12h6M16 12h6M4.93 19.07l4.24-4.24M14.83 9.17l4.24-4.24');
+}
+
+function renderChatTool(item) {
+  const status = chatToolStatus(item.status);
+  const duration = chatToolDuration(item.durationMs);
+  const hasBody = Boolean(item.detail || item.output || item.progress || item.meta || item.exitCode !== undefined);
+  const header = h('span', { class: 'chat-tool-summary' },
+    h('span', { class: 'chat-tool-icon' }, chatToolIcon(item.kind)),
+    h('span', { class: 'chat-tool-copy' },
+      h('span', { class: 'chat-tool-title', text: item.title || '工具调用' }),
+      item.summary ? h('span', { class: 'chat-tool-subtitle mono', text: item.summary }) : null),
+    h('span', { class: 'chat-tool-aside' },
+      duration ? h('span', { class: 'chat-tool-duration', text: duration }) : null,
+      status.label ? h('span', { class: `chat-tool-status ${status.key}`, text: status.label }) : null,
+      hasBody ? svgIcon('chat-tool-chevron', 'M6 9l6 6 6-6') : null));
+  if (!hasBody) return chatRow(h('div', { class: 'chat-tool compact' }, header), 'tool');
+  const body = h('div', { class: 'chat-tool-body' },
+    item.progress ? h('div', { class: 'chat-tool-progress', text: item.progress }) : null,
+    item.meta ? h('div', { class: 'chat-tool-meta mono', text: item.meta }) : null,
+    item.detail ? h('div', { class: 'chat-tool-section' }, h('div', { class: 'chat-tool-label', text: '参数' }), h('pre', { text: item.detail })) : null,
+    item.output ? h('div', { class: 'chat-tool-section' }, h('div', { class: 'chat-tool-label', text: '结果' }), h('pre', { text: item.output })) : null,
+    item.exitCode !== undefined ? h('div', { class: 'chat-tool-exit mono', text: `退出码 ${item.exitCode}` }) : null);
+  return chatRow(h('details', { class: 'chat-tool compact' }, h('summary', {}, header), body), 'tool');
+}
+
 function renderChatItem(item, isCurrentTurn = false) {
   if (item.type === 'user') {
     const parts = [];
@@ -807,9 +857,7 @@ function renderChatItem(item, isCurrentTurn = false) {
     return chatRow(h('div', { class: 'chat-card' }, parts.length ? parts : h('div', { text: '' })), 'user' + (isCurrentTurn ? ' current-turn' : ''));
   }
   if (item.type === 'assistant') return chatRow(h('div', { class: 'chat-card' }, FleetMarkdown.renderMarkdown(item.text)), 'assistant');
-  if (item.type === 'tool') return chatRow(h('div', { class: 'chat-tool' },
-    h('div', { class: 'chat-tool-h' }, h('span', { text: item.title || '命令执行' }), item.cwd ? h('span', { class: 'muted mono', text: item.cwd }) : null),
-    h('pre', { text: item.output || '…' })), 'tool');
+  if (item.type === 'tool') return renderChatTool(item);
   if (item.type === 'approval') return chatRow(h('div', { class: 'chat-approval' },
     h('div', { class: 'chat-approval-h', text: item.status === 'resolved' ? '审批已处理' : (item.kind === 'command' ? '需要批准命令执行' : '需要批准权限 / 文件改动') }),
     h('div', { class: 'chat-approval-body' },

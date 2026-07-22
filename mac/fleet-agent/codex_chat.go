@@ -624,24 +624,244 @@ func projectCodexHistoryItem(sessionID, turnID string, raw json.RawMessage) (Cha
 			return ChatEvent{}, false
 		}
 		return newChatEvent("assistant_done", "codex", sessionID, turnID, base.ID, map[string]string{"text": item.Text}), true
+	default:
+		return projectCodexToolItem(sessionID, turnID, raw, "completed")
+	}
+}
+
+func projectCodexToolItem(sessionID, turnID string, raw json.RawMessage, lifecycleStatus string) (ChatEvent, bool) {
+	var base struct {
+		ID   string `json:"id"`
+		Type string `json:"type"`
+	}
+	if json.Unmarshal(raw, &base) != nil || base.ID == "" {
+		return ChatEvent{}, false
+	}
+	if base.Type == "fileChange" {
+		var item map[string]interface{}
+		_ = json.Unmarshal(raw, &item)
+		return newChatEvent("diff_update", "codex", sessionID, turnID, base.ID, item), true
+	}
+
+	data := map[string]interface{}{"kind": base.Type, "status": lifecycleStatus}
+	switch base.Type {
 	case "commandExecution":
 		var item struct {
 			Command          string `json:"command"`
 			Cwd              string `json:"cwd"`
 			AggregatedOutput string `json:"aggregatedOutput"`
 			Status           string `json:"status"`
+			ExitCode         *int   `json:"exitCode"`
+			DurationMS       *int64 `json:"durationMs"`
 		}
 		_ = json.Unmarshal(raw, &item)
-		return newChatEvent("tool_done", "codex", sessionID, turnID, base.ID, map[string]string{
-			"command": item.Command, "cwd": item.Cwd,
-			"output": capChatHistoryText(item.AggregatedOutput, 32<<10), "status": item.Status,
-		}), true
-	case "fileChange":
-		var item map[string]interface{}
+		data["title"] = "运行命令"
+		data["summary"] = item.Command
+		data["meta"] = item.Cwd
+		data["output"] = capChatHistoryText(item.AggregatedOutput, 32<<10)
+		if item.Status != "" {
+			data["status"] = item.Status
+		}
+		if item.ExitCode != nil {
+			data["exitCode"] = *item.ExitCode
+		}
+		if item.DurationMS != nil {
+			data["durationMs"] = *item.DurationMS
+		}
+	case "mcpToolCall":
+		var item struct {
+			Server    string          `json:"server"`
+			Tool      string          `json:"tool"`
+			Status    string          `json:"status"`
+			Arguments json.RawMessage `json:"arguments"`
+			Result    json.RawMessage `json:"result"`
+			Error     *struct {
+				Message string `json:"message"`
+			} `json:"error"`
+			DurationMS *int64 `json:"durationMs"`
+			AppContext *struct {
+				AppName    string `json:"appName"`
+				ActionName string `json:"actionName"`
+			} `json:"appContext"`
+		}
 		_ = json.Unmarshal(raw, &item)
-		return newChatEvent("diff_update", "codex", sessionID, turnID, base.ID, item), true
+		data["title"] = codexToolName(item.AppContext, item.Server, item.Tool)
+		data["summary"] = strings.Trim(strings.Join([]string{item.Server, item.Tool}, " · "), " ·")
+		data["detail"] = compactChatJSON(item.Arguments, 12<<10)
+		data["output"] = compactChatJSON(item.Result, 32<<10)
+		if item.Error != nil {
+			data["output"] = item.Error.Message
+			data["status"] = "failed"
+		} else if item.Status != "" {
+			data["status"] = item.Status
+		}
+		if item.DurationMS != nil {
+			data["durationMs"] = *item.DurationMS
+		}
+	case "dynamicToolCall":
+		var item struct {
+			Namespace    string          `json:"namespace"`
+			Tool         string          `json:"tool"`
+			Arguments    json.RawMessage `json:"arguments"`
+			Status       string          `json:"status"`
+			ContentItems json.RawMessage `json:"contentItems"`
+			Success      *bool           `json:"success"`
+			DurationMS   *int64          `json:"durationMs"`
+		}
+		_ = json.Unmarshal(raw, &item)
+		data["title"] = "调用工具"
+		data["summary"] = strings.Trim(strings.Join([]string{item.Namespace, item.Tool}, " · "), " ·")
+		data["detail"] = compactChatJSON(item.Arguments, 12<<10)
+		data["output"] = compactChatJSON(item.ContentItems, 32<<10)
+		if item.Status != "" {
+			data["status"] = item.Status
+		}
+		if item.Success != nil && !*item.Success {
+			data["status"] = "failed"
+		}
+		if item.DurationMS != nil {
+			data["durationMs"] = *item.DurationMS
+		}
+	case "webSearch":
+		var item struct {
+			Query  string          `json:"query"`
+			Action json.RawMessage `json:"action"`
+		}
+		_ = json.Unmarshal(raw, &item)
+		data["title"] = "网页搜索"
+		data["summary"] = item.Query
+		data["detail"] = compactChatJSON(item.Action, 8<<10)
+	case "imageView":
+		var item struct {
+			Path string `json:"path"`
+		}
+		_ = json.Unmarshal(raw, &item)
+		data["title"] = "查看图片"
+		data["summary"] = item.Path
+	case "imageGeneration":
+		var item struct {
+			Status        string `json:"status"`
+			RevisedPrompt string `json:"revisedPrompt"`
+			SavedPath     string `json:"savedPath"`
+		}
+		_ = json.Unmarshal(raw, &item)
+		data["title"] = "生成图片"
+		data["summary"] = firstNonEmpty(item.SavedPath, item.RevisedPrompt)
+		if item.Status != "" {
+			data["status"] = item.Status
+		}
+	case "sleep":
+		var item struct {
+			DurationMS int64 `json:"durationMs"`
+		}
+		_ = json.Unmarshal(raw, &item)
+		data["title"] = "等待"
+		data["summary"] = formatToolDuration(item.DurationMS)
+		data["durationMs"] = item.DurationMS
+	case "collabAgentToolCall":
+		var item struct {
+			Tool              string                 `json:"tool"`
+			Status            string                 `json:"status"`
+			ReceiverThreadIDs []string               `json:"receiverThreadIds"`
+			Prompt            string                 `json:"prompt"`
+			AgentsStates      map[string]interface{} `json:"agentsStates"`
+		}
+		_ = json.Unmarshal(raw, &item)
+		data["title"] = collabToolTitle(item.Tool)
+		data["summary"] = strings.Join(item.ReceiverThreadIDs, ", ")
+		data["detail"] = capChatHistoryText(item.Prompt, 12<<10)
+		data["output"] = compactChatValue(item.AgentsStates, 12<<10)
+		if item.Status != "" {
+			data["status"] = item.Status
+		}
+	case "subAgentActivity":
+		var item struct {
+			Kind      string `json:"kind"`
+			AgentPath string `json:"agentPath"`
+		}
+		_ = json.Unmarshal(raw, &item)
+		data["title"] = "子任务活动"
+		data["summary"] = item.AgentPath
+		data["detail"] = item.Kind
 	default:
 		return ChatEvent{}, false
+	}
+	return newChatEvent("tool_update", "codex", sessionID, turnID, base.ID, data), true
+}
+
+func codexToolName(appContext *struct {
+	AppName    string `json:"appName"`
+	ActionName string `json:"actionName"`
+}, server, tool string) string {
+	if appContext != nil {
+		name := strings.Trim(strings.Join([]string{appContext.AppName, appContext.ActionName}, " · "), " ·")
+		if name != "" {
+			return name
+		}
+	}
+	name := strings.Trim(strings.Join([]string{server, tool}, " · "), " ·")
+	if name != "" {
+		return name
+	}
+	return "MCP 工具"
+}
+
+func compactChatJSON(raw json.RawMessage, max int) string {
+	text := strings.TrimSpace(string(raw))
+	if text == "" || text == "null" || text == "{}" || text == "[]" {
+		return ""
+	}
+	var value interface{}
+	if json.Unmarshal(raw, &value) == nil {
+		return compactChatValue(value, max)
+	}
+	return capChatHistoryText(text, max)
+}
+
+func compactChatValue(value interface{}, max int) string {
+	if value == nil {
+		return ""
+	}
+	b, err := json.MarshalIndent(value, "", "  ")
+	if err != nil {
+		return ""
+	}
+	return capChatHistoryText(string(b), max)
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return value
+		}
+	}
+	return ""
+}
+
+func formatToolDuration(ms int64) string {
+	if ms <= 0 {
+		return ""
+	}
+	if ms < 1000 {
+		return fmt.Sprintf("%d ms", ms)
+	}
+	return fmt.Sprintf("%.1f 秒", float64(ms)/1000)
+}
+
+func collabToolTitle(tool string) string {
+	switch tool {
+	case "spawnAgent":
+		return "启动子任务"
+	case "sendInput":
+		return "发送子任务消息"
+	case "resumeAgent":
+		return "恢复子任务"
+	case "wait":
+		return "等待子任务"
+	case "closeAgent":
+		return "关闭子任务"
+	default:
+		return "多代理调用"
 	}
 }
 
