@@ -739,6 +739,29 @@ function chatAtBottom() {
   return sc.scrollHeight - sc.scrollTop - sc.clientHeight < 64;
 }
 
+function currentChatTurn(model) {
+  for (let i = (model?.messages?.length || 0) - 1; i >= 0; i -= 1) {
+    const id = model.messages[i];
+    if (model.items[id]?.type === 'user') return { id, item: model.items[id] };
+  }
+  return null;
+}
+
+function firstChatLine(text) {
+  return String(text || '').split(/\r?\n/, 1)[0].trim();
+}
+
+function syncChatTurnPin() {
+  const sc = $('#chat-scroll');
+  const pin = $('#chat-turn-pin');
+  const row = sc?.querySelector('.chat-row.current-turn');
+  if (!sc || !pin || !row || !$('#chat-turn-pin-text').textContent) {
+    if (pin) pin.hidden = true;
+    return;
+  }
+  pin.hidden = row.getBoundingClientRect().bottom > sc.getBoundingClientRect().top;
+}
+
 function renderChat({ preserveScroll = false, forceBottom = false } = {}) {
   const chat = state.chat;
   const sc = $('#chat-scroll');
@@ -752,15 +775,18 @@ function renderChat({ preserveScroll = false, forceBottom = false } = {}) {
   }
   if (chat.loading) stack.append(chatRow(h('div', { class: 'chat-card muted', text: '正在连接 Codex app-server…' })));
   const model = chat.model || FleetChatModel.createChatState();
+  const currentTurn = currentChatTurn(model);
   for (const id of model.messages) {
     const item = model.items[id];
     if (!item) continue;
-    stack.append(renderChatItem(item));
+    stack.append(renderChatItem(item, id === currentTurn?.id));
   }
   if (model.error) stack.append(renderChatError(model.error));
   clear(sc); sc.append(stack);
   if (preserveScroll) sc.scrollTop = oldTop + (sc.scrollHeight - oldHeight);
   else if (forceBottom || stick) sc.scrollTop = sc.scrollHeight;
+  $('#chat-turn-pin-text').textContent = firstChatLine(currentTurn?.item?.text);
+  syncChatTurnPin();
   $('#chat-jump').hidden = chatAtBottom();
 }
 
@@ -768,7 +794,7 @@ function chatRow(body, cls = '') {
   return h('div', { class: 'chat-row ' + cls }, body);
 }
 
-function renderChatItem(item) {
+function renderChatItem(item, isCurrentTurn = false) {
   if (item.type === 'user') {
     const parts = [];
     if (item.text) parts.push(h('div', { text: item.text }));
@@ -778,7 +804,7 @@ function renderChatItem(item) {
         return src ? h('img', { class: 'chat-img', src, alt: img.name || 'image' }) : h('div', { class: 'chat-img muted', text: img.name || '图片' });
       })));
     }
-    return chatRow(h('div', { class: 'chat-card' }, parts.length ? parts : h('div', { text: '' })), 'user');
+    return chatRow(h('div', { class: 'chat-card' }, parts.length ? parts : h('div', { text: '' })), 'user' + (isCurrentTurn ? ' current-turn' : ''));
   }
   if (item.type === 'assistant') return chatRow(h('div', { class: 'chat-card' }, FleetMarkdown.renderMarkdown(item.text)), 'assistant');
   if (item.type === 'tool') return chatRow(h('div', { class: 'chat-tool' },
@@ -1567,6 +1593,7 @@ function init() {
   $('#chat-input').addEventListener('compositionend', () => { chatIMEComposing = false; });
   $('#chat-scroll').addEventListener('scroll', () => {
     $('#chat-jump').hidden = chatAtBottom();
+    syncChatTurnPin();
     if ($('#chat-scroll').scrollTop <= 80) loadOlderChatHistory();
   });
   $('#chat-jump').onclick = () => { const sc = $('#chat-scroll'); sc.scrollTop = sc.scrollHeight; $('#chat-jump').hidden = true; };
@@ -1626,6 +1653,7 @@ function init() {
   // 跨断点时同步移动输入坞可见性
   addEventListener('resize', () => {
     if (state.mode === 'sessions' && state.termSid) $('#mobile-input').hidden = !isMobile();
+    syncChatTurnPin();
   });
   // 移动端软键盘弹起时把输入坞顶到键盘之上。iOS 键盘不缩布局视口（100dvh/fixed 不变），
   // 用 VisualViewport 算键盘高度 → CSS 变量 --kb，输入坞据此上移（见 style.css #mobile-input transform）。
