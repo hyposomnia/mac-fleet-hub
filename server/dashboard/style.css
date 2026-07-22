@@ -542,7 +542,7 @@ svg.ic.fill { fill: currentColor; stroke: none; }
 .chat-approval-actions, .chat-error-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
 .chat-error { border-color: color-mix(in srgb, var(--danger) 34%, var(--border)); background: var(--danger-soft); color: var(--danger); }
 #chat-composer { position: relative; flex: none; width: 100%; min-width: 0; padding: 10px clamp(18px, 4vw, 52px) calc(14px + env(safe-area-inset-bottom, 0px)); background: color-mix(in srgb, var(--bg) 88%, transparent); backdrop-filter: blur(18px); }
-.chat-composer-float { position: absolute; top: -42px; left: clamp(18px, 4vw, 52px); right: clamp(18px, 4vw, 52px); z-index: 3; max-width: 860px; margin: 0 auto; display: flex; justify-content: flex-end; pointer-events: none; }
+.chat-composer-float { position: absolute; top: -62px; left: clamp(18px, 4vw, 52px); right: clamp(18px, 4vw, 52px); z-index: 3; max-width: 860px; margin: 0 auto; display: flex; justify-content: flex-end; pointer-events: none; }
 .chat-composer-shell { width: 100%; max-width: 860px; margin: 0 auto; }
 #chat-followups { position: relative; z-index: 0; margin-bottom: -14px; }
 #chat-followups[hidden] { display: none; }
@@ -635,7 +635,18 @@ svg.ic.fill { fill: currentColor; stroke: none; }
 .chat-att button .ic { width: 13px; height: 13px; }
 .chat-images { display: grid; grid-template-columns: repeat(auto-fit, minmax(118px, 180px)); gap: 8px; margin-top: 8px; }
 .chat-img { max-width: 180px; max-height: 180px; object-fit: cover; border-radius: 12px; border: 1px solid var(--border); background: var(--surface-2); }
-#chat-jump { pointer-events: auto; box-shadow: var(--e2); }
+#chat-jump {
+  width: 48px; height: 48px; padding: 0; flex: none; display: grid; place-items: center;
+  border: 1px solid var(--border-1); border-radius: 50%; background: var(--surface); color: var(--text-1);
+  box-shadow: var(--e2); pointer-events: auto;
+  transition: background var(--dur-1) var(--ease), color var(--dur-1) var(--ease),
+              border-color var(--dur-1) var(--ease), transform var(--dur-1) var(--ease);
+}
+#chat-jump[hidden] { display: none; }
+#chat-jump:hover { background: var(--surface-hover); border-color: var(--border-strong); color: var(--text); }
+#chat-jump:active { transform: translateY(1px); }
+#chat-jump:focus-visible { border-radius: 50%; box-shadow: var(--ring), var(--e2); }
+.chat-jump-icon { width: 26px; height: 26px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
 
 /* 移动端输入坞（终端） */
 #mobile-input { flex: none; background: var(--surface); border-top: 1px solid var(--border); padding: 8px 10px calc(8px + env(safe-area-inset-bottom, 0px)); transform: translateY(calc(-1 * var(--kb, 0px))); transition: transform var(--dur-2) var(--ease); }
@@ -715,7 +726,7 @@ svg.ic.fill { fill: currentColor; stroke: none; }
   .chat-diff-files { min-width: min(68vw, 560px); }
   #chat-composer { padding: 8px 10px calc(10px + env(safe-area-inset-bottom, 0px)); }
   .chat-followup { padding-inline: 12px; font-size: var(--t-xs); }
-  .chat-composer-float { top: -40px; left: 10px; right: 10px; }
+  .chat-composer-float { top: -60px; left: 10px; right: 10px; }
   .chat-composer-inner { min-height: 108px; padding: 6px; border-radius: 20px; }
   .chat-attach { width: 36px; height: 36px; }
   .chat-send { width: 40px; height: 40px; }

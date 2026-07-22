@@ -117,7 +117,14 @@
           </div>
           <div id="chat-scroll"></div>
           <form id="chat-composer">
-            <div class="chat-composer-float"><button id="chat-jump" type="button" class="btn sm ghost" hidden>跳到底部</button></div>
+            <div class="chat-composer-float">
+              <button id="chat-jump" type="button" title="跳到底部" aria-label="跳到底部" hidden>
+                <svg class="chat-jump-icon" viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M12 4.5v14.25" />
+                  <path d="m5.5 12.5 6.5 6.25 6.5-6.25" />
+                </svg>
+              </button>
+            </div>
             <input id="chat-file" type="file" accept="image/*" multiple hidden />
             <div class="chat-composer-shell">
               <div id="chat-followups" hidden></div>
