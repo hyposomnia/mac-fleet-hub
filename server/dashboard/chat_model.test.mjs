@@ -6,17 +6,18 @@ import vm from 'node:vm';
 const src = await readFile(new URL('./chat_model.js', import.meta.url), 'utf8');
 const appSrc = await readFile(new URL('./app.js', import.meta.url), 'utf8');
 const indexHTML = await readFile(new URL('./index.html', import.meta.url), 'utf8');
+const styleCSS = await readFile(new URL('./style.css', import.meta.url), 'utf8');
 const serviceWorker = await readFile(new URL('./sw.js', import.meta.url), 'utf8');
 const markedSrc = await readFile(new URL('./vendor/marked.min.js', import.meta.url), 'utf8');
 const sandbox = { globalThis: {} };
 vm.createContext(sandbox);
 vm.runInContext(src, sandbox);
-const { createChatState, appendUserMessage, prependHistory, reduceChatEvent, normalizeDiffFiles } = sandbox.globalThis.FleetChatModel;
+const { createChatState, appendUserMessage, prependHistory, reduceChatEvent, normalizeDiffFiles, chatPhase } = sandbox.globalThis.FleetChatModel;
 
 const appSandbox = { document: { addEventListener() {} }, EventSource: { CLOSED: 2 } };
 vm.createContext(appSandbox);
-vm.runInContext(`${appSrc}\n;globalThis.__chatCacheTest = { chatCacheVictim, isChatConnectionKept, updateChatUpdatedAt, chatAssistantMetaText, chatUserMetaText, state };`, appSandbox);
-const { chatCacheVictim, isChatConnectionKept, updateChatUpdatedAt, chatAssistantMetaText, chatUserMetaText, state: appState } = appSandbox.__chatCacheTest;
+vm.runInContext(`${appSrc}\n;globalThis.__chatCacheTest = { chatCacheVictim, isChatConnectionKept, updateChatUpdatedAt, chatAssistantMetaText, chatUserMetaText, enqueueChatFollowup, removeChatFollowup, state };`, appSandbox);
+const { chatCacheVictim, isChatConnectionKept, updateChatUpdatedAt, chatAssistantMetaText, chatUserMetaText, enqueueChatFollowup, removeChatFollowup, state: appState } = appSandbox.__chatCacheTest;
 
 test('chat model and app use the same versioned shell URLs', () => {
   const styleURL = indexHTML.match(/style\.css\?v=([a-zA-Z0-9_-]+)/);
@@ -94,6 +95,49 @@ test('assistant deltas merge by item id', () => {
   state = reduceChatEvent(state, { type: 'assistant_delta', itemId: 'a1', data: { delta: 'llo' } });
   assert.equal(state.messages.length, 1);
   assert.equal(state.items.a1.text, 'hello');
+});
+
+test('Codex object status and turn lifecycle drive the running phase', () => {
+  let state = reduceChatEvent(createChatState(), {
+    type: 'thread_status',
+    data: { status: { type: 'active', activeFlags: [] } },
+  });
+  assert.equal(chatPhase({ type: 'active' }), 'running');
+  assert.equal(state.phase, 'running');
+
+  state = reduceChatEvent(state, {
+    type: 'turn_started', turnId: 'turn-7', data: { turn: { id: 'turn-7' } },
+  });
+  assert.equal(state.phase, 'running');
+  assert.equal(state.activeTurnId, 'turn-7');
+
+  state = reduceChatEvent(state, {
+    type: 'turn_done', turnId: 'turn-7', data: { turn: { id: 'turn-7', status: 'completed' } },
+  });
+  assert.equal(state.phase, 'idle');
+  assert.equal(state.activeTurnId, '');
+});
+
+test('follow-up queue is FIFO and removing one item preserves the others', () => {
+  const chat = { followups: [] };
+  const images = [{ id: 'img-1', name: 'one.png' }];
+  const first = enqueueChatFollowup(chat, 'first', images, 'follow-1');
+  const second = enqueueChatFollowup(chat, 'second', [], 'follow-2');
+  assert.equal(first.id, 'follow-1');
+  assert.deepEqual(Array.from(chat.followups, (item) => item.id), ['follow-1', 'follow-2']);
+  assert.notEqual(first.images, images);
+
+  const removed = removeChatFollowup(chat, 'follow-1');
+  assert.equal(removed.text, 'first');
+  assert.deepEqual(Array.from(chat.followups, (item) => item.id), ['follow-2']);
+  assert.equal(second.text, 'second');
+});
+
+test('self-drawn composer contains native stop control and follow-up queue', () => {
+  assert.match(indexHTML, /id="chat-followups"/);
+  assert.match(indexHTML, /class="ic chat-stop-icon"/);
+  assert.match(indexHTML, /data-action="send"/);
+  assert.match(styleCSS, /chat-send\[data-action="interrupt"\]/);
 });
 
 test('tool output appends to command card', () => {

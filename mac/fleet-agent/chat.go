@@ -52,6 +52,17 @@ func mapCodexNotification(n rpcNotification) []ChatEvent {
 	case "thread/status/changed":
 		p := codexEventEnvelope(n.Params)
 		return []ChatEvent{newChatEvent("thread_status", "codex", p.ThreadID, "", "", p.asMap())}
+	case "turn/started":
+		var p struct {
+			ThreadID string `json:"threadId"`
+			Turn     struct {
+				ID string `json:"id"`
+			} `json:"turn"`
+		}
+		_ = json.Unmarshal(n.Params, &p)
+		var data map[string]interface{}
+		_ = json.Unmarshal(n.Params, &data)
+		return []ChatEvent{newChatEvent("turn_started", "codex", p.ThreadID, p.Turn.ID, "", data)}
 	case "item/agentMessage/delta":
 		p := codexEventEnvelope(n.Params)
 		return []ChatEvent{newChatEvent("assistant_delta", "codex", p.ThreadID, p.TurnID, p.ItemID, p.asMap())}
@@ -175,6 +186,7 @@ func (p codexCompletedMeta) asMap() map[string]json.RawMessage {
 
 var errAppServerUnavailable = errors.New("appserver_unavailable")
 var errUnsupportedChatAssistant = errors.New("unsupported_assistant")
+var errNoActiveChatTurn = errors.New("no_active_turn")
 
 type ChatResumeResult struct {
 	SessionID    string            `json:"sessionId"`
@@ -239,6 +251,7 @@ type chatBackend interface {
 	Resume(ctx context.Context, assistant, sessionID, mode string) (ChatResumeResult, error)
 	History(ctx context.Context, assistant, sessionID, cursor string) (ChatHistoryPage, error)
 	Input(ctx context.Context, assistant, sessionID, text string, images []ChatAttachment, opts ChatTurnOptions) (ChatInputResult, error)
+	Steer(ctx context.Context, assistant, sessionID, text string, images []ChatAttachment) (ChatInputResult, error)
 	Events(ctx context.Context, assistant, sessionID string) (<-chan ChatEvent, error)
 	Approve(ctx context.Context, assistant, sessionID, requestID, decision string) error
 	Interrupt(ctx context.Context, assistant, sessionID string) error
@@ -255,6 +268,9 @@ func (unavailableChatBackend) History(context.Context, string, string, string) (
 	return ChatHistoryPage{}, errAppServerUnavailable
 }
 func (unavailableChatBackend) Input(context.Context, string, string, string, []ChatAttachment, ChatTurnOptions) (ChatInputResult, error) {
+	return ChatInputResult{}, errAppServerUnavailable
+}
+func (unavailableChatBackend) Steer(context.Context, string, string, string, []ChatAttachment) (ChatInputResult, error) {
 	return ChatInputResult{}, errAppServerUnavailable
 }
 func (unavailableChatBackend) Events(context.Context, string, string) (<-chan ChatEvent, error) {
@@ -274,6 +290,10 @@ func writeChatErr(w http.ResponseWriter, err error) {
 	}
 	if errors.Is(err, errAppServerUnavailable) {
 		writeErr(w, http.StatusServiceUnavailable, "appserver_unavailable", "Codex app-server 不可用，可用终端打开。")
+		return
+	}
+	if errors.Is(err, errNoActiveChatTurn) {
+		writeErr(w, http.StatusConflict, "no_active_turn", "当前没有可引导的运行中任务。")
 		return
 	}
 	writeErr(w, http.StatusInternalServerError, "chat_failed", err.Error())
@@ -358,6 +378,54 @@ func handleChatInput(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	res, err := agentChatBackend.Input(r.Context(), assistant, req.SessionID, sendText, images, opts)
+	if err != nil {
+		writeChatErr(w, err)
+		return
+	}
+	writeJSON(w, res)
+}
+
+func handleChatSteer(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	var req struct {
+		Assistant string `json:"assistant"`
+		SessionID string `json:"sessionId"`
+		Text      string `json:"text"`
+		Images    []struct {
+			ID string `json:"id"`
+		} `json:"images"`
+	}
+	if json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&req) != nil || req.SessionID == "" {
+		http.Error(w, "bad request", http.StatusBadRequest)
+		return
+	}
+	text := strings.TrimSpace(req.Text)
+	if text == "" && len(req.Images) == 0 {
+		http.Error(w, "bad request", http.StatusBadRequest)
+		return
+	}
+	assistant := normAssistant(req.Assistant)
+	if assistant != "codex" {
+		writeErr(w, http.StatusNotImplemented, "unsupported_assistant", "自绘界面暂只支持 Codex。")
+		return
+	}
+	images := make([]ChatAttachment, 0, len(req.Images))
+	for _, img := range req.Images {
+		att, err := resolveChatUpload(req.SessionID, img.ID)
+		if err != nil {
+			writeErr(w, http.StatusBadRequest, "bad_attachment", err.Error())
+			return
+		}
+		images = append(images, att)
+	}
+	sendText := req.Text
+	if text == "" {
+		sendText = ""
+	}
+	res, err := agentChatBackend.Steer(r.Context(), assistant, req.SessionID, sendText, images)
 	if err != nil {
 		writeChatErr(w, err)
 		return
