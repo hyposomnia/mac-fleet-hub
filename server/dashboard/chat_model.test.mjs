@@ -54,6 +54,12 @@ test('Codex is the first and default session assistant', () => {
   assert.match(appSrc, /assistant:\s*'codex',\s*\/\/ claude \| codex/);
 });
 
+test('jump-to-bottom control uses an accessible inline SVG icon', () => {
+  assert.match(indexHTML, /<button id="chat-jump"[^>]*aria-label="跳到底部"[^>]*>/);
+  assert.match(indexHTML, /<svg class="chat-jump-icon"[^>]*aria-hidden="true">/);
+  assert.doesNotMatch(indexHTML, />跳到底部<\/button>/);
+});
+
 test('chat cache evicts the earliest updated non-current session', () => {
   const oldest = { updatedAt: 100, lastUsed: 999 };
   const newest = { updatedAt: 300, lastUsed: 1 };
