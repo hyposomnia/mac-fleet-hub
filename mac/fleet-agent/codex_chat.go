@@ -477,13 +477,17 @@ func (b *codexChatBackend) modelOptions(ctx context.Context, rpc codexRPCConn) [
 	}
 	var res struct {
 		Data []struct {
-			ID                     string `json:"id"`
-			Model                  string `json:"model"`
-			DisplayName            string `json:"displayName"`
-			Description            string `json:"description"`
-			DefaultReasoningEffort string `json:"defaultReasoningEffort"`
-			Hidden                 bool   `json:"hidden"`
-			IsDefault              bool   `json:"isDefault"`
+			ID                        string `json:"id"`
+			Model                     string `json:"model"`
+			DisplayName               string `json:"displayName"`
+			Description               string `json:"description"`
+			DefaultReasoningEffort    string `json:"defaultReasoningEffort"`
+			SupportedReasoningEfforts []struct {
+				ReasoningEffort string `json:"reasoningEffort"`
+				Description     string `json:"description"`
+			} `json:"supportedReasoningEfforts"`
+			Hidden    bool `json:"hidden"`
+			IsDefault bool `json:"isDefault"`
 		} `json:"data"`
 	}
 	if json.Unmarshal(raw, &res) != nil {
@@ -502,9 +506,18 @@ func (b *codexChatBackend) modelOptions(ctx context.Context, rpc codexRPCConn) [
 		if name == "" {
 			name = value
 		}
+		efforts := make([]ChatReasoningEffortOption, 0, len(m.SupportedReasoningEfforts))
+		for _, effort := range m.SupportedReasoningEfforts {
+			if effort.ReasoningEffort == "" {
+				continue
+			}
+			efforts = append(efforts, ChatReasoningEffortOption{
+				Value: effort.ReasoningEffort, Description: effort.Description,
+			})
+		}
 		out = append(out, ChatModelOption{
 			Value: value, DisplayName: name, Description: m.Description,
-			DefaultEffort: m.DefaultReasoningEffort, IsDefault: m.IsDefault,
+			DefaultEffort: m.DefaultReasoningEffort, SupportedEfforts: efforts, IsDefault: m.IsDefault,
 		})
 	}
 	return out

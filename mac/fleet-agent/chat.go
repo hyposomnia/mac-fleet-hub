@@ -165,11 +165,17 @@ type ChatHistoryPage struct {
 }
 
 type ChatModelOption struct {
-	Value         string `json:"value"`
-	DisplayName   string `json:"displayName"`
-	Description   string `json:"description,omitempty"`
-	DefaultEffort string `json:"defaultEffort,omitempty"`
-	IsDefault     bool   `json:"isDefault,omitempty"`
+	Value            string                      `json:"value"`
+	DisplayName      string                      `json:"displayName"`
+	Description      string                      `json:"description,omitempty"`
+	DefaultEffort    string                      `json:"defaultEffort,omitempty"`
+	SupportedEfforts []ChatReasoningEffortOption `json:"supportedEfforts,omitempty"`
+	IsDefault        bool                        `json:"isDefault,omitempty"`
+}
+
+type ChatReasoningEffortOption struct {
+	Value       string `json:"value"`
+	Description string `json:"description,omitempty"`
 }
 
 type ChatTurnOptions struct {

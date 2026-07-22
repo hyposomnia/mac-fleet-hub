@@ -1,7 +1,7 @@
 // 极简 service worker —— 只为让 PWA 可安装 + 外壳静态资源离线可用。
 // 不缓存 /api/ 与 iframe 内容（终端/文件必须实时）。
-const CACHE = 'fleet-shell-v7';
-const SHELL = ['/', '/index.html', '/style.css', '/chat_model.js?v=7', '/app.js?v=7', '/manifest.webmanifest'];
+const CACHE = 'fleet-shell-v9';
+const SHELL = ['/', '/index.html', '/style.css?v=9', '/chat_model.js?v=9', '/app.js?v=9', '/manifest.webmanifest'];
 
 self.addEventListener('install', (e) => {
   // {cache:'reload'} 绕过浏览器 HTTP 缓存预缓存最新外壳——否则可能把旧版 app.js 存进来，

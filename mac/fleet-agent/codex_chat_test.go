@@ -85,7 +85,10 @@ func TestCodexChatBackendResumeHydratesHistoryAndOptions(t *testing.T) {
 	],"nextCursor":"older-cursor"}`)
 	rpc.reply["model/list"] = json.RawMessage(`{"data":[{
 		"id":"gpt-new-id","model":"gpt-new","displayName":"GPT New","description":"Latest", "hidden":false,
-		"isDefault":true,"defaultReasoningEffort":"high","supportedReasoningEfforts":[]
+		"isDefault":true,"defaultReasoningEffort":"high","supportedReasoningEfforts":[
+			{"reasoningEffort":"medium","description":"Balanced"},
+			{"reasoningEffort":"high","description":"Thorough"}
+		]
 	}]}`)
 	b := newCodexChatBackend(func(ctx context.Context) (codexRPCConn, func(), error) {
 		return rpc, func() {}, nil
@@ -98,7 +101,8 @@ func TestCodexChatBackendResumeHydratesHistoryAndOptions(t *testing.T) {
 	if res.Model != "gpt-new" || res.ApprovalMode != "never" || res.History.NextCursor != "older-cursor" {
 		t.Fatalf("bad resume metadata: %+v", res)
 	}
-	if len(res.Models) != 1 || res.Models[0].Value != "gpt-new" || res.Models[0].DefaultEffort != "high" {
+	if len(res.Models) != 1 || res.Models[0].Value != "gpt-new" || res.Models[0].DefaultEffort != "high" ||
+		len(res.Models[0].SupportedEfforts) != 2 || res.Models[0].SupportedEfforts[1].Value != "high" {
 		t.Fatalf("bad models: %+v", res.Models)
 	}
 	if len(res.History.Events) != 2 || res.History.Events[0].Type != "user_done" || res.History.Events[0].ItemID != "u-old" || res.History.Events[1].ItemID != "a-new" {

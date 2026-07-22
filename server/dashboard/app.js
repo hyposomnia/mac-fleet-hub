@@ -804,19 +804,40 @@ function chatImageSrc(img) {
   return img.url || '';
 }
 
+function resizeChatInput() {
+  const input = $('#chat-input');
+  if (!input) return;
+  input.style.height = 'auto';
+  input.style.height = Math.min(input.scrollHeight, 180) + 'px';
+  input.style.overflowY = input.scrollHeight > 180 ? 'auto' : 'hidden';
+}
+
+function updateChatComposerState() {
+  const input = $('#chat-input');
+  const send = $('#chat-send');
+  if (!send) return;
+  const attachments = state.chat?.attachments || [];
+  const blocked = attachments.some((att) => att.uploading || att.error || !att.id);
+  const hasContent = Boolean(input?.value.trim()) || attachments.length > 0;
+  send.disabled = !state.chat || !hasContent || blocked;
+  send.title = blocked ? '等待图片上传完成' : '发送';
+}
+
 function renderChatAttachments() {
   const box = $('#chat-attachments');
   const chat = state.chat;
-  if (!box || !chat) return;
+  if (!box || !chat) { updateChatComposerState(); return; }
   const atts = chat.attachments || [];
   box.hidden = atts.length === 0;
   clear(box);
   for (const att of atts) {
     box.append(h('div', { class: 'chat-att' + (att.error ? ' err' : '') },
       att.previewUrl ? h('img', { src: att.previewUrl, alt: att.name || 'image' }) : null,
-      h('span', { class: 'st', text: att.error ? '失败' : (att.uploading ? '...' : '已就绪') }),
-      h('button', { type: 'button', title: '移除', onclick: () => removeChatAttachment(att.localId) }, '×')));
+      att.error || att.uploading ? h('span', { class: 'st', text: att.error ? '失败' : '上传中' }) : null,
+      h('button', { type: 'button', title: '移除图片', 'aria-label': '移除图片', onclick: () => removeChatAttachment(att.localId) },
+        svgIcon('ic', 'M18 6 6 18 M6 6l12 12'))));
   }
+  updateChatComposerState();
 }
 
 function removeChatAttachment(localId) {
@@ -888,8 +909,12 @@ async function openChatSession(s) {
     models: [], selectedModel: '', selectedEffort: '', modelDirty: false,
     approvalMode: 'on-request', approvalDirty: false,
   };
+  $('#chat-input').value = '';
+  resizeChatInput();
+  updateChatComposerState();
   $('#chat-approval').disabled = true;
   $('#chat-model-wrap').hidden = true;
+  $('#chat-effort-wrap').hidden = true;
   showChatPane(state.chat.title, state.chat.cwd);
   renderChat();
   try {
@@ -918,6 +943,33 @@ async function openChatSession(s) {
   }
 }
 
+const CHAT_EFFORT_LABELS = {
+  none: '无', minimal: '最少', low: '低', medium: '中', high: '高', xhigh: '极高', max: '最大', ultra: '超高',
+};
+
+function configureChatEfforts(chat, preferred = '') {
+  const select = $('#chat-effort');
+  const wrap = $('#chat-effort-wrap');
+  const model = chat.models.find((item) => item.value === chat.selectedModel);
+  const advertised = Array.isArray(model?.supportedEfforts) ? model.supportedEfforts.filter((item) => item?.value) : [];
+  const efforts = advertised.slice();
+  if (model?.defaultEffort && !efforts.some((item) => item.value === model.defaultEffort)) {
+    efforts.push({ value: model.defaultEffort, description: '' });
+  }
+  clear(select);
+  for (const effort of efforts) {
+    select.append(h('option', {
+      value: effort.value,
+      text: CHAT_EFFORT_LABELS[effort.value] || effort.value,
+      title: effort.description || effort.value,
+    }));
+  }
+  const values = new Set(efforts.map((item) => item.value));
+  chat.selectedEffort = values.has(preferred) ? preferred : (model?.defaultEffort || efforts[0]?.value || '');
+  if (chat.selectedEffort) select.value = chat.selectedEffort;
+  wrap.hidden = efforts.length === 0;
+}
+
 function configureChatOptions(chat, resumed) {
   const approval = $('#chat-approval');
   const approvalModes = new Set(['untrusted', 'on-request', 'never', 'full-access']);
@@ -930,7 +982,7 @@ function configureChatOptions(chat, resumed) {
   const wrap = $('#chat-model-wrap');
   const models = Array.isArray(resumed.models) ? resumed.models.slice() : [];
   if (resumed.model && !models.some((m) => m.value === resumed.model)) {
-    models.unshift({ value: resumed.model, displayName: resumed.model, defaultEffort: '' });
+    models.unshift({ value: resumed.model, displayName: resumed.model, defaultEffort: '', supportedEfforts: [] });
   }
   clear(select);
   for (const model of models) {
@@ -941,7 +993,7 @@ function configureChatOptions(chat, resumed) {
   chat.selectedModel = resumed.model || (models.find((m) => m.isDefault)?.value || models[0]?.value || '');
   if (chat.selectedModel) select.value = chat.selectedModel;
   const selected = models.find((m) => m.value === chat.selectedModel);
-  chat.selectedEffort = selected?.defaultEffort || '';
+  configureChatEfforts(chat, selected?.defaultEffort || '');
   chat.modelDirty = false;
   wrap.hidden = select.options.length === 0;
 }
@@ -999,6 +1051,7 @@ async function submitChatInput() {
   if (!text && pending.length === 0) return;
   const images = pending.map((att) => ({ id: att.id, name: att.name, mime: att.mime, size: att.size, url: att.url, previewUrl: att.previewUrl }));
   input.value = '';
+  resizeChatInput();
   chat.attachments = [];
   renderChatAttachments();
   chat.model = FleetChatModel.appendUserMessage(chat.model, text, 'user-' + Date.now(), images);
@@ -1370,6 +1423,7 @@ function init() {
   $('#chat-composer').onsubmit = (e) => { e.preventDefault(); submitChatInput(); };
   $('#chat-attach').onclick = () => $('#chat-file').click();
   $('#chat-file').addEventListener('change', (e) => { addChatFiles(e.target.files); e.target.value = ''; });
+  $('#chat-input').addEventListener('input', () => { resizeChatInput(); updateChatComposerState(); });
   $('#chat-input').addEventListener('keydown', (e) => {
     if (e.key === 'Enter' && !e.shiftKey && !isIMEComposing(e, chatIMEComposing)) { e.preventDefault(); submitChatInput(); }
   });
@@ -1393,7 +1447,14 @@ function init() {
     const chat = state.chat;
     if (!chat) return;
     chat.selectedModel = e.target.value;
-    chat.selectedEffort = chat.models.find((m) => m.value === chat.selectedModel)?.defaultEffort || '';
+    const selected = chat.models.find((m) => m.value === chat.selectedModel);
+    configureChatEfforts(chat, selected?.defaultEffort || '');
+    chat.modelDirty = true;
+  });
+  $('#chat-effort').addEventListener('change', (e) => {
+    const chat = state.chat;
+    if (!chat) return;
+    chat.selectedEffort = e.target.value;
     chat.modelDirty = true;
   });
 

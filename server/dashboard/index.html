@@ -15,7 +15,7 @@
   <!-- 主题：默认跟随系统 prefers-color-scheme，用户切换后写 localStorage 覆盖（与 app.js initTheme 一致）。
        内联以避免首屏闪烁。 -->
   <script>document.documentElement.dataset.theme = (function () { try { var t = localStorage.getItem('fleet-theme'); if (t) return t; } catch (e) {} return matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark'; })();</script>
-  <link rel="stylesheet" href="style.css" />
+  <link rel="stylesheet" href="style.css?v=9" />
 </head>
 <body>
   <div id="app" data-mode="sessions">
@@ -117,11 +117,11 @@
           <form id="chat-composer">
             <input id="chat-file" type="file" accept="image/*" multiple hidden />
             <div class="chat-composer-inner">
-              <button id="chat-attach" type="button" class="iconbtn chat-attach" title="添加图片" aria-label="添加图片"><svg class="ic" viewBox="0 0 24 24"><path d="M21.44 11.05 12.25 20.24a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg></button>
-              <div class="chat-input-shell">
-                <div id="chat-attachments" hidden></div>
-                <textarea id="chat-input" rows="1" placeholder="给 Codex 发送消息…" autocapitalize="off" autocomplete="off" autocorrect="off" spellcheck="false"></textarea>
-                <div class="chat-composer-tools">
+              <div id="chat-attachments" hidden></div>
+              <textarea id="chat-input" rows="1" placeholder="给 Codex 发送消息…" autocapitalize="off" autocomplete="off" autocorrect="off" spellcheck="false"></textarea>
+              <div class="chat-composer-toolbar">
+                <div class="chat-tools-left">
+                  <button id="chat-attach" type="button" class="iconbtn chat-attach" title="添加图片" aria-label="添加图片"><svg class="ic" viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg></button>
                   <label class="chat-select" title="审批模式">
                     <svg class="ic" viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10"/><path d="m9 12 2 2 4-4"/></svg>
                     <select id="chat-approval" aria-label="审批模式">
@@ -130,14 +130,22 @@
                       <option value="never">无需审批</option>
                       <option value="full-access">完全访问</option>
                     </select>
+                    <svg class="chat-select-chevron" viewBox="0 0 24 24" aria-hidden="true"><polyline points="6 9 12 15 18 9"/></svg>
                   </label>
+                </div>
+                <div class="chat-tools-right">
                   <label id="chat-model-wrap" class="chat-select chat-model-select" title="模型" hidden>
                     <svg class="ic" viewBox="0 0 24 24"><path d="M12 2a4 4 0 0 0-4 4v1a4 4 0 0 0-3 6.65V16a4 4 0 0 0 4 4h6a4 4 0 0 0 4-4v-2.35A4 4 0 0 0 16 7V6a4 4 0 0 0-4-4Z"/><path d="M9 12h.01M15 12h.01M9 16h6"/></svg>
                     <select id="chat-model" aria-label="模型"></select>
+                    <svg class="chat-select-chevron" viewBox="0 0 24 24" aria-hidden="true"><polyline points="6 9 12 15 18 9"/></svg>
                   </label>
+                  <label id="chat-effort-wrap" class="chat-select chat-effort-select" title="推理强度" hidden>
+                    <select id="chat-effort" aria-label="推理强度"></select>
+                    <svg class="chat-select-chevron" viewBox="0 0 24 24" aria-hidden="true"><polyline points="6 9 12 15 18 9"/></svg>
+                  </label>
+                  <button id="chat-send" class="send-btn chat-send" title="发送" aria-label="发送" disabled><svg class="ic" viewBox="0 0 24 24"><line x1="12" y1="19" x2="12" y2="5"/><polyline points="5 12 12 5 19 12"/></svg></button>
                 </div>
               </div>
-              <button id="chat-send" class="send-btn chat-send" title="发送" aria-label="发送"><svg class="ic" viewBox="0 0 24 24"><line x1="12" y1="19" x2="12" y2="5"/><polyline points="5 12 12 5 19 12"/></svg></button>
             </div>
           </form>
         </section>
@@ -250,7 +258,7 @@
     <div id="toast-wrap"></div>
 
   </div>
-  <script src="chat_model.js?v=7"></script>
-  <script src="app.js?v=7"></script>
+  <script src="chat_model.js?v=9"></script>
+  <script src="app.js?v=9"></script>
 </body>
 </html>
