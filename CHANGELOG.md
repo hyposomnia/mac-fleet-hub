@@ -4,6 +4,9 @@ mac-fleet-hub 变更记录（日期为本地时间）。
 
 ## 2026-07-22
 
+### 调小 Codex 工具行图标
+- **视觉协调**：自绘聊天里的工具调用图标从 18px 调整为 16px，并略降线宽；保留原 20px 对齐盒子，避免影响工具行文本基线和行高。
+
 ### Codex 自绘聊天显示每轮消息元信息
 - **用户消息时间**：本地新发送消息立即记录发送时间；历史用户消息保留 app-server item 原始时间字段，气泡底部显示 `用户：YYYY-MM-DD HH:mm:ss`。
 - **AI 回复统计**：助手消息从实时 delta / completed / turn_done 事件中归一化模型、思考强度、token in/out 与完成时间，按 `AI：model, effort  |  in N / out N  |  YYYY-MM-DD HH:mm:ss` 展示。
