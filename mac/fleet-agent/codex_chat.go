@@ -688,7 +688,7 @@ func projectCodexToolItem(sessionID, turnID string, raw json.RawMessage, lifecyc
 		data["title"] = codexToolName(item.AppContext, item.Server, item.Tool)
 		data["summary"] = strings.Trim(strings.Join([]string{item.Server, item.Tool}, " · "), " ·")
 		data["detail"] = compactChatJSON(item.Arguments, 12<<10)
-		data["output"] = compactChatJSON(item.Result, 32<<10)
+		data["output"] = compactMCPResult(item.Result, 16<<10)
 		if item.Error != nil {
 			data["output"] = item.Error.Message
 			data["status"] = "failed"
@@ -712,7 +712,7 @@ func projectCodexToolItem(sessionID, turnID string, raw json.RawMessage, lifecyc
 		data["title"] = "调用工具"
 		data["summary"] = strings.Trim(strings.Join([]string{item.Namespace, item.Tool}, " · "), " ·")
 		data["detail"] = compactChatJSON(item.Arguments, 12<<10)
-		data["output"] = compactChatJSON(item.ContentItems, 32<<10)
+		data["output"] = compactDynamicToolResult(item.ContentItems, 16<<10)
 		if item.Status != "" {
 			data["status"] = item.Status
 		}
@@ -827,6 +827,84 @@ func compactChatValue(value interface{}, max int) string {
 		return ""
 	}
 	return capChatHistoryText(string(b), max)
+}
+
+func compactMCPResult(raw json.RawMessage, max int) string {
+	var result struct {
+		Content           []json.RawMessage `json:"content"`
+		StructuredContent json.RawMessage   `json:"structuredContent"`
+	}
+	if json.Unmarshal(raw, &result) != nil {
+		return compactChatJSON(raw, max)
+	}
+	parts := make([]string, 0, len(result.Content))
+	for _, content := range result.Content {
+		var item struct {
+			Type     string `json:"type"`
+			Text     string `json:"text"`
+			MimeType string `json:"mimeType"`
+			URI      string `json:"uri"`
+			Resource *struct {
+				Text string `json:"text"`
+				URI  string `json:"uri"`
+			} `json:"resource"`
+		}
+		if json.Unmarshal(content, &item) != nil {
+			continue
+		}
+		switch item.Type {
+		case "text":
+			if strings.TrimSpace(item.Text) != "" {
+				parts = append(parts, item.Text)
+			}
+		case "image", "audio":
+			label := "媒体"
+			if item.Type == "image" {
+				label = "图片"
+			}
+			if item.MimeType != "" {
+				label += " " + item.MimeType
+			}
+			parts = append(parts, "["+label+"]")
+		case "resource", "resource_link":
+			if item.Resource != nil && strings.TrimSpace(item.Resource.Text) != "" {
+				parts = append(parts, item.Resource.Text)
+			} else {
+				uri := item.URI
+				if uri == "" && item.Resource != nil {
+					uri = item.Resource.URI
+				}
+				parts = append(parts, firstNonEmpty(uri, "[资源]"))
+			}
+		}
+	}
+	if len(parts) > 0 {
+		return capChatHistoryText(strings.Join(parts, "\n"), max)
+	}
+	return compactChatJSON(result.StructuredContent, max)
+}
+
+func compactDynamicToolResult(raw json.RawMessage, max int) string {
+	var items []struct {
+		Type     string `json:"type"`
+		Text     string `json:"text"`
+		ImageURL string `json:"imageUrl"`
+	}
+	if json.Unmarshal(raw, &items) != nil {
+		return compactChatJSON(raw, max)
+	}
+	parts := make([]string, 0, len(items))
+	for _, item := range items {
+		switch item.Type {
+		case "inputText":
+			if strings.TrimSpace(item.Text) != "" {
+				parts = append(parts, item.Text)
+			}
+		case "inputImage":
+			parts = append(parts, "[图片]")
+		}
+	}
+	return capChatHistoryText(strings.Join(parts, "\n"), max)
 }
 
 func firstNonEmpty(values ...string) string {

@@ -94,6 +94,26 @@ func TestMapCodexNotificationCompletedItems(t *testing.T) {
 			t.Fatalf("MCP tool data missing %s in %s", want, mcp[0].Data)
 		}
 	}
+	if !strings.Contains(string(mcp[0].Data), `"output":"ok"`) {
+		t.Fatalf("MCP text result should be retained without the raw envelope: %s", mcp[0].Data)
+	}
+}
+
+func TestProjectCodexToolItemDropsMCPBinaryPayloads(t *testing.T) {
+	raw := json.RawMessage(`{"id":"mcp-image","type":"mcpToolCall","server":"browser","tool":"screenshot","status":"completed","arguments":{},"result":{"content":[{"type":"image","mimeType":"image/png","data":"VERY_LARGE_BASE64"},{"type":"text","text":"captured"}],"structuredContent":null,"_meta":{"secret":"ignored"}},"error":null}`)
+	ev, ok := projectCodexToolItem("t1", "turn1", raw, "completed")
+	if !ok {
+		t.Fatal("MCP image tool should be projected")
+	}
+	data := string(ev.Data)
+	if strings.Contains(data, "VERY_LARGE_BASE64") || strings.Contains(data, "secret") {
+		t.Fatalf("binary or metadata leaked into tool projection: %s", data)
+	}
+	for _, want := range []string{"[图片 image/png]", "captured"} {
+		if !strings.Contains(data, want) {
+			t.Fatalf("MCP output missing %q in %s", want, data)
+		}
+	}
 }
 
 func TestMapCodexNotificationStartedAndMcpProgress(t *testing.T) {
