@@ -10,7 +10,7 @@ const markedSrc = await readFile(new URL('./vendor/marked.min.js', import.meta.u
 const sandbox = { globalThis: {} };
 vm.createContext(sandbox);
 vm.runInContext(src, sandbox);
-const { createChatState, appendUserMessage, prependHistory, reduceChatEvent } = sandbox.globalThis.FleetChatModel;
+const { createChatState, appendUserMessage, prependHistory, reduceChatEvent, normalizeDiffFiles } = sandbox.globalThis.FleetChatModel;
 
 test('chat model and app use the same versioned shell URLs', () => {
   const styleURL = indexHTML.match(/style\.css\?v=([a-zA-Z0-9_-]+)/);
@@ -62,6 +62,29 @@ test('tool output appends to command card', () => {
   state = reduceChatEvent(state, { type: 'tool_delta', itemId: 'cmd1', data: { stream: 'stdout', delta: '/tmp\n' } });
   assert.equal(state.items.cmd1.type, 'tool');
   assert.equal(state.items.cmd1.output, 'pwd\n/tmp\n');
+});
+
+test('file changes keep paths and count added and deleted diff lines', () => {
+  const state = reduceChatEvent(createChatState(), {
+    type: 'diff_update',
+    itemId: 'diff1',
+    data: {
+      changes: [{
+        path: 'server/dashboard/app.js',
+        kind: 'update',
+        diff: '--- a/server/dashboard/app.js\n+++ b/server/dashboard/app.js\n@@ -1,3 +1,4 @@\n-old\n+new\n+another\n context',
+      }],
+    },
+  });
+  assert.deepEqual(
+    JSON.parse(JSON.stringify(state.items.diff1.files)),
+    [{ path: 'server/dashboard/app.js', additions: 2, deletions: 1 }],
+  );
+});
+
+test('file change normalization accepts explicit line counts', () => {
+  const files = normalizeDiffFiles({ files: [{ filePath: 'new.txt', addedLines: 8, deletedLines: 0 }] });
+  assert.deepEqual(JSON.parse(JSON.stringify(files)), [{ path: 'new.txt', additions: 8, deletions: 0 }]);
 });
 
 test('approval keeps app-server request id', () => {

@@ -793,7 +793,19 @@ function renderChatItem(item) {
       item.status === 'resolved' ? h('div', { class: 'muted', text: '已发送决定。' }) : h('div', { class: 'chat-approval-actions' },
         h('button', { class: 'btn sm primary', onclick: () => resolveApproval(item.requestId, 'approved') }, '批准'),
         h('button', { class: 'btn sm', onclick: () => resolveApproval(item.requestId, 'denied') }, '拒绝')))), 'approval');
-  if (item.type === 'diff') return chatRow(h('div', { class: 'chat-diff' }, h('div', { class: 'chat-diff-h', text: '文件改动' }), h('div', { class: 'chat-diff-body', text: '已收到文件改动更新（diff 展开后续补齐）' })), 'diff');
+  if (item.type === 'diff') {
+    const files = item.files || [];
+    return chatRow(h('div', { class: 'chat-diff' },
+      h('div', { class: 'chat-diff-h' },
+        h('span', { text: '文件改动' }),
+        files.length ? h('span', { class: 'chat-diff-count', text: `${files.length} 个文件` }) : null),
+      files.length ? h('div', { class: 'chat-diff-files' }, files.map((file) => h('div', { class: 'chat-diff-file' },
+        h('span', { class: 'chat-diff-path mono', text: file.path }),
+        h('span', { class: 'chat-diff-stats mono' },
+          h('span', { class: 'chat-diff-add', text: `+${file.additions || 0}` }),
+          h('span', { class: 'chat-diff-del', text: `-${file.deletions || 0}` })))))
+        : h('div', { class: 'chat-diff-empty', text: '文件改动已完成' })), 'diff');
+  }
   return chatRow(h('div', { class: 'chat-card muted', text: JSON.stringify(item) }));
 }
 

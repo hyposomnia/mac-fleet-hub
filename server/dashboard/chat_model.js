@@ -30,6 +30,36 @@
     return item;
   }
 
+  function diffLineCounts(diff) {
+    let additions = 0;
+    let deletions = 0;
+    for (const line of String(diff || '').split('\n')) {
+      if (line.startsWith('+') && !line.startsWith('+++')) additions += 1;
+      else if (line.startsWith('-') && !line.startsWith('---')) deletions += 1;
+    }
+    return { additions, deletions };
+  }
+
+  function normalizeDiffFiles(data) {
+    const source = data && (data.files || data.changes);
+    const files = Array.isArray(source)
+      ? source
+      : (source && typeof source === 'object'
+        ? Object.entries(source).map(([path, change]) => ({ path, ...(change || {}) }))
+        : []);
+    return files.map((file) => {
+      const diff = file.diff || file.patch || file.unified_diff || '';
+      const counts = diffLineCounts(diff);
+      return {
+        path: file.path || file.filePath || file.name || '未知文件',
+        additions: Number.isFinite(file.additions) ? file.additions
+          : (Number.isFinite(file.addedLines) ? file.addedLines : counts.additions),
+        deletions: Number.isFinite(file.deletions) ? file.deletions
+          : (Number.isFinite(file.deletedLines) ? file.deletedLines : counts.deletions),
+      };
+    });
+  }
+
   function appendUserMessage(state, text, id, images) {
     const next = cloneState(state);
     const itemId = id || ('user-' + Date.now());
@@ -92,7 +122,7 @@
       }
       case 'diff_update': {
         const item = upsertItem(next, itemId, () => ({ id: itemId, type: 'diff', files: [], raw: null }));
-        item.files = data.files || data.changes || item.files;
+        item.files = normalizeDiffFiles(data);
         item.raw = data;
         return next;
       }
@@ -124,7 +154,7 @@
     }
   }
 
-  const api = { createChatState, appendUserMessage, prependHistory, reduceChatEvent };
+  const api = { createChatState, appendUserMessage, prependHistory, reduceChatEvent, normalizeDiffFiles };
   root.FleetChatModel = api;
   if (typeof module !== 'undefined') module.exports = api;
 })(typeof globalThis !== 'undefined' ? globalThis : window);

@@ -487,6 +487,15 @@ svg.ic.fill { fill: currentColor; stroke: none; }
 .chat-tool-h, .chat-approval-h, .chat-diff-h { display: flex; align-items: center; gap: 8px; padding: 9px 11px; color: var(--text-1); font-weight: 620; font-size: var(--t-xs); border-bottom: 1px solid var(--border); }
 .chat-tool pre { margin: 0; padding: 11px; max-height: 260px; overflow: auto; color: var(--text-1); font-family: var(--mono); font-size: var(--t-xs); line-height: 1.5; white-space: pre-wrap; }
 .chat-approval-body, .chat-error, .chat-diff-body { padding: 11px; color: var(--text-1); font-size: var(--t-xs); }
+.chat-diff-count { margin-left: auto; color: var(--text-2); font-weight: 500; }
+.chat-diff-files { min-width: min(560px, 72vw); }
+.chat-diff-file { display: flex; align-items: center; gap: 18px; min-height: 36px; padding: 7px 11px; border-top: 1px solid var(--border); font-size: var(--t-xs); }
+.chat-diff-file:first-child { border-top: 0; }
+.chat-diff-path { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-1); }
+.chat-diff-stats { display: flex; justify-content: flex-end; gap: 9px; flex: none; font-weight: 620; font-variant-numeric: tabular-nums; }
+.chat-diff-add { color: var(--online); }
+.chat-diff-del { color: var(--danger); }
+.chat-diff-empty { padding: 10px 11px; color: var(--text-2); font-size: var(--t-xs); }
 .chat-approval code { display: block; margin-top: 7px; padding: 8px; border-radius: 10px; background: var(--surface-2); font-family: var(--mono); color: var(--text); white-space: pre-wrap; }
 .chat-approval-actions, .chat-error-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
 .chat-error { border-color: color-mix(in srgb, var(--danger) 34%, var(--border)); background: var(--danger-soft); color: var(--danger); }
@@ -639,6 +648,7 @@ svg.ic.fill { fill: currentColor; stroke: none; }
   .win-head .tt { font-size: var(--t-sm); }
   #chat-scroll { padding: 18px 14px 12px; }
   .chat-row.user .chat-card, .chat-row.assistant .chat-card, .chat-tool, .chat-approval, .chat-error, .chat-diff { max-width: 88%; }
+  .chat-diff-files { min-width: min(68vw, 560px); }
   #chat-composer { padding: 8px 10px calc(10px + env(safe-area-inset-bottom, 0px)); }
   .chat-composer-inner { min-height: 108px; padding: 6px; border-radius: 20px; }
   .chat-attach { width: 36px; height: 36px; }
