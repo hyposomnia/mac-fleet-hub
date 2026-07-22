@@ -15,8 +15,8 @@ const { createChatState, appendUserMessage, prependHistory, reduceChatEvent, nor
 
 const appSandbox = { document: { addEventListener() {} }, EventSource: { CLOSED: 2 } };
 vm.createContext(appSandbox);
-vm.runInContext(`${appSrc}\n;globalThis.__chatCacheTest = { chatCacheVictim, isChatConnectionKept, updateChatUpdatedAt, state };`, appSandbox);
-const { chatCacheVictim, isChatConnectionKept, updateChatUpdatedAt, state: appState } = appSandbox.__chatCacheTest;
+vm.runInContext(`${appSrc}\n;globalThis.__chatCacheTest = { chatCacheVictim, isChatConnectionKept, updateChatUpdatedAt, chatAssistantMetaText, chatUserMetaText, state };`, appSandbox);
+const { chatCacheVictim, isChatConnectionKept, updateChatUpdatedAt, chatAssistantMetaText, chatUserMetaText, state: appState } = appSandbox.__chatCacheTest;
 
 test('chat model and app use the same versioned shell URLs', () => {
   const styleURL = indexHTML.match(/style\.css\?v=([a-zA-Z0-9_-]+)/);
@@ -165,6 +165,7 @@ test('local user message is appended immediately', () => {
   const state = appendUserMessage(createChatState(), 'hello', 'u1');
   assert.deepEqual(Array.from(state.messages), ['u1']);
   assert.equal(state.items.u1.text, 'hello');
+  assert.equal(Number.isFinite(state.items.u1.sentAtMs), true);
 });
 
 test('local user message keeps image attachments', () => {
@@ -183,6 +184,42 @@ test('history is prepended chronologically and deduplicated against live items',
   assert.deepEqual(Array.from(state.messages), ['u1', 'a2']);
   assert.equal(state.items.u1.text, 'old question');
   assert.equal(state.items.a2.text, 'live');
+});
+
+test('user and assistant message metadata is normalized for rendering', () => {
+  let state = createChatState();
+  state = reduceChatEvent(state, {
+    type: 'user_done', itemId: 'u1', turnId: 't1',
+    data: { text: 'old question', createdAtMs: new Date(2026, 6, 22, 21, 42, 10).getTime() },
+  });
+  state = reduceChatEvent(state, {
+    type: 'assistant_delta', itemId: 'a1', turnId: 't1',
+    data: { delta: 'he', startedAtMs: new Date(2026, 6, 22, 21, 43, 0).getTime(), model: 'gpt-5.6-sol', reasoningEffort: 'xhigh' },
+  });
+  state = reduceChatEvent(state, {
+    type: 'assistant_done', itemId: 'a1', turnId: 't1',
+    data: { text: 'hello', completedAtMs: new Date(2026, 6, 22, 21, 44, 31).getTime(), usage: { inputTokens: 3807, outputTokens: 89 } },
+  });
+  assert.equal(chatUserMetaText(state.items.u1), '用户：2026-07-22 21:42:10');
+  assert.equal(chatAssistantMetaText(state.items.a1), 'AI：gpt-5.6-sol, xhigh  |  in 3,807 / out 89  |  2026-07-22 21:44:31');
+  assert.equal(state.items.a1.durationMs, 91000);
+});
+
+test('turn completion metadata backfills the last assistant message in that turn', () => {
+  let state = reduceChatEvent(createChatState(), {
+    type: 'assistant_delta', itemId: 'a1', turnId: 't1',
+    data: { delta: 'done' },
+  });
+  state = reduceChatEvent(state, {
+    type: 'turn_done', turnId: 't1',
+    data: {
+      turn: { id: 't1', model: 'gpt-new', reasoningEffort: 'high', completedAtMs: 1784730000000, usage: { input_tokens: 12, output_tokens: 3 } },
+    },
+  });
+  assert.equal(state.items.a1.model, 'gpt-new');
+  assert.equal(state.items.a1.effort, 'high');
+  assert.deepEqual(JSON.parse(JSON.stringify(state.items.a1.usage)), { inputTokens: 12, outputTokens: 3 });
+  assert.equal(state.items.a1.completedAtMs, 1784730000000);
 });
 
 test('completed command history becomes a tool card', () => {

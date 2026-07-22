@@ -614,7 +614,11 @@ func projectCodexHistoryItem(sessionID, turnID string, raw json.RawMessage) (Cha
 		if text == "" && len(images) == 0 {
 			return ChatEvent{}, false
 		}
-		return newChatEvent("user_done", "codex", sessionID, turnID, base.ID, map[string]interface{}{"text": text, "images": images}), true
+		data := map[string]interface{}{}
+		_ = json.Unmarshal(raw, &data)
+		data["text"] = text
+		data["images"] = images
+		return newChatEvent("user_done", "codex", sessionID, turnID, base.ID, data), true
 	case "agentMessage":
 		var item struct {
 			Text string `json:"text"`
@@ -623,7 +627,10 @@ func projectCodexHistoryItem(sessionID, turnID string, raw json.RawMessage) (Cha
 		if strings.TrimSpace(item.Text) == "" {
 			return ChatEvent{}, false
 		}
-		return newChatEvent("assistant_done", "codex", sessionID, turnID, base.ID, map[string]string{"text": item.Text}), true
+		data := map[string]interface{}{}
+		_ = json.Unmarshal(raw, &data)
+		data["text"] = item.Text
+		return newChatEvent("assistant_done", "codex", sessionID, turnID, base.ID, data), true
 	default:
 		return projectCodexToolItem(sessionID, turnID, raw, "completed")
 	}

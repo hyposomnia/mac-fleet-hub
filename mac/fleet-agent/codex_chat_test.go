@@ -79,8 +79,8 @@ func TestCodexChatBackendResumeHydratesHistoryAndOptions(t *testing.T) {
 		"thread":{"id":"thread-1"},"model":"gpt-new","reasoningEffort":"xhigh","serviceTier":"priority","approvalPolicy":"never","sandbox":{"type":"workspaceWrite"}
 	}`)
 	rpc.reply["thread/items/list"] = json.RawMessage(`{"data":[
-		{"turnId":"turn-new","item":{"id":"a-new","type":"agentMessage","text":"new answer"}},
-		{"turnId":"turn-old","item":{"id":"u-old","type":"userMessage","content":[{"type":"text","text":"old question"}]}},
+		{"turnId":"turn-new","item":{"id":"a-new","type":"agentMessage","text":"new answer","model":"gpt-new","reasoningEffort":"xhigh","completedAtMs":1784730000000,"usage":{"inputTokens":12,"outputTokens":3}}},
+		{"turnId":"turn-old","item":{"id":"u-old","type":"userMessage","createdAtMs":1784727730000,"content":[{"type":"text","text":"old question"}]}},
 		{"turnId":"turn-old","item":{"id":"u-injected","type":"userMessage","content":[{"type":"text","text":"<environment_context>hidden"}]}}
 	],"nextCursor":"older-cursor"}`)
 	rpc.reply["model/list"] = json.RawMessage(`{"data":[{
@@ -110,6 +110,11 @@ func TestCodexChatBackendResumeHydratesHistoryAndOptions(t *testing.T) {
 	}
 	if len(res.History.Events) != 2 || res.History.Events[0].Type != "user_done" || res.History.Events[0].ItemID != "u-old" || res.History.Events[1].ItemID != "a-new" {
 		t.Fatalf("history not chronological or injected item leaked: %+v", res.History.Events)
+	}
+	for _, want := range []string{`"createdAtMs":1784727730000`, `"model":"gpt-new"`, `"reasoningEffort":"xhigh"`, `"inputTokens":12`, `"completedAtMs":1784730000000`} {
+		if !strings.Contains(string(res.History.Events[0].Data)+string(res.History.Events[1].Data), want) {
+			t.Fatalf("history metadata missing %s in %s / %s", want, res.History.Events[0].Data, res.History.Events[1].Data)
+		}
 	}
 	params := mapFromParams(t, rpc.calls[1].params)
 	if params["sortDirection"] != "desc" || params["limit"] != float64(chatHistoryPageSize) {

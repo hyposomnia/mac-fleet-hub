@@ -4,6 +4,11 @@ mac-fleet-hub 变更记录（日期为本地时间）。
 
 ## 2026-07-22
 
+### Codex 自绘聊天显示每轮消息元信息
+- **用户消息时间**：本地新发送消息立即记录发送时间；历史用户消息保留 app-server item 原始时间字段，气泡底部显示 `用户：YYYY-MM-DD HH:mm:ss`。
+- **AI 回复统计**：助手消息从实时 delta / completed / turn_done 事件中归一化模型、思考强度、token in/out 与完成时间，按 `AI：model, effort  |  in N / out N  |  YYYY-MM-DD HH:mm:ss` 展示。
+- **历史字段保留**：fleet-agent 的 Codex 历史投影不再只保留 text/images，而是保留原始 item 字段，避免历史消息的时间、usage、model 等元信息丢失；已重建 darwin amd64/arm64 agent 产物。
+
 ### 会话工具默认切换为 Codex
 - **Codex 优先**：会话工具切换项改为 Codex 在前、Claude 在后；首次打开或没有当前窗口可恢复时默认加载 Codex 会话。
 - **保留恢复语义**：已有当前终端快照时仍恢复该窗口实际使用的 Claude / Codex，不强行覆盖用户正在使用的工具。
