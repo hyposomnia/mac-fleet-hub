@@ -490,6 +490,7 @@ async function loadSessions(opts = {}) {
   setSessionsLoading(false);
 
   const sessions = data.sessions || [];
+  for (const s of sessions) updateCachedChatFromSession(macId, s);
   const activeN = scope === 'active' ? sessions.length : sessions.filter((s) => s.live).length;
   state.counts[macId] = activeN;
 
@@ -546,7 +547,10 @@ async function refreshSessionsSoft() {
     return;
   }
   const bySid = {};
-  for (const s of sessions) bySid[s.sessionId] = s;
+  for (const s of sessions) {
+    bySid[s.sessionId] = s;
+    updateCachedChatFromSession(state.macId, s);
+  }
   for (const el of rows) {
     const s = bySid[el.dataset.sid];
     if (!s) continue;
@@ -572,6 +576,7 @@ function sessionRow(s) {
   const assistant = s.assistant || state.assistant;
   const selfDraw = canSelfDrawChat() && assistant === 'codex';
   const inPool = !!poolFind(state.macId, sid, assistant);
+  const chatConnected = assistant === 'codex' && isChatConnectionKept(state.macId, sid);
   const live = !!s.pty; // 有运行中进程（行尾绿点）：再连只是重新 attach，不需选权限模式
   const stop = s.pty && h('span', { class: 'stopbtn', title: '终止进程（会话保留）',
     onclick: (e) => { e.stopPropagation(); termSes(sid, s.title); } }, svgStop());
@@ -581,6 +586,7 @@ function sessionRow(s) {
     h('span', { class: 't', text: s.title || '(无标题)' }),
     // 紧凑化：不再单起一行显示分支/路径，仅在同行标题后跟相对时间
     h('span', { class: 'ses-time', text: relTime(s.mtime) }),
+    h('span', { class: 'chat-cache-status', title: '自绘会话保持连接', 'aria-label': '自绘会话保持连接' }),
     stop,
   );
   // 池内 / 有进程的会话点行即直接进入，不需按钮；仅冷会话才展开三种权限模式。
@@ -593,7 +599,7 @@ function sessionRow(s) {
     h('button', { class: 'btn sm warn', title: assistant === 'codex' ? 'codex --ask-for-approval never --sandbox workspace-write（自动批准 + 工作区可写沙箱）' : 'claude --permission-mode auto（自动批准 + 后台安全分类器）',
       onclick: (e) => { e.stopPropagation(); connect(sid, s.title, s.cwd, 'auto'); } }, 'Auto'));
   const row = h('div', {
-    class: 'ses' + (s.pty ? ' conn' : '') + (sid === state.selectedSid ? ' sel' : ''),
+    class: 'ses' + (s.pty ? ' conn' : '') + (chatConnected ? ' chat-connected' : '') + (sid === state.selectedSid ? ' sel' : ''),
     dataset: { sid },
   }, top, acts);
   // 池内 → poolShow 瞬时切换；有进程未在池 → 直接重新 attach；冷会话 → 仅高亮 + 展开三按钮。
@@ -806,6 +812,7 @@ function disposeChat(chat) {
   chat.events = null;
   if (chat.objectUrls) for (const u of chat.objectUrls) { try { URL.revokeObjectURL(u); } catch (_) {} }
   chat.objectUrls = [];
+  syncChatConnectionIndicators();
 }
 
 function chatCacheMax() {
@@ -813,21 +820,51 @@ function chatCacheMax() {
   return Math.max(1, parseInt(s.chatCacheMaxSessions, 10) || SETTINGS_DEFAULT.chatCacheMaxSessions);
 }
 
+function chatCacheVictim(cache, currentChat) {
+  let victimKey = '';
+  let victim = null;
+  for (const [key, chat] of cache) {
+    if (chat === currentChat) continue;
+    if (!victim || (Number(chat.updatedAt) || 0) < (Number(victim.updatedAt) || 0)) {
+      victimKey = key;
+      victim = chat;
+    }
+  }
+  return victim ? { key: victimKey, chat: victim } : null;
+}
+
+// 超过上限时，保留当前正在看的会话；其余按最后一次会话更新时间从早到晚释放。
 function evictChatCache() {
   while (state.chatCache.size > chatCacheMax()) {
-    let victimKey = '';
-    let victim = null;
-    for (const [key, chat] of state.chatCache) {
-      if (chat === state.chat) continue;
-      if (!victim || (chat.lastUsed || 0) < (victim.lastUsed || 0)) {
-        victimKey = key;
-        victim = chat;
-      }
-    }
+    const victim = chatCacheVictim(state.chatCache, state.chat);
     if (!victim) break;
-    disposeChat(victim);
-    state.chatCache.delete(victimKey);
+    disposeChat(victim.chat);
+    state.chatCache.delete(victim.key);
   }
+  syncChatConnectionIndicators();
+  renderChatCacheStats();
+}
+
+function updateChatUpdatedAt(chat, value) {
+  const updatedAt = Number(value) || 0;
+  if (chat && updatedAt > (Number(chat.updatedAt) || 0)) chat.updatedAt = updatedAt;
+}
+
+function updateCachedChatFromSession(macId, session) {
+  if (!session?.sessionId) return;
+  updateChatUpdatedAt(state.chatCache.get(chatCacheKey(macId, session.sessionId)), session.mtime);
+}
+
+function isChatConnectionKept(macId, sessionId) {
+  const chat = state.chatCache.get(chatCacheKey(macId, sessionId));
+  return !!(chat?.events && chat.events.readyState !== EventSource.CLOSED);
+}
+
+function syncChatConnectionIndicators() {
+  if (state.assistant !== 'codex') return;
+  $$('#session-groups .ses').forEach((row) => {
+    row.classList.toggle('chat-connected', isChatConnectionKept(state.macId, row.dataset.sid));
+  });
 }
 
 function closeChatPane({ dispose = false } = {}) {
@@ -836,6 +873,7 @@ function closeChatPane({ dispose = false } = {}) {
   if (dispose && chat) {
     disposeChat(chat);
     state.chatCache.delete(chat.cacheKey);
+    renderChatCacheStats();
   }
   state.chat = null;
   const pane = $('#chat-pane');
@@ -935,6 +973,42 @@ function chatToolDuration(ms) {
   const minutes = Math.floor(value / 60000);
   const seconds = Math.round((value % 60000) / 1000);
   return `${minutes} 分 ${seconds} 秒`;
+}
+
+function formatChatDate(ms) {
+  const value = Number(ms);
+  if (!Number.isFinite(value) || value <= 0) return '';
+  const d = new Date(value);
+  if (!Number.isFinite(d.getTime())) return '';
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+}
+
+function formatChatInteger(value) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return '';
+  return Math.round(n).toLocaleString('en-US');
+}
+
+function chatUserMetaText(item) {
+  const sent = formatChatDate(item.sentAtMs || item.createdAtMs || item.created_at_ms);
+  return sent ? `用户：${sent}` : '';
+}
+
+function chatAssistantMetaText(item) {
+  const chunks = [];
+  const identity = [item.model, item.effort].filter(Boolean).join(', ');
+  if (identity) chunks.push(identity);
+  const inputTokens = formatChatInteger(item.usage?.inputTokens);
+  const outputTokens = formatChatInteger(item.usage?.outputTokens);
+  if (inputTokens || outputTokens) chunks.push(`in ${inputTokens || '-'} / out ${outputTokens || '-'}`);
+  const completed = formatChatDate(item.completedAtMs || item.finishedAtMs || item.finished_at_ms);
+  if (completed) chunks.push(completed);
+  return chunks.length ? `AI：${chunks.join('  |  ')}` : '';
+}
+
+function renderChatMessageMeta(text) {
+  return text ? h('div', { class: 'chat-msg-meta mono', text }) : null;
 }
 
 // Codex 自绘工具行使用项目内 Lucide SVG 副本：
@@ -1039,9 +1113,16 @@ function renderChatItem(item, isCurrentTurn = false) {
         return src ? h('img', { class: 'chat-img', src, alt: img.name || 'image' }) : h('div', { class: 'chat-img muted', text: img.name || '图片' });
       })));
     }
+    const meta = renderChatMessageMeta(chatUserMetaText(item));
+    if (meta) parts.push(meta);
     return chatRow(h('div', { class: 'chat-card' }, parts.length ? parts : h('div', { text: '' })), 'user' + (isCurrentTurn ? ' current-turn' : ''));
   }
-  if (item.type === 'assistant') return chatRow(h('div', { class: 'chat-card' }, FleetMarkdown.renderMarkdown(item.text)), 'assistant');
+  if (item.type === 'assistant') {
+    return chatRow(h('div', { class: 'chat-card' },
+      FleetMarkdown.renderMarkdown(item.text),
+      renderChatMessageMeta(chatAssistantMetaText(item))),
+    'assistant');
+  }
   if (item.type === 'tool') return renderChatTool(item);
   if (item.type === 'approval') return chatRow(h('div', { class: 'chat-approval' },
     h('div', { class: 'chat-approval-h', text: item.status === 'resolved' ? '审批已处理' : (item.kind === 'command' ? '需要批准命令执行' : '需要批准权限 / 文件改动') }),
@@ -1171,17 +1252,17 @@ async function openChatSession(s) {
       cacheKey: key, macId: state.macId,
       sessionId: s.sessionId, title: s.title || 'Codex 会话', cwd: s.cwd || '',
       model: FleetChatModel.createChatState(), loading: true, events: null, resumePromise: null,
-      attachments: [], objectUrls: [], draft: '', lastUsed: Date.now(),
+      attachments: [], objectUrls: [], draft: '', updatedAt: Number(s.mtime) || Date.now(),
       historyReady: false, historyLoading: false, historyCursor: '',
       models: [], efforts: [], serviceTiers: [], selectedModel: '', selectedEffort: '', selectedServiceTier: '',
       modelDirty: false, serviceTierDirty: false,
       approvalMode: 'on-request', approvalDirty: false,
     };
     state.chatCache.set(key, chat);
-    evictChatCache();
   }
   state.chat = chat;
-  chat.lastUsed = Date.now();
+  updateChatUpdatedAt(chat, s.mtime);
+  evictChatCache();
   showChatPane(chat.title, chat.cwd);
   $('#chat-input').value = chat.draft || '';
   resizeChatInput();
@@ -1432,10 +1513,12 @@ function startChatEvents(chat = state.chat) {
   const url = `${apiBase(chat.macId)}/api/chat/events?assistant=codex&sessionId=${encodeURIComponent(chat.sessionId)}`;
   const es = new EventSource(url);
   chat.events = es;
+  syncChatConnectionIndicators();
   es.onmessage = (e) => {
     if (state.chatCache.get(chat.cacheKey) !== chat) return;
     try {
       const ev = JSON.parse(e.data);
+      updateChatUpdatedAt(chat, Date.now());
       chat.model = FleetChatModel.reduceChatEvent(chat.model, ev);
       if (state.chat === chat) renderChat();
     } catch (_) {}

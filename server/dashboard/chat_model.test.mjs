@@ -13,6 +13,11 @@ vm.createContext(sandbox);
 vm.runInContext(src, sandbox);
 const { createChatState, appendUserMessage, prependHistory, reduceChatEvent, normalizeDiffFiles } = sandbox.globalThis.FleetChatModel;
 
+const appSandbox = { document: { addEventListener() {} }, EventSource: { CLOSED: 2 } };
+vm.createContext(appSandbox);
+vm.runInContext(`${appSrc}\n;globalThis.__chatCacheTest = { chatCacheVictim, isChatConnectionKept, updateChatUpdatedAt, state };`, appSandbox);
+const { chatCacheVictim, isChatConnectionKept, updateChatUpdatedAt, state: appState } = appSandbox.__chatCacheTest;
+
 test('chat model and app use the same versioned shell URLs', () => {
   const styleURL = indexHTML.match(/style\.css\?v=([a-zA-Z0-9_-]+)/);
   const markdownURL = indexHTML.match(/markdown\.js\?v=([a-zA-Z0-9_-]+)/);
@@ -47,6 +52,30 @@ test('Codex is the first and default session assistant', () => {
     { assistant: 'claude', selected: 'false' },
   ]);
   assert.match(appSrc, /assistant:\s*'codex',\s*\/\/ claude \| codex/);
+});
+
+test('chat cache evicts the earliest updated non-current session', () => {
+  const oldest = { updatedAt: 100, lastUsed: 999 };
+  const newest = { updatedAt: 300, lastUsed: 1 };
+  const current = { updatedAt: 50, lastUsed: 0 };
+  const cache = new Map([['oldest', oldest], ['newest', newest], ['current', current]]);
+  const victim = chatCacheVictim(cache, current);
+  assert.equal(victim.key, 'oldest');
+  assert.equal(victim.chat, oldest);
+});
+
+test('chat cache update time is monotonic and green status follows EventSource state', () => {
+  const chat = { updatedAt: 200, events: { readyState: 1 } };
+  updateChatUpdatedAt(chat, 100);
+  assert.equal(chat.updatedAt, 200);
+  updateChatUpdatedAt(chat, 300);
+  assert.equal(chat.updatedAt, 300);
+
+  appState.chatCache.set('m1\ns1', chat);
+  assert.equal(isChatConnectionKept('m1', 's1'), true);
+  chat.events.readyState = 2;
+  assert.equal(isChatConnectionKept('m1', 's1'), false);
+  appState.chatCache.clear();
 });
 
 test('vendored markdown parser formats common assistant response blocks', () => {

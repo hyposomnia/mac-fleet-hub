@@ -408,6 +408,10 @@ svg.ic.fill { fill: currentColor; stroke: none; }
 .ses-top .stopbtn:hover { background: var(--danger-soft); border-color: var(--danger); }
 .ses-top .stopbtn:hover::before { opacity: 0; }
 .ses-top .stopbtn:hover svg { opacity: 1; }
+/* 自绘会话的 SSE 仍保持时，沿用 ttyd 的静态绿点语义；它只是状态，不承担终止操作。 */
+.ses-top .chat-cache-status { width: 25px; height: 25px; flex: none; display: none; place-items: center; }
+.ses-top .chat-cache-status::before { content: ''; width: 8px; height: 8px; border-radius: 50%; background: var(--online); }
+.ses.chat-connected .chat-cache-status { display: grid; }
 /* 紧凑化：时间内联在标题同行尾部（不再单起 meta 行显示分支/路径） */
 .ses-time { font-family: var(--mono); font-size: var(--t-2xs); color: var(--text-2); flex: none; white-space: nowrap; }
 /* 操作按钮：仅「选中」时展开（不再 hover 显示）。
@@ -476,6 +480,8 @@ svg.ic.fill { fill: currentColor; stroke: none; }
 .chat-row.user .chat-card { background: var(--surface-1); border: 1px solid var(--border); border-radius: 14px; padding: 10px 12px; width: fit-content; max-width: min(74%, 680px); white-space: pre-wrap; }
 .chat-row.assistant .chat-card { max-width: min(82%, 760px); }
 .chat-card.muted { color: var(--text-2); }
+.chat-msg-meta { margin-top: 8px; color: var(--text-3); font-size: var(--t-2xs); line-height: 1.35; font-variant-numeric: tabular-nums; white-space: normal; }
+.chat-row.user .chat-msg-meta { text-align: right; }
 .chat-markdown > :first-child { margin-top: 0; }
 .chat-markdown > :last-child { margin-bottom: 0; }
 .chat-markdown p { margin: 0 0 .78em; }
