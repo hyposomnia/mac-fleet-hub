@@ -145,6 +145,7 @@ func TestCodexThreadRowUsesIndexTitleAndRecencyTime(t *testing.T) {
 		GitBranch:    "main",
 		Source:       "vscode",
 		ThreadSource: "user",
+		CreatedAtMs:  100_000,
 		UpdatedAt:    100,
 		UpdatedAtMs:  200_000,
 		RecencyAtMs:  300_000,
@@ -202,8 +203,8 @@ func TestCodexThreadRowKeepsMigratedStringSourceThread(t *testing.T) {
 	if !ok {
 		t.Fatal("migrated string-source thread should remain visible")
 	}
-	if !got.Live {
-		t.Fatalf("unarchived migrated thread should be active: %+v", got)
+	if got.Live {
+		t.Fatalf("migrated thread without later activity should stay out of active: %+v", got)
 	}
 }
 
@@ -262,7 +263,7 @@ func TestCodexThreadTitleSkipsSystemTitles(t *testing.T) {
 	}
 }
 
-func TestCodexUnarchivedThreadIsActiveWithoutLaterActivity(t *testing.T) {
+func TestCodexImportedHistoryWithoutActivityIsNotActive(t *testing.T) {
 	row := codexThreadRow{
 		ID:           "019e865e-55cc-7362-9cd4-77b6fdf68509",
 		Title:        "导入历史",
@@ -276,7 +277,23 @@ func TestCodexUnarchivedThreadIsActiveWithoutLaterActivity(t *testing.T) {
 	if !ok {
 		t.Fatal("row should be accepted")
 	}
-	if !got.Live {
-		t.Fatalf("unarchived history should match Codex Desktop active state: %+v", got)
+	if got.Live {
+		t.Fatalf("imported history without later activity should not be active: %+v", got)
+	}
+}
+
+func TestCodexOpenedPtyIsActiveEvenWhenHistoryDormant(t *testing.T) {
+	idOpen := "019e865e-55cc-7362-9cd4-77b6fdf68509"
+	idHistory := "029e865e-55cc-7362-9cd4-77b6fdf68510"
+	all := []Session{
+		{SessionID: idOpen, Assistant: "codex", Live: false},
+		{SessionID: idHistory, Assistant: "codex", Live: false},
+	}
+	markSessionRuntime("codex", all, map[string]bool{shortSidFor("codex", idOpen): true}, nil)
+	if !all[0].Live || !all[0].Pty {
+		t.Fatalf("opened Codex pty should remain active: %+v", all[0])
+	}
+	if all[1].Live || all[1].Pty {
+		t.Fatalf("unopened Codex history should not be active: %+v", all[1])
 	}
 }
