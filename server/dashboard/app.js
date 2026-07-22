@@ -780,7 +780,7 @@ function renderChatItem(item) {
     }
     return chatRow(h('div', { class: 'chat-card' }, parts.length ? parts : h('div', { text: '' })), 'user');
   }
-  if (item.type === 'assistant') return chatRow(h('div', { class: 'chat-card', text: item.text || '…' }), 'assistant');
+  if (item.type === 'assistant') return chatRow(h('div', { class: 'chat-card' }, FleetMarkdown.renderMarkdown(item.text)), 'assistant');
   if (item.type === 'tool') return chatRow(h('div', { class: 'chat-tool' },
     h('div', { class: 'chat-tool-h' }, h('span', { text: item.title || '命令执行' }), item.cwd ? h('span', { class: 'muted mono', text: item.cwd }) : null),
     h('pre', { text: item.output || '…' })), 'tool');

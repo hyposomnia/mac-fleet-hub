@@ -6,19 +6,46 @@ import vm from 'node:vm';
 const src = await readFile(new URL('./chat_model.js', import.meta.url), 'utf8');
 const indexHTML = await readFile(new URL('./index.html', import.meta.url), 'utf8');
 const serviceWorker = await readFile(new URL('./sw.js', import.meta.url), 'utf8');
+const markedSrc = await readFile(new URL('./vendor/marked.min.js', import.meta.url), 'utf8');
 const sandbox = { globalThis: {} };
 vm.createContext(sandbox);
 vm.runInContext(src, sandbox);
 const { createChatState, appendUserMessage, prependHistory, reduceChatEvent } = sandbox.globalThis.FleetChatModel;
 
 test('chat model and app use the same versioned shell URLs', () => {
+  const styleURL = indexHTML.match(/style\.css\?v=([a-zA-Z0-9_-]+)/);
+  const markdownURL = indexHTML.match(/markdown\.js\?v=([a-zA-Z0-9_-]+)/);
   const modelURL = indexHTML.match(/chat_model\.js\?v=([a-zA-Z0-9_-]+)/);
   const appURL = indexHTML.match(/app\.js\?v=([a-zA-Z0-9_-]+)/);
+  assert.ok(styleURL);
+  assert.ok(markdownURL);
   assert.ok(modelURL);
   assert.ok(appURL);
+  assert.equal(styleURL[1], appURL[1]);
+  assert.equal(markdownURL[1], appURL[1]);
   assert.equal(modelURL[1], appURL[1]);
+  assert.match(serviceWorker, new RegExp(`/style\\.css\\?v=${styleURL[1]}`));
+  assert.match(serviceWorker, new RegExp(`/markdown\\.js\\?v=${markdownURL[1]}`));
   assert.match(serviceWorker, new RegExp(`/chat_model\\.js\\?v=${modelURL[1]}`));
   assert.match(serviceWorker, new RegExp(`/app\\.js\\?v=${appURL[1]}`));
+  assert.match(indexHTML, /vendor\/purify\.min\.js\?v=3\.2\.6/);
+  assert.match(indexHTML, /vendor\/marked\.min\.js\?v=15\.0\.12/);
+  assert.match(serviceWorker, /vendor\/purify\.min\.js\?v=3\.2\.6/);
+  assert.match(serviceWorker, /vendor\/marked\.min\.js\?v=15\.0\.12/);
+  const markdownScript = indexHTML.indexOf('<script src="markdown.js');
+  assert.ok(indexHTML.indexOf('<script src="vendor/purify.min.js') < markdownScript);
+  assert.ok(indexHTML.indexOf('<script src="vendor/marked.min.js') < markdownScript);
+  assert.ok(markdownScript < indexHTML.indexOf('<script src="app.js'));
+});
+
+test('vendored markdown parser formats common assistant response blocks', () => {
+  const markdownSandbox = {};
+  vm.createContext(markdownSandbox);
+  vm.runInContext(markedSrc, markdownSandbox);
+  const html = markdownSandbox.marked.parse('## 变更\n\n- **安全**链接\n\n```sh\nnode --test\n```');
+  assert.match(html, /<h2>变更<\/h2>/);
+  assert.match(html, /<li><strong>安全<\/strong>链接<\/li>/);
+  assert.match(html, /<pre><code class="language-sh">node --test/);
 });
 
 test('assistant deltas merge by item id', () => {
