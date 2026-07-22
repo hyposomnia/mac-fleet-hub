@@ -892,7 +892,6 @@ async function openChatSession(s) {
   $('#chat-model-wrap').hidden = true;
   showChatPane(state.chat.title, state.chat.cwd);
   renderChat();
-  startChatEvents();
   try {
     const resumed = await api(state.macId, 'chat/resume', {
       method: 'POST', headers: { 'content-type': 'application/json' },
@@ -906,6 +905,7 @@ async function openChatSession(s) {
       chat.loading = false;
       configureChatOptions(chat, resumed);
       renderChat({ forceBottom: true });
+      startChatEvents();
     }
   } catch (e) {
     if (state.chat && state.chat.sessionId === s.sessionId) {
