@@ -76,7 +76,7 @@ func TestCodexChatBackendResumeUsesThreadResume(t *testing.T) {
 func TestCodexChatBackendResumeHydratesHistoryAndOptions(t *testing.T) {
 	rpc := newFakeRPCConn()
 	rpc.reply["thread/resume"] = json.RawMessage(`{
-		"thread":{"id":"thread-1"},"model":"gpt-new","approvalPolicy":"never","sandbox":{"type":"workspaceWrite"}
+		"thread":{"id":"thread-1"},"model":"gpt-new","reasoningEffort":"xhigh","serviceTier":"priority","approvalPolicy":"never","sandbox":{"type":"workspaceWrite"}
 	}`)
 	rpc.reply["thread/items/list"] = json.RawMessage(`{"data":[
 		{"turnId":"turn-new","item":{"id":"a-new","type":"agentMessage","text":"new answer"}},
@@ -88,6 +88,8 @@ func TestCodexChatBackendResumeHydratesHistoryAndOptions(t *testing.T) {
 		"isDefault":true,"defaultReasoningEffort":"high","supportedReasoningEfforts":[
 			{"reasoningEffort":"medium","description":"Balanced"},
 			{"reasoningEffort":"high","description":"Thorough"}
+		],"defaultServiceTier":null,"serviceTiers":[
+			{"id":"priority","name":"Fast","description":"Lower latency"}
 		]
 	}]}`)
 	b := newCodexChatBackend(func(ctx context.Context) (codexRPCConn, func(), error) {
@@ -98,11 +100,12 @@ func TestCodexChatBackendResumeHydratesHistoryAndOptions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if res.Model != "gpt-new" || res.ApprovalMode != "never" || res.History.NextCursor != "older-cursor" {
+	if res.Model != "gpt-new" || res.Effort != "xhigh" || res.ServiceTier != "priority" || res.ApprovalMode != "never" || res.History.NextCursor != "older-cursor" {
 		t.Fatalf("bad resume metadata: %+v", res)
 	}
 	if len(res.Models) != 1 || res.Models[0].Value != "gpt-new" || res.Models[0].DefaultEffort != "high" ||
-		len(res.Models[0].SupportedEfforts) != 2 || res.Models[0].SupportedEfforts[1].Value != "high" {
+		len(res.Models[0].SupportedEfforts) != 2 || res.Models[0].SupportedEfforts[1].Value != "high" ||
+		len(res.Models[0].ServiceTiers) != 1 || res.Models[0].ServiceTiers[0].Value != "priority" {
 		t.Fatalf("bad models: %+v", res.Models)
 	}
 	if len(res.History.Events) != 2 || res.History.Events[0].Type != "user_done" || res.History.Events[0].ItemID != "u-old" || res.History.Events[1].ItemID != "a-new" {
@@ -253,19 +256,29 @@ func TestCodexChatBackendInputPassesModelAndApprovalOverrides(t *testing.T) {
 		return rpc, func() {}, nil
 	})
 
+	serviceTier := "priority"
 	_, err := b.Input(context.Background(), "codex", "thread-1", "hello", nil, ChatTurnOptions{
-		Model: "gpt-new", Effort: "high", ApprovalMode: "full-access",
+		Model: "gpt-new", Effort: "high", ServiceTier: &serviceTier, ApprovalMode: "full-access",
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	params := mapFromParams(t, rpc.calls[1].params)
-	if params["model"] != "gpt-new" || params["effort"] != "high" || params["approvalPolicy"] != "never" {
+	if params["model"] != "gpt-new" || params["effort"] != "high" || params["serviceTier"] != "priority" || params["approvalPolicy"] != "never" {
 		t.Fatalf("turn params: %#v", params)
 	}
 	sandbox, ok := params["sandboxPolicy"].(map[string]interface{})
 	if !ok || sandbox["type"] != "dangerFullAccess" {
 		t.Fatalf("sandbox params: %#v", params["sandboxPolicy"])
+	}
+}
+
+func TestCodexTurnStartParamsClearsServiceTier(t *testing.T) {
+	standard := ""
+	params := codexTurnStartParams("thread-1", []map[string]string{{"type": "text", "text": "hello"}}, ChatTurnOptions{ServiceTier: &standard})
+	value, ok := params["serviceTier"]
+	if !ok || value != nil {
+		t.Fatalf("serviceTier should be explicit null, got %#v", params)
 	}
 }
 

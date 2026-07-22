@@ -123,13 +123,13 @@ func TestChatInputCallsBackend(t *testing.T) {
 			if assistant != "codex" || sessionID != "s1" || text != "hello" {
 				t.Fatalf("input args got assistant=%s sessionID=%s text=%s", assistant, sessionID, text)
 			}
-			if opts.Model != "gpt-test" || opts.Effort != "high" || opts.ApprovalMode != "on-request" {
+			if opts.Model != "gpt-test" || opts.Effort != "high" || opts.ServiceTier == nil || *opts.ServiceTier != "priority" || opts.ApprovalMode != "on-request" {
 				t.Fatalf("input opts got %+v", opts)
 			}
 			return ChatInputResult{TurnID: "turn-1"}, nil
 		},
 	})
-	req := httptest.NewRequest(http.MethodPost, "/api/chat/input", bytes.NewBufferString(`{"assistant":"codex","sessionId":"s1","text":"hello","model":"gpt-test","effort":"high","approvalMode":"on-request"}`))
+	req := httptest.NewRequest(http.MethodPost, "/api/chat/input", bytes.NewBufferString(`{"assistant":"codex","sessionId":"s1","text":"hello","model":"gpt-test","effort":"high","serviceTier":"priority","approvalMode":"on-request"}`))
 	rr := httptest.NewRecorder()
 
 	handleChatInput(rr, req)

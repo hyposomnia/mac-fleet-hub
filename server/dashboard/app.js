@@ -906,15 +906,16 @@ async function openChatSession(s) {
     sessionId: s.sessionId, title: s.title || 'Codex 会话', cwd: s.cwd || '',
     model: FleetChatModel.createChatState(), loading: true, events: null, attachments: [], objectUrls: [],
     historyReady: false, historyLoading: false, historyCursor: '',
-    models: [], selectedModel: '', selectedEffort: '', modelDirty: false,
+    models: [], efforts: [], serviceTiers: [], selectedModel: '', selectedEffort: '', selectedServiceTier: '',
+    modelDirty: false, serviceTierDirty: false,
     approvalMode: 'on-request', approvalDirty: false,
   };
   $('#chat-input').value = '';
   resizeChatInput();
   updateChatComposerState();
   $('#chat-approval').disabled = true;
-  $('#chat-model-wrap').hidden = true;
-  $('#chat-effort-wrap').hidden = true;
+  $('#chat-options').hidden = true;
+  closeChatOptions();
   showChatPane(state.chat.title, state.chat.cwd);
   renderChat();
   try {
@@ -946,28 +947,152 @@ async function openChatSession(s) {
 const CHAT_EFFORT_LABELS = {
   none: '无', minimal: '最少', low: '低', medium: '中', high: '高', xhigh: '极高', max: '最大', ultra: '超高',
 };
+const CHAT_SERVICE_TIER_LABELS = { default: '标准', standard: '标准', fast: '快速', priority: '快速' };
+
+function selectedChatModel(chat) {
+  return chat.models.find((item) => item.value === chat.selectedModel);
+}
+
+function chatModelLabel(model, compact = false) {
+  const label = model?.displayName || model?.value || '模型';
+  return compact ? label.replace(/^GPT-/i, '').replaceAll('-', ' ') : label;
+}
+
+function chatEffortLabel(value) {
+  return CHAT_EFFORT_LABELS[value] || value || '';
+}
+
+function chatServiceTierLabel(tier) {
+  if (!tier?.value) return '标准';
+  return CHAT_SERVICE_TIER_LABELS[tier.value] || CHAT_SERVICE_TIER_LABELS[String(tier.name || '').toLowerCase()] || tier.name || tier.value;
+}
+
+function chatServiceTierDescription(tier) {
+  if (!tier?.value) return '标准速度';
+  if (tier.value === 'priority' && tier.description === '1.5x speed, increased usage') return '1.5 倍速度，消耗更多额度';
+  return tier.description || '';
+}
 
 function configureChatEfforts(chat, preferred = '') {
-  const select = $('#chat-effort');
-  const wrap = $('#chat-effort-wrap');
-  const model = chat.models.find((item) => item.value === chat.selectedModel);
+  const model = selectedChatModel(chat);
   const advertised = Array.isArray(model?.supportedEfforts) ? model.supportedEfforts.filter((item) => item?.value) : [];
   const efforts = advertised.slice();
   if (model?.defaultEffort && !efforts.some((item) => item.value === model.defaultEffort)) {
     efforts.push({ value: model.defaultEffort, description: '' });
   }
-  clear(select);
-  for (const effort of efforts) {
-    select.append(h('option', {
-      value: effort.value,
-      text: CHAT_EFFORT_LABELS[effort.value] || effort.value,
-      title: effort.description || effort.value,
-    }));
-  }
+  chat.efforts = efforts;
   const values = new Set(efforts.map((item) => item.value));
   chat.selectedEffort = values.has(preferred) ? preferred : (model?.defaultEffort || efforts[0]?.value || '');
-  if (chat.selectedEffort) select.value = chat.selectedEffort;
-  wrap.hidden = efforts.length === 0;
+}
+
+function configureChatServiceTiers(chat, preferred = '') {
+  const model = selectedChatModel(chat);
+  const advertised = Array.isArray(model?.serviceTiers) ? model.serviceTiers.filter((item) => item?.value) : [];
+  chat.serviceTiers = [{ value: '', name: '标准', description: '标准速度' }, ...advertised];
+  const values = new Set(chat.serviceTiers.map((item) => item.value));
+  chat.selectedServiceTier = values.has(preferred) ? preferred : '';
+}
+
+function closeChatOptions() {
+  const popover = $('#chat-options-popover');
+  if (!popover) return;
+  popover.hidden = true;
+  popover.classList.remove('has-submenu');
+  $('#chat-options-submenu').hidden = true;
+  $('#chat-options-trigger').setAttribute('aria-expanded', 'false');
+  $$('[data-chat-options-panel]').forEach((row) => row.removeAttribute('aria-current'));
+}
+
+function showChatOptionsMain({ focus = false } = {}) {
+  const popover = $('#chat-options-popover');
+  if (!popover || !state.chat || $('#chat-options').hidden) return;
+  popover.hidden = false;
+  popover.classList.remove('has-submenu');
+  $('#chat-options-submenu').hidden = true;
+  $('#chat-options-trigger').setAttribute('aria-expanded', 'true');
+  $$('[data-chat-options-panel]').forEach((row) => row.removeAttribute('aria-current'));
+  if (focus) $('[data-chat-options-panel]:not(:disabled)')?.focus();
+}
+
+function toggleChatOptions() {
+  if ($('#chat-options-popover').hidden) showChatOptionsMain();
+  else closeChatOptions();
+}
+
+function renderChatOptionChoice(kind, option, selected) {
+  const value = option.value || '';
+  const label = kind === 'model' ? chatModelLabel(option) : (kind === 'effort' ? chatEffortLabel(value) : chatServiceTierLabel(option));
+  const description = kind === 'speed' ? chatServiceTierDescription(option) : option.description;
+  const button = h('button', {
+    type: 'button', class: 'chat-option-choice' + (selected ? ' selected' : ''), role: 'menuitemradio',
+    'aria-checked': String(selected), dataset: { chatOptionKind: kind, chatOptionValue: value },
+  }, h('span', { class: 'chat-option-choice-copy' },
+    h('span', { class: 'chat-option-choice-label', text: label }),
+    description ? h('span', { class: 'chat-option-choice-desc', text: description }) : null),
+  selected ? svgIcon('chat-option-check', 'M20 6 9 17l-5-5') : null);
+  button.onclick = () => selectChatOption(kind, value);
+  return button;
+}
+
+function openChatOptionsPanel(kind) {
+  const chat = state.chat;
+  if (!chat) return;
+  const popover = $('#chat-options-popover');
+  const submenu = $('#chat-options-submenu');
+  const choices = $('#chat-options-choices');
+  const titles = { model: '模型', effort: '推理强度', speed: '速度' };
+  $('#chat-options-submenu-title').textContent = titles[kind] || '';
+  clear(choices);
+  if (kind === 'model') {
+    for (const model of chat.models) choices.append(renderChatOptionChoice(kind, model, model.value === chat.selectedModel));
+  } else if (kind === 'effort') {
+    for (const effort of chat.efforts) choices.append(renderChatOptionChoice(kind, effort, effort.value === chat.selectedEffort));
+  } else if (kind === 'speed') {
+    for (const tier of chat.serviceTiers) choices.append(renderChatOptionChoice(kind, tier, tier.value === chat.selectedServiceTier));
+  }
+  $$('[data-chat-options-panel]').forEach((row) => row.setAttribute('aria-current', String(row.dataset.chatOptionsPanel === kind)));
+  popover.hidden = false;
+  popover.classList.add('has-submenu');
+  submenu.hidden = false;
+  $('#chat-options-trigger').setAttribute('aria-expanded', 'true');
+}
+
+function selectChatOption(kind, value) {
+  const chat = state.chat;
+  if (!chat) return;
+  if (kind === 'model' && chat.models.some((model) => model.value === value)) {
+    chat.selectedModel = value;
+    const model = selectedChatModel(chat);
+    configureChatEfforts(chat, model?.defaultEffort || '');
+    configureChatServiceTiers(chat, '');
+    chat.modelDirty = true;
+    chat.serviceTierDirty = true;
+  } else if (kind === 'effort' && chat.efforts.some((effort) => effort.value === value)) {
+    chat.selectedEffort = value;
+    chat.modelDirty = true;
+  } else if (kind === 'speed' && chat.serviceTiers.some((tier) => tier.value === value)) {
+    chat.selectedServiceTier = value;
+    chat.serviceTierDirty = true;
+  }
+  renderChatOptions(chat);
+  closeChatOptions();
+}
+
+function renderChatOptions(chat) {
+  const root = $('#chat-options');
+  const model = selectedChatModel(chat);
+  root.hidden = !model;
+  if (!model) { closeChatOptions(); return; }
+  const effort = chatEffortLabel(chat.selectedEffort);
+  const tier = chat.serviceTiers.find((item) => item.value === chat.selectedServiceTier);
+  $('#chat-options-model').textContent = chatModelLabel(model, true);
+  $('#chat-options-effort').textContent = effort;
+  $('#chat-options-model-value').textContent = chatModelLabel(model, true);
+  $('#chat-options-effort-value').textContent = effort;
+  $('#chat-options-speed-value').textContent = chatServiceTierLabel(tier);
+  $('[data-chat-options-panel="model"]').disabled = chat.models.length === 0;
+  $('[data-chat-options-panel="effort"]').disabled = chat.efforts.length === 0;
+  $('[data-chat-options-panel="speed"]').disabled = chat.serviceTiers.length === 0;
 }
 
 function configureChatOptions(chat, resumed) {
@@ -978,24 +1103,18 @@ function configureChatOptions(chat, resumed) {
   approval.value = chat.approvalMode;
   approval.disabled = false;
 
-  const select = $('#chat-model');
-  const wrap = $('#chat-model-wrap');
   const models = Array.isArray(resumed.models) ? resumed.models.slice() : [];
   if (resumed.model && !models.some((m) => m.value === resumed.model)) {
-    models.unshift({ value: resumed.model, displayName: resumed.model, defaultEffort: '', supportedEfforts: [] });
+    models.unshift({ value: resumed.model, displayName: resumed.model, defaultEffort: '', supportedEfforts: [], serviceTiers: [] });
   }
-  clear(select);
-  for (const model of models) {
-    if (!model || !model.value) continue;
-    select.append(h('option', { value: model.value, text: model.displayName || model.value }));
-  }
-  chat.models = models;
+  chat.models = models.filter((model) => model?.value);
   chat.selectedModel = resumed.model || (models.find((m) => m.isDefault)?.value || models[0]?.value || '');
-  if (chat.selectedModel) select.value = chat.selectedModel;
-  const selected = models.find((m) => m.value === chat.selectedModel);
-  configureChatEfforts(chat, selected?.defaultEffort || '');
+  const selected = selectedChatModel(chat);
+  configureChatEfforts(chat, resumed.effort || selected?.defaultEffort || '');
+  configureChatServiceTiers(chat, resumed.serviceTier || '');
   chat.modelDirty = false;
-  wrap.hidden = select.options.length === 0;
+  chat.serviceTierDirty = false;
+  renderChatOptions(chat);
 }
 
 async function loadOlderChatHistory() {
@@ -1063,6 +1182,7 @@ async function submitChatInput() {
       turnOptions.model = chat.selectedModel;
       if (chat.selectedEffort) turnOptions.effort = chat.selectedEffort;
     }
+    if (chat.serviceTierDirty) turnOptions.serviceTier = chat.selectedServiceTier;
     if (chat.approvalDirty && chat.approvalMode) turnOptions.approvalMode = chat.approvalMode;
     await api(state.macId, 'chat/input', {
       method: 'POST', headers: { 'content-type': 'application/json' },
@@ -1443,20 +1563,20 @@ function init() {
     state.chat.approvalMode = e.target.value;
     state.chat.approvalDirty = true;
   });
-  $('#chat-model').addEventListener('change', (e) => {
-    const chat = state.chat;
-    if (!chat) return;
-    chat.selectedModel = e.target.value;
-    const selected = chat.models.find((m) => m.value === chat.selectedModel);
-    configureChatEfforts(chat, selected?.defaultEffort || '');
-    chat.modelDirty = true;
+  $('#chat-options-trigger').addEventListener('click', (e) => {
+    e.stopPropagation();
+    toggleChatOptions();
   });
-  $('#chat-effort').addEventListener('change', (e) => {
-    const chat = state.chat;
-    if (!chat) return;
-    chat.selectedEffort = e.target.value;
-    chat.modelDirty = true;
+  $$('[data-chat-options-panel]').forEach((row) => {
+    row.addEventListener('click', (e) => {
+      e.stopPropagation();
+      openChatOptionsPanel(row.dataset.chatOptionsPanel);
+    });
+    row.addEventListener('mouseenter', () => {
+      if (matchMedia('(hover: hover)').matches && !row.disabled) openChatOptionsPanel(row.dataset.chatOptionsPanel);
+    });
   });
+  $('#chat-options-back').addEventListener('click', (e) => { e.stopPropagation(); showChatOptionsMain({ focus: true }); });
 
   // 用户菜单（主题切换已收进菜单内 data-act="theme"，不再单独占一行）
   $('#user-btn').onclick = (e) => toggleMenu('usermenu', e);
@@ -1484,6 +1604,12 @@ function init() {
   // 点空白处关菜单
   document.addEventListener('click', (e) => {
     if (!e.target.closest('.menu') && !e.target.closest('#user-btn') && !e.target.closest('#m-menu-btn')) closeMenus();
+    if (!e.target.closest('#chat-options')) closeChatOptions();
+  });
+  document.addEventListener('keydown', (e) => {
+    if (e.key !== 'Escape' || $('#chat-options-popover').hidden) return;
+    closeChatOptions();
+    $('#chat-options-trigger').focus();
   });
   // 跨断点时同步移动输入坞可见性
   addEventListener('resize', () => {

@@ -15,7 +15,7 @@
   <!-- 主题：默认跟随系统 prefers-color-scheme，用户切换后写 localStorage 覆盖（与 app.js initTheme 一致）。
        内联以避免首屏闪烁。 -->
   <script>document.documentElement.dataset.theme = (function () { try { var t = localStorage.getItem('fleet-theme'); if (t) return t; } catch (e) {} return matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark'; })();</script>
-  <link rel="stylesheet" href="style.css?v=9" />
+  <link rel="stylesheet" href="style.css?v=10" />
 </head>
 <body>
   <div id="app" data-mode="sessions">
@@ -134,15 +134,37 @@
                   </label>
                 </div>
                 <div class="chat-tools-right">
-                  <label id="chat-model-wrap" class="chat-select chat-model-select" title="模型" hidden>
-                    <svg class="ic" viewBox="0 0 24 24"><path d="M12 2a4 4 0 0 0-4 4v1a4 4 0 0 0-3 6.65V16a4 4 0 0 0 4 4h6a4 4 0 0 0 4-4v-2.35A4 4 0 0 0 16 7V6a4 4 0 0 0-4-4Z"/><path d="M9 12h.01M15 12h.01M9 16h6"/></svg>
-                    <select id="chat-model" aria-label="模型"></select>
-                    <svg class="chat-select-chevron" viewBox="0 0 24 24" aria-hidden="true"><polyline points="6 9 12 15 18 9"/></svg>
-                  </label>
-                  <label id="chat-effort-wrap" class="chat-select chat-effort-select" title="推理强度" hidden>
-                    <select id="chat-effort" aria-label="推理强度"></select>
-                    <svg class="chat-select-chevron" viewBox="0 0 24 24" aria-hidden="true"><polyline points="6 9 12 15 18 9"/></svg>
-                  </label>
+                  <div id="chat-options" class="chat-options" hidden>
+                    <button id="chat-options-trigger" type="button" class="chat-options-trigger" title="模型选项" aria-label="模型选项" aria-haspopup="menu" aria-expanded="false">
+                      <svg class="ic" viewBox="0 0 24 24"><path d="M12 2a4 4 0 0 0-4 4v1a4 4 0 0 0-3 6.65V16a4 4 0 0 0 4 4h6a4 4 0 0 0 4-4v-2.35A4 4 0 0 0 16 7V6a4 4 0 0 0-4-4Z"/><path d="M9 12h.01M15 12h.01M9 16h6"/></svg>
+                      <span id="chat-options-model">模型</span>
+                      <span id="chat-options-effort" class="chat-options-secondary"></span>
+                      <svg class="chat-options-chevron" viewBox="0 0 24 24" aria-hidden="true"><polyline points="6 9 12 15 18 9"/></svg>
+                    </button>
+                    <div id="chat-options-popover" class="chat-options-popover" role="menu" hidden>
+                      <div class="chat-options-panel chat-options-main">
+                        <button type="button" class="chat-options-row" data-chat-options-panel="model" role="menuitem">
+                          <span>模型</span><span id="chat-options-model-value" class="chat-options-value"></span>
+                          <svg class="chat-options-row-chevron" viewBox="0 0 24 24" aria-hidden="true"><polyline points="9 18 15 12 9 6"/></svg>
+                        </button>
+                        <button type="button" class="chat-options-row" data-chat-options-panel="effort" role="menuitem">
+                          <span>推理强度</span><span id="chat-options-effort-value" class="chat-options-value"></span>
+                          <svg class="chat-options-row-chevron" viewBox="0 0 24 24" aria-hidden="true"><polyline points="9 18 15 12 9 6"/></svg>
+                        </button>
+                        <button type="button" class="chat-options-row" data-chat-options-panel="speed" role="menuitem">
+                          <span>速度</span><span id="chat-options-speed-value" class="chat-options-value"></span>
+                          <svg class="chat-options-row-chevron" viewBox="0 0 24 24" aria-hidden="true"><polyline points="9 18 15 12 9 6"/></svg>
+                        </button>
+                      </div>
+                      <div id="chat-options-submenu" class="chat-options-panel chat-options-submenu" hidden>
+                        <div class="chat-options-submenu-head">
+                          <button id="chat-options-back" type="button" class="iconbtn bare chat-options-back" title="返回模型选项" aria-label="返回模型选项"><svg class="ic" viewBox="0 0 24 24"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg></button>
+                          <div id="chat-options-submenu-title" class="chat-options-submenu-title"></div>
+                        </div>
+                        <div id="chat-options-choices" class="chat-options-choices" role="menu"></div>
+                      </div>
+                    </div>
+                  </div>
                   <button id="chat-send" class="send-btn chat-send" title="发送" aria-label="发送" disabled><svg class="ic" viewBox="0 0 24 24"><line x1="12" y1="19" x2="12" y2="5"/><polyline points="5 12 12 5 19 12"/></svg></button>
                 </div>
               </div>
@@ -260,8 +282,8 @@
   </div>
   <script src="vendor/purify.min.js?v=3.2.6"></script>
   <script src="vendor/marked.min.js?v=15.0.12"></script>
-  <script src="markdown.js?v=9"></script>
-  <script src="chat_model.js?v=9"></script>
-  <script src="app.js?v=9"></script>
+  <script src="markdown.js?v=10"></script>
+  <script src="chat_model.js?v=10"></script>
+  <script src="app.js?v=10"></script>
 </body>
 </html>

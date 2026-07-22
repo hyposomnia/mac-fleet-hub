@@ -124,9 +124,11 @@ type codexResumeWire struct {
 	Thread struct {
 		ID string `json:"id"`
 	} `json:"thread"`
-	Model          string          `json:"model"`
-	ApprovalPolicy json.RawMessage `json:"approvalPolicy"`
-	Sandbox        json.RawMessage `json:"sandbox"`
+	Model           string          `json:"model"`
+	ReasoningEffort string          `json:"reasoningEffort"`
+	ServiceTier     string          `json:"serviceTier"`
+	ApprovalPolicy  json.RawMessage `json:"approvalPolicy"`
+	Sandbox         json.RawMessage `json:"sandbox"`
 }
 
 func (b *codexChatBackend) resumeThread(ctx context.Context, rpc codexRPCConn, sessionID string) (codexResumeWire, error) {
@@ -166,8 +168,9 @@ func (b *codexChatBackend) Resume(ctx context.Context, assistant, sessionID, mod
 	}
 	return ChatResumeResult{
 		SessionID: sessionID, ThreadID: threadID, Status: "connected",
-		History: history, Model: res.Model, ApprovalMode: codexApprovalMode(res.ApprovalPolicy, res.Sandbox),
-		Models: b.modelOptions(ctx, rpc),
+		History: history, Model: res.Model, Effort: res.ReasoningEffort, ServiceTier: res.ServiceTier,
+		ApprovalMode: codexApprovalMode(res.ApprovalPolicy, res.Sandbox),
+		Models:       b.modelOptions(ctx, rpc),
 	}, nil
 }
 
@@ -441,6 +444,13 @@ func codexTurnStartParams(sessionID string, input []map[string]string, opts Chat
 	if opts.Effort != "" {
 		params["effort"] = opts.Effort
 	}
+	if opts.ServiceTier != nil {
+		if *opts.ServiceTier == "" {
+			params["serviceTier"] = nil
+		} else {
+			params["serviceTier"] = *opts.ServiceTier
+		}
+	}
 	switch opts.ApprovalMode {
 	case "untrusted", "on-request", "never":
 		params["approvalPolicy"] = opts.ApprovalMode
@@ -482,10 +492,16 @@ func (b *codexChatBackend) modelOptions(ctx context.Context, rpc codexRPCConn) [
 			DisplayName               string `json:"displayName"`
 			Description               string `json:"description"`
 			DefaultReasoningEffort    string `json:"defaultReasoningEffort"`
+			DefaultServiceTier        string `json:"defaultServiceTier"`
 			SupportedReasoningEfforts []struct {
 				ReasoningEffort string `json:"reasoningEffort"`
 				Description     string `json:"description"`
 			} `json:"supportedReasoningEfforts"`
+			ServiceTiers []struct {
+				ID          string `json:"id"`
+				Name        string `json:"name"`
+				Description string `json:"description"`
+			} `json:"serviceTiers"`
 			Hidden    bool `json:"hidden"`
 			IsDefault bool `json:"isDefault"`
 		} `json:"data"`
@@ -515,9 +531,23 @@ func (b *codexChatBackend) modelOptions(ctx context.Context, rpc codexRPCConn) [
 				Value: effort.ReasoningEffort, Description: effort.Description,
 			})
 		}
+		tiers := make([]ChatServiceTierOption, 0, len(m.ServiceTiers))
+		for _, tier := range m.ServiceTiers {
+			if tier.ID == "" {
+				continue
+			}
+			name := tier.Name
+			if name == "" {
+				name = tier.ID
+			}
+			tiers = append(tiers, ChatServiceTierOption{
+				Value: tier.ID, Name: name, Description: tier.Description,
+			})
+		}
 		out = append(out, ChatModelOption{
 			Value: value, DisplayName: name, Description: m.Description,
-			DefaultEffort: m.DefaultReasoningEffort, SupportedEfforts: efforts, IsDefault: m.IsDefault,
+			DefaultEffort: m.DefaultReasoningEffort, SupportedEfforts: efforts,
+			DefaultServiceTier: m.DefaultServiceTier, ServiceTiers: tiers, IsDefault: m.IsDefault,
 		})
 	}
 	return out

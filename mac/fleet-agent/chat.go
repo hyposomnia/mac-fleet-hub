@@ -155,6 +155,8 @@ type ChatResumeResult struct {
 	Status       string            `json:"status"`
 	History      ChatHistoryPage   `json:"history"`
 	Model        string            `json:"model,omitempty"`
+	Effort       string            `json:"effort,omitempty"`
+	ServiceTier  string            `json:"serviceTier,omitempty"`
 	ApprovalMode string            `json:"approvalMode,omitempty"`
 	Models       []ChatModelOption `json:"models,omitempty"`
 }
@@ -165,12 +167,14 @@ type ChatHistoryPage struct {
 }
 
 type ChatModelOption struct {
-	Value            string                      `json:"value"`
-	DisplayName      string                      `json:"displayName"`
-	Description      string                      `json:"description,omitempty"`
-	DefaultEffort    string                      `json:"defaultEffort,omitempty"`
-	SupportedEfforts []ChatReasoningEffortOption `json:"supportedEfforts,omitempty"`
-	IsDefault        bool                        `json:"isDefault,omitempty"`
+	Value              string                      `json:"value"`
+	DisplayName        string                      `json:"displayName"`
+	Description        string                      `json:"description,omitempty"`
+	DefaultEffort      string                      `json:"defaultEffort,omitempty"`
+	SupportedEfforts   []ChatReasoningEffortOption `json:"supportedEfforts,omitempty"`
+	DefaultServiceTier string                      `json:"defaultServiceTier,omitempty"`
+	ServiceTiers       []ChatServiceTierOption     `json:"serviceTiers,omitempty"`
+	IsDefault          bool                        `json:"isDefault,omitempty"`
 }
 
 type ChatReasoningEffortOption struct {
@@ -178,10 +182,17 @@ type ChatReasoningEffortOption struct {
 	Description string `json:"description,omitempty"`
 }
 
+type ChatServiceTierOption struct {
+	Value       string `json:"value"`
+	Name        string `json:"name"`
+	Description string `json:"description,omitempty"`
+}
+
 type ChatTurnOptions struct {
-	Model        string `json:"model,omitempty"`
-	Effort       string `json:"effort,omitempty"`
-	ApprovalMode string `json:"approvalMode,omitempty"`
+	Model        string  `json:"model,omitempty"`
+	Effort       string  `json:"effort,omitempty"`
+	ServiceTier  *string `json:"serviceTier,omitempty"`
+	ApprovalMode string  `json:"approvalMode,omitempty"`
 }
 
 type ChatAttachment struct {
@@ -274,12 +285,13 @@ func handleChatInput(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req struct {
-		Assistant    string `json:"assistant"`
-		SessionID    string `json:"sessionId"`
-		Text         string `json:"text"`
-		Model        string `json:"model"`
-		Effort       string `json:"effort"`
-		ApprovalMode string `json:"approvalMode"`
+		Assistant    string  `json:"assistant"`
+		SessionID    string  `json:"sessionId"`
+		Text         string  `json:"text"`
+		Model        string  `json:"model"`
+		Effort       string  `json:"effort"`
+		ServiceTier  *string `json:"serviceTier"`
+		ApprovalMode string  `json:"approvalMode"`
 		Images       []struct {
 			ID string `json:"id"`
 		} `json:"images"`
@@ -312,7 +324,7 @@ func handleChatInput(w http.ResponseWriter, r *http.Request) {
 		images = append(images, att)
 	}
 	opts, err := normalizeChatTurnOptions(ChatTurnOptions{
-		Model: req.Model, Effort: req.Effort, ApprovalMode: req.ApprovalMode,
+		Model: req.Model, Effort: req.Effort, ServiceTier: req.ServiceTier, ApprovalMode: req.ApprovalMode,
 	})
 	if err != nil {
 		writeErr(w, http.StatusBadRequest, "bad_chat_options", err.Error())
@@ -335,6 +347,13 @@ func normalizeChatTurnOptions(opts ChatTurnOptions) (ChatTurnOptions, error) {
 	}
 	if len(opts.Effort) > 40 || strings.ContainsAny(opts.Effort, "\r\n\x00") {
 		return ChatTurnOptions{}, fmt.Errorf("无效的推理强度")
+	}
+	if opts.ServiceTier != nil {
+		tier := strings.TrimSpace(*opts.ServiceTier)
+		if len(tier) > 80 || strings.ContainsAny(tier, "\r\n\x00") {
+			return ChatTurnOptions{}, fmt.Errorf("无效的速度选项")
+		}
+		opts.ServiceTier = &tier
 	}
 	switch opts.ApprovalMode {
 	case "", "untrusted", "on-request", "never", "full-access":
