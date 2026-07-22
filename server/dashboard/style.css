@@ -512,7 +512,7 @@ svg.ic.fill { fill: currentColor; stroke: none; }
 .chat-tool-summary { display: inline-flex; align-items: center; gap: 7px; min-height: 26px; max-width: 100%; padding: 1px 2px; border-radius: 7px; }
 .chat-tool summary:hover .chat-tool-summary { background: var(--surface-hover); }
 .chat-tool-icon { width: 20px; height: 20px; flex: none; display: grid; place-items: center; color: var(--text-2); }
-.chat-tool-icon .ic { width: 16px; height: 16px; stroke-width: 1.9; }
+.chat-tool-icon .ic { width: 14px; height: 14px; stroke-width: 1.9; }
 .chat-tool-copy { min-width: 0; flex: 1; display: inline-flex; align-items: baseline; gap: 7px; }
 .chat-tool-title { flex: none; color: var(--text-2); font-size: var(--t-sm); font-weight: 560; }
 .chat-tool-subtitle { min-width: 0; overflow: hidden; color: var(--text-2); font-size: var(--t-sm); line-height: 1.35; text-overflow: ellipsis; white-space: nowrap; }
