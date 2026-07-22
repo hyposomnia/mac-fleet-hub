@@ -2,12 +2,13 @@
   'use strict';
 
   function createChatState() {
-    return { phase: 'idle', messages: [], items: {}, approvals: {}, error: null };
+    return { phase: 'idle', activeTurnId: '', messages: [], items: {}, approvals: {}, error: null };
   }
 
   function cloneState(state) {
     return {
       phase: state.phase || 'idle',
+      activeTurnId: state.activeTurnId || '',
       messages: (state.messages || []).slice(),
       items: { ...(state.items || {}) },
       approvals: { ...(state.approvals || {}) },
@@ -32,6 +33,15 @@
 
   function asObject(value) {
     return value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+  }
+
+  function chatPhase(value) {
+    const raw = typeof value === 'object' && value ? value.type : value;
+    const phase = String(raw || '').trim().toLowerCase();
+    if (['active', 'running', 'inprogress', 'in_progress', 'started'].includes(phase)) return 'running';
+    if (['systemerror', 'system_error', 'error', 'failed'].includes(phase)) return 'error';
+    if (['idle', 'notloaded', 'not_loaded', 'completed', 'interrupted', 'cancelled'].includes(phase)) return 'idle';
+    return phase || 'idle';
   }
 
   function firstString(...values) {
@@ -223,9 +233,16 @@
 
     switch (ev && ev.type) {
       case 'thread_status':
-        next.phase = data.status || data.state || next.phase;
+        next.phase = chatPhase(data.status || data.state || next.phase);
+        if (next.phase !== 'running') next.activeTurnId = '';
+        return next;
+      case 'turn_started':
+        next.phase = 'running';
+        next.activeTurnId = firstString(ev && ev.turnId, data.turnId, data.turn_id, asObject(data.turn).id, next.activeTurnId);
         return next;
       case 'assistant_delta': {
+        next.phase = 'running';
+        next.activeTurnId = firstString(ev && ev.turnId, data.turnId, data.turn_id, next.activeTurnId);
         const item = upsertItem(next, itemId, () => ({ id: itemId, type: 'assistant', text: '', done: false }));
         item.turnId = firstString(ev && ev.turnId, data.turnId, data.turn_id, item.turnId);
         mergeAssistantMetadata(item, data, ev);
@@ -287,6 +304,7 @@
         return next;
       case 'turn_done':
         next.phase = 'idle';
+        next.activeTurnId = '';
         mergeTurnMetadata(next, data, ev);
         return next;
       case 'error':
@@ -298,7 +316,7 @@
     }
   }
 
-  const api = { createChatState, appendUserMessage, prependHistory, reduceChatEvent, normalizeDiffFiles };
+  const api = { createChatState, appendUserMessage, prependHistory, reduceChatEvent, normalizeDiffFiles, chatPhase };
   root.FleetChatModel = api;
   if (typeof module !== 'undefined') module.exports = api;
 })(typeof globalThis !== 'undefined' ? globalThis : window);

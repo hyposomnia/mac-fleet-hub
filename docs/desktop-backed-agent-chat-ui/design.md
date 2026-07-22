@@ -183,6 +183,7 @@ GET  /api/chat/thread?assistant=codex|claude&sessionId=...
 POST /api/chat/start       {assistant,cwd,mode}
 POST /api/chat/resume      {assistant,sessionId,mode}
 POST /api/chat/input       {assistant,sessionId,text,clientMessageId?}
+POST /api/chat/steer       {assistant,sessionId,text,images?}
 POST /api/chat/approve     {assistant,sessionId,approvalId,decision}
 POST /api/chat/interrupt   {assistant,sessionId,turnId?}
 GET  /api/chat/events?assistant=codex|claude&sessionId=...
@@ -197,6 +198,14 @@ GET  /api/chat/events
 ```
 
 会话列表仍可复用现有 `/api/sessions?assistant=codex`，等 POC 稳定后再统一。
+
+### 运行态与追问队列
+
+- `thread/status/changed`、`turn/started`、流式 delta 和 `turn/completed` 共同驱动 `running / idle`；刷新后以 `thread/resume` 返回的 `thread.status` 恢复。
+- `running` 时发送按钮切换为停止按钮，调用 `/api/chat/interrupt`；新输入进入当前浏览器内、按会话隔离的 FIFO 追问队列。
+- 当前 turn 完成后自动发送队首；发送失败时保留该条，避免静默丢消息。
+- “引导”通过 `/api/chat/steer` 映射到 Codex `turn/steer`，携带当前 `expectedTurnId`；成功后才移除队列项。
+- 编辑会移除队列项并把文字和图片恢复到 composer；删除只移除指定项。
 
 ## Codex driver 设计
 
@@ -360,4 +369,3 @@ Claude 第二阶段完成条件：
 - 多前端同时订阅同一 thread 需要分发和取消订阅管理，POC 可先支持单浏览器连接。
 - 权限模式字段映射如果写错，可能导致静默无审批或无法写文件；必须单测和手测。
 - 长输出、diff、大文件变更需要虚拟化或折叠；POC 先折叠和截断。
-

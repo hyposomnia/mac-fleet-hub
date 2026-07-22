@@ -122,8 +122,15 @@ type codexTurnsCursor struct {
 
 type codexResumeWire struct {
 	Thread struct {
-		ID string `json:"id"`
+		ID     string          `json:"id"`
+		Status json.RawMessage `json:"status"`
 	} `json:"thread"`
+	InitialTurnsPage struct {
+		Data []struct {
+			ID     string `json:"id"`
+			Status string `json:"status"`
+		} `json:"data"`
+	} `json:"initialTurnsPage"`
 	Model           string          `json:"model"`
 	ReasoningEffort string          `json:"reasoningEffort"`
 	ServiceTier     string          `json:"serviceTier"`
@@ -131,10 +138,27 @@ type codexResumeWire struct {
 	Sandbox         json.RawMessage `json:"sandbox"`
 }
 
+func codexThreadStatus(raw json.RawMessage) string {
+	var status struct {
+		Type string `json:"type"`
+	}
+	if json.Unmarshal(raw, &status) == nil && status.Type != "" {
+		return status.Type
+	}
+	var value string
+	if json.Unmarshal(raw, &value) == nil && value != "" {
+		return value
+	}
+	return "idle"
+}
+
 func (b *codexChatBackend) resumeThread(ctx context.Context, rpc codexRPCConn, sessionID string) (codexResumeWire, error) {
 	params := map[string]interface{}{
 		"threadId":     sessionID,
 		"excludeTurns": true,
+		"initialTurnsPage": map[string]interface{}{
+			"limit": 1, "sortDirection": "desc", "itemsView": "summary",
+		},
 	}
 	raw, err := rpc.call(ctx, "thread/resume", params)
 	if err != nil {
@@ -166,8 +190,22 @@ func (b *codexChatBackend) Resume(ctx context.Context, assistant, sessionID, mod
 	if err != nil {
 		return ChatResumeResult{}, err
 	}
+	status := codexThreadStatus(res.Thread.Status)
+	b.mu.Lock()
+	if status == "active" {
+		turnID := ""
+		if len(res.InitialTurnsPage.Data) > 0 {
+			turnID = res.InitialTurnsPage.Data[0].ID
+		}
+		if turnID != "" {
+			b.lastTurn[sessionID] = turnID
+		}
+	} else {
+		delete(b.lastTurn, sessionID)
+	}
+	b.mu.Unlock()
 	return ChatResumeResult{
-		SessionID: sessionID, ThreadID: threadID, Status: "connected",
+		SessionID: sessionID, ThreadID: threadID, Status: status,
 		History: history, Model: res.Model, Effort: res.ReasoningEffort, ServiceTier: res.ServiceTier,
 		ApprovalMode: codexApprovalMode(res.ApprovalPolicy, res.Sandbox),
 		Models:       b.modelOptions(ctx, rpc),
@@ -372,6 +410,19 @@ func decodeCodexTurnsCursor(cursor string) (codexTurnsCursor, error) {
 	return state, nil
 }
 
+func codexUserInput(text string, images []ChatAttachment) []map[string]string {
+	input := make([]map[string]string, 0, 1+len(images))
+	if text != "" {
+		input = append(input, map[string]string{"type": "text", "text": text})
+	}
+	for _, img := range images {
+		if img.Path != "" {
+			input = append(input, map[string]string{"type": "localImage", "path": img.Path})
+		}
+	}
+	return input
+}
+
 func (b *codexChatBackend) Input(ctx context.Context, assistant, sessionID, text string, images []ChatAttachment, opts ChatTurnOptions) (ChatInputResult, error) {
 	if assistant != "codex" {
 		return ChatInputResult{}, errUnsupportedChatAssistant
@@ -393,16 +444,7 @@ func (b *codexChatBackend) Input(ctx context.Context, assistant, sessionID, text
 			return ChatInputResult{}, err
 		}
 	}
-	input := make([]map[string]string, 0, 1+len(images))
-	if text != "" {
-		input = append(input, map[string]string{"type": "text", "text": text})
-	}
-	for _, img := range images {
-		if img.Path == "" {
-			continue
-		}
-		input = append(input, map[string]string{"type": "localImage", "path": img.Path})
-	}
+	input := codexUserInput(text, images)
 	params := codexTurnStartParams(sessionID, input, opts)
 	raw, err := rpc.call(ctx, "turn/start", params)
 	if err != nil {
@@ -434,6 +476,36 @@ func (b *codexChatBackend) Input(ctx context.Context, assistant, sessionID, text
 		b.mu.Unlock()
 	}
 	return ChatInputResult{TurnID: res.Turn.ID}, nil
+}
+
+func (b *codexChatBackend) Steer(ctx context.Context, assistant, sessionID, text string, images []ChatAttachment) (ChatInputResult, error) {
+	if assistant != "codex" {
+		return ChatInputResult{}, errUnsupportedChatAssistant
+	}
+	rpc, err := b.ensure(ctx)
+	if err != nil {
+		return ChatInputResult{}, err
+	}
+	b.mu.Lock()
+	turnID := b.lastTurn[sessionID]
+	b.mu.Unlock()
+	if turnID == "" {
+		return ChatInputResult{}, errNoActiveChatTurn
+	}
+	raw, err := rpc.call(ctx, "turn/steer", map[string]interface{}{
+		"threadId": sessionID, "expectedTurnId": turnID, "input": codexUserInput(text, images),
+	})
+	if err != nil {
+		return ChatInputResult{}, err
+	}
+	var res struct {
+		TurnID string `json:"turnId"`
+	}
+	_ = json.Unmarshal(raw, &res)
+	if res.TurnID == "" {
+		res.TurnID = turnID
+	}
+	return ChatInputResult{TurnID: res.TurnID}, nil
 }
 
 func codexTurnStartParams(sessionID string, input []map[string]string, opts ChatTurnOptions) map[string]interface{} {
@@ -1061,6 +1133,18 @@ func (b *codexChatBackend) dispatch(notes <-chan rpcNotification) {
 			}
 		}
 		for _, ev := range mapCodexNotification(n) {
+			if ev.Type == "turn_started" && ev.SessionID != "" && ev.TurnID != "" {
+				b.mu.Lock()
+				b.lastTurn[ev.SessionID] = ev.TurnID
+				b.mu.Unlock()
+			}
+			if ev.Type == "turn_done" && ev.SessionID != "" {
+				b.mu.Lock()
+				if ev.TurnID == "" || b.lastTurn[ev.SessionID] == ev.TurnID {
+					delete(b.lastTurn, ev.SessionID)
+				}
+				b.mu.Unlock()
+			}
 			b.publish(ev)
 		}
 	}
