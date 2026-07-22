@@ -234,7 +234,11 @@
       <div class="modal">
         <div class="modal-head"><svg class="ic" viewBox="0 0 24 24" style="width:18px;height:18px"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg><span>设置</span><button class="iconbtn bare x" data-close="settings-modal"><svg class="ic" viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button></div>
         <div class="modal-body">
-          <section class="set-group">
+          <div class="seg set-tabs" role="tablist">
+            <button data-settings-tab="terminal" role="tab" aria-selected="true">终端</button>
+            <button data-settings-tab="chat" role="tab" aria-selected="false">自绘</button>
+          </div>
+          <section class="set-group set-panel" data-settings-panel="terminal">
             <div class="set-group-title">终端设置</div>
             <div class="set-sec">桌面端</div>
             <div class="field"><label>最大同时打开的终端窗口数</label><input id="st-dmax" class="input mono" type="number" min="1" max="30" inputmode="numeric" /></div>
@@ -246,6 +250,14 @@
             <div class="field"><label>后台会话空闲多久后自动释放（分钟）</label><input id="st-autoclose" class="input mono" type="number" min="1" max="1440" inputmode="numeric" /></div>
             <p class="hint">超出窗口数上限时，按「最后收到输出时间」最早的窗口先释放（当前正看的窗口不会被释放）。被释放的会话后台进程不受影响，再次点开会重新连接。</p>
             <p class="hint">「自动关闭」是各 Mac 后台会话的空闲回收时长：超过该时长无人连接、且无新活动的终端会话会被自动释放（结束进程、释放 pty，会话记录保留，再次点开会重新连接）。改动几分钟内同步到所有在线 Mac。</p>
+          </section>
+          <section class="set-group set-panel" data-settings-panel="chat" hidden>
+            <div class="set-group-title">自绘设置</div>
+            <div class="field"><label>保持连接的自绘会话缓存数</label><input id="st-chat-cache-max" class="input mono" type="number" min="1" max="20" inputmode="numeric" /></div>
+            <div class="kv set-cache-stat"><span class="k">当前缓存</span><span id="st-chat-cache-count" class="v mono">0 / 0</span></div>
+            <div class="kv set-cache-stat"><span class="k">估算内存</span><span id="st-chat-cache-bytes" class="v mono">0 KB</span></div>
+            <div class="kv set-cache-stat"><span class="k">平均单个缓存</span><span id="st-chat-cache-each" class="v mono">0 KB</span></div>
+            <p class="hint">缓存会保持 Codex app-server 的事件连接，切回同一会话会直接显示已有消息，不再重新 resume。估算包含消息/工具输出文本、图片预览大小和每条事件连接的基础开销；长工具输出和图片会明显增加占用。</p>
           </section>
         </div>
         <div class="modal-foot">

@@ -396,15 +396,21 @@ func handleNames(w http.ResponseWriter, r *http.Request) {
 // 终端 iframe 池上限与每窗口回滚行数，桌面 / 移动各一套。暴露在 nginx 的 /api/settings
 // （经 Authelia auth_request 保护），写操作须已登录。存 settingsFile 的 JSON。
 type dashSettings struct {
-	DesktopMaxWindows int `json:"desktopMaxWindows"`
-	DesktopScrollback int `json:"desktopScrollback"`
-	MobileMaxWindows  int `json:"mobileMaxWindows"`
-	MobileScrollback  int `json:"mobileScrollback"`
-	AutoCloseMinutes  int `json:"autoCloseMinutes"` // 窗口无新输出超过此分钟数后自动释放（断连，后台进程不动）
+	DesktopMaxWindows    int `json:"desktopMaxWindows"`
+	DesktopScrollback    int `json:"desktopScrollback"`
+	MobileMaxWindows     int `json:"mobileMaxWindows"`
+	MobileScrollback     int `json:"mobileScrollback"`
+	AutoCloseMinutes     int `json:"autoCloseMinutes"`     // 窗口无新输出超过此分钟数后自动释放（断连，后台进程不动）
+	ChatCacheMaxSessions int `json:"chatCacheMaxSessions"` // 自绘 Codex 保持连接的前端会话缓存上限
 }
 
 func defaultSettings() dashSettings {
-	return dashSettings{DesktopMaxWindows: 10, DesktopScrollback: 5000, MobileMaxWindows: 4, MobileScrollback: 5000, AutoCloseMinutes: 30}
+	return dashSettings{
+		DesktopMaxWindows: 10, DesktopScrollback: 5000,
+		MobileMaxWindows: 4, MobileScrollback: 5000,
+		AutoCloseMinutes:     30,
+		ChatCacheMaxSessions: 6,
+	}
 }
 
 // clampOr：v 为 0（缺省/未填）回退 def，否则钳到 [lo,hi]。
@@ -429,6 +435,7 @@ func (s *dashSettings) normalize() {
 	s.DesktopScrollback = clampOr(s.DesktopScrollback, 200, 100000, d.DesktopScrollback)
 	s.MobileScrollback = clampOr(s.MobileScrollback, 200, 100000, d.MobileScrollback)
 	s.AutoCloseMinutes = clampOr(s.AutoCloseMinutes, 1, 1440, d.AutoCloseMinutes) // 1 分钟 ~ 24 小时
+	s.ChatCacheMaxSessions = clampOr(s.ChatCacheMaxSessions, 1, 20, d.ChatCacheMaxSessions)
 }
 
 var settingsMu sync.Mutex
