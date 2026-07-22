@@ -4,10 +4,22 @@ import { readFile } from 'node:fs/promises';
 import vm from 'node:vm';
 
 const src = await readFile(new URL('./chat_model.js', import.meta.url), 'utf8');
+const indexHTML = await readFile(new URL('./index.html', import.meta.url), 'utf8');
+const serviceWorker = await readFile(new URL('./sw.js', import.meta.url), 'utf8');
 const sandbox = { globalThis: {} };
 vm.createContext(sandbox);
 vm.runInContext(src, sandbox);
 const { createChatState, appendUserMessage, prependHistory, reduceChatEvent } = sandbox.globalThis.FleetChatModel;
+
+test('chat model and app use the same versioned shell URLs', () => {
+  const modelURL = indexHTML.match(/chat_model\.js\?v=([a-zA-Z0-9_-]+)/);
+  const appURL = indexHTML.match(/app\.js\?v=([a-zA-Z0-9_-]+)/);
+  assert.ok(modelURL);
+  assert.ok(appURL);
+  assert.equal(modelURL[1], appURL[1]);
+  assert.match(serviceWorker, new RegExp(`/chat_model\\.js\\?v=${modelURL[1]}`));
+  assert.match(serviceWorker, new RegExp(`/app\\.js\\?v=${appURL[1]}`));
+});
 
 test('assistant deltas merge by item id', () => {
   let state = createChatState();
