@@ -701,7 +701,7 @@ svg.ic.fill { fill: currentColor; stroke: none; }
 #cmd-input:focus { border-color: var(--accent); box-shadow: var(--ring); }
 .send-btn { width: 46px; height: 46px; border-radius: 14px; background: var(--accent); color: #fff; font-size: 18px; display: grid; place-items: center; flex: none; }
 .chat-send { width: 40px; height: 40px; border-radius: 50%; background: var(--chat-text); color: var(--chat-bg); box-shadow: var(--e1); }
-.chat-stop-icon { display: none; }
+.chat-send .chat-stop-icon { display: none; }
 .chat-send[data-action="interrupt"] { background: #111; color: #fff; }
 .chat-send[data-action="interrupt"] .chat-send-icon { display: none; }
 .chat-send[data-action="interrupt"] .chat-stop-icon { display: block; }

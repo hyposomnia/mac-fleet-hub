@@ -143,6 +143,7 @@ test('self-drawn composer contains native stop control and follow-up queue', () 
   assert.match(indexHTML, /id="chat-followups"/);
   assert.match(indexHTML, /class="ic chat-stop-icon"/);
   assert.match(indexHTML, /data-action="send"/);
+  assert.match(styleCSS, /\.chat-send \.chat-stop-icon\s*\{\s*display:\s*none/);
   assert.match(styleCSS, /chat-send\[data-action="interrupt"\]/);
 });
 
