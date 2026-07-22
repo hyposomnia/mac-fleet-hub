@@ -65,7 +65,7 @@ function svgStop() {
 const state = {
   macId: null,
   mode: 'sessions',      // sessions | files
-  assistant: 'claude',   // claude | codex
+  assistant: 'codex',    // claude | codex
   scope: 'active',       // active | all
   termSid: null,         // 当前终端 tmux 会话名（watch / reload 用）
   termUrl: null,         // 当前终端 iframe URL（files↔sessions 切换后恢复用）
@@ -1327,7 +1327,7 @@ async function restorePoolSnapshot() {
     try { await connect(it.sessionId, it.title, it.cwd, it.permMode || 'default'); } catch (_) {}
   }
   state.macId = snap.macId;
-  state.assistant = snap.cur && snap.cur.assistant === 'codex' ? 'codex' : 'claude';
+  state.assistant = snap.cur ? (snap.cur.assistant === 'codex' ? 'codex' : 'claude') : 'codex';
   state.selectedSid = snap.cur ? snap.cur.sessionId : null; // 侧栏高亮对齐快照当前会话
   $$('[data-assistant]').forEach((b) => b.setAttribute('aria-selected', String(b.dataset.assistant === state.assistant)));
   renderHosts();

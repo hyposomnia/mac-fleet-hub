@@ -4,6 +4,7 @@ import { readFile } from 'node:fs/promises';
 import vm from 'node:vm';
 
 const src = await readFile(new URL('./chat_model.js', import.meta.url), 'utf8');
+const appSrc = await readFile(new URL('./app.js', import.meta.url), 'utf8');
 const indexHTML = await readFile(new URL('./index.html', import.meta.url), 'utf8');
 const serviceWorker = await readFile(new URL('./sw.js', import.meta.url), 'utf8');
 const markedSrc = await readFile(new URL('./vendor/marked.min.js', import.meta.url), 'utf8');
@@ -36,6 +37,16 @@ test('chat model and app use the same versioned shell URLs', () => {
   assert.ok(indexHTML.indexOf('<script src="vendor/purify.min.js') < markdownScript);
   assert.ok(indexHTML.indexOf('<script src="vendor/marked.min.js') < markdownScript);
   assert.ok(markdownScript < indexHTML.indexOf('<script src="app.js'));
+});
+
+test('Codex is the first and default session assistant', () => {
+  const tabs = [...indexHTML.matchAll(/<button data-assistant="([^"]+)" role="tab" aria-selected="([^"]+)">/g)]
+    .map((match) => ({ assistant: match[1], selected: match[2] }));
+  assert.deepEqual(tabs, [
+    { assistant: 'codex', selected: 'true' },
+    { assistant: 'claude', selected: 'false' },
+  ]);
+  assert.match(appSrc, /assistant:\s*'codex',\s*\/\/ claude \| codex/);
 });
 
 test('vendored markdown parser formats common assistant response blocks', () => {
