@@ -739,12 +739,17 @@ function chatAtBottom() {
   return sc.scrollHeight - sc.scrollTop - sc.clientHeight < 64;
 }
 
-function renderChat() {
+function renderChat({ preserveScroll = false, forceBottom = false } = {}) {
   const chat = state.chat;
   const sc = $('#chat-scroll');
   if (!chat || !sc) return;
-  const stick = chatAtBottom();
+  const oldHeight = sc.scrollHeight;
+  const oldTop = sc.scrollTop;
+  const stick = !preserveScroll && chatAtBottom();
   const stack = h('div', { class: 'chat-stack' });
+  if (chat.historyReady && chat.historyLoading) {
+    stack.append(h('div', { class: 'chat-history-state', text: '正在加载更早记录…' }));
+  }
   if (chat.loading) stack.append(chatRow(h('div', { class: 'chat-card muted', text: '正在连接 Codex app-server…' })));
   const model = chat.model || FleetChatModel.createChatState();
   for (const id of model.messages) {
@@ -754,7 +759,8 @@ function renderChat() {
   }
   if (model.error) stack.append(renderChatError(model.error));
   clear(sc); sc.append(stack);
-  if (stick) sc.scrollTop = sc.scrollHeight;
+  if (preserveScroll) sc.scrollTop = oldTop + (sc.scrollHeight - oldHeight);
+  else if (forceBottom || stick) sc.scrollTop = sc.scrollHeight;
   $('#chat-jump').hidden = chatAtBottom();
 }
 
@@ -878,21 +884,84 @@ async function openChatSession(s) {
   state.chat = {
     sessionId: s.sessionId, title: s.title || 'Codex 会话', cwd: s.cwd || '',
     model: FleetChatModel.createChatState(), loading: true, events: null, attachments: [], objectUrls: [],
+    historyReady: false, historyLoading: false, historyCursor: '',
+    models: [], selectedModel: '', selectedEffort: '', modelDirty: false,
+    approvalMode: 'on-request', approvalDirty: false,
   };
+  $('#chat-approval').disabled = true;
+  $('#chat-model-wrap').hidden = true;
   showChatPane(state.chat.title, state.chat.cwd);
   renderChat();
   startChatEvents();
   try {
-    await api(state.macId, 'chat/resume', {
+    const resumed = await api(state.macId, 'chat/resume', {
       method: 'POST', headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ assistant: 'codex', sessionId: s.sessionId, mode: 'default' }),
     });
-    if (state.chat && state.chat.sessionId === s.sessionId) { state.chat.loading = false; renderChat(); }
+    if (state.chat && state.chat.sessionId === s.sessionId) {
+      const chat = state.chat;
+      chat.model = FleetChatModel.prependHistory(chat.model, resumed.history?.events || []);
+      chat.historyCursor = resumed.history?.nextCursor || '';
+      chat.historyReady = true;
+      chat.loading = false;
+      configureChatOptions(chat, resumed);
+      renderChat({ forceBottom: true });
+    }
   } catch (e) {
     if (state.chat && state.chat.sessionId === s.sessionId) {
       state.chat.loading = false;
+      state.chat.historyReady = true;
+      $('#chat-approval').disabled = false;
       state.chat.model = FleetChatModel.reduceChatEvent(state.chat.model, { type: 'error', data: { message: e.message } });
       renderChat();
+    }
+  }
+}
+
+function configureChatOptions(chat, resumed) {
+  const approval = $('#chat-approval');
+  const approvalModes = new Set(['untrusted', 'on-request', 'never', 'full-access']);
+  chat.approvalMode = approvalModes.has(resumed.approvalMode) ? resumed.approvalMode : 'on-request';
+  chat.approvalDirty = false;
+  approval.value = chat.approvalMode;
+  approval.disabled = false;
+
+  const select = $('#chat-model');
+  const wrap = $('#chat-model-wrap');
+  const models = Array.isArray(resumed.models) ? resumed.models.slice() : [];
+  if (resumed.model && !models.some((m) => m.value === resumed.model)) {
+    models.unshift({ value: resumed.model, displayName: resumed.model, defaultEffort: '' });
+  }
+  clear(select);
+  for (const model of models) {
+    if (!model || !model.value) continue;
+    select.append(h('option', { value: model.value, text: model.displayName || model.value }));
+  }
+  chat.models = models;
+  chat.selectedModel = resumed.model || (models.find((m) => m.isDefault)?.value || models[0]?.value || '');
+  if (chat.selectedModel) select.value = chat.selectedModel;
+  const selected = models.find((m) => m.value === chat.selectedModel);
+  chat.selectedEffort = selected?.defaultEffort || '';
+  chat.modelDirty = false;
+  wrap.hidden = select.options.length === 0;
+}
+
+async function loadOlderChatHistory() {
+  const chat = state.chat;
+  if (!chat || !chat.historyReady || chat.historyLoading || !chat.historyCursor) return;
+  chat.historyLoading = true;
+  renderChat({ preserveScroll: true });
+  try {
+    const page = await api(state.macId, `chat/history?assistant=codex&sessionId=${encodeURIComponent(chat.sessionId)}&cursor=${encodeURIComponent(chat.historyCursor)}`);
+    if (state.chat !== chat) return;
+    chat.model = FleetChatModel.prependHistory(chat.model, page.events || []);
+    chat.historyCursor = page.nextCursor || '';
+  } catch (e) {
+    if (state.chat === chat) toast('加载历史失败：' + e.message, 'err');
+  } finally {
+    if (state.chat === chat) {
+      chat.historyLoading = false;
+      renderChat({ preserveScroll: true });
     }
   }
 }
@@ -936,9 +1005,15 @@ async function submitChatInput() {
   chat.loading = false;
   renderChat();
   try {
+    const turnOptions = {};
+    if (chat.modelDirty && chat.selectedModel) {
+      turnOptions.model = chat.selectedModel;
+      if (chat.selectedEffort) turnOptions.effort = chat.selectedEffort;
+    }
+    if (chat.approvalDirty && chat.approvalMode) turnOptions.approvalMode = chat.approvalMode;
     await api(state.macId, 'chat/input', {
       method: 'POST', headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ assistant: 'codex', sessionId: chat.sessionId, text: raw, images: images.map((img) => ({ id: img.id })) }),
+      body: JSON.stringify({ assistant: 'codex', sessionId: chat.sessionId, text: raw, images: images.map((img) => ({ id: img.id })), ...turnOptions }),
     });
   } catch (e) {
     if (state.chat === chat) {
@@ -1304,8 +1379,23 @@ function init() {
   });
   $('#chat-input').addEventListener('compositionstart', () => { chatIMEComposing = true; });
   $('#chat-input').addEventListener('compositionend', () => { chatIMEComposing = false; });
-  $('#chat-scroll').addEventListener('scroll', () => { $('#chat-jump').hidden = chatAtBottom(); });
+  $('#chat-scroll').addEventListener('scroll', () => {
+    $('#chat-jump').hidden = chatAtBottom();
+    if ($('#chat-scroll').scrollTop <= 80) loadOlderChatHistory();
+  });
   $('#chat-jump').onclick = () => { const sc = $('#chat-scroll'); sc.scrollTop = sc.scrollHeight; $('#chat-jump').hidden = true; };
+  $('#chat-approval').addEventListener('change', (e) => {
+    if (!state.chat) return;
+    state.chat.approvalMode = e.target.value;
+    state.chat.approvalDirty = true;
+  });
+  $('#chat-model').addEventListener('change', (e) => {
+    const chat = state.chat;
+    if (!chat) return;
+    chat.selectedModel = e.target.value;
+    chat.selectedEffort = chat.models.find((m) => m.value === chat.selectedModel)?.defaultEffort || '';
+    chat.modelDirty = true;
+  });
 
   // 用户菜单（主题切换已收进菜单内 data-act="theme"，不再单独占一行）
   $('#user-btn').onclick = (e) => toggleMenu('usermenu', e);

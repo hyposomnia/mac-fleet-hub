@@ -150,9 +150,32 @@ var errAppServerUnavailable = errors.New("appserver_unavailable")
 var errUnsupportedChatAssistant = errors.New("unsupported_assistant")
 
 type ChatResumeResult struct {
-	SessionID string `json:"sessionId"`
-	ThreadID  string `json:"threadId"`
-	Status    string `json:"status"`
+	SessionID    string            `json:"sessionId"`
+	ThreadID     string            `json:"threadId"`
+	Status       string            `json:"status"`
+	History      ChatHistoryPage   `json:"history"`
+	Model        string            `json:"model,omitempty"`
+	ApprovalMode string            `json:"approvalMode,omitempty"`
+	Models       []ChatModelOption `json:"models,omitempty"`
+}
+
+type ChatHistoryPage struct {
+	Events     []ChatEvent `json:"events"`
+	NextCursor string      `json:"nextCursor,omitempty"`
+}
+
+type ChatModelOption struct {
+	Value         string `json:"value"`
+	DisplayName   string `json:"displayName"`
+	Description   string `json:"description,omitempty"`
+	DefaultEffort string `json:"defaultEffort,omitempty"`
+	IsDefault     bool   `json:"isDefault,omitempty"`
+}
+
+type ChatTurnOptions struct {
+	Model        string `json:"model,omitempty"`
+	Effort       string `json:"effort,omitempty"`
+	ApprovalMode string `json:"approvalMode,omitempty"`
 }
 
 type ChatAttachment struct {
@@ -170,7 +193,8 @@ type ChatInputResult struct {
 
 type chatBackend interface {
 	Resume(ctx context.Context, assistant, sessionID, mode string) (ChatResumeResult, error)
-	Input(ctx context.Context, assistant, sessionID, text string, images []ChatAttachment) (ChatInputResult, error)
+	History(ctx context.Context, assistant, sessionID, cursor string) (ChatHistoryPage, error)
+	Input(ctx context.Context, assistant, sessionID, text string, images []ChatAttachment, opts ChatTurnOptions) (ChatInputResult, error)
 	Events(ctx context.Context, assistant, sessionID string) (<-chan ChatEvent, error)
 	Approve(ctx context.Context, assistant, sessionID, requestID, decision string) error
 	Interrupt(ctx context.Context, assistant, sessionID string) error
@@ -183,7 +207,10 @@ type unavailableChatBackend struct{}
 func (unavailableChatBackend) Resume(context.Context, string, string, string) (ChatResumeResult, error) {
 	return ChatResumeResult{}, errAppServerUnavailable
 }
-func (unavailableChatBackend) Input(context.Context, string, string, string, []ChatAttachment) (ChatInputResult, error) {
+func (unavailableChatBackend) History(context.Context, string, string, string) (ChatHistoryPage, error) {
+	return ChatHistoryPage{}, errAppServerUnavailable
+}
+func (unavailableChatBackend) Input(context.Context, string, string, string, []ChatAttachment, ChatTurnOptions) (ChatInputResult, error) {
 	return ChatInputResult{}, errAppServerUnavailable
 }
 func (unavailableChatBackend) Events(context.Context, string, string) (<-chan ChatEvent, error) {
@@ -241,10 +268,13 @@ func handleChatInput(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req struct {
-		Assistant string `json:"assistant"`
-		SessionID string `json:"sessionId"`
-		Text      string `json:"text"`
-		Images    []struct {
+		Assistant    string `json:"assistant"`
+		SessionID    string `json:"sessionId"`
+		Text         string `json:"text"`
+		Model        string `json:"model"`
+		Effort       string `json:"effort"`
+		ApprovalMode string `json:"approvalMode"`
+		Images       []struct {
 			ID string `json:"id"`
 		} `json:"images"`
 	}
@@ -275,12 +305,61 @@ func handleChatInput(w http.ResponseWriter, r *http.Request) {
 		}
 		images = append(images, att)
 	}
-	res, err := agentChatBackend.Input(r.Context(), assistant, req.SessionID, sendText, images)
+	opts, err := normalizeChatTurnOptions(ChatTurnOptions{
+		Model: req.Model, Effort: req.Effort, ApprovalMode: req.ApprovalMode,
+	})
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, "bad_chat_options", err.Error())
+		return
+	}
+	res, err := agentChatBackend.Input(r.Context(), assistant, req.SessionID, sendText, images, opts)
 	if err != nil {
 		writeChatErr(w, err)
 		return
 	}
 	writeJSON(w, res)
+}
+
+func normalizeChatTurnOptions(opts ChatTurnOptions) (ChatTurnOptions, error) {
+	opts.Model = strings.TrimSpace(opts.Model)
+	opts.Effort = strings.TrimSpace(opts.Effort)
+	opts.ApprovalMode = strings.TrimSpace(opts.ApprovalMode)
+	if len(opts.Model) > 160 || strings.ContainsAny(opts.Model, "\r\n\x00") {
+		return ChatTurnOptions{}, fmt.Errorf("无效的模型")
+	}
+	if len(opts.Effort) > 40 || strings.ContainsAny(opts.Effort, "\r\n\x00") {
+		return ChatTurnOptions{}, fmt.Errorf("无效的推理强度")
+	}
+	switch opts.ApprovalMode {
+	case "", "untrusted", "on-request", "never", "full-access":
+	default:
+		return ChatTurnOptions{}, fmt.Errorf("无效的审批模式")
+	}
+	return opts, nil
+}
+
+func handleChatHistory(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	assistant := normAssistant(r.URL.Query().Get("assistant"))
+	sessionID := r.URL.Query().Get("sessionId")
+	cursor := r.URL.Query().Get("cursor")
+	if assistant != "codex" {
+		writeErr(w, http.StatusNotImplemented, "unsupported_assistant", "自绘界面暂只支持 Codex。")
+		return
+	}
+	if sessionID == "" || len(cursor) > 4096 {
+		http.Error(w, "bad request", http.StatusBadRequest)
+		return
+	}
+	page, err := agentChatBackend.History(r.Context(), assistant, sessionID, cursor)
+	if err != nil {
+		writeChatErr(w, err)
+		return
+	}
+	writeJSON(w, page)
 }
 
 const maxChatUploadBytes int64 = 20 << 20

@@ -7,7 +7,7 @@ const src = await readFile(new URL('./chat_model.js', import.meta.url), 'utf8');
 const sandbox = { globalThis: {} };
 vm.createContext(sandbox);
 vm.runInContext(src, sandbox);
-const { createChatState, appendUserMessage, reduceChatEvent } = sandbox.globalThis.FleetChatModel;
+const { createChatState, appendUserMessage, prependHistory, reduceChatEvent } = sandbox.globalThis.FleetChatModel;
 
 test('assistant deltas merge by item id', () => {
   let state = createChatState();
@@ -47,4 +47,24 @@ test('local user message keeps image attachments', () => {
   assert.equal(state.items['u-img'].type, 'user');
   assert.equal(state.items['u-img'].images.length, 1);
   assert.equal(state.items['u-img'].images[0].name, 'shot.png');
+});
+
+test('history is prepended chronologically and deduplicated against live items', () => {
+  let state = reduceChatEvent(createChatState(), { type: 'assistant_delta', itemId: 'a2', data: { delta: 'live' } });
+  state = prependHistory(state, [
+    { type: 'user_done', itemId: 'u1', data: { text: 'old question' } },
+    { type: 'assistant_done', itemId: 'a2', data: { text: 'persisted' } },
+  ]);
+  assert.deepEqual(Array.from(state.messages), ['u1', 'a2']);
+  assert.equal(state.items.u1.text, 'old question');
+  assert.equal(state.items.a2.text, 'live');
+});
+
+test('completed command history becomes a tool card', () => {
+  const state = prependHistory(createChatState(), [
+    { type: 'tool_done', itemId: 'cmd1', data: { command: 'pwd', cwd: '/tmp', output: '/tmp\n', status: 'completed' } },
+  ]);
+  assert.equal(state.items.cmd1.type, 'tool');
+  assert.equal(state.items.cmd1.title, 'pwd');
+  assert.equal(state.items.cmd1.output, '/tmp\n');
 });

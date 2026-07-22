@@ -38,6 +38,17 @@
     return next;
   }
 
+  function prependHistory(state, events) {
+    let history = createChatState();
+    for (const ev of (events || [])) history = reduceChatEvent(history, ev);
+    const next = cloneState(state || createChatState());
+    const existing = new Set(next.messages);
+    next.messages = history.messages.filter((id) => !existing.has(id)).concat(next.messages);
+    next.items = { ...history.items, ...next.items };
+    next.approvals = { ...history.approvals, ...next.approvals };
+    return next;
+  }
+
   function reduceChatEvent(state, ev) {
     const next = cloneState(state || createChatState());
     const data = dataOf(ev);
@@ -59,10 +70,24 @@
         item.done = true;
         return next;
       }
+      case 'user_done': {
+        const item = upsertItem(next, itemId, () => ({ id: itemId, type: 'user', text: '', images: [] }));
+        item.text = data.text || item.text || '';
+        item.images = (data.images || item.images || []).slice();
+        return next;
+      }
       case 'tool_delta': {
         const item = upsertItem(next, itemId, () => ({ id: itemId, type: 'tool', title: data.command || '命令执行', cwd: data.cwd || '', output: '', stream: data.stream || 'stdout' }));
         item.output = (item.output || '') + (data.delta || '');
         item.stream = data.stream || item.stream;
+        return next;
+      }
+      case 'tool_done': {
+        const item = upsertItem(next, itemId, () => ({ id: itemId, type: 'tool', title: '命令执行', cwd: '', output: '', stream: 'stdout' }));
+        item.title = data.command || item.title;
+        item.cwd = data.cwd || item.cwd;
+        item.output = data.output || item.output;
+        item.status = data.status || item.status;
         return next;
       }
       case 'diff_update': {
@@ -99,7 +124,7 @@
     }
   }
 
-  const api = { createChatState, appendUserMessage, reduceChatEvent };
+  const api = { createChatState, appendUserMessage, prependHistory, reduceChatEvent };
   root.FleetChatModel = api;
   if (typeof module !== 'undefined') module.exports = api;
 })(typeof globalThis !== 'undefined' ? globalThis : window);

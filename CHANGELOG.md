@@ -2,6 +2,14 @@
 
 mac-fleet-hub 变更记录（日期为本地时间）。
 
+## 2026-07-22
+
+### Codex 自绘聊天加载历史并支持模型 / 审批选择
+- **历史恢复与上翻分页**：打开自绘 Codex 会话后恢复最近 40 条可显示消息并自动定位到底部；滚动到顶部时继续拉取更早记录，前端按 item ID 去重并保持当前阅读位置，不因 prepend 跳动。
+- **兼容迁移长会话**：优先使用 app-server 原生 `thread/items/list`；当前 Codex 版本尚未实现该方法时，自动回退 `thread/turns/list`，把单个迁移 turn 内的 item 切成不透明 cursor 分页。回退页使用 32 页有界快照缓存，重新打开会话即刷新，避免上翻时反复展开完整长 turn。
+- **输入选项**：输入框新增审批模式与模型选择；模型列表来自 app-server `model/list`，不支持时隐藏。保持当前会话默认值，只有用户主动更改后才把 `model` / `effort` / `approvalPolicy` / `sandboxPolicy` 覆盖传给 `turn/start`。
+- **历史投影**：持久化的用户消息、助手消息、命令执行与文件变更统一投影为 dashboard 事件；过滤环境/权限等注入消息，并保留带文件前言的真实用户请求。
+
 ## 2026-07-21
 
 ### 修复 MacBook Air M5 的 Codex 迁移会话被错误隐藏

@@ -16,7 +16,8 @@ import (
 
 type fakeChatBackend struct {
 	resumeFn    func(context.Context, string, string, string) (ChatResumeResult, error)
-	inputFn     func(context.Context, string, string, string, []ChatAttachment) (ChatInputResult, error)
+	historyFn   func(context.Context, string, string, string) (ChatHistoryPage, error)
+	inputFn     func(context.Context, string, string, string, []ChatAttachment, ChatTurnOptions) (ChatInputResult, error)
 	eventsFn    func(context.Context, string, string) (<-chan ChatEvent, error)
 	approveFn   func(context.Context, string, string, string, string) error
 	interruptFn func(context.Context, string, string) error
@@ -29,9 +30,16 @@ func (f fakeChatBackend) Resume(ctx context.Context, assistant, sessionID, mode 
 	return ChatResumeResult{}, nil
 }
 
-func (f fakeChatBackend) Input(ctx context.Context, assistant, sessionID, text string, images []ChatAttachment) (ChatInputResult, error) {
+func (f fakeChatBackend) History(ctx context.Context, assistant, sessionID, cursor string) (ChatHistoryPage, error) {
+	if f.historyFn != nil {
+		return f.historyFn(ctx, assistant, sessionID, cursor)
+	}
+	return ChatHistoryPage{}, nil
+}
+
+func (f fakeChatBackend) Input(ctx context.Context, assistant, sessionID, text string, images []ChatAttachment, opts ChatTurnOptions) (ChatInputResult, error) {
 	if f.inputFn != nil {
-		return f.inputFn(ctx, assistant, sessionID, text, images)
+		return f.inputFn(ctx, assistant, sessionID, text, images, opts)
 	}
 	return ChatInputResult{}, nil
 }
@@ -111,14 +119,17 @@ func TestChatResumeBadRequest(t *testing.T) {
 
 func TestChatInputCallsBackend(t *testing.T) {
 	withChatBackend(t, fakeChatBackend{
-		inputFn: func(ctx context.Context, assistant, sessionID, text string, images []ChatAttachment) (ChatInputResult, error) {
+		inputFn: func(ctx context.Context, assistant, sessionID, text string, images []ChatAttachment, opts ChatTurnOptions) (ChatInputResult, error) {
 			if assistant != "codex" || sessionID != "s1" || text != "hello" {
 				t.Fatalf("input args got assistant=%s sessionID=%s text=%s", assistant, sessionID, text)
+			}
+			if opts.Model != "gpt-test" || opts.Effort != "high" || opts.ApprovalMode != "on-request" {
+				t.Fatalf("input opts got %+v", opts)
 			}
 			return ChatInputResult{TurnID: "turn-1"}, nil
 		},
 	})
-	req := httptest.NewRequest(http.MethodPost, "/api/chat/input", bytes.NewBufferString(`{"assistant":"codex","sessionId":"s1","text":"hello"}`))
+	req := httptest.NewRequest(http.MethodPost, "/api/chat/input", bytes.NewBufferString(`{"assistant":"codex","sessionId":"s1","text":"hello","model":"gpt-test","effort":"high","approvalMode":"on-request"}`))
 	rr := httptest.NewRecorder()
 
 	handleChatInput(rr, req)
@@ -171,7 +182,7 @@ func TestChatUploadAndImageOnlyInput(t *testing.T) {
 	}
 
 	withChatBackend(t, fakeChatBackend{
-		inputFn: func(ctx context.Context, assistant, sessionID, text string, images []ChatAttachment) (ChatInputResult, error) {
+		inputFn: func(ctx context.Context, assistant, sessionID, text string, images []ChatAttachment, opts ChatTurnOptions) (ChatInputResult, error) {
 			if text != "" || len(images) != 1 {
 				t.Fatalf("input got text=%q images=%+v", text, images)
 			}
@@ -189,6 +200,33 @@ func TestChatUploadAndImageOnlyInput(t *testing.T) {
 	handleChatInput(rr, req)
 	if rr.Code != http.StatusOK {
 		t.Fatalf("input status got %d body %s", rr.Code, rr.Body.String())
+	}
+}
+
+func TestChatHistoryCallsBackendWithCursor(t *testing.T) {
+	withChatBackend(t, fakeChatBackend{
+		historyFn: func(ctx context.Context, assistant, sessionID, cursor string) (ChatHistoryPage, error) {
+			if assistant != "codex" || sessionID != "s1" || cursor != "older-1" {
+				t.Fatalf("history args got assistant=%s sessionID=%s cursor=%s", assistant, sessionID, cursor)
+			}
+			return ChatHistoryPage{Events: []ChatEvent{newChatEvent("assistant_done", "codex", "s1", "t1", "a1", map[string]string{"text": "old"})}}, nil
+		},
+	})
+	req := httptest.NewRequest(http.MethodGet, "/api/chat/history?assistant=codex&sessionId=s1&cursor=older-1", nil)
+	rr := httptest.NewRecorder()
+	handleChatHistory(rr, req)
+	if rr.Code != http.StatusOK || !strings.Contains(rr.Body.String(), `"assistant_done"`) {
+		t.Fatalf("history response status=%d body=%s", rr.Code, rr.Body.String())
+	}
+}
+
+func TestChatInputRejectsUnknownApprovalMode(t *testing.T) {
+	withChatBackend(t, fakeChatBackend{})
+	req := httptest.NewRequest(http.MethodPost, "/api/chat/input", bytes.NewBufferString(`{"assistant":"codex","sessionId":"s1","text":"hello","approvalMode":"always-trust"}`))
+	rr := httptest.NewRecorder()
+	handleChatInput(rr, req)
+	if rr.Code != http.StatusBadRequest || !strings.Contains(rr.Body.String(), `"bad_chat_options"`) {
+		t.Fatalf("status=%d body=%s", rr.Code, rr.Body.String())
 	}
 }
 

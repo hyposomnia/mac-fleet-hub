@@ -121,6 +121,21 @@
               <div class="chat-input-shell">
                 <div id="chat-attachments" hidden></div>
                 <textarea id="chat-input" rows="1" placeholder="给 Codex 发送消息…" autocapitalize="off" autocomplete="off" autocorrect="off" spellcheck="false"></textarea>
+                <div class="chat-composer-tools">
+                  <label class="chat-select" title="审批模式">
+                    <svg class="ic" viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10"/><path d="m9 12 2 2 4-4"/></svg>
+                    <select id="chat-approval" aria-label="审批模式">
+                      <option value="untrusted">受限</option>
+                      <option value="on-request">按需审批</option>
+                      <option value="never">无需审批</option>
+                      <option value="full-access">完全访问</option>
+                    </select>
+                  </label>
+                  <label id="chat-model-wrap" class="chat-select chat-model-select" title="模型" hidden>
+                    <svg class="ic" viewBox="0 0 24 24"><path d="M12 2a4 4 0 0 0-4 4v1a4 4 0 0 0-3 6.65V16a4 4 0 0 0 4 4h6a4 4 0 0 0 4-4v-2.35A4 4 0 0 0 16 7V6a4 4 0 0 0-4-4Z"/><path d="M9 12h.01M15 12h.01M9 16h6"/></svg>
+                    <select id="chat-model" aria-label="模型"></select>
+                  </label>
+                </div>
               </div>
               <button id="chat-send" class="send-btn chat-send" title="发送" aria-label="发送"><svg class="ic" viewBox="0 0 24 24"><line x1="12" y1="19" x2="12" y2="5"/><polyline points="5 12 12 5 19 12"/></svg></button>
             </div>
