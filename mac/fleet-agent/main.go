@@ -767,12 +767,14 @@ func codexSessionFromThreadRow(r codexThreadRow, idx map[string]codexIdx) (Sessi
 	if r.ID == "" {
 		return Session{}, false
 	}
-	if strings.HasPrefix(strings.TrimSpace(r.Source), "{") {
+	// Codex Desktop persists interactive workspace threads as source=vscode.
+	// CLI/exec/appServer rows share the same DB but are not Desktop sessions.
+	if strings.TrimSpace(r.Source) != "vscode" {
 		return Session{}, false
 	}
 	if r.RolloutPath != "" {
 		_, _, _, originator, _, _ := codexRolloutMeta(r.RolloutPath, false)
-		if originator == "codex_vscode" {
+		if originator != "Codex Desktop" {
 			return Session{}, false
 		}
 	}
@@ -801,7 +803,7 @@ func scanCodexSQLiteSessions(idx map[string]codexIdx) []Session {
 	const q = `select id,substr(title,1,500) as title,substr(preview,1,500) as preview,cwd,git_branch,rollout_path,source,thread_source,created_at,created_at_ms,updated_at,updated_at_ms,recency_at_ms
 from threads
 where archived=0
-  and source not like '{%'
+  and source='vscode'
 order by coalesce(nullif(recency_at_ms,0), nullif(updated_at_ms,0), updated_at*1000) desc, id desc
 limit 500;`
 	b, err := exec.CommandContext(ctx, "sqlite3", "-readonly", "-json", db, q).Output()
@@ -989,8 +991,8 @@ func codexRolloutPaths() map[string]string {
 }
 
 // scanCodexSessions：列出 Codex desktop app 的活跃会话——即 ~/.codex/sessions 下
-// originator=="Codex Desktop"（排除 codex-tui/codex_exec 命令行运行）、source 为字符串
-// （排除 subagent 子代理线程，如「重做大对话图」那种 worker——其 source 是对象）、且未被归档
+// originator=="Codex Desktop"（排除 codex-tui/codex_exec 命令行运行）、source=="vscode"
+// （Codex Desktop 的持久化入口分类；排除 cli/exec/subagent）、且未被归档
 // （rollout 不在 archived_sessions）的会话。标题优先取 session_index 的 thread_name（润色过），
 // 否则取首条非注入 user 文本；cwd 取自 session_meta（故不会出现空 cwd 的「未知项目」）。
 // 同 id 多 rollout（resume/fork）取最新一份。
