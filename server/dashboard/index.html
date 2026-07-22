@@ -15,7 +15,7 @@
   <!-- 主题：默认跟随系统 prefers-color-scheme，用户切换后写 localStorage 覆盖（与 app.js initTheme 一致）。
        内联以避免首屏闪烁。 -->
   <script>document.documentElement.dataset.theme = (function () { try { var t = localStorage.getItem('fleet-theme'); if (t) return t; } catch (e) {} return matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark'; })();</script>
-  <link rel="stylesheet" href="style.css?v=17" />
+  <link rel="stylesheet" href="style.css?v=18" />
 </head>
 <body>
   <div id="app" data-mode="sessions">
@@ -310,8 +310,8 @@
   </div>
   <script src="vendor/purify.min.js?v=3.2.6"></script>
   <script src="vendor/marked.min.js?v=15.0.12"></script>
-  <script src="markdown.js?v=17"></script>
-  <script src="chat_model.js?v=17"></script>
-  <script src="app.js?v=17"></script>
+  <script src="markdown.js?v=18"></script>
+  <script src="chat_model.js?v=18"></script>
+  <script src="app.js?v=18"></script>
 </body>
 </html>

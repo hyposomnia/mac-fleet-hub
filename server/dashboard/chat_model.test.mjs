@@ -12,12 +12,12 @@ const markedSrc = await readFile(new URL('./vendor/marked.min.js', import.meta.u
 const sandbox = { globalThis: {} };
 vm.createContext(sandbox);
 vm.runInContext(src, sandbox);
-const { createChatState, appendUserMessage, prependHistory, reduceChatEvent, normalizeDiffFiles, chatPhase } = sandbox.globalThis.FleetChatModel;
+const { createChatState, appendUserMessage, prependHistory, reduceChatEvent, normalizeDiffFiles, chatPhase, uuidV7TimeMs } = sandbox.globalThis.FleetChatModel;
 
 const appSandbox = { document: { addEventListener() {} }, EventSource: { CLOSED: 2 } };
 vm.createContext(appSandbox);
-vm.runInContext(`${appSrc}\n;globalThis.__chatCacheTest = { chatCacheVictim, isChatConnectionKept, updateChatUpdatedAt, chatAssistantMetaText, chatUserMetaText, enqueueChatFollowup, removeChatFollowup, state };`, appSandbox);
-const { chatCacheVictim, isChatConnectionKept, updateChatUpdatedAt, chatAssistantMetaText, chatUserMetaText, enqueueChatFollowup, removeChatFollowup, state: appState } = appSandbox.__chatCacheTest;
+vm.runInContext(`${appSrc}\n;globalThis.__chatCacheTest = { chatCacheVictim, isChatConnectionKept, updateChatUpdatedAt, chatAssistantMetaText, chatUserMetaText, applyChatMetadataDefaults, enqueueChatFollowup, removeChatFollowup, state };`, appSandbox);
+const { chatCacheVictim, isChatConnectionKept, updateChatUpdatedAt, chatAssistantMetaText, chatUserMetaText, applyChatMetadataDefaults, enqueueChatFollowup, removeChatFollowup, state: appState } = appSandbox.__chatCacheTest;
 
 test('chat model and app use the same versioned shell URLs', () => {
   const styleURL = indexHTML.match(/style\.css\?v=([a-zA-Z0-9_-]+)/);
@@ -254,6 +254,20 @@ test('user and assistant message metadata is normalized for rendering', () => {
   assert.equal(chatUserMetaText(state.items.u1), '用户：2026-07-22 21:42:10');
   assert.equal(chatAssistantMetaText(state.items.a1), 'AI：gpt-5.6-sol, xhigh  |  in 3,807 / out 89  |  2026-07-22 21:44:31');
   assert.equal(state.items.a1.durationMs, 91000);
+});
+
+test('history metadata falls back to Codex UUIDv7 turn time and session defaults', () => {
+  const turnId = '019f8a89-9787-7ae0-8b12-4e0ee30cc6d1';
+  assert.equal(uuidV7TimeMs(turnId), 1784735700871);
+  let state = prependHistory(createChatState(), [
+    { type: 'user_done', itemId: 'u1', turnId, data: { text: 'merge commit push deploy' } },
+    { type: 'assistant_done', itemId: 'a1', turnId, data: { text: 'done' } },
+  ]);
+  const chat = { model: state, selectedModel: 'gpt-5.6-sol', selectedEffort: 'xhigh' };
+  applyChatMetadataDefaults(chat);
+  state = chat.model;
+  assert.equal(chatUserMetaText(state.items.u1), '用户：2026-07-22 23:55:00');
+  assert.equal(chatAssistantMetaText(state.items.a1), 'AI：gpt-5.6-sol, xhigh  |  2026-07-22 23:55:00');
 });
 
 test('turn completion metadata backfills the last assistant message in that turn', () => {

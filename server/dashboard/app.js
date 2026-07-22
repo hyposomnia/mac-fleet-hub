@@ -1030,6 +1030,17 @@ function chatAssistantMetaText(item) {
   return chunks.length ? `AI：${chunks.join('  |  ')}` : '';
 }
 
+function applyChatMetadataDefaults(chat) {
+  const model = chat?.model;
+  if (!chat || !model?.items) return;
+  for (const id of model.messages || []) {
+    const item = model.items[id];
+    if (!item || item.type !== 'assistant') continue;
+    if (!item.model && chat.selectedModel) item.model = chat.selectedModel;
+    if (!item.effort && chat.selectedEffort) item.effort = chat.selectedEffort;
+  }
+}
+
 function renderChatMessageMeta(text) {
   return text ? h('div', { class: 'chat-msg-meta mono', text }) : null;
 }
@@ -1367,6 +1378,7 @@ async function openChatSession(s) {
       chat.historyReady = true;
       chat.loading = false;
       configureChatOptions(chat, resumed);
+      applyChatMetadataDefaults(chat);
       startChatEvents(chat);
     }
     if (state.chat === chat) {
@@ -1569,6 +1581,7 @@ async function loadOlderChatHistory() {
     const page = await api(chat.macId, `chat/history?assistant=codex&sessionId=${encodeURIComponent(chat.sessionId)}&cursor=${encodeURIComponent(chat.historyCursor)}`);
     if (state.chat !== chat) return;
     chat.model = FleetChatModel.prependHistory(chat.model, page.events || []);
+    applyChatMetadataDefaults(chat);
     chat.historyCursor = page.nextCursor || '';
   } catch (e) {
     if (state.chat === chat) toast('加载历史失败：' + e.message, 'err');
@@ -1594,6 +1607,7 @@ function startChatEvents(chat = state.chat) {
       updateChatUpdatedAt(chat, Date.now());
       const wasRunning = isChatRunning(chat);
       chat.model = FleetChatModel.reduceChatEvent(chat.model, ev);
+      applyChatMetadataDefaults(chat);
       if (state.chat === chat) {
         renderChat();
         updateChatComposerState();

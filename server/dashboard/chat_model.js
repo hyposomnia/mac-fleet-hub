@@ -73,6 +73,14 @@
     return null;
   }
 
+  function uuidV7TimeMs(id) {
+    const compact = String(id || '').replaceAll('-', '');
+    if (!/^[0-9a-fA-F]{12}/.test(compact)) return null;
+    const n = Number.parseInt(compact.slice(0, 12), 16);
+    if (!Number.isFinite(n) || n < 946684800000 || n > 4102444800000) return null;
+    return n;
+  }
+
   function mergeMessageTiming(item, data, kind) {
     const payload = asObject(data);
     const nestedItem = asObject(payload.item);
@@ -203,7 +211,10 @@
 
   function prependHistory(state, events) {
     let history = createChatState();
-    for (const ev of (events || [])) history = reduceChatEvent(history, ev);
+    for (const ev of (events || [])) {
+      const data = dataOf(ev);
+      history = reduceChatEvent(history, { ...(ev || {}), data: { ...data, __history: true } });
+    }
     const next = cloneState(state || createChatState());
     const existing = new Set(next.messages);
     next.messages = history.messages.filter((id) => !existing.has(id)).concat(next.messages);
@@ -246,7 +257,7 @@
         const item = upsertItem(next, itemId, () => ({ id: itemId, type: 'assistant', text: '', done: false }));
         item.turnId = firstString(ev && ev.turnId, data.turnId, data.turn_id, item.turnId);
         mergeAssistantMetadata(item, data, ev);
-        if (!item.startedAtMs) item.startedAtMs = Date.now();
+        if (!item.startedAtMs) item.startedAtMs = uuidV7TimeMs(item.turnId) || Date.now();
         item.text = (item.text || '') + (data.delta || '');
         return next;
       }
@@ -255,6 +266,9 @@
         const item = upsertItem(next, itemId, () => ({ id: itemId, type: 'assistant', text: '', done: false }));
         if (finalText) item.text = finalText;
         mergeAssistantMetadata(item, data, ev);
+        if (!item.completedAtMs) item.completedAtMs = data.__history ? uuidV7TimeMs(item.turnId || (ev && ev.turnId)) : Date.now();
+        if (!item.startedAtMs) item.startedAtMs = uuidV7TimeMs(item.turnId || (ev && ev.turnId)) || item.completedAtMs;
+        if (item.startedAtMs && item.completedAtMs && item.completedAtMs >= item.startedAtMs) item.durationMs = item.completedAtMs - item.startedAtMs;
         item.done = true;
         return next;
       }
@@ -264,6 +278,7 @@
         item.text = data.text || item.text || '';
         item.images = (data.images || item.images || []).slice();
         mergeMessageTiming(item, data, 'user');
+        if (!item.sentAtMs) item.sentAtMs = uuidV7TimeMs(item.turnId || (ev && ev.turnId));
         return next;
       }
       case 'tool_delta': {
@@ -316,7 +331,7 @@
     }
   }
 
-  const api = { createChatState, appendUserMessage, prependHistory, reduceChatEvent, normalizeDiffFiles, chatPhase };
+  const api = { createChatState, appendUserMessage, prependHistory, reduceChatEvent, normalizeDiffFiles, chatPhase, uuidV7TimeMs };
   root.FleetChatModel = api;
   if (typeof module !== 'undefined') module.exports = api;
 })(typeof globalThis !== 'undefined' ? globalThis : window);
