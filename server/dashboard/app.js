@@ -1034,9 +1034,17 @@ function chatAssistantMetaText(item) {
   const chunks = [];
   const identity = [item.model, item.effort].filter(Boolean).join(', ');
   if (identity) chunks.push(identity);
-  const inputTokens = formatChatInteger(item.usage?.inputTokens);
+  const usage = item.usage || {};
+  const inputTokens = formatChatInteger(usage.inputTokens);
   const outputTokens = formatChatInteger(item.usage?.outputTokens);
-  if (inputTokens || outputTokens) chunks.push(`in ${inputTokens || '-'} / out ${outputTokens || '-'}`);
+  const inputCount = Number(usage.inputTokens);
+  const cachedInputCount = Number(usage.cachedInputTokens);
+  let inputText = inputTokens || '-';
+  if (inputTokens && Number.isFinite(inputCount) && inputCount > 0 && Number.isFinite(cachedInputCount) && cachedInputCount > 0) {
+    const pct = Math.round(Math.max(0, Math.min(1, cachedInputCount / inputCount)) * 100);
+    inputText += ` (${pct}% cached)`;
+  }
+  if (inputTokens || outputTokens) chunks.push(`in ${inputText} / out ${outputTokens || '-'}`);
   const completed = formatChatDate(item.completedAtMs || item.finishedAtMs || item.finished_at_ms);
   if (completed) chunks.push(completed);
   return chunks.join('  |  ');

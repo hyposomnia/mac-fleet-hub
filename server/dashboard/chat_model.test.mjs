@@ -318,10 +318,10 @@ test('user and assistant message metadata is normalized for rendering', () => {
   });
   state = reduceChatEvent(state, {
     type: 'assistant_done', itemId: 'a1', turnId: 't1',
-    data: { text: 'hello', completedAtMs: new Date(2026, 6, 22, 21, 44, 31).getTime(), usage: { inputTokens: 3807, outputTokens: 89 } },
+    data: { text: 'hello', completedAtMs: new Date(2026, 6, 22, 21, 44, 31).getTime(), usage: { inputTokens: 3807, cachedInputTokens: 3617, outputTokens: 89 } },
   });
   assert.equal(chatUserMetaText(state.items.u1), '昨天 21:42:10');
-  assert.equal(chatAssistantMetaText(state.items.a1), 'gpt-5.6-sol, xhigh  |  in 3,807 / out 89  |  昨天 21:44:31');
+  assert.equal(chatAssistantMetaText(state.items.a1), 'gpt-5.6-sol, xhigh  |  in 3,807 (95% cached) / out 89  |  昨天 21:44:31');
   assert.equal(state.items.a1.durationMs, 91000);
 });
 
@@ -446,7 +446,7 @@ test('thread token usage notification backfills the completed turn with last usa
     data: {
       tokenUsage: {
         total: { inputTokens: 120, outputTokens: 14 },
-        last: { inputTokens: 12, outputTokens: 3 },
+        last: { input_tokens: 114146, cached_input_tokens: 108439, output_tokens: 1935 },
       },
     },
   });
@@ -458,8 +458,8 @@ test('thread token usage notification backfills the completed turn with last usa
     type: 'turn_done', turnId: 't1',
     data: { turn: { id: 't1', status: 'completed' } },
   });
-  assert.deepEqual(JSON.parse(JSON.stringify(state.items.a1.usage)), { inputTokens: 12, outputTokens: 3 });
-  assert.match(chatAssistantMetaText(state.items.a1), /in 12 \/ out 3/);
+  assert.deepEqual(JSON.parse(JSON.stringify(state.items.a1.usage)), { inputTokens: 114146, outputTokens: 1935, cachedInputTokens: 108439 });
+  assert.match(chatAssistantMetaText(state.items.a1), /in 114,146 \(95% cached\) \/ out 1,935/);
 });
 
 test('completed command history becomes a tool card', () => {

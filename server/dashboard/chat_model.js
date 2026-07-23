@@ -141,8 +141,18 @@
       r.outputTokens, r.output_tokens, r.completionTokens, r.completion_tokens,
       r.totalOutputTokens, r.total_output_tokens,
     ]));
-    if (input === null && output === null) return null;
-    return { inputTokens: input, outputTokens: output };
+    const cachedInput = firstNumber(...roots.flatMap((r) => [
+      r.cachedInputTokens, r.cached_input_tokens,
+      r.inputCachedTokens, r.input_cached_tokens,
+      asObject(r.inputTokensDetails).cachedTokens, asObject(r.inputTokensDetails).cached_tokens,
+      asObject(r.input_tokens_details).cachedTokens, asObject(r.input_tokens_details).cached_tokens,
+    ]));
+    if (input === null && output === null && cachedInput === null) return null;
+    const usage = {};
+    if (input !== null) usage.inputTokens = input;
+    if (output !== null) usage.outputTokens = output;
+    if (cachedInput !== null) usage.cachedInputTokens = cachedInput;
+    return usage;
   }
 
   function mergeAssistantMetadata(item, data, ev) {
