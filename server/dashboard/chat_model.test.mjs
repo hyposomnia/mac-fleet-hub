@@ -16,8 +16,8 @@ const { createChatState, appendUserMessage, prependHistory, reduceChatEvent, nor
 
 const appSandbox = { document: { addEventListener() {} }, EventSource: { CLOSED: 2 } };
 vm.createContext(appSandbox);
-vm.runInContext(`${appSrc}\n;globalThis.__chatCacheTest = { chatCacheVictim, isChatConnectionKept, updateChatUpdatedAt, chatAssistantMetaText, chatUserMetaText, applyChatMetadataDefaults, enqueueChatFollowup, removeChatFollowup, state };`, appSandbox);
-const { chatCacheVictim, isChatConnectionKept, updateChatUpdatedAt, chatAssistantMetaText, chatUserMetaText, applyChatMetadataDefaults, enqueueChatFollowup, removeChatFollowup, state: appState } = appSandbox.__chatCacheTest;
+vm.runInContext(`${appSrc}\n;globalThis.__chatCacheTest = { chatCacheVictim, isChatConnectionKept, updateChatUpdatedAt, chatAssistantMetaText, chatUserMetaText, chatMessageMetaVisibility, applyChatMetadataDefaults, enqueueChatFollowup, removeChatFollowup, state };`, appSandbox);
+const { chatCacheVictim, isChatConnectionKept, updateChatUpdatedAt, chatAssistantMetaText, chatUserMetaText, chatMessageMetaVisibility, applyChatMetadataDefaults, enqueueChatFollowup, removeChatFollowup, state: appState } = appSandbox.__chatCacheTest;
 
 test('chat model and app use the same versioned shell URLs', () => {
   const styleURL = indexHTML.match(/style\.css\?v=([a-zA-Z0-9_-]+)/);
@@ -251,8 +251,8 @@ test('user and assistant message metadata is normalized for rendering', () => {
     type: 'assistant_done', itemId: 'a1', turnId: 't1',
     data: { text: 'hello', completedAtMs: new Date(2026, 6, 22, 21, 44, 31).getTime(), usage: { inputTokens: 3807, outputTokens: 89 } },
   });
-  assert.equal(chatUserMetaText(state.items.u1), '用户：2026-07-22 21:42:10');
-  assert.equal(chatAssistantMetaText(state.items.a1), 'AI：gpt-5.6-sol, xhigh  |  in 3,807 / out 89  |  2026-07-22 21:44:31');
+  assert.equal(chatUserMetaText(state.items.u1), '2026-07-22 21:42:10');
+  assert.equal(chatAssistantMetaText(state.items.a1), 'gpt-5.6-sol, xhigh  |  in 3,807 / out 89  |  2026-07-22 21:44:31');
   assert.equal(state.items.a1.durationMs, 91000);
 });
 
@@ -266,8 +266,28 @@ test('history metadata falls back to Codex UUIDv7 turn time and session defaults
   const chat = { model: state, selectedModel: 'gpt-5.6-sol', selectedEffort: 'xhigh' };
   applyChatMetadataDefaults(chat);
   state = chat.model;
-  assert.equal(chatUserMetaText(state.items.u1), '用户：2026-07-22 23:55:00');
-  assert.equal(chatAssistantMetaText(state.items.a1), 'AI：gpt-5.6-sol, xhigh  |  2026-07-22 23:55:00');
+  assert.equal(chatUserMetaText(state.items.u1), '2026-07-22 23:55:00');
+  assert.equal(chatAssistantMetaText(state.items.a1), 'gpt-5.6-sol, xhigh  |  2026-07-22 23:55:00');
+});
+
+test('assistant metadata renders only on the last assistant item in a turn', () => {
+  let state = createChatState();
+  state = reduceChatEvent(state, {
+    type: 'user_done', itemId: 'u1', turnId: 't1',
+    data: { text: 'question', createdAtMs: new Date(2026, 6, 22, 21, 42, 10).getTime() },
+  });
+  state = reduceChatEvent(state, {
+    type: 'assistant_done', itemId: 'a1', turnId: 't1',
+    data: { text: 'first', model: 'gpt-5.6-sol', reasoningEffort: 'xhigh', completedAtMs: new Date(2026, 6, 22, 21, 44, 31).getTime() },
+  });
+  state = reduceChatEvent(state, {
+    type: 'assistant_done', itemId: 'a2', turnId: 't1',
+    data: { text: 'second', model: 'gpt-5.6-sol', reasoningEffort: 'xhigh', completedAtMs: new Date(2026, 6, 22, 21, 44, 31).getTime() },
+  });
+  const visible = chatMessageMetaVisibility(state);
+  assert.equal(visible.has('u1'), true);
+  assert.equal(visible.has('a1'), false);
+  assert.equal(visible.has('a2'), true);
 });
 
 test('turn completion metadata backfills the last assistant message in that turn', () => {

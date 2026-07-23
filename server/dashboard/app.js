@@ -962,10 +962,11 @@ function renderChat({ preserveScroll = false, forceBottom = false } = {}) {
   if (chat.loading) stack.append(chatRow(h('div', { class: 'chat-card muted', text: '正在连接 Codex app-server…' })));
   const model = chat.model || FleetChatModel.createChatState();
   const currentTurn = currentChatTurn(model);
+  const metaVisible = chatMessageMetaVisibility(model);
   for (const id of model.messages) {
     const item = model.items[id];
     if (!item) continue;
-    stack.append(renderChatItem(item, id === currentTurn?.id));
+    stack.append(renderChatItem(item, id === currentTurn?.id, metaVisible.has(id)));
   }
   if (model.error) stack.append(renderChatError(model.error));
   clear(sc); sc.append(stack);
@@ -1015,7 +1016,7 @@ function formatChatInteger(value) {
 
 function chatUserMetaText(item) {
   const sent = formatChatDate(item.sentAtMs || item.createdAtMs || item.created_at_ms);
-  return sent ? `用户：${sent}` : '';
+  return sent;
 }
 
 function chatAssistantMetaText(item) {
@@ -1027,7 +1028,7 @@ function chatAssistantMetaText(item) {
   if (inputTokens || outputTokens) chunks.push(`in ${inputTokens || '-'} / out ${outputTokens || '-'}`);
   const completed = formatChatDate(item.completedAtMs || item.finishedAtMs || item.finished_at_ms);
   if (completed) chunks.push(completed);
-  return chunks.length ? `AI：${chunks.join('  |  ')}` : '';
+  return chunks.join('  |  ');
 }
 
 function applyChatMetadataDefaults(chat) {
@@ -1039,6 +1040,33 @@ function applyChatMetadataDefaults(chat) {
     if (!item.model && chat.selectedModel) item.model = chat.selectedModel;
     if (!item.effort && chat.selectedEffort) item.effort = chat.selectedEffort;
   }
+}
+
+function chatAssistantTurnKey(item, fallbackId) {
+  return item?.turnId ? `turn:${item.turnId}` : `item:${fallbackId}`;
+}
+
+function chatMessageMetaVisibility(model) {
+  const visible = new Set();
+  const messages = model?.messages || [];
+  const items = model?.items || {};
+  const lastAssistantByTurn = new Map();
+  for (const id of messages) {
+    const item = items[id];
+    if (!item || item.type !== 'assistant') continue;
+    lastAssistantByTurn.set(chatAssistantTurnKey(item, id), id);
+  }
+  for (const id of messages) {
+    const item = items[id];
+    if (!item) continue;
+    if (item.type === 'user') {
+      if (chatUserMetaText(item)) visible.add(id);
+    } else if (item.type === 'assistant') {
+      const key = chatAssistantTurnKey(item, id);
+      if (lastAssistantByTurn.get(key) === id && chatAssistantMetaText(item)) visible.add(id);
+    }
+  }
+  return visible;
 }
 
 function renderChatMessageMeta(text) {
@@ -1137,7 +1165,7 @@ function renderChatDiff(item) {
     'diff');
 }
 
-function renderChatItem(item, isCurrentTurn = false) {
+function renderChatItem(item, isCurrentTurn = false, showMeta = true) {
   if (item.type === 'user') {
     const parts = [];
     if (item.text) parts.push(h('div', { text: item.text }));
@@ -1147,14 +1175,14 @@ function renderChatItem(item, isCurrentTurn = false) {
         return src ? h('img', { class: 'chat-img', src, alt: img.name || 'image' }) : h('div', { class: 'chat-img muted', text: img.name || '图片' });
       })));
     }
-    const meta = renderChatMessageMeta(chatUserMetaText(item));
+    const meta = showMeta ? renderChatMessageMeta(chatUserMetaText(item)) : null;
     if (meta) parts.push(meta);
     return chatRow(h('div', { class: 'chat-card' }, parts.length ? parts : h('div', { text: '' })), 'user' + (isCurrentTurn ? ' current-turn' : ''));
   }
   if (item.type === 'assistant') {
     return chatRow(h('div', { class: 'chat-card' },
       FleetMarkdown.renderMarkdown(item.text),
-      renderChatMessageMeta(chatAssistantMetaText(item))),
+      showMeta ? renderChatMessageMeta(chatAssistantMetaText(item)) : null),
     'assistant');
   }
   if (item.type === 'tool') return renderChatTool(item);
