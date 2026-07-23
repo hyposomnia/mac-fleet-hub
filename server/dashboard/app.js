@@ -1001,6 +1001,60 @@ function chatToolDuration(ms) {
   return `${minutes} 分 ${seconds} 秒`;
 }
 
+function chatToolStatusVerb(status, verbs) {
+  if (status.key === 'running') return verbs.running;
+  if (status.key === 'failed') return verbs.failed || verbs.completed;
+  return verbs.completed;
+}
+
+function chatToolTimerLabel(status, duration) {
+  if (!duration) return '';
+  return status.key === 'running' ? `，已持续 ${duration}` : `，耗时 ${duration}`;
+}
+
+function chatToolInlineValue(text, className) {
+  const value = String(text || '').trim();
+  return value ? h('span', { class: className, text: value }) : null;
+}
+
+function chatToolActivityLabel(item, status, duration) {
+  const summary = String(item.summary || '').trim();
+  const title = String(item.title || '').trim();
+  const timer = chatToolTimerLabel(status, duration);
+  const verb = (text) => h('span', { class: 'chat-tool-verb', text });
+  const muted = (text) => text ? h('span', { class: 'chat-tool-muted', text }) : null;
+  const command = chatToolInlineValue(summary || title, 'chat-tool-command mono');
+  const path = chatToolInlineValue(summary, 'chat-tool-path mono');
+
+  if (item.kind === 'commandExecution') {
+    const label = chatToolStatusVerb(status, { running: '正在运行', completed: '已运行', failed: '已停止' });
+    return command
+      ? [verb(label), command, muted(timer)]
+      : [verb(label === '已运行' ? '已运行命令' : `${label}命令`), muted(timer)];
+  }
+  if (item.kind === 'webSearch') {
+    const label = status.key === 'running' ? '正在搜索' : '已对';
+    return summary
+      ? [verb(label), h('span', { class: 'chat-tool-query', text: `“${summary}”` }), muted(status.key === 'running' ? '' : '进行搜索')]
+      : [verb(status.key === 'running' ? '正在搜索' : '已搜索'), muted('网页')];
+  }
+  if (item.kind === 'fileRead' || item.kind === 'imageView') {
+    return path ? [verb('已读取'), path] : [verb(item.kind === 'imageView' ? '已查看图片' : '已读取')];
+  }
+  if (item.kind === 'imageGeneration') {
+    const label = chatToolStatusVerb(status, { running: '正在生成图片', completed: '已生成图片', failed: '图片生成失败' });
+    return path ? [verb(label), path] : [verb(label)];
+  }
+  if (item.kind === 'sleep') {
+    return [verb(status.key === 'running' ? '正在等待' : '已等待'), muted(summary || duration)];
+  }
+  if (item.kind === 'collabAgentToolCall' || item.kind === 'subAgentActivity') {
+    return [verb(status.key === 'running' ? '正在调用' : '已调用'), muted(title || '子任务'), summary ? h('span', { class: 'chat-tool-command mono', text: summary }) : null];
+  }
+  const label = status.key === 'running' ? '正在使用' : '已使用';
+  return [verb(label), muted(title || '工具'), summary && summary !== title ? h('span', { class: 'chat-tool-command mono', text: summary }) : null, muted(timer)];
+}
+
 function formatChatDate(ms, nowMs = Date.now()) {
   const value = Number(ms);
   if (!Number.isFinite(value) || value <= 0) return '';
@@ -1149,17 +1203,12 @@ function renderChatTool(item) {
   const duration = chatToolDuration(item.durationMs);
   const hasBody = Boolean(item.detail || item.output || item.progress || item.meta || item.exitCode !== undefined);
   const isCommand = item.kind === 'commandExecution';
-  const verb = status.key === 'running' ? '正在运行' : (status.key === 'failed' ? '运行失败' : '已运行');
-  const title = isCommand ? verb : (item.title || '工具调用');
-  const summary = isCommand ? (item.summary || item.title || '') : (item.summary || '');
+  const label = chatToolActivityLabel(item, status, duration);
   const header = h('span', { class: 'chat-tool-summary' },
     h('span', { class: 'chat-tool-icon' }, chatToolIcon(item.kind)),
-    h('span', { class: 'chat-tool-copy' },
-      h('span', { class: 'chat-tool-title', text: title }),
-      summary ? h('span', { class: 'chat-tool-subtitle mono', text: summary }) : null),
+    h('span', { class: 'chat-tool-label' }, label),
     h('span', { class: 'chat-tool-aside' },
-      duration ? h('span', { class: 'chat-tool-duration', text: duration }) : null,
-      status.label ? h('span', { class: `chat-tool-status ${status.key}`, text: status.label }) : null,
+      status.key === 'failed' ? h('span', { class: `chat-tool-status ${status.key}`, text: status.label }) : null,
       hasBody ? svgIcon('chat-tool-chevron', 'M6 9l6 6 6-6') : null));
   if (!hasBody) return chatRow(h('div', { class: 'chat-tool compact' }, header), 'tool');
   const body = h('div', { class: 'chat-tool-body' },
@@ -1178,10 +1227,9 @@ function renderChatTool(item) {
 
 function renderChatDiff(item) {
   const files = item.files || [];
-  const title = '编辑了文件';
   const header = h('span', { class: 'chat-tool-summary' },
     h('span', { class: 'chat-tool-icon' }, chatToolIcon('fileChange')),
-    h('span', { class: 'chat-tool-copy' }, h('span', { class: 'chat-tool-title', text: title })),
+    h('span', { class: 'chat-tool-label' }, h('span', { class: 'chat-tool-verb', text: '已编辑' }), h('span', { class: 'chat-tool-muted', text: '文件' })),
     h('span', { class: 'chat-tool-aside' }, files.length ? svgIcon('chat-tool-chevron', 'M6 9l6 6 6-6') : null));
   if (!files.length) return chatRow(h('div', { class: 'chat-tool chat-diff compact' }, header), 'diff');
   return chatRow(h('details', { class: 'chat-tool chat-diff compact' },

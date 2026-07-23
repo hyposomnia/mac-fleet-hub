@@ -229,6 +229,18 @@ test('generic tool updates preserve kind, summary, status, and details', () => {
   assert.equal(state.items.mcp1.progress, '正在读取页面');
 });
 
+test('tool activity rows mirror Codex inline summaries', () => {
+  assert.match(appSrc, /function chatToolActivityLabel\(item, status, duration\)/);
+  assert.match(appSrc, /class:\s*'chat-tool-verb'/);
+  assert.match(appSrc, /class:\s*'chat-tool-command mono'/);
+  assert.match(appSrc, /'chat-tool-path mono'/);
+  assert.match(appSrc, /chatToolTimerLabel\(status, duration\)/);
+  assert.match(styleCSS, /\.chat-tool-summary\s*\{[^}]*inline-flex[^}]*gap:\s*6px/s);
+  assert.match(styleCSS, /\.chat-tool-label\s*\{[^}]*inline-flex[^}]*white-space:\s*nowrap/s);
+  assert.doesNotMatch(styleCSS, /\.chat-tool-title\s*\{/);
+  assert.doesNotMatch(styleCSS, /\.chat-tool-subtitle\s*\{/);
+});
+
 test('node_repl transport calls stay visible unless explicitly internal', () => {
   assert.equal(isInternalChatTool({
     type: 'tool',
