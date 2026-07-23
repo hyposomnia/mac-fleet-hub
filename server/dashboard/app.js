@@ -986,7 +986,8 @@ function chatRow(body, cls = '') {
 function chatToolStatus(status) {
   const value = String(status || '').toLowerCase();
   if (['inprogress', 'running', 'pending', 'started', 'interacted'].includes(value)) return { key: 'running', label: '运行中' };
-  if (['failed', 'errored', 'error', 'interrupted'].includes(value)) return { key: 'failed', label: '失败' };
+  if (['interrupted', 'cancelled', 'canceled', 'stopped'].includes(value)) return { key: 'stopped', label: '已停止' };
+  if (['failed', 'errored', 'error'].includes(value)) return { key: 'failed', label: '失败' };
   if (['completed', 'success', 'succeeded', 'shutdown'].includes(value)) return { key: 'completed', label: '完成' };
   return { key: 'neutral', label: status || '' };
 }
@@ -1003,7 +1004,8 @@ function chatToolDuration(ms) {
 
 function chatToolStatusVerb(status, verbs) {
   if (status.key === 'running') return verbs.running;
-  if (status.key === 'failed') return verbs.failed || verbs.completed;
+  if (status.key === 'stopped') return verbs.stopped || verbs.failed || verbs.completed;
+  if (status.key === 'failed') return verbs.failed || verbs.stopped || verbs.completed;
   return verbs.completed;
 }
 
@@ -1017,6 +1019,34 @@ function chatToolInlineValue(text, className) {
   return value ? h('span', { class: className, text: value }) : null;
 }
 
+function isNodeReplTool(item, title, summary) {
+  const raw = `${title || ''}\n${summary || ''}`.toLowerCase();
+  return item.kind === 'mcpToolCall' && (
+    raw.includes('node_repl') ||
+    raw.includes('运行 javascript') ||
+    raw.includes('run javascript') ||
+    raw.includes('javascript')
+  );
+}
+
+function chatMcpToolActivityLabel(item, status) {
+  const summary = String(item.summary || '').trim();
+  const title = String(item.title || '').trim();
+  const raw = `${title}\n${summary}`.toLowerCase();
+  const verb = (text) => h('span', { class: 'chat-tool-verb', text });
+  const muted = (text) => text ? h('span', { class: 'chat-tool-muted', text }) : null;
+  const source = summary && summary !== title ? summary : '';
+
+  if (raw.includes('chrome')) return [verb(status.key === 'running' ? '正在使用 Chrome' : '已使用 Chrome')];
+  if (raw.includes('调用内部浏览器') || raw.includes('internal browser') || raw.includes('browser')) {
+    return [verb(status.key === 'running' ? '正在使用浏览器' : '已使用浏览器')];
+  }
+  if (isNodeReplTool(item, title, summary)) {
+    return [verb(status.key === 'running' ? '正在运行 1 条命令' : '已运行 1 条命令')];
+  }
+  return [verb(status.key === 'running' ? '正在调用 1 个工具' : '已调用 1 个工具'), muted(source || title || 'MCP')];
+}
+
 function chatToolActivityLabel(item, status, duration) {
   const summary = String(item.summary || '').trim();
   const title = String(item.title || '').trim();
@@ -1027,11 +1057,13 @@ function chatToolActivityLabel(item, status, duration) {
   const path = chatToolInlineValue(summary, 'chat-tool-path mono');
 
   if (item.kind === 'commandExecution') {
-    const label = chatToolStatusVerb(status, { running: '正在运行', completed: '已运行', failed: '已停止' });
+    if (status.key === 'running') return [verb('正在运行命令'), muted(timer)];
+    const label = chatToolStatusVerb(status, { completed: '已运行', stopped: '已停止', failed: '运行失败' });
     return command
       ? [verb(label), command, muted(timer)]
       : [verb(label === '已运行' ? '已运行命令' : `${label}命令`), muted(timer)];
   }
+  if (item.kind === 'mcpToolCall') return chatMcpToolActivityLabel(item, status);
   if (item.kind === 'webSearch') {
     const label = status.key === 'running' ? '正在搜索' : '已对';
     return summary
@@ -1039,7 +1071,10 @@ function chatToolActivityLabel(item, status, duration) {
       : [verb(status.key === 'running' ? '正在搜索' : '已搜索'), muted('网页')];
   }
   if (item.kind === 'fileRead' || item.kind === 'imageView') {
-    return path ? [verb('已读取'), path] : [verb(item.kind === 'imageView' ? '已查看图片' : '已读取')];
+    const label = status.key === 'running'
+      ? (item.kind === 'imageView' ? '正在查看图片' : '正在读取')
+      : (item.kind === 'imageView' ? '已查看图片' : '已读取');
+    return path ? [verb(label), path] : [verb(label)];
   }
   if (item.kind === 'imageGeneration') {
     const label = chatToolStatusVerb(status, { running: '正在生成图片', completed: '已生成图片', failed: '图片生成失败' });
@@ -1053,6 +1088,13 @@ function chatToolActivityLabel(item, status, duration) {
   }
   const label = status.key === 'running' ? '正在使用' : '已使用';
   return [verb(label), muted(title || '工具'), summary && summary !== title ? h('span', { class: 'chat-tool-command mono', text: summary }) : null, muted(timer)];
+}
+
+function chatToolHasExpandableBody(item) {
+  const hasDetail = Boolean(item.detail || item.output || item.progress || item.meta || item.exitCode !== undefined);
+  if (item.kind === 'commandExecution') return Boolean(item.summary || hasDetail);
+  if (['fileRead', 'imageView', 'webSearch', 'sleep'].includes(item.kind)) return false;
+  return hasDetail;
 }
 
 function formatChatDate(ms, nowMs = Date.now()) {
@@ -1201,21 +1243,20 @@ function chatToolIcon(kind) {
 function renderChatTool(item) {
   const status = chatToolStatus(item.status);
   const duration = chatToolDuration(item.durationMs);
-  const hasBody = Boolean(item.detail || item.output || item.progress || item.meta || item.exitCode !== undefined);
+  const hasBody = chatToolHasExpandableBody(item);
   const isCommand = item.kind === 'commandExecution';
   const label = chatToolActivityLabel(item, status, duration);
-  const header = h('span', { class: 'chat-tool-summary' },
+  const header = h('span', { class: 'chat-tool-summary', dataset: { status: status.key } },
     h('span', { class: 'chat-tool-icon' }, chatToolIcon(item.kind)),
     h('span', { class: 'chat-tool-label' }, label),
     h('span', { class: 'chat-tool-aside' },
-      status.key === 'failed' ? h('span', { class: `chat-tool-status ${status.key}`, text: status.label }) : null,
       hasBody ? svgIcon('chat-tool-chevron', 'M6 9l6 6 6-6') : null));
   if (!hasBody) return chatRow(h('div', { class: 'chat-tool compact' }, header), 'tool');
   const body = h('div', { class: 'chat-tool-body' },
     item.progress ? h('div', { class: 'chat-tool-progress', text: item.progress }) : null,
     item.meta ? h('div', { class: 'chat-tool-meta mono', text: item.meta }) : null,
     (item.summary || item.output || item.detail) ? h('div', { class: 'chat-tool-section' },
-      h('div', { class: 'chat-tool-label', text: isCommand ? 'Shell' : '详情' }),
+      h('div', { class: 'chat-tool-section-title', text: isCommand ? 'Shell' : '详情' }),
       h('pre', { text: [
         item.summary ? `$ ${item.summary}` : '',
         item.detail || '',

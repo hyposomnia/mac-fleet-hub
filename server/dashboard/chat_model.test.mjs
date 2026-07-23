@@ -22,10 +22,43 @@ class FixedAppDate extends Date {
   static parse(value) { return Date.parse(value); }
   static UTC(...args) { return Date.UTC(...args); }
 }
-const appSandbox = { document: { addEventListener() {} }, EventSource: { CLOSED: 2 }, Date: FixedAppDate };
+function testElement(tag) {
+  return {
+    nodeType: 1,
+    tagName: tag,
+    className: '',
+    dataset: {},
+    attributes: {},
+    children: [],
+    textContent: '',
+    append(...nodes) { this.children.push(...nodes); },
+    setAttribute(name, value) { this.attributes[name] = String(value); },
+  };
+}
+function testTextNode(text) {
+  return { nodeType: 3, textContent: String(text), children: [] };
+}
+function nodeText(node) {
+  if (!node) return '';
+  return String(node.textContent || '') + (node.children || []).map(nodeText).join('');
+}
+const appSandbox = {
+  document: {
+    addEventListener() {},
+    createElement: testElement,
+    createElementNS: (_ns, tag) => testElement(tag),
+    createTextNode: testTextNode,
+  },
+  EventSource: { CLOSED: 2 },
+  Date: FixedAppDate,
+};
 vm.createContext(appSandbox);
-vm.runInContext(`${appSrc}\n;globalThis.__chatCacheTest = { chatCacheVictim, isChatConnectionKept, updateChatUpdatedAt, formatChatDate, chatAssistantMetaText, chatUserMetaText, chatMessageMetaVisibility, applyChatMetadataDefaults, enqueueChatFollowup, removeChatFollowup, isInternalChatTool: typeof isInternalChatTool === 'function' ? isInternalChatTool : () => false, state };`, appSandbox);
-const { chatCacheVictim, isChatConnectionKept, updateChatUpdatedAt, formatChatDate, chatAssistantMetaText, chatUserMetaText, chatMessageMetaVisibility, applyChatMetadataDefaults, enqueueChatFollowup, removeChatFollowup, isInternalChatTool, state: appState } = appSandbox.__chatCacheTest;
+vm.runInContext(`${appSrc}\n;globalThis.__chatCacheTest = { chatCacheVictim, isChatConnectionKept, updateChatUpdatedAt, formatChatDate, chatAssistantMetaText, chatUserMetaText, chatMessageMetaVisibility, applyChatMetadataDefaults, enqueueChatFollowup, removeChatFollowup, chatToolStatus, chatToolDuration, chatToolActivityLabel, chatToolHasExpandableBody, isInternalChatTool: typeof isInternalChatTool === 'function' ? isInternalChatTool : () => false, state };`, appSandbox);
+const { chatCacheVictim, isChatConnectionKept, updateChatUpdatedAt, formatChatDate, chatAssistantMetaText, chatUserMetaText, chatMessageMetaVisibility, applyChatMetadataDefaults, enqueueChatFollowup, removeChatFollowup, chatToolStatus, chatToolDuration, chatToolActivityLabel, chatToolHasExpandableBody, isInternalChatTool, state: appState } = appSandbox.__chatCacheTest;
+function toolLabelText(item) {
+  const status = chatToolStatus(item.status);
+  return chatToolActivityLabel(item, status, chatToolDuration(item.durationMs)).map(nodeText).join('');
+}
 const directiveSandbox = { globalThis: {} };
 vm.createContext(directiveSandbox);
 vm.runInContext(markdownSrc, directiveSandbox);
@@ -236,10 +269,27 @@ test('tool activity rows mirror Codex inline summaries', () => {
   assert.match(appSrc, /class:\s*'chat-tool-command mono'/);
   assert.match(appSrc, /'chat-tool-path mono'/);
   assert.match(appSrc, /chatToolTimerLabel\(status, duration\)/);
-  assert.match(styleCSS, /\.chat-tool-summary\s*\{[^}]*inline-flex[^}]*gap:\s*6px/s);
+  assert.match(styleCSS, /\.chat-tool-summary\s*\{[^}]*inline-flex[^}]*gap:\s*4px/s);
   assert.match(styleCSS, /\.chat-tool-label\s*\{[^}]*inline-flex[^}]*white-space:\s*nowrap/s);
+  assert.match(styleCSS, /\.chat-tool-section-title\s*\{/);
+  assert.doesNotMatch(styleCSS, /\.chat-tool-label\s*\{[^}]*margin:\s*0 0 5px/s);
   assert.doesNotMatch(styleCSS, /\.chat-tool-title\s*\{/);
   assert.doesNotMatch(styleCSS, /\.chat-tool-subtitle\s*\{/);
+});
+
+test('tool activity labels follow Codex command and MCP wording', () => {
+  assert.equal(toolLabelText({ kind: 'commandExecution', summary: '/bin/zsh -lc pwd', status: 'inProgress', durationMs: 3200 }), '正在运行命令，已持续 3.2 秒');
+  assert.equal(toolLabelText({ kind: 'commandExecution', summary: 'pwd', status: 'completed', durationMs: 853 }), '已运行pwd，耗时 853 ms');
+  assert.equal(toolLabelText({ kind: 'commandExecution', summary: 'ssh rtm uptime', status: 'interrupted', durationMs: 3000 }), '已停止ssh rtm uptime，耗时 3.0 秒');
+  assert.equal(toolLabelText({ kind: 'mcpToolCall', title: '运行 JavaScript', summary: 'node_repl · js', status: 'completed' }), '已运行 1 条命令');
+  assert.equal(toolLabelText({ kind: 'mcpToolCall', title: '调用内部浏览器', summary: 'node_repl · js', status: 'inProgress' }), '正在使用浏览器');
+});
+
+test('read-only tool activities stay collapsed like Codex summaries', () => {
+  assert.equal(chatToolHasExpandableBody({ kind: 'fileRead', summary: 'server/dashboard/app.js', detail: 'large file' }), false);
+  assert.equal(chatToolHasExpandableBody({ kind: 'webSearch', summary: 'fleet', output: 'results' }), false);
+  assert.equal(chatToolHasExpandableBody({ kind: 'commandExecution', summary: 'pwd' }), true);
+  assert.equal(chatToolHasExpandableBody({ kind: 'mcpToolCall', title: 'Notion · Search', detail: '{"query":"fleet"}' }), true);
 });
 
 test('node_repl transport calls stay visible unless explicitly internal', () => {
