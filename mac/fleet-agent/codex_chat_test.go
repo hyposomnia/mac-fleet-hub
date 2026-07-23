@@ -88,7 +88,7 @@ func TestCodexChatBackendResumeRestoresActiveTurnFromInitialPage(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if res.Status != "active" || b.lastTurn["thread-1"] != "turn-live" {
+	if res.Status != "active" || res.ActiveTurnID != "turn-live" || b.lastTurn["thread-1"] != "turn-live" {
 		t.Fatalf("active resume not restored: result=%+v lastTurn=%q", res, b.lastTurn["thread-1"])
 	}
 }

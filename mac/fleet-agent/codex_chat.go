@@ -191,21 +191,21 @@ func (b *codexChatBackend) Resume(ctx context.Context, assistant, sessionID, mod
 		return ChatResumeResult{}, err
 	}
 	status := codexThreadStatus(res.Thread.Status)
+	activeTurnID := ""
 	b.mu.Lock()
 	if status == "active" {
-		turnID := ""
 		if len(res.InitialTurnsPage.Data) > 0 {
-			turnID = res.InitialTurnsPage.Data[0].ID
+			activeTurnID = res.InitialTurnsPage.Data[0].ID
 		}
-		if turnID != "" {
-			b.lastTurn[sessionID] = turnID
+		if activeTurnID != "" {
+			b.lastTurn[sessionID] = activeTurnID
 		}
 	} else {
 		delete(b.lastTurn, sessionID)
 	}
 	b.mu.Unlock()
 	return ChatResumeResult{
-		SessionID: sessionID, ThreadID: threadID, Status: status,
+		SessionID: sessionID, ThreadID: threadID, Status: status, ActiveTurnID: activeTurnID,
 		History: history, Model: res.Model, Effort: res.ReasoningEffort, ServiceTier: res.ServiceTier,
 		ApprovalMode: codexApprovalMode(res.ApprovalPolicy, res.Sandbox),
 		Models:       b.modelOptions(ctx, rpc),

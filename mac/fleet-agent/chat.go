@@ -192,6 +192,7 @@ type ChatResumeResult struct {
 	SessionID    string            `json:"sessionId"`
 	ThreadID     string            `json:"threadId"`
 	Status       string            `json:"status"`
+	ActiveTurnID string            `json:"activeTurnId,omitempty"`
 	History      ChatHistoryPage   `json:"history"`
 	Model        string            `json:"model,omitempty"`
 	Effort       string            `json:"effort,omitempty"`

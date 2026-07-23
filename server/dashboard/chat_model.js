@@ -167,6 +167,7 @@
       if (!item || item.type !== 'assistant') continue;
       if (turnId && item.turnId && item.turnId !== turnId) continue;
       mergeAssistantMetadata(item, data, ev);
+      item.turnComplete = true;
       return;
     }
   }
@@ -245,7 +246,16 @@
     switch (ev && ev.type) {
       case 'thread_status':
         next.phase = chatPhase(data.status || data.state || next.phase);
-        if (next.phase !== 'running') next.activeTurnId = '';
+        if (next.phase === 'running') {
+          next.activeTurnId = firstString(data.activeTurnId, data.active_turn_id, next.activeTurnId);
+          if (next.activeTurnId) {
+            for (const item of Object.values(next.items)) {
+              if (item?.type === 'assistant' && item.turnId === next.activeTurnId) item.turnComplete = false;
+            }
+          }
+        } else {
+          next.activeTurnId = '';
+        }
         return next;
       case 'turn_started':
         next.phase = 'running';
@@ -270,6 +280,7 @@
         if (!item.startedAtMs) item.startedAtMs = uuidV7TimeMs(item.turnId || (ev && ev.turnId)) || item.completedAtMs;
         if (item.startedAtMs && item.completedAtMs && item.completedAtMs >= item.startedAtMs) item.durationMs = item.completedAtMs - item.startedAtMs;
         item.done = true;
+        if (data.__history) item.turnComplete = true;
         return next;
       }
       case 'user_done': {
@@ -283,6 +294,7 @@
       }
       case 'tool_delta': {
         const item = upsertItem(next, itemId, () => ({ id: itemId, type: 'tool', title: '', summary: '', meta: '', output: '', progress: '', stream: data.stream || 'stdout' }));
+        item.turnId = firstString(ev && ev.turnId, data.turnId, data.turn_id, item.turnId);
         applyToolData(item, data);
         if (data.delta) item.output = (item.output || '') + data.delta;
         if (data.message) item.progress = data.message;
@@ -292,11 +304,13 @@
       case 'tool_update':
       case 'tool_done': {
         const item = upsertItem(next, itemId, () => ({ id: itemId, type: 'tool', title: '', summary: '', meta: '', detail: '', output: '', progress: '', stream: 'stdout' }));
+        item.turnId = firstString(ev && ev.turnId, data.turnId, data.turn_id, item.turnId);
         applyToolData(item, data);
         return next;
       }
       case 'diff_update': {
         const item = upsertItem(next, itemId, () => ({ id: itemId, type: 'diff', files: [], raw: null }));
+        item.turnId = firstString(ev && ev.turnId, data.turnId, data.turn_id, item.turnId);
         item.files = normalizeDiffFiles(data);
         item.raw = data;
         return next;
@@ -306,6 +320,7 @@
         const item = upsertItem(next, requestId, () => ({ id: requestId, type: 'approval', status: 'pending' }));
         item.requestId = requestId;
         item.itemId = data.itemId || ev.itemId || '';
+        item.turnId = firstString(ev && ev.turnId, data.turnId, data.turn_id, item.turnId);
         item.kind = data.command ? 'command' : (data.permissions ? 'permission' : 'file');
         item.command = data.command || '';
         item.cwd = data.cwd || '';

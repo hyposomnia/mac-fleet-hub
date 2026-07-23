@@ -966,7 +966,9 @@ function renderChat({ preserveScroll = false, forceBottom = false } = {}) {
   for (const id of model.messages) {
     const item = model.items[id];
     if (!item) continue;
-    stack.append(renderChatItem(item, id === currentTurn?.id, metaVisible.has(id)));
+    stack.append(renderChatItem(item, id === currentTurn?.id, item.type === 'user' && metaVisible.has(id)));
+    const turnMeta = metaVisible.get(id);
+    if (turnMeta?.type === 'assistant') stack.append(renderChatTurnMeta(turnMeta));
   }
   if (model.error) stack.append(renderChatError(model.error));
   clear(sc); sc.append(stack);
@@ -1047,30 +1049,36 @@ function chatAssistantTurnKey(item, fallbackId) {
 }
 
 function chatMessageMetaVisibility(model) {
-  const visible = new Set();
+  const visible = new Map();
   const messages = model?.messages || [];
   const items = model?.items || {};
-  const lastAssistantByTurn = new Map();
-  for (const id of messages) {
-    const item = items[id];
-    if (!item || item.type !== 'assistant') continue;
-    lastAssistantByTurn.set(chatAssistantTurnKey(item, id), id);
-  }
+  const turns = new Map();
   for (const id of messages) {
     const item = items[id];
     if (!item) continue;
     if (item.type === 'user') {
-      if (chatUserMetaText(item)) visible.add(id);
-    } else if (item.type === 'assistant') {
-      const key = chatAssistantTurnKey(item, id);
-      if (lastAssistantByTurn.get(key) === id && chatAssistantMetaText(item)) visible.add(id);
+      if (chatUserMetaText(item)) visible.set(id, item);
     }
+    const key = item.turnId ? chatAssistantTurnKey(item, id) : (item.type === 'assistant' ? `item:${id}` : '');
+    if (!key) continue;
+    const turn = turns.get(key) || { lastItemId: '', assistant: null };
+    turn.lastItemId = id;
+    if (item.type === 'assistant' && item.turnComplete && chatAssistantMetaText(item)) turn.assistant = item;
+    turns.set(key, turn);
+  }
+  for (const turn of turns.values()) {
+    if (turn.lastItemId && turn.assistant) visible.set(turn.lastItemId, turn.assistant);
   }
   return visible;
 }
 
 function renderChatMessageMeta(text) {
   return text ? h('div', { class: 'chat-msg-meta mono', text }) : null;
+}
+
+function renderChatTurnMeta(item) {
+  const meta = renderChatMessageMeta(chatAssistantMetaText(item));
+  return meta ? chatRow(meta, 'assistant turn-meta') : null;
 }
 
 // Codex 自绘工具行使用项目内 Lucide SVG 副本：
@@ -1181,8 +1189,7 @@ function renderChatItem(item, isCurrentTurn = false, showMeta = true) {
   }
   if (item.type === 'assistant') {
     return chatRow(h('div', { class: 'chat-card' },
-      FleetMarkdown.renderMarkdown(item.text),
-      showMeta ? renderChatMessageMeta(chatAssistantMetaText(item)) : null),
+      FleetMarkdown.renderMarkdown(item.text)),
     'assistant');
   }
   if (item.type === 'tool') return renderChatTool(item);
@@ -1401,7 +1408,10 @@ async function openChatSession(s) {
     const resumed = await chat.resumePromise;
     if (state.chatCache.get(chat.cacheKey) === chat) {
       chat.model = FleetChatModel.prependHistory(chat.model, resumed.history?.events || []);
-      chat.model = FleetChatModel.reduceChatEvent(chat.model, { type: 'thread_status', data: { status: resumed.status } });
+      chat.model = FleetChatModel.reduceChatEvent(chat.model, {
+        type: 'thread_status',
+        data: { status: resumed.status, activeTurnId: resumed.activeTurnId },
+      });
       chat.historyCursor = resumed.history?.nextCursor || '';
       chat.historyReady = true;
       chat.loading = false;

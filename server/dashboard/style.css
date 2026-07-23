@@ -524,6 +524,8 @@ svg.ic.fill { fill: currentColor; stroke: none; }
 .chat-card.muted { color: var(--chat-text-2); }
 .chat-msg-meta { margin-top: 8px; color: var(--chat-text-3); font-size: var(--t-2xs); line-height: 1.35; font-variant-numeric: tabular-nums; white-space: normal; }
 .chat-row.user .chat-msg-meta { text-align: right; }
+.chat-row.turn-meta { margin-top: -8px; }
+.chat-row.turn-meta .chat-msg-meta { margin-top: 0; }
 .chat-markdown > :first-child { margin-top: 0; }
 .chat-markdown > :last-child { margin-bottom: 0; }
 .chat-markdown p { margin: 0 0 .78em; }

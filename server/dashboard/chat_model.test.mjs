@@ -321,6 +321,21 @@ test('assistant metadata is placed after tools when the turn completes', () => {
   assert.equal(visible.get('tool1').id, 'a1');
 });
 
+test('active resumed turn does not expose historical metadata before completion', () => {
+  let state = prependHistory(createChatState(), [
+    {
+      type: 'assistant_done', itemId: 'a1', turnId: 't1',
+      data: { text: 'still working', model: 'gpt-5.6-sol', completedAtMs: 1784730000000 },
+    },
+  ]);
+  assert.equal(chatMessageMetaVisibility(state).has('a1'), true);
+  state = reduceChatEvent(state, {
+    type: 'thread_status',
+    data: { status: 'active', activeTurnId: 't1' },
+  });
+  assert.equal(chatMessageMetaVisibility(state).has('a1'), false);
+});
+
 test('turn completion metadata backfills the last assistant message in that turn', () => {
   let state = reduceChatEvent(createChatState(), {
     type: 'assistant_delta', itemId: 'a1', turnId: 't1',
