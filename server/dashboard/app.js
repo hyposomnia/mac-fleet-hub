@@ -1587,7 +1587,13 @@ function renderChatApprovalMenu(chat = state.chat) {
   popover.append(
     h('div', { class: 'chat-approval-head' },
       h('span', { text: '如何批准 ChatGPT 操作？' }),
-      h('span', { class: 'chat-approval-learn', text: '了解更多' })),
+      h('a', {
+        class: 'chat-approval-learn',
+        href: 'https://developers.openai.com/codex/concepts/sandboxing#how-you-control-it',
+        target: '_blank',
+        rel: 'noopener noreferrer',
+        text: '了解更多',
+      })),
     ...CHAT_APPROVAL_OPTIONS.map((option) => {
       const active = option.value === selected.value;
       return h('button', {

@@ -185,6 +185,7 @@ test('self-drawn approval menu mirrors Codex three presets', () => {
   assert.match(appSrc, /value:\s*'on-request',\s*label:\s*'替我审批'/);
   assert.match(appSrc, /value:\s*'full-access',\s*label:\s*'完全访问权限'/);
   assert.match(appSrc, /return 'on-request';/);
+  assert.match(appSrc, /https:\/\/developers\.openai\.com\/codex\/concepts\/sandboxing#how-you-control-it/);
   assert.match(styleCSS, /\.chat-approval-choice\.full-access\s*\{\s*color:\s*#f04b14/);
   assert.match(styleCSS, /\.chat-approval-popover\s*\{[^}]*width:\s*min\(380px,/s);
   assert.match(styleCSS, /\.chat-approval-title\s*\{[^}]*font-size:\s*var\(--t-sm\)/s);
