@@ -1007,7 +1007,16 @@ function formatChatDate(ms) {
   const d = new Date(value);
   if (!Number.isFinite(d.getTime())) return '';
   const pad = (n) => String(n).padStart(2, '0');
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+  const time = `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+  const now = new Date(Date.now());
+  const dayOrdinal = (date) => Math.floor(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()) / 86400000);
+  const dayDiff = dayOrdinal(now) - dayOrdinal(d);
+  if (dayDiff === 0) return time;
+  if (dayDiff === 1) return `昨天 ${time}`;
+  if (dayDiff === 2) return `前天 ${time}`;
+  const monthDay = `${d.getMonth() + 1}-${d.getDate()}`;
+  if (d.getFullYear() === now.getFullYear()) return `${monthDay} ${time}`;
+  return `${d.getFullYear()}-${monthDay} ${time}`;
 }
 
 function formatChatInteger(value) {
@@ -1049,8 +1058,7 @@ function chatAssistantTurnKey(item, fallbackId) {
 }
 
 function isInternalChatTool(item) {
-  if (!item || item.type !== 'tool' || item.kind !== 'mcpToolCall') return false;
-  return [item.title, item.summary].some((value) => /^node_repl\s*·\s*js$/i.test(String(value || '').trim()));
+  return Boolean(item?.internal);
 }
 
 function chatMessageMetaVisibility(model) {
@@ -1189,8 +1197,10 @@ function renderChatItem(item, isCurrentTurn = false, showMeta = true) {
       })));
     }
     const meta = showMeta ? renderChatMessageMeta(chatUserMetaText(item)) : null;
-    if (meta) parts.push(meta);
-    return chatRow(h('div', { class: 'chat-card' }, parts.length ? parts : h('div', { text: '' })), 'user' + (isCurrentTurn ? ' current-turn' : ''));
+    return chatRow(h('div', { class: 'chat-user-wrap' },
+      h('div', { class: 'chat-card' }, parts.length ? parts : h('div', { text: '' })),
+      meta),
+    'user' + (isCurrentTurn ? ' current-turn' : ''));
   }
   if (item.type === 'assistant') {
     return chatRow(h('div', { class: 'chat-card' },
@@ -1390,12 +1400,12 @@ async function openChatSession(s) {
   renderChatAttachments();
   renderChatFollowups();
   if (chat.historyReady) {
-    $('#chat-approval').value = chat.approvalMode || 'on-request';
-    $('#chat-approval').disabled = false;
+    setChatApprovalEnabled(chat, true);
     renderChatOptions(chat);
   } else {
-    $('#chat-approval').disabled = true;
+    setChatApprovalEnabled(chat, false);
     $('#chat-options').hidden = true;
+    closeChatApproval();
     closeChatOptions();
   }
   renderChat({ forceBottom: true });
@@ -1433,7 +1443,7 @@ async function openChatSession(s) {
     chat.loading = false;
     chat.resumePromise = null;
     if (state.chat === chat) {
-      $('#chat-approval').disabled = false;
+      setChatApprovalEnabled(chat, true);
       chat.model = FleetChatModel.reduceChatEvent(chat.model, { type: 'error', data: { message: e.message } });
       renderChat();
     }
@@ -1444,6 +1454,11 @@ const CHAT_EFFORT_LABELS = {
   none: '无', minimal: '最少', low: '低', medium: '中', high: '高', xhigh: '极高', max: '最大', ultra: '超高',
 };
 const CHAT_SERVICE_TIER_LABELS = { default: '标准', standard: '标准', fast: '快速', priority: '快速' };
+const CHAT_APPROVAL_OPTIONS = [
+  { value: 'untrusted', label: '请求批准', description: '编辑外部文件和使用互联网时始终询问' },
+  { value: 'on-request', label: '替我审批', description: '仅对检测到的风险操作请求批准' },
+  { value: 'full-access', label: '完全访问权限', description: '可不受限制地访问互联网和您电脑上的任何文件', danger: true },
+];
 
 function selectedChatModel(chat) {
   return chat.models.find((item) => item.value === chat.selectedModel);
@@ -1467,6 +1482,105 @@ function chatServiceTierDescription(tier) {
   if (!tier?.value) return '标准速度';
   if (tier.value === 'priority' && tier.description === '1.5x speed, increased usage') return '1.5 倍速度，消耗更多额度';
   return tier.description || '';
+}
+
+function normalizeChatApprovalMode(value) {
+  if (value === 'untrusted' || value === 'full-access') return value;
+  return 'on-request';
+}
+
+function selectedChatApproval(mode) {
+  const normalized = normalizeChatApprovalMode(mode);
+  return CHAT_APPROVAL_OPTIONS.find((item) => item.value === normalized) || CHAT_APPROVAL_OPTIONS[1];
+}
+
+function chatApprovalIcon(value, cls = 'ic') {
+  if (value === 'untrusted') return svgIconParts(cls, [
+    { tag: 'path', attrs: { d: 'M18 11V7a2 2 0 0 0-4 0v4' } },
+    { tag: 'path', attrs: { d: 'M14 10V5a2 2 0 0 0-4 0v6' } },
+    { tag: 'path', attrs: { d: 'M10 10.5V6a2 2 0 0 0-4 0v8' } },
+    { tag: 'path', attrs: { d: 'M6 14v-2a2 2 0 0 0-4 0v2a8 8 0 0 0 8 8h2a8 8 0 0 0 8-8v-3a2 2 0 0 0-4 0v1' } },
+  ]);
+  if (value === 'full-access') return svgIconParts(cls, [
+    { tag: 'path', attrs: { d: 'M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10' } },
+    { tag: 'path', attrs: { d: 'M12 8v5' } },
+    { tag: 'path', attrs: { d: 'M12 17h.01' } },
+  ]);
+  return svgIconParts(cls, [
+    { tag: 'path', attrs: { d: 'M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10' } },
+    { tag: 'path', attrs: { d: 'm9 12 2 2 4-4' } },
+  ]);
+}
+
+function closeChatApproval() {
+  const popover = $('#chat-approval-popover');
+  if (!popover) return;
+  popover.hidden = true;
+  $('#chat-approval')?.setAttribute('aria-expanded', 'false');
+}
+
+function renderChatApprovalMenu(chat = state.chat) {
+  const trigger = $('#chat-approval');
+  const label = $('#chat-approval-label');
+  const popover = $('#chat-approval-popover');
+  if (!trigger || !label || !popover) return;
+  const selected = selectedChatApproval(chat?.approvalMode);
+  label.textContent = selected.label;
+  trigger.dataset.value = selected.value;
+  clear(popover);
+  popover.append(
+    h('div', { class: 'chat-approval-head' },
+      h('span', { text: '如何批准 ChatGPT 操作？' }),
+      h('span', { class: 'chat-approval-learn', text: '了解更多' })),
+    ...CHAT_APPROVAL_OPTIONS.map((option) => {
+      const active = option.value === selected.value;
+      return h('button', {
+        type: 'button',
+        class: 'chat-approval-choice' + (active ? ' selected' : '') + (option.danger ? ' full-access' : ''),
+        role: 'menuitemradio',
+        'aria-checked': String(active),
+        dataset: { approvalMode: option.value },
+        onclick: (e) => { e.stopPropagation(); selectChatApprovalMode(option.value); },
+      },
+      h('span', { class: 'chat-approval-icon' }, chatApprovalIcon(option.value)),
+      h('span', { class: 'chat-approval-copy' },
+        h('span', { class: 'chat-approval-title', text: option.label }),
+        h('span', { class: 'chat-approval-desc', text: option.description })),
+      active ? svgIcon('chat-approval-check', 'M20 6 9 17l-5-5') : null);
+    }),
+  );
+}
+
+function setChatApprovalEnabled(chat, enabled) {
+  const trigger = $('#chat-approval');
+  if (!trigger) return;
+  if (chat) chat.approvalMode = normalizeChatApprovalMode(chat.approvalMode);
+  trigger.disabled = !enabled;
+  if (!enabled) closeChatApproval();
+  renderChatApprovalMenu(chat);
+}
+
+function toggleChatApproval() {
+  const popover = $('#chat-approval-popover');
+  const trigger = $('#chat-approval');
+  if (!popover || !trigger || trigger.disabled) return;
+  if (popover.hidden) {
+    renderChatApprovalMenu();
+    popover.hidden = false;
+    trigger.setAttribute('aria-expanded', 'true');
+    closeChatOptions();
+  } else {
+    closeChatApproval();
+  }
+}
+
+function selectChatApprovalMode(value) {
+  if (!state.chat) return;
+  state.chat.approvalMode = normalizeChatApprovalMode(value);
+  state.chat.approvalDirty = true;
+  renderChatApprovalMenu(state.chat);
+  closeChatApproval();
+  $('#chat-approval')?.focus();
 }
 
 function configureChatEfforts(chat, preferred = '') {
@@ -1506,6 +1620,7 @@ function showChatOptionsMain({ focus = false } = {}) {
   popover.classList.remove('has-submenu');
   $('#chat-options-submenu').hidden = true;
   $('#chat-options-trigger').setAttribute('aria-expanded', 'true');
+  closeChatApproval();
   $$('[data-chat-options-panel]').forEach((row) => row.removeAttribute('aria-current'));
   if (focus) $('[data-chat-options-panel]:not(:disabled)')?.focus();
 }
@@ -1592,8 +1707,7 @@ function renderChatOptions(chat) {
 }
 
 function configureChatOptions(chat, resumed) {
-  const approvalModes = new Set(['untrusted', 'on-request', 'never', 'full-access']);
-  chat.approvalMode = approvalModes.has(resumed.approvalMode) ? resumed.approvalMode : 'on-request';
+  chat.approvalMode = normalizeChatApprovalMode(resumed.approvalMode);
   chat.approvalDirty = false;
 
   const models = Array.isArray(resumed.models) ? resumed.models.slice() : [];
@@ -1608,9 +1722,7 @@ function configureChatOptions(chat, resumed) {
   chat.modelDirty = false;
   chat.serviceTierDirty = false;
   if (state.chat === chat) {
-    const approval = $('#chat-approval');
-    approval.value = chat.approvalMode;
-    approval.disabled = false;
+    setChatApprovalEnabled(chat, true);
     renderChatOptions(chat);
   }
 }
@@ -2142,10 +2254,9 @@ function init() {
     if ($('#chat-scroll').scrollTop <= 80) loadOlderChatHistory();
   });
   $('#chat-jump').onclick = () => { const sc = $('#chat-scroll'); sc.scrollTop = sc.scrollHeight; $('#chat-jump').hidden = true; };
-  $('#chat-approval').addEventListener('change', (e) => {
-    if (!state.chat) return;
-    state.chat.approvalMode = e.target.value;
-    state.chat.approvalDirty = true;
+  $('#chat-approval').addEventListener('click', (e) => {
+    e.stopPropagation();
+    toggleChatApproval();
   });
   $('#chat-options-trigger').addEventListener('click', (e) => {
     e.stopPropagation();
@@ -2189,12 +2300,20 @@ function init() {
   // 点空白处关菜单
   document.addEventListener('click', (e) => {
     if (!e.target.closest('.menu') && !e.target.closest('#user-btn') && !e.target.closest('#m-menu-btn')) closeMenus();
+    if (!e.target.closest('#chat-approval-menu')) closeChatApproval();
     if (!e.target.closest('#chat-options')) closeChatOptions();
   });
   document.addEventListener('keydown', (e) => {
-    if (e.key !== 'Escape' || $('#chat-options-popover').hidden) return;
-    closeChatOptions();
-    $('#chat-options-trigger').focus();
+    if (e.key !== 'Escape') return;
+    if (!$('#chat-approval-popover').hidden) {
+      closeChatApproval();
+      $('#chat-approval').focus();
+      return;
+    }
+    if (!$('#chat-options-popover').hidden) {
+      closeChatOptions();
+      $('#chat-options-trigger').focus();
+    }
   });
   // 跨断点时同步移动输入坞可见性
   addEventListener('resize', () => {

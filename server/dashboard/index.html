@@ -15,7 +15,7 @@
   <!-- 主题：默认跟随系统 prefers-color-scheme，用户切换后写 localStorage 覆盖（与 app.js initTheme 一致）。
        内联以避免首屏闪烁。 -->
   <script>document.documentElement.dataset.theme = (function () { try { var t = localStorage.getItem('fleet-theme'); if (t) return t; } catch (e) {} return matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark'; })();</script>
-  <link rel="stylesheet" href="style.css?v=25" />
+  <link rel="stylesheet" href="style.css?v=26" />
 </head>
 <body>
   <div id="app" data-mode="sessions">
@@ -134,16 +134,14 @@
                 <div class="chat-composer-toolbar">
                   <div class="chat-tools-left">
                   <button id="chat-attach" type="button" class="iconbtn chat-attach" title="添加图片" aria-label="添加图片"><svg class="ic" viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg></button>
-                  <label class="chat-select" title="审批模式">
-                    <svg class="ic" viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10"/><path d="m9 12 2 2 4-4"/></svg>
-                    <select id="chat-approval" aria-label="审批模式">
-                      <option value="untrusted">受限</option>
-                      <option value="on-request">按需审批</option>
-                      <option value="never">无需审批</option>
-                      <option value="full-access">完全访问</option>
-                    </select>
-                    <svg class="chat-select-chevron" viewBox="0 0 24 24" aria-hidden="true"><polyline points="6 9 12 15 18 9"/></svg>
-                  </label>
+                  <div id="chat-approval-menu" class="chat-approval-menu">
+                    <button id="chat-approval" type="button" class="chat-approval-trigger" title="如何批准 ChatGPT 操作？" aria-label="如何批准 ChatGPT 操作？" aria-haspopup="menu" aria-expanded="false" disabled>
+                      <svg class="ic" viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10"/><path d="m9 12 2 2 4-4"/></svg>
+                      <span id="chat-approval-label">替我审批</span>
+                      <svg class="chat-select-chevron" viewBox="0 0 24 24" aria-hidden="true"><polyline points="6 9 12 15 18 9"/></svg>
+                    </button>
+                    <div id="chat-approval-popover" class="chat-approval-popover" role="menu" hidden></div>
+                  </div>
                   </div>
                   <div class="chat-tools-right">
                   <div id="chat-options" class="chat-options" hidden>
@@ -310,8 +308,8 @@
   </div>
   <script src="vendor/purify.min.js?v=3.2.6"></script>
   <script src="vendor/marked.min.js?v=15.0.12"></script>
-  <script src="markdown.js?v=25"></script>
-  <script src="chat_model.js?v=25"></script>
-  <script src="app.js?v=25"></script>
+  <script src="markdown.js?v=26"></script>
+  <script src="chat_model.js?v=26"></script>
+  <script src="app.js?v=26"></script>
 </body>
 </html>

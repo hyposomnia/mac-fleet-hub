@@ -148,6 +148,20 @@ func TestProjectCodexToolItemDropsMCPBinaryPayloads(t *testing.T) {
 	}
 }
 
+func TestProjectCodexToolItemLabelsNodeReplBrowserUse(t *testing.T) {
+	raw := json.RawMessage(`{"id":"mcp-browser","type":"mcpToolCall","server":"node_repl","tool":"js","status":"completed","arguments":{"title":"连接生产页面","code":"const { setupBrowserRuntime } = await import('/plugins/browser-client.mjs'); globalThis.browser = await agent.browsers.getForUrl('https://fleet.example.test/');"},"result":{"content":[{"type":"text","text":"ok"}]}}`)
+	ev, ok := projectCodexToolItem("t1", "turn1", raw, "completed")
+	if !ok {
+		t.Fatal("node_repl browser tool should be projected")
+	}
+	data := string(ev.Data)
+	for _, want := range []string{`"title":"调用内部浏览器"`, `"summary":"连接生产页面"`} {
+		if !strings.Contains(data, want) {
+			t.Fatalf("node_repl browser projection missing %s in %s", want, data)
+		}
+	}
+}
+
 func TestMapCodexNotificationStartedAndMcpProgress(t *testing.T) {
 	started := mapCodexNotification(rpcNotification{
 		Method: "item/started",

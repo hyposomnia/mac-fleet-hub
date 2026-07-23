@@ -152,6 +152,15 @@ func codexThreadStatus(raw json.RawMessage) string {
 	return "idle"
 }
 
+func codexStatusIsRunning(status string) bool {
+	switch strings.ToLower(strings.TrimSpace(status)) {
+	case "active", "running", "inprogress", "in_progress", "started":
+		return true
+	default:
+		return false
+	}
+}
+
 func (b *codexChatBackend) resumeThread(ctx context.Context, rpc codexRPCConn, sessionID string) (codexResumeWire, error) {
 	params := map[string]interface{}{
 		"threadId":     sessionID,
@@ -193,9 +202,12 @@ func (b *codexChatBackend) Resume(ctx context.Context, assistant, sessionID, mod
 	status := codexThreadStatus(res.Thread.Status)
 	activeTurnID := ""
 	b.mu.Lock()
-	if status == "active" {
+	if codexStatusIsRunning(status) {
 		if len(res.InitialTurnsPage.Data) > 0 {
-			activeTurnID = res.InitialTurnsPage.Data[0].ID
+			latest := res.InitialTurnsPage.Data[0]
+			if latest.Status == "" || codexStatusIsRunning(latest.Status) {
+				activeTurnID = latest.ID
+			}
 		}
 		if activeTurnID != "" {
 			b.lastTurn[sessionID] = activeTurnID
@@ -524,7 +536,7 @@ func codexTurnStartParams(sessionID string, input []map[string]string, opts Chat
 		}
 	}
 	switch opts.ApprovalMode {
-	case "untrusted", "on-request", "never":
+	case "untrusted", "on-request":
 		params["approvalPolicy"] = opts.ApprovalMode
 		params["sandboxPolicy"] = map[string]interface{}{"type": "workspaceWrite"}
 	case "full-access":
@@ -545,8 +557,10 @@ func codexApprovalMode(policyRaw, sandboxRaw json.RawMessage) string {
 	var policy string
 	if json.Unmarshal(policyRaw, &policy) == nil {
 		switch policy {
-		case "untrusted", "on-request", "never":
+		case "untrusted", "on-request":
 			return policy
+		case "never":
+			return "on-request"
 		}
 	}
 	return "on-request"
@@ -764,8 +778,9 @@ func projectCodexToolItem(sessionID, turnID string, raw json.RawMessage, lifecyc
 			} `json:"appContext"`
 		}
 		_ = json.Unmarshal(raw, &item)
-		data["title"] = codexToolName(item.AppContext, item.Server, item.Tool)
-		data["summary"] = strings.Trim(strings.Join([]string{item.Server, item.Tool}, " · "), " ·")
+		title, summary := codexToolName(item.AppContext, item.Server, item.Tool, item.Arguments)
+		data["title"] = title
+		data["summary"] = summary
 		data["detail"] = compactChatJSON(item.Arguments, 12<<10)
 		data["output"] = compactMCPResult(item.Result, 16<<10)
 		if item.Error != nil {
@@ -871,18 +886,45 @@ func projectCodexToolItem(sessionID, turnID string, raw json.RawMessage, lifecyc
 func codexToolName(appContext *struct {
 	AppName    string `json:"appName"`
 	ActionName string `json:"actionName"`
-}, server, tool string) string {
+}, server, tool string, arguments json.RawMessage) (string, string) {
+	summary := strings.Trim(strings.Join([]string{server, tool}, " · "), " ·")
 	if appContext != nil {
 		name := strings.Trim(strings.Join([]string{appContext.AppName, appContext.ActionName}, " · "), " ·")
 		if name != "" {
-			return name
+			return name, summary
 		}
 	}
-	name := strings.Trim(strings.Join([]string{server, tool}, " · "), " ·")
-	if name != "" {
-		return name
+	if title, detail, ok := codexNodeReplToolName(server, tool, arguments); ok {
+		return title, detail
 	}
-	return "MCP 工具"
+	name := summary
+	if name != "" {
+		return name, summary
+	}
+	return "MCP 工具", summary
+}
+
+func codexNodeReplToolName(server, tool string, arguments json.RawMessage) (string, string, bool) {
+	if !strings.EqualFold(strings.TrimSpace(server), "node_repl") || !strings.EqualFold(strings.TrimSpace(tool), "js") {
+		return "", "", false
+	}
+	var args struct {
+		Title string `json:"title"`
+		Code  string `json:"code"`
+	}
+	_ = json.Unmarshal(arguments, &args)
+	detail := strings.TrimSpace(args.Title)
+	probe := strings.ToLower(args.Title + "\n" + args.Code)
+	switch {
+	case strings.Contains(probe, "browser-client") || strings.Contains(probe, "agent.browsers") ||
+		strings.Contains(probe, "globalthis.browser") || strings.Contains(probe, "globalthis.chrome") ||
+		strings.Contains(probe, "playwright"):
+		return "调用内部浏览器", detail, true
+	case strings.Contains(probe, "computer-use") || strings.Contains(probe, "globalthis.sky") || strings.Contains(probe, "sky."):
+		return "操作本机界面", detail, true
+	default:
+		return "运行 JavaScript", detail, true
+	}
 }
 
 func compactChatJSON(raw json.RawMessage, max int) string {

@@ -455,7 +455,9 @@ func normalizeChatTurnOptions(opts ChatTurnOptions) (ChatTurnOptions, error) {
 		opts.ServiceTier = &tier
 	}
 	switch opts.ApprovalMode {
-	case "", "untrusted", "on-request", "never", "full-access":
+	case "", "untrusted", "on-request", "full-access":
+	case "never":
+		opts.ApprovalMode = "on-request"
 	default:
 		return ChatTurnOptions{}, fmt.Errorf("无效的审批模式")
 	}

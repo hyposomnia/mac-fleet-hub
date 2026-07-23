@@ -171,6 +171,16 @@ test('self-drawn composer contains native stop control and follow-up queue', () 
   assert.match(styleCSS, /#chat-composer\s*\{\s*padding:\s*8px 10px max\(10px,\s*env\(safe-area-inset-bottom,\s*0px\)\)/);
 });
 
+test('self-drawn approval menu mirrors Codex three presets', () => {
+  assert.match(indexHTML, /id="chat-approval-popover"/);
+  assert.doesNotMatch(indexHTML, /<option value="never">/);
+  assert.match(appSrc, /value:\s*'untrusted',\s*label:\s*'请求批准'/);
+  assert.match(appSrc, /value:\s*'on-request',\s*label:\s*'替我审批'/);
+  assert.match(appSrc, /value:\s*'full-access',\s*label:\s*'完全访问权限'/);
+  assert.match(appSrc, /return 'on-request';/);
+  assert.match(styleCSS, /\.chat-approval-choice\.full-access\s*\{\s*color:\s*#f04b14/);
+});
+
 test('tool output appends to command card', () => {
   let state = createChatState();
   state = reduceChatEvent(state, { type: 'tool_delta', itemId: 'cmd1', data: { stream: 'stdout', delta: 'pwd\n' } });
@@ -202,12 +212,19 @@ test('generic tool updates preserve kind, summary, status, and details', () => {
   assert.equal(state.items.mcp1.progress, '正在读取页面');
 });
 
-test('internal node_repl transport calls are hidden like Codex Desktop', () => {
+test('node_repl transport calls stay visible unless explicitly internal', () => {
   assert.equal(isInternalChatTool({
     type: 'tool',
     kind: 'mcpToolCall',
     title: 'node_repl · js',
     summary: 'node_repl · js',
+  }), false);
+  assert.equal(isInternalChatTool({
+    type: 'tool',
+    kind: 'mcpToolCall',
+    title: 'node_repl · js',
+    summary: 'node_repl · js',
+    internal: true,
   }), true);
   assert.equal(isInternalChatTool({
     type: 'tool',

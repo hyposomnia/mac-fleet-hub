@@ -93,6 +93,26 @@ func TestCodexChatBackendResumeRestoresActiveTurnFromInitialPage(t *testing.T) {
 	}
 }
 
+func TestCodexChatBackendResumeRestoresInProgressTurnFromInitialPage(t *testing.T) {
+	rpc := newFakeRPCConn()
+	rpc.reply["thread/resume"] = json.RawMessage(`{
+		"thread":{"id":"thread-1","status":{"type":"inProgress"}},
+		"initialTurnsPage":{"data":[{"id":"turn-live","status":"inProgress","items":[]}]}
+	}`)
+	rpc.reply["thread/items/list"] = json.RawMessage(`{"data":[]}`)
+	b := newCodexChatBackend(func(ctx context.Context) (codexRPCConn, func(), error) {
+		return rpc, func() {}, nil
+	})
+
+	res, err := b.Resume(context.Background(), "codex", "thread-1", "default")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Status != "inProgress" || res.ActiveTurnID != "turn-live" || b.lastTurn["thread-1"] != "turn-live" {
+		t.Fatalf("in-progress resume not restored: result=%+v lastTurn=%q", res, b.lastTurn["thread-1"])
+	}
+}
+
 func TestCodexChatBackendResumeHydratesHistoryAndOptions(t *testing.T) {
 	rpc := newFakeRPCConn()
 	rpc.reply["thread/resume"] = json.RawMessage(`{
@@ -120,7 +140,7 @@ func TestCodexChatBackendResumeHydratesHistoryAndOptions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if res.Model != "gpt-new" || res.Effort != "xhigh" || res.ServiceTier != "priority" || res.ApprovalMode != "never" || res.History.NextCursor != "older-cursor" {
+	if res.Model != "gpt-new" || res.Effort != "xhigh" || res.ServiceTier != "priority" || res.ApprovalMode != "on-request" || res.History.NextCursor != "older-cursor" {
 		t.Fatalf("bad resume metadata: %+v", res)
 	}
 	if len(res.Models) != 1 || res.Models[0].Value != "gpt-new" || res.Models[0].DefaultEffort != "high" ||
