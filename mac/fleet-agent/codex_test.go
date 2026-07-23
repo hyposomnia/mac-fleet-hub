@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -205,6 +206,44 @@ func TestCodexThreadRowKeepsMigratedStringSourceThread(t *testing.T) {
 	}
 	if got.Live {
 		t.Fatalf("migrated thread without later activity should stay out of active: %+v", got)
+	}
+}
+
+func TestScanCodexSQLiteKeepsMigratedStringSourceThread(t *testing.T) {
+	home := t.TempDir()
+	previousHome := cfg.CodexHome
+	cfg.CodexHome = home
+	t.Cleanup(func() { cfg.CodexHome = previousHome })
+
+	userID := "019e865e-55cc-7362-9cd4-77b6fdf68501"
+	migratedID := "019e865e-55cc-7362-9cd4-77b6fdf68502"
+	writeRollout := func(id string) string {
+		path := filepath.Join(home, "rollout-"+id+".jsonl")
+		body := `{"type":"session_meta","payload":{"id":"` + id + `","cwd":"/repo","originator":"Codex Desktop","source":"vscode"}}`
+		if err := os.WriteFile(path, []byte(body+"\n"), 0644); err != nil {
+			t.Fatal(err)
+		}
+		return strings.ReplaceAll(path, "'", "''")
+	}
+	userRollout := writeRollout(userID)
+	migratedRollout := writeRollout(migratedID)
+	db := filepath.Join(home, "state_5.sqlite")
+	schema := `create table threads (
+id text, title text, preview text, cwd text, git_branch text, rollout_path text,
+source text, thread_source text, archived integer, created_at integer,
+created_at_ms integer, updated_at integer, updated_at_ms integer, recency_at_ms integer
+);` +
+		`insert into threads values ('` + userID + `','User','','/repo','main','` + userRollout + `','vscode','user',0,0,100000,0,300000,300000);` +
+		`insert into threads values ('` + migratedID + `','Migrated','','/repo','main','` + migratedRollout + `','vscode','subagent',0,0,100000,0,200000,200000);`
+	cmd := exec.Command("sqlite3", db)
+	cmd.Stdin = strings.NewReader(schema)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("create sqlite fixture: %v: %s", err, out)
+	}
+
+	got := scanCodexSQLiteSessions(nil)
+	if len(got) != 2 {
+		t.Fatalf("Desktop-visible user and migrated threads should both be returned, got %d: %+v", len(got), got)
 	}
 }
 
