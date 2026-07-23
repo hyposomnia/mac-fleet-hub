@@ -9,6 +9,10 @@ mac-fleet-hub 变更记录（日期为本地时间）。
 - **修复**：SQLite 初筛不再使用不可靠的 `thread_source`，继续以 `archived=0`、`source=vscode` 和 rollout `originator=Codex Desktop` 为准；真实子代理仍由对象型 `source` 排除。
 - **回归保护**：新增真实 SQLite 扫描测试，同时写入普通任务和 `thread_source=subagent` 的迁移任务，确保两者都出现在 fleet 会话列表。
 
+### 会话标题栏使用白色背景
+- **标题层级**：右侧会话标题栏明确使用白色表面色，与聊天内容区形成清晰分层，同时保留原有底部分隔线。
+- **静态缓存一致性**：dashboard 外壳缓存升级到 v20，确保已安装 PWA 刷新后获取新标题栏样式。
+
 ## 2026-07-22
 
 ### 修复 Codex 自绘发送按钮叠加停止图标

@@ -476,7 +476,7 @@ svg.ic.fill { fill: currentColor; stroke: none; }
    窗口（终端 / 文件）
    ============================================================ */
 #win { display: flex; flex-direction: column; min-width: 0; background: var(--bg); }
-.win-head { display: flex; align-items: center; gap: 11px; padding: 11px 16px; border-bottom: 1px solid var(--border); min-height: 54px; }
+.win-head { display: flex; align-items: center; gap: 11px; padding: 11px 16px; border-bottom: 1px solid var(--border); min-height: 54px; background: var(--surface-1); }
 .win-back { display: none; }
 .win-head .info { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1; }
 .win-head .tt { font-weight: 640; font-size: var(--t-md); display: flex; align-items: center; gap: 9px; min-width: 0; }
