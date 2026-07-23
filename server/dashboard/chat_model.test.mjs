@@ -186,6 +186,10 @@ test('self-drawn approval menu mirrors Codex three presets', () => {
   assert.match(appSrc, /value:\s*'full-access',\s*label:\s*'完全访问权限'/);
   assert.match(appSrc, /return 'on-request';/);
   assert.match(styleCSS, /\.chat-approval-choice\.full-access\s*\{\s*color:\s*#f04b14/);
+  assert.match(styleCSS, /\.chat-approval-popover\s*\{[^}]*width:\s*min\(380px,/s);
+  assert.match(styleCSS, /\.chat-approval-title\s*\{[^}]*font-size:\s*var\(--t-sm\)/s);
+  assert.match(styleCSS, /\.chat-approval-desc\s*\{[^}]*font-size:\s*var\(--t-xs\)/s);
+  assert.match(styleCSS, /\.chat-approval-popover,\s*\.chat-options-popover\s*\{[^}]*position:\s*fixed;[^}]*bottom:\s*0/s);
 });
 
 test('self-drawn user message time renders outside the bubble', () => {
