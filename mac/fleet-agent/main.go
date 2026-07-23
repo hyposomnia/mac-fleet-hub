@@ -823,7 +823,6 @@ func scanCodexSQLiteSessions(idx map[string]codexIdx) []Session {
 from threads
 where archived=0
   and source='vscode'
-  and coalesce(thread_source, 'user') != 'subagent'
 order by coalesce(nullif(recency_at_ms,0), nullif(updated_at_ms,0), updated_at*1000) desc, id desc
 limit 500;`
 	b, err := exec.CommandContext(ctx, "sqlite3", "-readonly", "-json", db, q).Output()
