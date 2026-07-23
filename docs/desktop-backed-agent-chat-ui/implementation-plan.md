@@ -216,6 +216,7 @@ Add routes:
 GET  /api/chat/thread?assistant=codex&sessionId=...
 POST /api/chat/resume
 POST /api/chat/input
+POST /api/chat/steer
 POST /api/chat/approve
 POST /api/chat/interrupt
 GET  /api/chat/events?assistant=codex&sessionId=...
@@ -231,6 +232,10 @@ POC minimum:
   - body `{assistant:"codex",sessionId,text,clientMessageId?}`
   - calls `turn/start` or `turn/steer`
   - returns `{turnId}`
+- [ ] `POST /api/chat/steer`
+  - body `{assistant:"codex",sessionId,text,images?}`
+  - resolves the active turn and calls `turn/steer` with `expectedTurnId`
+  - returns `409 no_active_turn` when no active turn is known
 - [ ] `GET /api/chat/events`
   - SSE stream.
   - sends `ChatEvent` JSON in `data: ...`.

@@ -18,11 +18,23 @@ func TestSettingsNormalizeClamp(t *testing.T) {
 		in   dashSettings
 		want dashSettings
 	}{
-		{"超上限钳到上限", dashSettings{999, 999999, 999, 999999, 99999}, dashSettings{30, 100000, 12, 100000, 1440}},
-		{"低于下限钳到下限", dashSettings{-5, 10, -1, 1, -3}, dashSettings{1, 200, 1, 200, 1}},
-		{"合法值原样保留", dashSettings{10, 5000, 4, 5000, 30}, dashSettings{10, 5000, 4, 5000, 30}},
-		{"部分缺省只补缺项", dashSettings{DesktopMaxWindows: 6}, dashSettings{6, 5000, 4, 5000, 30}},
-		{"自动关闭超上限钳到 24h", dashSettings{AutoCloseMinutes: 5000}, dashSettings{10, 5000, 4, 5000, 1440}},
+		{
+			"超上限钳到上限",
+			dashSettings{DesktopMaxWindows: 999, DesktopScrollback: 999999, MobileMaxWindows: 999, MobileScrollback: 999999, AutoCloseMinutes: 99999, ChatCacheMaxSessions: 999},
+			dashSettings{DesktopMaxWindows: 30, DesktopScrollback: 100000, MobileMaxWindows: 12, MobileScrollback: 100000, AutoCloseMinutes: 1440, ChatCacheMaxSessions: 20},
+		},
+		{
+			"低于下限钳到下限",
+			dashSettings{DesktopMaxWindows: -5, DesktopScrollback: 10, MobileMaxWindows: -1, MobileScrollback: 1, AutoCloseMinutes: -3, ChatCacheMaxSessions: -2},
+			dashSettings{DesktopMaxWindows: 1, DesktopScrollback: 200, MobileMaxWindows: 1, MobileScrollback: 200, AutoCloseMinutes: 1, ChatCacheMaxSessions: 1},
+		},
+		{
+			"合法值原样保留",
+			dashSettings{DesktopMaxWindows: 10, DesktopScrollback: 5000, MobileMaxWindows: 4, MobileScrollback: 5000, AutoCloseMinutes: 30, ChatCacheMaxSessions: 6},
+			dashSettings{DesktopMaxWindows: 10, DesktopScrollback: 5000, MobileMaxWindows: 4, MobileScrollback: 5000, AutoCloseMinutes: 30, ChatCacheMaxSessions: 6},
+		},
+		{"部分缺省只补缺项", dashSettings{DesktopMaxWindows: 6}, dashSettings{DesktopMaxWindows: 6, DesktopScrollback: 5000, MobileMaxWindows: 4, MobileScrollback: 5000, AutoCloseMinutes: 30, ChatCacheMaxSessions: 6}},
+		{"自动关闭超上限钳到 24h", dashSettings{AutoCloseMinutes: 5000}, dashSettings{DesktopMaxWindows: 10, DesktopScrollback: 5000, MobileMaxWindows: 4, MobileScrollback: 5000, AutoCloseMinutes: 1440, ChatCacheMaxSessions: 6}},
 	}
 	for _, c := range cases {
 		got := c.in

@@ -50,6 +50,21 @@ function svgIcon(cls, pathD) {
   return svg;
 }
 
+function svgIconParts(cls, parts) {
+  const NS = 'http://www.w3.org/2000/svg';
+  const svg = document.createElementNS(NS, 'svg');
+  for (const [k, v] of [['class', cls], ['viewBox', '0 0 24 24'], ['fill', 'none'],
+    ['stroke', 'currentColor'], ['stroke-width', '2'], ['stroke-linecap', 'round'], ['stroke-linejoin', 'round']]) {
+    svg.setAttribute(k, v);
+  }
+  for (const part of parts) {
+    const node = document.createElementNS(NS, part.tag || 'path');
+    for (const [k, v] of Object.entries(part.attrs || {})) node.setAttribute(k, v);
+    svg.appendChild(node);
+  }
+  return svg;
+}
+
 // 终止图标：实心圆角方块（stop）。用 SVG 而非 Unicode ⏹——后者在 iOS 上会渲染成彩色 emoji。
 function svgStop() {
   const NS = 'http://www.w3.org/2000/svg';
@@ -85,10 +100,16 @@ const state = {
   settings: null,        // dashboard 偏好（窗口上限/回滚行数，网关存；GET /api/settings）
   selfDraw: false,       // 实验：Codex 自绘界面（localStorage，默认关）
   chat: null,            // 当前自绘 Codex 会话状态（独立于 ttyd pool）
+  chatCache: new Map(),  // key(macId/sessionId) -> 自绘 Codex 会话状态；保持 SSE 连接，切回秒开
 };
 
 // 偏好默认（拉取失败/未设时回退，与 server/enroll defaultSettings 对齐）
-const SETTINGS_DEFAULT = { desktopMaxWindows: 10, desktopScrollback: 5000, mobileMaxWindows: 4, mobileScrollback: 5000, autoCloseMinutes: 30 };
+const SETTINGS_DEFAULT = {
+  desktopMaxWindows: 10, desktopScrollback: 5000,
+  mobileMaxWindows: 4, mobileScrollback: 5000,
+  autoCloseMinutes: 30,
+  chatCacheMaxSessions: 6,
+};
 
 // ---------- 工具 ----------
 const isMobile = () => matchMedia('(max-width: 860px)').matches;
@@ -306,7 +327,7 @@ async function refreshNames() {
 async function refreshSettings() {
   try {
     const r = await fetch(`${BASE}/api/settings`, { cache: 'no-store' });
-    if (r.ok) { state.settings = { ...SETTINGS_DEFAULT, ...(await r.json()) }; return; }
+    if (r.ok) { state.settings = { ...SETTINGS_DEFAULT, ...(await r.json()) }; evictChatCache(); return; }
   } catch (_) {}
   if (!state.settings) state.settings = { ...SETTINGS_DEFAULT }; // 拉取失败：用默认，不阻塞
 }
@@ -317,6 +338,9 @@ function openSettings() {
   $('#st-mmax').value = s.mobileMaxWindows;
   $('#st-mscroll').value = s.mobileScrollback;
   $('#st-autoclose').value = s.autoCloseMinutes;
+  $('#st-chat-cache-max').value = s.chatCacheMaxSessions;
+  renderChatCacheStats();
+  showSettingsTab('terminal');
   openOverlay('settings-modal');
 }
 async function saveSettings() {
@@ -326,6 +350,7 @@ async function saveSettings() {
     mobileMaxWindows: parseInt($('#st-mmax').value, 10) || 0,
     mobileScrollback: parseInt($('#st-mscroll').value, 10) || 0,
     autoCloseMinutes: parseInt($('#st-autoclose').value, 10) || 0,
+    chatCacheMaxSessions: parseInt($('#st-chat-cache-max').value, 10) || 0,
   };
   try {
     const r = await fetch(`${BASE}/api/settings`, {
@@ -336,8 +361,65 @@ async function saveSettings() {
     closeOverlay('settings-modal');
     toast('设置已保存', 'ok');
     poolEvict();              // 上限调小 → 立即按新上限释放多余窗口
+    evictChatCache();         // 自绘缓存上限调小 → 立即释放最久未看的连接
     applyScrollbackToPool();  // 回滚行数即时作用到已开终端
   } catch (e) { toast('保存失败：' + e.message, 'err'); }
+}
+
+function showSettingsTab(tab) {
+  const key = tab === 'chat' ? 'chat' : 'terminal';
+  $$('[data-settings-tab]').forEach((b) => b.setAttribute('aria-selected', String(b.dataset.settingsTab === key)));
+  $$('[data-settings-panel]').forEach((p) => { p.hidden = p.dataset.settingsPanel !== key; });
+  if (key === 'chat') renderChatCacheStats();
+}
+
+function formatBytes(bytes) {
+  const n = Math.max(0, Number(bytes) || 0);
+  if (n < 1024) return `${Math.round(n)} B`;
+  if (n < 1024 * 1024) return `${Math.round(n / 1024)} KB`;
+  return `${(n / 1024 / 1024).toFixed(n < 10 * 1024 * 1024 ? 1 : 0)} MB`;
+}
+
+function estimateChatBytes(chat) {
+  if (!chat) return 0;
+  let textBytes = 0;
+  try { textBytes = JSON.stringify(chat.model || {}).length * 2; } catch (_) {}
+  try { textBytes += JSON.stringify({
+    historyCursor: chat.historyCursor, models: chat.models, efforts: chat.efforts, serviceTiers: chat.serviceTiers,
+    selectedModel: chat.selectedModel, selectedEffort: chat.selectedEffort, selectedServiceTier: chat.selectedServiceTier,
+    approvalMode: chat.approvalMode, draft: chat.draft,
+  }).length * 2; } catch (_) {}
+  const imageIds = new Set();
+  let imageBytes = 0;
+  const collectImage = (img) => {
+    if (!img) return;
+    const id = img.id || img.url || img.previewUrl || img.localId || img.name;
+    if (id && imageIds.has(id)) return;
+    if (id) imageIds.add(id);
+    imageBytes += Number(img.size) || 0;
+  };
+  for (const att of chat.attachments || []) collectImage(att);
+  for (const id of chat.model?.messages || []) {
+    const item = chat.model.items?.[id];
+    for (const img of item?.images || []) collectImage(img);
+  }
+  const objectOverhead = 64 * 1024; // EventSource + message index objects 的保守基础开销。
+  return Math.round((textBytes * 1.35) + imageBytes + objectOverhead);
+}
+
+function chatCacheStats() {
+  let bytes = 0;
+  for (const chat of state.chatCache.values()) bytes += estimateChatBytes(chat);
+  return { count: state.chatCache.size, max: chatCacheMax(), bytes, each: state.chatCache.size ? bytes / state.chatCache.size : 0 };
+}
+
+function renderChatCacheStats() {
+  const count = $('#st-chat-cache-count');
+  if (!count) return;
+  const st = chatCacheStats();
+  count.textContent = `${st.count} / ${st.max}`;
+  $('#st-chat-cache-bytes').textContent = formatBytes(st.bytes);
+  $('#st-chat-cache-each').textContent = formatBytes(st.each);
 }
 // 把当前回滚行数应用到池里所有已就绪终端（保存设置后即时生效）。
 function applyScrollbackToPool() {
@@ -408,6 +490,7 @@ async function loadSessions(opts = {}) {
   setSessionsLoading(false);
 
   const sessions = data.sessions || [];
+  for (const s of sessions) updateCachedChatFromSession(macId, s);
   const activeN = scope === 'active' ? sessions.length : sessions.filter((s) => s.live).length;
   state.counts[macId] = activeN;
 
@@ -464,7 +547,10 @@ async function refreshSessionsSoft() {
     return;
   }
   const bySid = {};
-  for (const s of sessions) bySid[s.sessionId] = s;
+  for (const s of sessions) {
+    bySid[s.sessionId] = s;
+    updateCachedChatFromSession(state.macId, s);
+  }
   for (const el of rows) {
     const s = bySid[el.dataset.sid];
     if (!s) continue;
@@ -490,6 +576,7 @@ function sessionRow(s) {
   const assistant = s.assistant || state.assistant;
   const selfDraw = canSelfDrawChat() && assistant === 'codex';
   const inPool = !!poolFind(state.macId, sid, assistant);
+  const chatConnected = assistant === 'codex' && isChatConnectionKept(state.macId, sid);
   const live = !!s.pty; // 有运行中进程（行尾绿点）：再连只是重新 attach，不需选权限模式
   const stop = s.pty && h('span', { class: 'stopbtn', title: '终止进程（会话保留）',
     onclick: (e) => { e.stopPropagation(); termSes(sid, s.title); } }, svgStop());
@@ -499,6 +586,7 @@ function sessionRow(s) {
     h('span', { class: 't', text: s.title || '(无标题)' }),
     // 紧凑化：不再单起一行显示分支/路径，仅在同行标题后跟相对时间
     h('span', { class: 'ses-time', text: relTime(s.mtime) }),
+    h('span', { class: 'chat-cache-status', title: '自绘会话保持连接', 'aria-label': '自绘会话保持连接' }),
     stop,
   );
   // 池内 / 有进程的会话点行即直接进入，不需按钮；仅冷会话才展开三种权限模式。
@@ -511,7 +599,7 @@ function sessionRow(s) {
     h('button', { class: 'btn sm warn', title: assistant === 'codex' ? 'codex --ask-for-approval never --sandbox workspace-write（自动批准 + 工作区可写沙箱）' : 'claude --permission-mode auto（自动批准 + 后台安全分类器）',
       onclick: (e) => { e.stopPropagation(); connect(sid, s.title, s.cwd, 'auto'); } }, 'Auto'));
   const row = h('div', {
-    class: 'ses' + (s.pty ? ' conn' : '') + (sid === state.selectedSid ? ' sel' : ''),
+    class: 'ses' + (s.pty ? ' conn' : '') + (chatConnected ? ' chat-connected' : '') + (sid === state.selectedSid ? ' sel' : ''),
     dataset: { sid },
   }, top, acts);
   // 池内 → poolShow 瞬时切换；有进程未在池 → 直接重新 attach；冷会话 → 仅高亮 + 展开三按钮。
@@ -709,13 +797,111 @@ function restoreTermOrEmpty() {
 // ============================================================
 //  Codex 自绘会话（实验）：独立于 ttyd / iframe pool，仅替换右侧窗口区域
 // ============================================================
-function closeChatPane(reset = true) {
+function chatCacheKey(macId, sessionId) {
+  return `${macId || ''}\n${sessionId || ''}`;
+}
+
+function saveChatDraft(chat = state.chat) {
+  const input = $('#chat-input');
+  if (chat && input) chat.draft = input.value || '';
+}
+
+function isChatRunning(chat) {
+  return !!chat && (chat.model?.phase === 'running' || chat.submitting === true);
+}
+
+function enqueueChatFollowup(chat, text, images, id) {
+  if (!chat) return null;
+  chat.followups = chat.followups || [];
+  const item = {
+    id: id || `follow-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+    text: typeof text === 'string' ? text : '',
+    images: Array.isArray(images) ? images.map((image) => ({ ...image })) : [],
+  };
+  chat.followups.push(item);
+  return item;
+}
+
+function removeChatFollowup(chat, id) {
+  if (!chat?.followups) return null;
+  const index = chat.followups.findIndex((item) => item.id === id);
+  if (index < 0) return null;
+  return chat.followups.splice(index, 1)[0];
+}
+
+function disposeChat(chat) {
+  if (!chat) return;
+  if (chat.events) { try { chat.events.close(); } catch (_) {} }
+  chat.events = null;
+  if (chat.objectUrls) for (const u of chat.objectUrls) { try { URL.revokeObjectURL(u); } catch (_) {} }
+  chat.objectUrls = [];
+  syncChatConnectionIndicators();
+}
+
+function chatCacheMax() {
+  const s = state.settings || SETTINGS_DEFAULT;
+  return Math.max(1, parseInt(s.chatCacheMaxSessions, 10) || SETTINGS_DEFAULT.chatCacheMaxSessions);
+}
+
+function chatCacheVictim(cache, currentChat) {
+  let victimKey = '';
+  let victim = null;
+  for (const [key, chat] of cache) {
+    if (chat === currentChat) continue;
+    if (!victim || (Number(chat.updatedAt) || 0) < (Number(victim.updatedAt) || 0)) {
+      victimKey = key;
+      victim = chat;
+    }
+  }
+  return victim ? { key: victimKey, chat: victim } : null;
+}
+
+// 超过上限时，保留当前正在看的会话；其余按最后一次会话更新时间从早到晚释放。
+function evictChatCache() {
+  while (state.chatCache.size > chatCacheMax()) {
+    const victim = chatCacheVictim(state.chatCache, state.chat);
+    if (!victim) break;
+    disposeChat(victim.chat);
+    state.chatCache.delete(victim.key);
+  }
+  syncChatConnectionIndicators();
+  renderChatCacheStats();
+}
+
+function updateChatUpdatedAt(chat, value) {
+  const updatedAt = Number(value) || 0;
+  if (chat && updatedAt > (Number(chat.updatedAt) || 0)) chat.updatedAt = updatedAt;
+}
+
+function updateCachedChatFromSession(macId, session) {
+  if (!session?.sessionId) return;
+  updateChatUpdatedAt(state.chatCache.get(chatCacheKey(macId, session.sessionId)), session.mtime);
+}
+
+function isChatConnectionKept(macId, sessionId) {
+  const chat = state.chatCache.get(chatCacheKey(macId, sessionId));
+  return !!(chat?.events && chat.events.readyState !== EventSource.CLOSED);
+}
+
+function syncChatConnectionIndicators() {
+  if (state.assistant !== 'codex') return;
+  $$('#session-groups .ses').forEach((row) => {
+    row.classList.toggle('chat-connected', isChatConnectionKept(state.macId, row.dataset.sid));
+  });
+}
+
+function closeChatPane({ dispose = false } = {}) {
   const chat = state.chat;
-  if (chat && chat.events) { try { chat.events.close(); } catch (_) {} }
-  if (chat && chat.objectUrls) for (const u of chat.objectUrls) { try { URL.revokeObjectURL(u); } catch (_) {} }
-  if (reset) state.chat = null;
+  saveChatDraft(chat);
+  if (dispose && chat) {
+    disposeChat(chat);
+    state.chatCache.delete(chat.cacheKey);
+    renderChatCacheStats();
+  }
+  state.chat = null;
   const pane = $('#chat-pane');
   if (pane) pane.hidden = true;
+  closeChatOptions();
 }
 
 function showChatPane(title, cwd) {
@@ -776,10 +962,11 @@ function renderChat({ preserveScroll = false, forceBottom = false } = {}) {
   if (chat.loading) stack.append(chatRow(h('div', { class: 'chat-card muted', text: '正在连接 Codex app-server…' })));
   const model = chat.model || FleetChatModel.createChatState();
   const currentTurn = currentChatTurn(model);
+  const metaVisible = chatMessageMetaVisibility(model);
   for (const id of model.messages) {
     const item = model.items[id];
     if (!item) continue;
-    stack.append(renderChatItem(item, id === currentTurn?.id));
+    stack.append(renderChatItem(item, id === currentTurn?.id, metaVisible.has(id)));
   }
   if (model.error) stack.append(renderChatError(model.error));
   clear(sc); sc.append(stack);
@@ -812,24 +999,135 @@ function chatToolDuration(ms) {
   return `${minutes} 分 ${seconds} 秒`;
 }
 
+function formatChatDate(ms) {
+  const value = Number(ms);
+  if (!Number.isFinite(value) || value <= 0) return '';
+  const d = new Date(value);
+  if (!Number.isFinite(d.getTime())) return '';
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+}
+
+function formatChatInteger(value) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return '';
+  return Math.round(n).toLocaleString('en-US');
+}
+
+function chatUserMetaText(item) {
+  const sent = formatChatDate(item.sentAtMs || item.createdAtMs || item.created_at_ms);
+  return sent;
+}
+
+function chatAssistantMetaText(item) {
+  const chunks = [];
+  const identity = [item.model, item.effort].filter(Boolean).join(', ');
+  if (identity) chunks.push(identity);
+  const inputTokens = formatChatInteger(item.usage?.inputTokens);
+  const outputTokens = formatChatInteger(item.usage?.outputTokens);
+  if (inputTokens || outputTokens) chunks.push(`in ${inputTokens || '-'} / out ${outputTokens || '-'}`);
+  const completed = formatChatDate(item.completedAtMs || item.finishedAtMs || item.finished_at_ms);
+  if (completed) chunks.push(completed);
+  return chunks.join('  |  ');
+}
+
+function applyChatMetadataDefaults(chat) {
+  const model = chat?.model;
+  if (!chat || !model?.items) return;
+  for (const id of model.messages || []) {
+    const item = model.items[id];
+    if (!item || item.type !== 'assistant') continue;
+    if (!item.model && chat.selectedModel) item.model = chat.selectedModel;
+    if (!item.effort && chat.selectedEffort) item.effort = chat.selectedEffort;
+  }
+}
+
+function chatAssistantTurnKey(item, fallbackId) {
+  return item?.turnId ? `turn:${item.turnId}` : `item:${fallbackId}`;
+}
+
+function chatMessageMetaVisibility(model) {
+  const visible = new Set();
+  const messages = model?.messages || [];
+  const items = model?.items || {};
+  const lastAssistantByTurn = new Map();
+  for (const id of messages) {
+    const item = items[id];
+    if (!item || item.type !== 'assistant') continue;
+    lastAssistantByTurn.set(chatAssistantTurnKey(item, id), id);
+  }
+  for (const id of messages) {
+    const item = items[id];
+    if (!item) continue;
+    if (item.type === 'user') {
+      if (chatUserMetaText(item)) visible.add(id);
+    } else if (item.type === 'assistant') {
+      const key = chatAssistantTurnKey(item, id);
+      if (lastAssistantByTurn.get(key) === id && chatAssistantMetaText(item)) visible.add(id);
+    }
+  }
+  return visible;
+}
+
+function renderChatMessageMeta(text) {
+  return text ? h('div', { class: 'chat-msg-meta mono', text }) : null;
+}
+
+// Codex 自绘工具行使用项目内 Lucide SVG 副本：
+// server/dashboard/icons/codex-tools/*.svg。运行时仍创建内联 SVG，避免额外请求/外部依赖。
 function chatToolIcon(kind) {
-  if (kind === 'commandExecution') return svgIcon('ic', 'M4 17l6-6-6-6M12 19h8');
-  if (kind === 'webSearch') return svgIcon('ic', 'M21 21l-4.35-4.35M19 11a8 8 0 1 1-16 0 8 8 0 0 1 16 0Z');
-  if (kind === 'imageView' || kind === 'imageGeneration') return svgIcon('ic', 'M3 5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v14H3V5Zm0 11 5-5 4 4 2-2 7 6');
-  if (kind === 'collabAgentToolCall' || kind === 'subAgentActivity') return svgIcon('ic', 'M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8Zm13 10v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75');
-  if (kind === 'sleep') return svgIcon('ic', 'M17 4h4l-4 5h4M7 4h7l-7 9h7M4 20h16');
-  return svgIcon('ic', 'M12 2v6M12 16v6M4.93 4.93l4.24 4.24M14.83 14.83l4.24 4.24M2 12h6M16 12h6M4.93 19.07l4.24-4.24M14.83 9.17l4.24-4.24');
+  if (kind === 'commandExecution') return svgIconParts('ic', [
+    { tag: 'path', attrs: { d: 'm7 11 2-2-2-2' } },
+    { tag: 'path', attrs: { d: 'M11 13h4' } },
+    { tag: 'rect', attrs: { x: '3', y: '3', width: '18', height: '18', rx: '2', ry: '2' } },
+  ]);
+  if (kind === 'fileRead') return svgIconParts('ic', [
+    { tag: 'path', attrs: { d: 'M12 7v14' } },
+    { tag: 'path', attrs: { d: 'M3 18a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h5a4 4 0 0 1 4 4 4 4 0 0 1 4-4h5a1 1 0 0 1 1 1v13a1 1 0 0 1-1 1h-6a3 3 0 0 0-3 3 3 3 0 0 0-3-3z' } },
+  ]);
+  if (kind === 'fileChange') return svgIconParts('ic', [
+    { tag: 'path', attrs: { d: 'M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z' } },
+    { tag: 'path', attrs: { d: 'm15 5 4 4' } },
+  ]);
+  if (kind === 'webSearch') return svgIconParts('ic', [
+    { tag: 'path', attrs: { d: 'm21 21-4.34-4.34' } },
+    { tag: 'circle', attrs: { cx: '11', cy: '11', r: '8' } },
+  ]);
+  if (kind === 'imageView' || kind === 'imageGeneration') return svgIconParts('ic', [
+    { tag: 'rect', attrs: { x: '3', y: '3', width: '18', height: '18', rx: '2', ry: '2' } },
+    { tag: 'circle', attrs: { cx: '9', cy: '9', r: '2' } },
+    { tag: 'path', attrs: { d: 'm21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21' } },
+  ]);
+  if (kind === 'collabAgentToolCall' || kind === 'subAgentActivity') return svgIconParts('ic', [
+    { tag: 'path', attrs: { d: 'M12 8V4H8' } },
+    { tag: 'rect', attrs: { x: '4', y: '12', width: '8', height: '8', rx: '1' } },
+    { tag: 'path', attrs: { d: 'M12 12h4v-2' } },
+    { tag: 'path', attrs: { d: 'M16 4h4v4' } },
+    { tag: 'path', attrs: { d: 'M16 8h4' } },
+    { tag: 'path', attrs: { d: 'M20 12v4h-4' } },
+    { tag: 'path', attrs: { d: 'M16 16h4' } },
+  ]);
+  if (kind === 'sleep') return svgIconParts('ic', [
+    { tag: 'path', attrs: { d: 'M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z' } },
+  ]);
+  return svgIconParts('ic', [
+    { tag: 'path', attrs: { d: 'M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94z' } },
+  ]);
 }
 
 function renderChatTool(item) {
   const status = chatToolStatus(item.status);
   const duration = chatToolDuration(item.durationMs);
   const hasBody = Boolean(item.detail || item.output || item.progress || item.meta || item.exitCode !== undefined);
+  const isCommand = item.kind === 'commandExecution';
+  const verb = status.key === 'running' ? '正在运行' : (status.key === 'failed' ? '运行失败' : '已运行');
+  const title = isCommand ? verb : (item.title || '工具调用');
+  const summary = isCommand ? (item.summary || item.title || '') : (item.summary || '');
   const header = h('span', { class: 'chat-tool-summary' },
     h('span', { class: 'chat-tool-icon' }, chatToolIcon(item.kind)),
     h('span', { class: 'chat-tool-copy' },
-      h('span', { class: 'chat-tool-title', text: item.title || '工具调用' }),
-      item.summary ? h('span', { class: 'chat-tool-subtitle mono', text: item.summary }) : null),
+      h('span', { class: 'chat-tool-title', text: title }),
+      summary ? h('span', { class: 'chat-tool-subtitle mono', text: summary }) : null),
     h('span', { class: 'chat-tool-aside' },
       duration ? h('span', { class: 'chat-tool-duration', text: duration }) : null,
       status.label ? h('span', { class: `chat-tool-status ${status.key}`, text: status.label }) : null,
@@ -838,13 +1136,36 @@ function renderChatTool(item) {
   const body = h('div', { class: 'chat-tool-body' },
     item.progress ? h('div', { class: 'chat-tool-progress', text: item.progress }) : null,
     item.meta ? h('div', { class: 'chat-tool-meta mono', text: item.meta }) : null,
-    item.detail ? h('div', { class: 'chat-tool-section' }, h('div', { class: 'chat-tool-label', text: '参数' }), h('pre', { text: item.detail })) : null,
-    item.output ? h('div', { class: 'chat-tool-section' }, h('div', { class: 'chat-tool-label', text: '结果' }), h('pre', { text: item.output })) : null,
+    (item.summary || item.output || item.detail) ? h('div', { class: 'chat-tool-section' },
+      h('div', { class: 'chat-tool-label', text: isCommand ? 'Shell' : '详情' }),
+      h('pre', { text: [
+        item.summary ? `$ ${item.summary}` : '',
+        item.detail || '',
+        item.output || '',
+      ].filter(Boolean).join('\n') })) : null,
     item.exitCode !== undefined ? h('div', { class: 'chat-tool-exit mono', text: `退出码 ${item.exitCode}` }) : null);
   return chatRow(h('details', { class: 'chat-tool compact' }, h('summary', {}, header), body), 'tool');
 }
 
-function renderChatItem(item, isCurrentTurn = false) {
+function renderChatDiff(item) {
+  const files = item.files || [];
+  const title = '编辑了文件';
+  const header = h('span', { class: 'chat-tool-summary' },
+    h('span', { class: 'chat-tool-icon' }, chatToolIcon('fileChange')),
+    h('span', { class: 'chat-tool-copy' }, h('span', { class: 'chat-tool-title', text: title })),
+    h('span', { class: 'chat-tool-aside' }, files.length ? svgIcon('chat-tool-chevron', 'M6 9l6 6 6-6') : null));
+  if (!files.length) return chatRow(h('div', { class: 'chat-tool chat-diff compact' }, header), 'diff');
+  return chatRow(h('details', { class: 'chat-tool chat-diff compact' },
+    h('summary', {}, header),
+    h('div', { class: 'chat-diff-files' }, files.map((file) => h('div', { class: 'chat-diff-file' },
+      h('span', { class: 'chat-diff-path mono', text: file.path }),
+      h('span', { class: 'chat-diff-stats mono' },
+        h('span', { class: 'chat-diff-add', text: `+${file.additions || 0}` }),
+        h('span', { class: 'chat-diff-del', text: `-${file.deletions || 0}` })))))),
+    'diff');
+}
+
+function renderChatItem(item, isCurrentTurn = false, showMeta = true) {
   if (item.type === 'user') {
     const parts = [];
     if (item.text) parts.push(h('div', { text: item.text }));
@@ -854,9 +1175,16 @@ function renderChatItem(item, isCurrentTurn = false) {
         return src ? h('img', { class: 'chat-img', src, alt: img.name || 'image' }) : h('div', { class: 'chat-img muted', text: img.name || '图片' });
       })));
     }
+    const meta = showMeta ? renderChatMessageMeta(chatUserMetaText(item)) : null;
+    if (meta) parts.push(meta);
     return chatRow(h('div', { class: 'chat-card' }, parts.length ? parts : h('div', { text: '' })), 'user' + (isCurrentTurn ? ' current-turn' : ''));
   }
-  if (item.type === 'assistant') return chatRow(h('div', { class: 'chat-card' }, FleetMarkdown.renderMarkdown(item.text)), 'assistant');
+  if (item.type === 'assistant') {
+    return chatRow(h('div', { class: 'chat-card' },
+      FleetMarkdown.renderMarkdown(item.text),
+      showMeta ? renderChatMessageMeta(chatAssistantMetaText(item)) : null),
+    'assistant');
+  }
   if (item.type === 'tool') return renderChatTool(item);
   if (item.type === 'approval') return chatRow(h('div', { class: 'chat-approval' },
     h('div', { class: 'chat-approval-h', text: item.status === 'resolved' ? '审批已处理' : (item.kind === 'command' ? '需要批准命令执行' : '需要批准权限 / 文件改动') }),
@@ -867,19 +1195,7 @@ function renderChatItem(item, isCurrentTurn = false) {
       item.status === 'resolved' ? h('div', { class: 'muted', text: '已发送决定。' }) : h('div', { class: 'chat-approval-actions' },
         h('button', { class: 'btn sm primary', onclick: () => resolveApproval(item.requestId, 'approved') }, '批准'),
         h('button', { class: 'btn sm', onclick: () => resolveApproval(item.requestId, 'denied') }, '拒绝')))), 'approval');
-  if (item.type === 'diff') {
-    const files = item.files || [];
-    return chatRow(h('div', { class: 'chat-diff' },
-      h('div', { class: 'chat-diff-h' },
-        h('span', { text: '文件改动' }),
-        files.length ? h('span', { class: 'chat-diff-count', text: `${files.length} 个文件` }) : null),
-      files.length ? h('div', { class: 'chat-diff-files' }, files.map((file) => h('div', { class: 'chat-diff-file' },
-        h('span', { class: 'chat-diff-path mono', text: file.path }),
-        h('span', { class: 'chat-diff-stats mono' },
-          h('span', { class: 'chat-diff-add', text: `+${file.additions || 0}` }),
-          h('span', { class: 'chat-diff-del', text: `-${file.deletions || 0}` })))))
-        : h('div', { class: 'chat-diff-empty', text: '文件改动已完成' })), 'diff');
-  }
+  if (item.type === 'diff') return renderChatDiff(item);
   return chatRow(h('div', { class: 'chat-card muted', text: JSON.stringify(item) }));
 }
 
@@ -905,8 +1221,54 @@ function updateChatComposerState() {
   const attachments = state.chat?.attachments || [];
   const blocked = attachments.some((att) => att.uploading || att.error || !att.id);
   const hasContent = Boolean(input?.value.trim()) || attachments.length > 0;
-  send.disabled = !state.chat || !hasContent || blocked;
-  send.title = blocked ? '等待图片上传完成' : '发送';
+  const running = isChatRunning(state.chat);
+  send.dataset.action = running ? 'interrupt' : 'send';
+  send.disabled = !state.chat || (running ? !!state.chat.interrupting : (!hasContent || blocked));
+  send.title = running ? '停止生成' : (blocked ? '等待图片上传完成' : '发送');
+  send.setAttribute('aria-label', send.title);
+}
+
+function renderChatFollowups() {
+  const box = $('#chat-followups');
+  const chat = state.chat;
+  if (!box) return;
+  clear(box);
+  const items = chat?.followups || [];
+  box.hidden = items.length === 0;
+  for (const item of items) {
+    const label = item.text || `${item.images.length} 张图片`;
+    box.append(h('div', { class: 'chat-followup', dataset: { id: item.id } },
+      svgIconParts('chat-followup-icon', [
+        { tag: 'path', attrs: { d: 'M8 6h11M8 12h11M8 18h7' } },
+        { tag: 'circle', attrs: { cx: '3.5', cy: '6', r: '1', fill: 'currentColor', stroke: 'none' } },
+        { tag: 'circle', attrs: { cx: '3.5', cy: '12', r: '1', fill: 'currentColor', stroke: 'none' } },
+        { tag: 'circle', attrs: { cx: '3.5', cy: '18', r: '1', fill: 'currentColor', stroke: 'none' } },
+      ]),
+      h('span', { class: 'chat-followup-text', text: label, title: label }),
+      item.images.length ? h('span', { class: 'chat-followup-images', text: `+${item.images.length} 图` }) : null,
+      h('div', { class: 'chat-followup-actions' },
+        h('button', { type: 'button', class: 'chat-followup-guide', title: '引导当前任务', onclick: () => guideChatFollowup(item.id) },
+          svgIconParts('ic', [{ tag: 'path', attrs: { d: 'M4 5v6a4 4 0 0 0 4 4h11M15 11l4 4-4 4' } }]), '引导'),
+        h('button', { type: 'button', class: 'iconbtn bare', title: '编辑追问', 'aria-label': '编辑追问', onclick: () => editChatFollowup(item.id) },
+          svgIconParts('ic', [{ tag: 'path', attrs: { d: 'M12 20h9M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z' } }])),
+        h('button', { type: 'button', class: 'iconbtn bare', title: '删除追问', 'aria-label': '删除追问', onclick: () => { removeChatFollowup(chat, item.id); renderChatFollowups(); } },
+          svgIconParts('ic', [{ tag: 'path', attrs: { d: 'M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6M10 11v5M14 11v5' } }])))));
+  }
+}
+
+function editChatFollowup(id) {
+  const chat = state.chat;
+  const item = removeChatFollowup(chat, id);
+  if (!item) return;
+  const input = $('#chat-input');
+  const current = input.value.trim();
+  input.value = [current, item.text].filter(Boolean).join(current ? '\n' : '');
+  chat.draft = input.value;
+  chat.attachments = [...(chat.attachments || []), ...item.images.map((image) => ({ ...image }))];
+  renderChatFollowups();
+  renderChatAttachments();
+  resizeChatInput();
+  input.focus();
 }
 
 function renderChatAttachments() {
@@ -958,14 +1320,14 @@ async function uploadChatFile(chat, att, file) {
     fd.append('assistant', 'codex');
     fd.append('sessionId', chat.sessionId);
     fd.append('file', file, file.name || 'image');
-    const r = await fetch(`${apiBase(state.macId)}/api/chat/upload`, { method: 'POST', body: fd });
+    const r = await fetch(`${apiBase(chat.macId)}/api/chat/upload`, { method: 'POST', body: fd });
     if (!r.ok) {
       let msg = `上传失败：${r.status}`;
       try { const j = await r.json(); if (j && j.message) msg = j.message; } catch (_) {}
       throw new Error(msg);
     }
     const saved = await r.json();
-    if (!state.chat || state.chat !== chat) return;
+    if (state.chatCache.get(chat.cacheKey) !== chat) return;
     Object.assign(att, saved, { uploading: false, error: '' });
   } catch (e) {
     att.uploading = false;
@@ -988,43 +1350,76 @@ async function openChatSession(s) {
   $$('.ses').forEach((el) => el.classList.toggle('sel', el.dataset.sid === s.sessionId));
   closeChatPane();
   stopWatch(); hideBanner(); closeMenus();
-  state.chat = {
-    sessionId: s.sessionId, title: s.title || 'Codex 会话', cwd: s.cwd || '',
-    model: FleetChatModel.createChatState(), loading: true, events: null, attachments: [], objectUrls: [],
-    historyReady: false, historyLoading: false, historyCursor: '',
-    models: [], efforts: [], serviceTiers: [], selectedModel: '', selectedEffort: '', selectedServiceTier: '',
-    modelDirty: false, serviceTierDirty: false,
-    approvalMode: 'on-request', approvalDirty: false,
-  };
-  $('#chat-input').value = '';
+  const key = chatCacheKey(state.macId, s.sessionId);
+  let chat = state.chatCache.get(key);
+  if (chat) {
+    chat.title = s.title || chat.title || 'Codex 会话';
+    chat.cwd = s.cwd || chat.cwd || '';
+  } else {
+    chat = {
+      cacheKey: key, macId: state.macId,
+      sessionId: s.sessionId, title: s.title || 'Codex 会话', cwd: s.cwd || '',
+      model: FleetChatModel.createChatState(), loading: true, events: null, resumePromise: null,
+      attachments: [], objectUrls: [], draft: '', updatedAt: Number(s.mtime) || Date.now(),
+      followups: [], sendingFollowup: false, interrupting: false,
+      historyReady: false, historyLoading: false, historyCursor: '',
+      models: [], efforts: [], serviceTiers: [], selectedModel: '', selectedEffort: '', selectedServiceTier: '',
+      modelDirty: false, serviceTierDirty: false,
+      approvalMode: 'on-request', approvalDirty: false,
+    };
+    state.chatCache.set(key, chat);
+  }
+  state.chat = chat;
+  updateChatUpdatedAt(chat, s.mtime);
+  evictChatCache();
+  showChatPane(chat.title, chat.cwd);
+  $('#chat-input').value = chat.draft || '';
   resizeChatInput();
+  renderChatAttachments();
+  renderChatFollowups();
+  if (chat.historyReady) {
+    $('#chat-approval').value = chat.approvalMode || 'on-request';
+    $('#chat-approval').disabled = false;
+    renderChatOptions(chat);
+  } else {
+    $('#chat-approval').disabled = true;
+    $('#chat-options').hidden = true;
+    closeChatOptions();
+  }
+  renderChat({ forceBottom: true });
   updateChatComposerState();
-  $('#chat-approval').disabled = true;
-  $('#chat-options').hidden = true;
-  closeChatOptions();
-  showChatPane(state.chat.title, state.chat.cwd);
-  renderChat();
+  if (chat.historyReady) {
+    startChatEvents(chat);
+    return;
+  }
+  if (chat.resumePromise) return;
   try {
-    const resumed = await api(state.macId, 'chat/resume', {
+    chat.resumePromise = api(chat.macId, 'chat/resume', {
       method: 'POST', headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ assistant: 'codex', sessionId: s.sessionId, mode: 'default' }),
+      body: JSON.stringify({ assistant: 'codex', sessionId: chat.sessionId, mode: 'default' }),
     });
-    if (state.chat && state.chat.sessionId === s.sessionId) {
-      const chat = state.chat;
+    const resumed = await chat.resumePromise;
+    if (state.chatCache.get(chat.cacheKey) === chat) {
       chat.model = FleetChatModel.prependHistory(chat.model, resumed.history?.events || []);
+      chat.model = FleetChatModel.reduceChatEvent(chat.model, { type: 'thread_status', data: { status: resumed.status } });
       chat.historyCursor = resumed.history?.nextCursor || '';
       chat.historyReady = true;
       chat.loading = false;
       configureChatOptions(chat, resumed);
+      applyChatMetadataDefaults(chat);
+      startChatEvents(chat);
+    }
+    if (state.chat === chat) {
       renderChat({ forceBottom: true });
-      startChatEvents();
+      updateChatComposerState();
+      renderChatFollowups();
     }
   } catch (e) {
-    if (state.chat && state.chat.sessionId === s.sessionId) {
-      state.chat.loading = false;
-      state.chat.historyReady = true;
+    chat.loading = false;
+    chat.resumePromise = null;
+    if (state.chat === chat) {
       $('#chat-approval').disabled = false;
-      state.chat.model = FleetChatModel.reduceChatEvent(state.chat.model, { type: 'error', data: { message: e.message } });
+      chat.model = FleetChatModel.reduceChatEvent(chat.model, { type: 'error', data: { message: e.message } });
       renderChat();
     }
   }
@@ -1182,12 +1577,9 @@ function renderChatOptions(chat) {
 }
 
 function configureChatOptions(chat, resumed) {
-  const approval = $('#chat-approval');
   const approvalModes = new Set(['untrusted', 'on-request', 'never', 'full-access']);
   chat.approvalMode = approvalModes.has(resumed.approvalMode) ? resumed.approvalMode : 'on-request';
   chat.approvalDirty = false;
-  approval.value = chat.approvalMode;
-  approval.disabled = false;
 
   const models = Array.isArray(resumed.models) ? resumed.models.slice() : [];
   if (resumed.model && !models.some((m) => m.value === resumed.model)) {
@@ -1200,7 +1592,12 @@ function configureChatOptions(chat, resumed) {
   configureChatServiceTiers(chat, resumed.serviceTier || '');
   chat.modelDirty = false;
   chat.serviceTierDirty = false;
-  renderChatOptions(chat);
+  if (state.chat === chat) {
+    const approval = $('#chat-approval');
+    approval.value = chat.approvalMode;
+    approval.disabled = false;
+    renderChatOptions(chat);
+  }
 }
 
 async function loadOlderChatHistory() {
@@ -1209,9 +1606,10 @@ async function loadOlderChatHistory() {
   chat.historyLoading = true;
   renderChat({ preserveScroll: true });
   try {
-    const page = await api(state.macId, `chat/history?assistant=codex&sessionId=${encodeURIComponent(chat.sessionId)}&cursor=${encodeURIComponent(chat.historyCursor)}`);
+    const page = await api(chat.macId, `chat/history?assistant=codex&sessionId=${encodeURIComponent(chat.sessionId)}&cursor=${encodeURIComponent(chat.historyCursor)}`);
     if (state.chat !== chat) return;
     chat.model = FleetChatModel.prependHistory(chat.model, page.events || []);
+    applyChatMetadataDefaults(chat);
     chat.historyCursor = page.nextCursor || '';
   } catch (e) {
     if (state.chat === chat) toast('加载历史失败：' + e.message, 'err');
@@ -1223,22 +1621,31 @@ async function loadOlderChatHistory() {
   }
 }
 
-function startChatEvents() {
-  const chat = state.chat;
+function startChatEvents(chat = state.chat) {
   if (!chat) return;
-  const url = `${apiBase(state.macId)}/api/chat/events?assistant=codex&sessionId=${encodeURIComponent(chat.sessionId)}`;
+  if (chat.events && chat.events.readyState !== EventSource.CLOSED) return;
+  const url = `${apiBase(chat.macId)}/api/chat/events?assistant=codex&sessionId=${encodeURIComponent(chat.sessionId)}`;
   const es = new EventSource(url);
   chat.events = es;
+  syncChatConnectionIndicators();
   es.onmessage = (e) => {
-    if (!state.chat || state.chat !== chat) return;
+    if (state.chatCache.get(chat.cacheKey) !== chat) return;
     try {
       const ev = JSON.parse(e.data);
+      updateChatUpdatedAt(chat, Date.now());
+      const wasRunning = isChatRunning(chat);
       chat.model = FleetChatModel.reduceChatEvent(chat.model, ev);
-      renderChat();
+      applyChatMetadataDefaults(chat);
+      if (state.chat === chat) {
+        renderChat();
+        updateChatComposerState();
+        renderChatFollowups();
+      }
+      if (wasRunning && !isChatRunning(chat)) flushChatFollowups(chat);
     } catch (_) {}
   };
   es.onerror = () => {
-    if (!state.chat || state.chat !== chat || chat.loading) return;
+    if (state.chatCache.get(chat.cacheKey) !== chat || chat.loading) return;
     // EventSource 会自动重连；瞬时断流不要写进消息流，否则会像真实回复一样污染历史。
     chat.streamState = 'reconnecting';
   };
@@ -1256,29 +1663,100 @@ async function submitChatInput() {
   if (!text && pending.length === 0) return;
   const images = pending.map((att) => ({ id: att.id, name: att.name, mime: att.mime, size: att.size, url: att.url, previewUrl: att.previewUrl }));
   input.value = '';
+  chat.draft = '';
   resizeChatInput();
   chat.attachments = [];
   renderChatAttachments();
-  chat.model = FleetChatModel.appendUserMessage(chat.model, text, 'user-' + Date.now(), images);
+  const item = { id: `follow-${Date.now()}-${Math.random().toString(16).slice(2)}`, text: raw, images };
+  if (isChatRunning(chat)) {
+    enqueueChatFollowup(chat, item.text, item.images, item.id);
+    renderChatFollowups();
+    return;
+  }
+  await sendChatTurn(chat, item);
+}
+
+function chatTurnOptions(chat) {
+  const turnOptions = {};
+  if (chat.modelDirty && chat.selectedModel) {
+    turnOptions.model = chat.selectedModel;
+    if (chat.selectedEffort) turnOptions.effort = chat.selectedEffort;
+  }
+  if (chat.serviceTierDirty) turnOptions.serviceTier = chat.selectedServiceTier;
+  if (chat.approvalDirty && chat.approvalMode) turnOptions.approvalMode = chat.approvalMode;
+  return turnOptions;
+}
+
+async function sendChatTurn(chat, item) {
+  chat.model = FleetChatModel.appendUserMessage(chat.model, item.text.trim(), 'user-' + Date.now(), item.images);
   chat.loading = false;
-  renderChat();
+  chat.submitting = true;
+  if (state.chat === chat) {
+    renderChat();
+    updateChatComposerState();
+  }
   try {
-    const turnOptions = {};
-    if (chat.modelDirty && chat.selectedModel) {
-      turnOptions.model = chat.selectedModel;
-      if (chat.selectedEffort) turnOptions.effort = chat.selectedEffort;
-    }
-    if (chat.serviceTierDirty) turnOptions.serviceTier = chat.selectedServiceTier;
-    if (chat.approvalDirty && chat.approvalMode) turnOptions.approvalMode = chat.approvalMode;
-    await api(state.macId, 'chat/input', {
+    const started = await api(chat.macId, 'chat/input', {
       method: 'POST', headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ assistant: 'codex', sessionId: chat.sessionId, text: raw, images: images.map((img) => ({ id: img.id })), ...turnOptions }),
+      body: JSON.stringify({ assistant: 'codex', sessionId: chat.sessionId, text: item.text, images: item.images.map((img) => ({ id: img.id })), ...chatTurnOptions(chat) }),
     });
+    chat.model = FleetChatModel.reduceChatEvent(chat.model, { type: 'turn_started', turnId: started.turnId, data: { turnId: started.turnId } });
+    return true;
   } catch (e) {
     if (state.chat === chat) {
       chat.model = FleetChatModel.reduceChatEvent(chat.model, { type: 'error', data: { message: e.message } });
       renderChat();
     }
+    return false;
+  } finally {
+    chat.submitting = false;
+    if (state.chat === chat) updateChatComposerState();
+  }
+}
+
+async function flushChatFollowups(chat) {
+  if (!chat || chat.sendingFollowup || isChatRunning(chat) || !chat.followups?.length) return;
+  chat.sendingFollowup = true;
+  const item = chat.followups[0];
+  const sent = await sendChatTurn(chat, item);
+  if (sent) removeChatFollowup(chat, item.id);
+  chat.sendingFollowup = false;
+  if (state.chat === chat) renderChatFollowups();
+}
+
+async function guideChatFollowup(id) {
+  const chat = state.chat;
+  const item = chat?.followups?.find((entry) => entry.id === id);
+  if (!chat || !item || !isChatRunning(chat)) return;
+  try {
+    await api(chat.macId, 'chat/steer', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ assistant: 'codex', sessionId: chat.sessionId, text: item.text, images: item.images.map((img) => ({ id: img.id })) }),
+    });
+    removeChatFollowup(chat, id);
+    chat.model = FleetChatModel.appendUserMessage(chat.model, item.text.trim(), 'user-' + Date.now(), item.images);
+    renderChatFollowups();
+    renderChat();
+  } catch (e) {
+    toast('引导失败：' + e.message, 'err');
+  }
+}
+
+async function interruptChat() {
+  const chat = state.chat;
+  if (!chat || !isChatRunning(chat) || chat.interrupting) return;
+  chat.interrupting = true;
+  updateChatComposerState();
+  try {
+    await api(chat.macId, 'chat/interrupt', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ assistant: 'codex', sessionId: chat.sessionId }),
+    });
+  } catch (e) {
+    toast('停止失败：' + e.message, 'err');
+  } finally {
+    chat.interrupting = false;
+    updateChatComposerState();
   }
 }
 
@@ -1286,7 +1764,7 @@ async function resolveApproval(requestId, decision) {
   const chat = state.chat;
   if (!chat) return;
   try {
-    await api(state.macId, 'chat/approve', {
+    await api(chat.macId, 'chat/approve', {
       method: 'POST', headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ assistant: 'codex', sessionId: chat.sessionId, requestId, decision }),
     });
@@ -1626,10 +2104,14 @@ function init() {
   $('#reload-dismiss').onclick = hideBanner;
   $('#reconnect-btn').onclick = () => { const f = curFrame(); try { f.contentWindow.location.reload(); } catch (_) { f.src = f.src; } };
   $('#fullscreen-btn').onclick = () => $('.win-body').requestFullscreen?.();
-  $('#chat-composer').onsubmit = (e) => { e.preventDefault(); submitChatInput(); };
+  $('#chat-composer').onsubmit = (e) => {
+    e.preventDefault();
+    if ($('#chat-send').dataset.action === 'interrupt') interruptChat();
+    else submitChatInput();
+  };
   $('#chat-attach').onclick = () => $('#chat-file').click();
   $('#chat-file').addEventListener('change', (e) => { addChatFiles(e.target.files); e.target.value = ''; });
-  $('#chat-input').addEventListener('input', () => { resizeChatInput(); updateChatComposerState(); });
+  $('#chat-input').addEventListener('input', () => { saveChatDraft(); resizeChatInput(); updateChatComposerState(); });
   $('#chat-input').addEventListener('keydown', (e) => {
     if (e.key === 'Enter' && !e.shiftKey && !isIMEComposing(e, chatIMEComposing)) { e.preventDefault(); submitChatInput(); }
   });
@@ -1679,6 +2161,7 @@ function init() {
     };
   });
   $('#st-save').onclick = saveSettings;
+  $$('[data-settings-tab]').forEach((b) => { b.onclick = () => showSettingsTab(b.dataset.settingsTab); });
   $('#m-info-btn').onclick = () => { if (state.macId) openHostModal(state.macId); };
 
   // 弹窗 / 抽屉

@@ -61,7 +61,7 @@ func TestCodexChatBackendResumeUsesThreadResume(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if res.ThreadID != "thread-1" || res.Status != "connected" {
+	if res.ThreadID != "thread-1" || res.Status != "idle" {
 		t.Fatalf("bad resume result: %+v", res)
 	}
 	if len(rpc.calls) != 3 || rpc.calls[0].method != "thread/resume" || rpc.calls[1].method != "thread/items/list" || rpc.calls[2].method != "model/list" {
@@ -73,14 +73,34 @@ func TestCodexChatBackendResumeUsesThreadResume(t *testing.T) {
 	}
 }
 
+func TestCodexChatBackendResumeRestoresActiveTurnFromInitialPage(t *testing.T) {
+	rpc := newFakeRPCConn()
+	rpc.reply["thread/resume"] = json.RawMessage(`{
+		"thread":{"id":"thread-1","status":{"type":"active","activeFlags":[]}},
+		"initialTurnsPage":{"data":[{"id":"turn-live","status":"inProgress","items":[]}]}
+	}`)
+	rpc.reply["thread/items/list"] = json.RawMessage(`{"data":[{"turnId":"turn-old","item":{"id":"a-old","type":"agentMessage","text":"previous"}}]}`)
+	b := newCodexChatBackend(func(ctx context.Context) (codexRPCConn, func(), error) {
+		return rpc, func() {}, nil
+	})
+
+	res, err := b.Resume(context.Background(), "codex", "thread-1", "default")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Status != "active" || b.lastTurn["thread-1"] != "turn-live" {
+		t.Fatalf("active resume not restored: result=%+v lastTurn=%q", res, b.lastTurn["thread-1"])
+	}
+}
+
 func TestCodexChatBackendResumeHydratesHistoryAndOptions(t *testing.T) {
 	rpc := newFakeRPCConn()
 	rpc.reply["thread/resume"] = json.RawMessage(`{
 		"thread":{"id":"thread-1"},"model":"gpt-new","reasoningEffort":"xhigh","serviceTier":"priority","approvalPolicy":"never","sandbox":{"type":"workspaceWrite"}
 	}`)
 	rpc.reply["thread/items/list"] = json.RawMessage(`{"data":[
-		{"turnId":"turn-new","item":{"id":"a-new","type":"agentMessage","text":"new answer"}},
-		{"turnId":"turn-old","item":{"id":"u-old","type":"userMessage","content":[{"type":"text","text":"old question"}]}},
+		{"turnId":"turn-new","item":{"id":"a-new","type":"agentMessage","text":"new answer","model":"gpt-new","reasoningEffort":"xhigh","completedAtMs":1784730000000,"usage":{"inputTokens":12,"outputTokens":3}}},
+		{"turnId":"turn-old","item":{"id":"u-old","type":"userMessage","createdAtMs":1784727730000,"content":[{"type":"text","text":"old question"}]}},
 		{"turnId":"turn-old","item":{"id":"u-injected","type":"userMessage","content":[{"type":"text","text":"<environment_context>hidden"}]}}
 	],"nextCursor":"older-cursor"}`)
 	rpc.reply["model/list"] = json.RawMessage(`{"data":[{
@@ -110,6 +130,11 @@ func TestCodexChatBackendResumeHydratesHistoryAndOptions(t *testing.T) {
 	}
 	if len(res.History.Events) != 2 || res.History.Events[0].Type != "user_done" || res.History.Events[0].ItemID != "u-old" || res.History.Events[1].ItemID != "a-new" {
 		t.Fatalf("history not chronological or injected item leaked: %+v", res.History.Events)
+	}
+	for _, want := range []string{`"createdAtMs":1784727730000`, `"model":"gpt-new"`, `"reasoningEffort":"xhigh"`, `"inputTokens":12`, `"completedAtMs":1784730000000`} {
+		if !strings.Contains(string(res.History.Events[0].Data)+string(res.History.Events[1].Data), want) {
+			t.Fatalf("history metadata missing %s in %s / %s", want, res.History.Events[0].Data, res.History.Events[1].Data)
+		}
 	}
 	params := mapFromParams(t, rpc.calls[1].params)
 	if params["sortDirection"] != "desc" || params["limit"] != float64(chatHistoryPageSize) {
@@ -293,6 +318,34 @@ func TestCodexChatBackendInputPassesModelAndApprovalOverrides(t *testing.T) {
 	sandbox, ok := params["sandboxPolicy"].(map[string]interface{})
 	if !ok || sandbox["type"] != "dangerFullAccess" {
 		t.Fatalf("sandbox params: %#v", params["sandboxPolicy"])
+	}
+}
+
+func TestCodexChatBackendSteerUsesActiveTurnAndLocalImages(t *testing.T) {
+	rpc := newFakeRPCConn()
+	rpc.reply["turn/steer"] = json.RawMessage(`{"turnId":"turn-1"}`)
+	b := newCodexChatBackend(func(ctx context.Context) (codexRPCConn, func(), error) {
+		return rpc, func() {}, nil
+	})
+	b.lastTurn["thread-1"] = "turn-1"
+
+	res, err := b.Steer(context.Background(), "codex", "thread-1", "follow up", []ChatAttachment{{Path: "/tmp/shot.png"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.TurnID != "turn-1" {
+		t.Fatalf("turn id got %q", res.TurnID)
+	}
+	if len(rpc.calls) != 1 || rpc.calls[0].method != "turn/steer" {
+		t.Fatalf("calls: %+v", rpc.calls)
+	}
+	params := mapFromParams(t, rpc.calls[0].params)
+	if params["threadId"] != "thread-1" || params["expectedTurnId"] != "turn-1" {
+		t.Fatalf("steer params: %#v", params)
+	}
+	input, ok := params["input"].([]interface{})
+	if !ok || len(input) != 2 {
+		t.Fatalf("steer input: %#v", params["input"])
 	}
 }
 

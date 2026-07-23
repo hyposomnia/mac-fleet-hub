@@ -6,12 +6,18 @@ import vm from 'node:vm';
 const src = await readFile(new URL('./chat_model.js', import.meta.url), 'utf8');
 const appSrc = await readFile(new URL('./app.js', import.meta.url), 'utf8');
 const indexHTML = await readFile(new URL('./index.html', import.meta.url), 'utf8');
+const styleCSS = await readFile(new URL('./style.css', import.meta.url), 'utf8');
 const serviceWorker = await readFile(new URL('./sw.js', import.meta.url), 'utf8');
 const markedSrc = await readFile(new URL('./vendor/marked.min.js', import.meta.url), 'utf8');
 const sandbox = { globalThis: {} };
 vm.createContext(sandbox);
 vm.runInContext(src, sandbox);
-const { createChatState, appendUserMessage, prependHistory, reduceChatEvent, normalizeDiffFiles } = sandbox.globalThis.FleetChatModel;
+const { createChatState, appendUserMessage, prependHistory, reduceChatEvent, normalizeDiffFiles, chatPhase, uuidV7TimeMs } = sandbox.globalThis.FleetChatModel;
+
+const appSandbox = { document: { addEventListener() {} }, EventSource: { CLOSED: 2 } };
+vm.createContext(appSandbox);
+vm.runInContext(`${appSrc}\n;globalThis.__chatCacheTest = { chatCacheVictim, isChatConnectionKept, updateChatUpdatedAt, chatAssistantMetaText, chatUserMetaText, chatMessageMetaVisibility, applyChatMetadataDefaults, enqueueChatFollowup, removeChatFollowup, state };`, appSandbox);
+const { chatCacheVictim, isChatConnectionKept, updateChatUpdatedAt, chatAssistantMetaText, chatUserMetaText, chatMessageMetaVisibility, applyChatMetadataDefaults, enqueueChatFollowup, removeChatFollowup, state: appState } = appSandbox.__chatCacheTest;
 
 test('chat model and app use the same versioned shell URLs', () => {
   const styleURL = indexHTML.match(/style\.css\?v=([a-zA-Z0-9_-]+)/);
@@ -49,6 +55,36 @@ test('Codex is the first and default session assistant', () => {
   assert.match(appSrc, /assistant:\s*'codex',\s*\/\/ claude \| codex/);
 });
 
+test('jump-to-bottom control uses an accessible inline SVG icon', () => {
+  assert.match(indexHTML, /<button id="chat-jump"[^>]*aria-label="跳到底部"[^>]*>/);
+  assert.match(indexHTML, /<svg class="chat-jump-icon"[^>]*aria-hidden="true">/);
+  assert.doesNotMatch(indexHTML, />跳到底部<\/button>/);
+});
+
+test('chat cache evicts the earliest updated non-current session', () => {
+  const oldest = { updatedAt: 100, lastUsed: 999 };
+  const newest = { updatedAt: 300, lastUsed: 1 };
+  const current = { updatedAt: 50, lastUsed: 0 };
+  const cache = new Map([['oldest', oldest], ['newest', newest], ['current', current]]);
+  const victim = chatCacheVictim(cache, current);
+  assert.equal(victim.key, 'oldest');
+  assert.equal(victim.chat, oldest);
+});
+
+test('chat cache update time is monotonic and green status follows EventSource state', () => {
+  const chat = { updatedAt: 200, events: { readyState: 1 } };
+  updateChatUpdatedAt(chat, 100);
+  assert.equal(chat.updatedAt, 200);
+  updateChatUpdatedAt(chat, 300);
+  assert.equal(chat.updatedAt, 300);
+
+  appState.chatCache.set('m1\ns1', chat);
+  assert.equal(isChatConnectionKept('m1', 's1'), true);
+  chat.events.readyState = 2;
+  assert.equal(isChatConnectionKept('m1', 's1'), false);
+  appState.chatCache.clear();
+});
+
 test('vendored markdown parser formats common assistant response blocks', () => {
   const markdownSandbox = {};
   vm.createContext(markdownSandbox);
@@ -65,6 +101,50 @@ test('assistant deltas merge by item id', () => {
   state = reduceChatEvent(state, { type: 'assistant_delta', itemId: 'a1', data: { delta: 'llo' } });
   assert.equal(state.messages.length, 1);
   assert.equal(state.items.a1.text, 'hello');
+});
+
+test('Codex object status and turn lifecycle drive the running phase', () => {
+  let state = reduceChatEvent(createChatState(), {
+    type: 'thread_status',
+    data: { status: { type: 'active', activeFlags: [] } },
+  });
+  assert.equal(chatPhase({ type: 'active' }), 'running');
+  assert.equal(state.phase, 'running');
+
+  state = reduceChatEvent(state, {
+    type: 'turn_started', turnId: 'turn-7', data: { turn: { id: 'turn-7' } },
+  });
+  assert.equal(state.phase, 'running');
+  assert.equal(state.activeTurnId, 'turn-7');
+
+  state = reduceChatEvent(state, {
+    type: 'turn_done', turnId: 'turn-7', data: { turn: { id: 'turn-7', status: 'completed' } },
+  });
+  assert.equal(state.phase, 'idle');
+  assert.equal(state.activeTurnId, '');
+});
+
+test('follow-up queue is FIFO and removing one item preserves the others', () => {
+  const chat = { followups: [] };
+  const images = [{ id: 'img-1', name: 'one.png' }];
+  const first = enqueueChatFollowup(chat, 'first', images, 'follow-1');
+  const second = enqueueChatFollowup(chat, 'second', [], 'follow-2');
+  assert.equal(first.id, 'follow-1');
+  assert.deepEqual(Array.from(chat.followups, (item) => item.id), ['follow-1', 'follow-2']);
+  assert.notEqual(first.images, images);
+
+  const removed = removeChatFollowup(chat, 'follow-1');
+  assert.equal(removed.text, 'first');
+  assert.deepEqual(Array.from(chat.followups, (item) => item.id), ['follow-2']);
+  assert.equal(second.text, 'second');
+});
+
+test('self-drawn composer contains native stop control and follow-up queue', () => {
+  assert.match(indexHTML, /id="chat-followups"/);
+  assert.match(indexHTML, /class="ic chat-stop-icon"/);
+  assert.match(indexHTML, /data-action="send"/);
+  assert.match(styleCSS, /\.chat-send \.chat-stop-icon\s*\{\s*display:\s*none/);
+  assert.match(styleCSS, /chat-send\[data-action="interrupt"\]/);
 });
 
 test('tool output appends to command card', () => {
@@ -136,6 +216,7 @@ test('local user message is appended immediately', () => {
   const state = appendUserMessage(createChatState(), 'hello', 'u1');
   assert.deepEqual(Array.from(state.messages), ['u1']);
   assert.equal(state.items.u1.text, 'hello');
+  assert.equal(Number.isFinite(state.items.u1.sentAtMs), true);
 });
 
 test('local user message keeps image attachments', () => {
@@ -154,6 +235,76 @@ test('history is prepended chronologically and deduplicated against live items',
   assert.deepEqual(Array.from(state.messages), ['u1', 'a2']);
   assert.equal(state.items.u1.text, 'old question');
   assert.equal(state.items.a2.text, 'live');
+});
+
+test('user and assistant message metadata is normalized for rendering', () => {
+  let state = createChatState();
+  state = reduceChatEvent(state, {
+    type: 'user_done', itemId: 'u1', turnId: 't1',
+    data: { text: 'old question', createdAtMs: new Date(2026, 6, 22, 21, 42, 10).getTime() },
+  });
+  state = reduceChatEvent(state, {
+    type: 'assistant_delta', itemId: 'a1', turnId: 't1',
+    data: { delta: 'he', startedAtMs: new Date(2026, 6, 22, 21, 43, 0).getTime(), model: 'gpt-5.6-sol', reasoningEffort: 'xhigh' },
+  });
+  state = reduceChatEvent(state, {
+    type: 'assistant_done', itemId: 'a1', turnId: 't1',
+    data: { text: 'hello', completedAtMs: new Date(2026, 6, 22, 21, 44, 31).getTime(), usage: { inputTokens: 3807, outputTokens: 89 } },
+  });
+  assert.equal(chatUserMetaText(state.items.u1), '2026-07-22 21:42:10');
+  assert.equal(chatAssistantMetaText(state.items.a1), 'gpt-5.6-sol, xhigh  |  in 3,807 / out 89  |  2026-07-22 21:44:31');
+  assert.equal(state.items.a1.durationMs, 91000);
+});
+
+test('history metadata falls back to Codex UUIDv7 turn time and session defaults', () => {
+  const turnId = '019f8a89-9787-7ae0-8b12-4e0ee30cc6d1';
+  assert.equal(uuidV7TimeMs(turnId), 1784735700871);
+  let state = prependHistory(createChatState(), [
+    { type: 'user_done', itemId: 'u1', turnId, data: { text: 'merge commit push deploy' } },
+    { type: 'assistant_done', itemId: 'a1', turnId, data: { text: 'done' } },
+  ]);
+  const chat = { model: state, selectedModel: 'gpt-5.6-sol', selectedEffort: 'xhigh' };
+  applyChatMetadataDefaults(chat);
+  state = chat.model;
+  assert.equal(chatUserMetaText(state.items.u1), '2026-07-22 23:55:00');
+  assert.equal(chatAssistantMetaText(state.items.a1), 'gpt-5.6-sol, xhigh  |  2026-07-22 23:55:00');
+});
+
+test('assistant metadata renders only on the last assistant item in a turn', () => {
+  let state = createChatState();
+  state = reduceChatEvent(state, {
+    type: 'user_done', itemId: 'u1', turnId: 't1',
+    data: { text: 'question', createdAtMs: new Date(2026, 6, 22, 21, 42, 10).getTime() },
+  });
+  state = reduceChatEvent(state, {
+    type: 'assistant_done', itemId: 'a1', turnId: 't1',
+    data: { text: 'first', model: 'gpt-5.6-sol', reasoningEffort: 'xhigh', completedAtMs: new Date(2026, 6, 22, 21, 44, 31).getTime() },
+  });
+  state = reduceChatEvent(state, {
+    type: 'assistant_done', itemId: 'a2', turnId: 't1',
+    data: { text: 'second', model: 'gpt-5.6-sol', reasoningEffort: 'xhigh', completedAtMs: new Date(2026, 6, 22, 21, 44, 31).getTime() },
+  });
+  const visible = chatMessageMetaVisibility(state);
+  assert.equal(visible.has('u1'), true);
+  assert.equal(visible.has('a1'), false);
+  assert.equal(visible.has('a2'), true);
+});
+
+test('turn completion metadata backfills the last assistant message in that turn', () => {
+  let state = reduceChatEvent(createChatState(), {
+    type: 'assistant_delta', itemId: 'a1', turnId: 't1',
+    data: { delta: 'done' },
+  });
+  state = reduceChatEvent(state, {
+    type: 'turn_done', turnId: 't1',
+    data: {
+      turn: { id: 't1', model: 'gpt-new', reasoningEffort: 'high', completedAtMs: 1784730000000, usage: { input_tokens: 12, output_tokens: 3 } },
+    },
+  });
+  assert.equal(state.items.a1.model, 'gpt-new');
+  assert.equal(state.items.a1.effort, 'high');
+  assert.deepEqual(JSON.parse(JSON.stringify(state.items.a1.usage)), { inputTokens: 12, outputTokens: 3 });
+  assert.equal(state.items.a1.completedAtMs, 1784730000000);
 });
 
 test('completed command history becomes a tool card', () => {
