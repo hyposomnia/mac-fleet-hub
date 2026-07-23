@@ -546,6 +546,16 @@ svg.ic.fill { fill: currentColor; stroke: none; }
 .chat-markdown th, .chat-markdown td { padding: 6px 9px; border: 1px solid var(--chat-border); text-align: left; vertical-align: top; }
 .chat-markdown th { background: var(--chat-surface-2); color: var(--chat-text); font-weight: 620; }
 .chat-markdown hr { margin: 1em 0; border: 0; border-top: 1px solid var(--chat-border); }
+.chat-directive {
+  display: flex; align-items: center; gap: 7px; width: fit-content; max-width: 100%; min-height: 30px; margin: .55em 0;
+  padding: 4px 9px 4px 7px; border: 1px solid var(--chat-border); border-radius: 8px;
+  background: var(--chat-surface-1); color: var(--chat-text-1); font-size: var(--t-xs); line-height: 1.35;
+}
+.chat-directive-icon { width: 16px; height: 16px; flex: none; fill: none; stroke: var(--online); stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.chat-directive-label { flex: none; font-weight: 590; }
+.chat-directive-detail { min-width: 0; overflow: hidden; color: var(--chat-text-2); text-overflow: ellipsis; white-space: nowrap; }
+.chat-directive a.chat-directive-detail { color: var(--chat-link); text-decoration: none; }
+.chat-directive a.chat-directive-detail:hover { color: var(--chat-text); text-decoration: underline; text-underline-offset: 2px; }
 .chat-approval, .chat-error { border: 1px solid var(--chat-border); background: var(--chat-surface-1); border-radius: 14px; overflow: hidden; max-width: min(86%, 780px); }
 .chat-tool, .chat-diff { max-width: min(82%, 760px); color: var(--chat-text-2); }
 .chat-tool-h, .chat-approval-h, .chat-diff-h { display: flex; align-items: center; gap: 8px; padding: 9px 11px; color: var(--chat-text); font-weight: 620; font-size: var(--t-xs); border-bottom: 1px solid var(--chat-border); }

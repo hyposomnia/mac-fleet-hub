@@ -5,6 +5,7 @@ import vm from 'node:vm';
 
 const src = await readFile(new URL('./chat_model.js', import.meta.url), 'utf8');
 const appSrc = await readFile(new URL('./app.js', import.meta.url), 'utf8');
+const markdownSrc = await readFile(new URL('./markdown.js', import.meta.url), 'utf8');
 const indexHTML = await readFile(new URL('./index.html', import.meta.url), 'utf8');
 const styleCSS = await readFile(new URL('./style.css', import.meta.url), 'utf8');
 const serviceWorker = await readFile(new URL('./sw.js', import.meta.url), 'utf8');
@@ -16,8 +17,13 @@ const { createChatState, appendUserMessage, prependHistory, reduceChatEvent, nor
 
 const appSandbox = { document: { addEventListener() {} }, EventSource: { CLOSED: 2 } };
 vm.createContext(appSandbox);
-vm.runInContext(`${appSrc}\n;globalThis.__chatCacheTest = { chatCacheVictim, isChatConnectionKept, updateChatUpdatedAt, chatAssistantMetaText, chatUserMetaText, chatMessageMetaVisibility, applyChatMetadataDefaults, enqueueChatFollowup, removeChatFollowup, state };`, appSandbox);
-const { chatCacheVictim, isChatConnectionKept, updateChatUpdatedAt, chatAssistantMetaText, chatUserMetaText, chatMessageMetaVisibility, applyChatMetadataDefaults, enqueueChatFollowup, removeChatFollowup, state: appState } = appSandbox.__chatCacheTest;
+vm.runInContext(`${appSrc}\n;globalThis.__chatCacheTest = { chatCacheVictim, isChatConnectionKept, updateChatUpdatedAt, chatAssistantMetaText, chatUserMetaText, chatMessageMetaVisibility, applyChatMetadataDefaults, enqueueChatFollowup, removeChatFollowup, isInternalChatTool: typeof isInternalChatTool === 'function' ? isInternalChatTool : () => false, state };`, appSandbox);
+const { chatCacheVictim, isChatConnectionKept, updateChatUpdatedAt, chatAssistantMetaText, chatUserMetaText, chatMessageMetaVisibility, applyChatMetadataDefaults, enqueueChatFollowup, removeChatFollowup, isInternalChatTool, state: appState } = appSandbox.__chatCacheTest;
+const directiveSandbox = { globalThis: {} };
+vm.createContext(directiveSandbox);
+vm.runInContext(markdownSrc, directiveSandbox);
+const parseCodexDirective = directiveSandbox.globalThis.FleetMarkdown.parseCodexDirective || (() => null);
+const splitCodexContent = directiveSandbox.globalThis.FleetMarkdown.splitCodexContent || (() => []);
 
 test('chat model and app use the same versioned shell URLs', () => {
   const styleURL = indexHTML.match(/style\.css\?v=([a-zA-Z0-9_-]+)/);
@@ -93,6 +99,22 @@ test('vendored markdown parser formats common assistant response blocks', () => 
   assert.match(html, /<h2>变更<\/h2>/);
   assert.match(html, /<li><strong>安全<\/strong>链接<\/li>/);
   assert.match(html, /<pre><code class="language-sh">node --test/);
+});
+
+test('Codex git directives are parsed as structured status blocks', () => {
+  assert.deepEqual(
+    JSON.parse(JSON.stringify(parseCodexDirective('::git-commit{cwd="/Users/hjc/Git_Repositories/mac-fleet-hub"}'))),
+    {
+      name: 'git-commit',
+      label: '已提交代码',
+      attrs: { cwd: '/Users/hjc/Git_Repositories/mac-fleet-hub' },
+    },
+  );
+});
+
+test('Codex directives inside fenced code remain Markdown', () => {
+  const parts = splitCodexContent('```text\n::git-commit{cwd="/tmp/repo"}\n```');
+  assert.deepEqual(Array.from(parts, (part) => part.type), ['markdown']);
 });
 
 test('assistant deltas merge by item id', () => {
@@ -178,6 +200,21 @@ test('generic tool updates preserve kind, summary, status, and details', () => {
   assert.equal(state.items.mcp1.status, 'completed');
   assert.equal(state.items.mcp1.output, '完成');
   assert.equal(state.items.mcp1.progress, '正在读取页面');
+});
+
+test('internal node_repl transport calls are hidden like Codex Desktop', () => {
+  assert.equal(isInternalChatTool({
+    type: 'tool',
+    kind: 'mcpToolCall',
+    title: 'node_repl · js',
+    summary: 'node_repl · js',
+  }), true);
+  assert.equal(isInternalChatTool({
+    type: 'tool',
+    kind: 'mcpToolCall',
+    title: 'Notion · Search',
+    summary: 'notion · search',
+  }), false);
 });
 
 test('file changes keep paths and count added and deleted diff lines', () => {
@@ -352,6 +389,28 @@ test('turn completion metadata backfills the last assistant message in that turn
   assert.deepEqual(JSON.parse(JSON.stringify(state.items.a1.usage)), { inputTokens: 12, outputTokens: 3 });
   assert.equal(state.items.a1.completedAtMs, 1784730000000);
   assert.equal(state.items.a1.turnComplete, true);
+});
+
+test('thread token usage notification backfills the completed turn with last usage', () => {
+  let state = reduceChatEvent(createChatState(), {
+    type: 'turn_usage', turnId: 't1',
+    data: {
+      tokenUsage: {
+        total: { inputTokens: 120, outputTokens: 14 },
+        last: { inputTokens: 12, outputTokens: 3 },
+      },
+    },
+  });
+  state = reduceChatEvent(state, {
+    type: 'assistant_done', itemId: 'a1', turnId: 't1',
+    data: { text: 'done', model: 'gpt-5.6-sol' },
+  });
+  state = reduceChatEvent(state, {
+    type: 'turn_done', turnId: 't1',
+    data: { turn: { id: 't1', status: 'completed' } },
+  });
+  assert.deepEqual(JSON.parse(JSON.stringify(state.items.a1.usage)), { inputTokens: 12, outputTokens: 3 });
+  assert.match(chatAssistantMetaText(state.items.a1), /in 12 \/ out 3/);
 });
 
 test('completed command history becomes a tool card', () => {

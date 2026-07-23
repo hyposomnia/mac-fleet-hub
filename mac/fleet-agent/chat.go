@@ -52,6 +52,9 @@ func mapCodexNotification(n rpcNotification) []ChatEvent {
 	case "thread/status/changed":
 		p := codexEventEnvelope(n.Params)
 		return []ChatEvent{newChatEvent("thread_status", "codex", p.ThreadID, "", "", p.asMap())}
+	case "thread/tokenUsage/updated":
+		p := codexEventEnvelope(n.Params)
+		return []ChatEvent{newChatEvent("turn_usage", "codex", p.ThreadID, p.TurnID, "", p.asMap())}
 	case "turn/started":
 		var p struct {
 			ThreadID string `json:"threadId"`

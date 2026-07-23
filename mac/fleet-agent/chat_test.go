@@ -48,6 +48,28 @@ func TestMapCodexTurnStartedNotification(t *testing.T) {
 	}
 }
 
+func TestMapCodexTokenUsageNotification(t *testing.T) {
+	evs := mapCodexNotification(rpcNotification{
+		Method: "thread/tokenUsage/updated",
+		Params: json.RawMessage(`{
+			"threadId":"t1",
+			"turnId":"turn1",
+			"tokenUsage":{
+				"total":{"inputTokens":120,"outputTokens":14},
+				"last":{"inputTokens":12,"outputTokens":3}
+			}
+		}`),
+	})
+	if len(evs) != 1 || evs[0].Type != "turn_usage" || evs[0].SessionID != "t1" || evs[0].TurnID != "turn1" {
+		t.Fatalf("bad token usage mapping: %+v", evs)
+	}
+	for _, want := range []string{`"tokenUsage"`, `"inputTokens":12`, `"outputTokens":3`} {
+		if !strings.Contains(string(evs[0].Data), want) {
+			t.Fatalf("token usage data missing %s in %s", want, evs[0].Data)
+		}
+	}
+}
+
 func TestMapCodexNotificationCommandOutputAndApproval(t *testing.T) {
 	out := mapCodexNotification(rpcNotification{
 		Method: "item/commandExecution/outputDelta",

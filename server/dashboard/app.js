@@ -965,7 +965,7 @@ function renderChat({ preserveScroll = false, forceBottom = false } = {}) {
   const metaVisible = chatMessageMetaVisibility(model);
   for (const id of model.messages) {
     const item = model.items[id];
-    if (!item) continue;
+    if (!item || isInternalChatTool(item)) continue;
     stack.append(renderChatItem(item, id === currentTurn?.id, item.type === 'user' && metaVisible.has(id)));
     const turnMeta = metaVisible.get(id);
     if (turnMeta?.type === 'assistant') stack.append(renderChatTurnMeta(turnMeta));
@@ -1048,6 +1048,11 @@ function chatAssistantTurnKey(item, fallbackId) {
   return item?.turnId ? `turn:${item.turnId}` : `item:${fallbackId}`;
 }
 
+function isInternalChatTool(item) {
+  if (!item || item.type !== 'tool' || item.kind !== 'mcpToolCall') return false;
+  return [item.title, item.summary].some((value) => /^node_repl\s*·\s*js$/i.test(String(value || '').trim()));
+}
+
 function chatMessageMetaVisibility(model) {
   const visible = new Map();
   const messages = model?.messages || [];
@@ -1055,7 +1060,7 @@ function chatMessageMetaVisibility(model) {
   const turns = new Map();
   for (const id of messages) {
     const item = items[id];
-    if (!item) continue;
+    if (!item || isInternalChatTool(item)) continue;
     if (item.type === 'user') {
       if (chatUserMetaText(item)) visible.set(id, item);
     }

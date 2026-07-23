@@ -2,7 +2,7 @@
   'use strict';
 
   function createChatState() {
-    return { phase: 'idle', activeTurnId: '', messages: [], items: {}, approvals: {}, error: null };
+    return { phase: 'idle', activeTurnId: '', messages: [], items: {}, approvals: {}, turnUsage: {}, error: null };
   }
 
   function cloneState(state) {
@@ -12,6 +12,7 @@
       messages: (state.messages || []).slice(),
       items: { ...(state.items || {}) },
       approvals: { ...(state.approvals || {}) },
+      turnUsage: { ...(state.turnUsage || {}) },
       error: state.error || null,
     };
   }
@@ -117,12 +118,21 @@
 
   function normalizeTokenUsage(data) {
     const payload = asObject(data);
-    const roots = [
-      payload, asObject(payload.usage), asObject(payload.tokenUsage), asObject(payload.token_usage),
+    const containers = [
+      asObject(payload.usage), asObject(payload.tokenUsage), asObject(payload.token_usage),
       asObject(asObject(payload.item).usage), asObject(asObject(payload.item).tokenUsage), asObject(asObject(payload.item).token_usage),
       asObject(asObject(payload.turn).usage), asObject(asObject(payload.turn).tokenUsage), asObject(asObject(payload.turn).token_usage),
       asObject(asObject(payload.response).usage),
     ];
+    const roots = [payload];
+    for (const container of containers) {
+      roots.push(
+        asObject(container.last),
+        asObject(container.lastTokenUsage),
+        asObject(container.last_token_usage),
+        container,
+      );
+    }
     const input = firstNumber(...roots.flatMap((r) => [
       r.inputTokens, r.input_tokens, r.promptTokens, r.prompt_tokens,
       r.totalInputTokens, r.total_input_tokens,
@@ -160,16 +170,21 @@
     return item;
   }
 
-  function mergeTurnMetadata(next, data, ev) {
+  function mergeTurnMetadata(next, data, ev, complete = false) {
     const turnId = firstString(ev && ev.turnId, data.turnId, data.turn_id, asObject(data.turn).id);
     for (let i = next.messages.length - 1; i >= 0; i -= 1) {
       const item = next.items[next.messages[i]];
       if (!item || item.type !== 'assistant') continue;
       if (turnId && item.turnId && item.turnId !== turnId) continue;
       mergeAssistantMetadata(item, data, ev);
-      item.turnComplete = true;
+      if (complete) item.turnComplete = true;
       return;
     }
+  }
+
+  function mergePendingTurnUsage(next, item) {
+    if (!item || !item.turnId || !next.turnUsage[item.turnId]) return;
+    mergeAssistantMetadata(item, next.turnUsage[item.turnId], { turnId: item.turnId });
   }
 
   function diffLineCounts(diff) {
@@ -221,6 +236,7 @@
     next.messages = history.messages.filter((id) => !existing.has(id)).concat(next.messages);
     next.items = { ...history.items, ...next.items };
     next.approvals = { ...history.approvals, ...next.approvals };
+    next.turnUsage = { ...history.turnUsage, ...next.turnUsage };
     return next;
   }
 
@@ -267,6 +283,7 @@
         const item = upsertItem(next, itemId, () => ({ id: itemId, type: 'assistant', text: '', done: false }));
         item.turnId = firstString(ev && ev.turnId, data.turnId, data.turn_id, item.turnId);
         mergeAssistantMetadata(item, data, ev);
+        mergePendingTurnUsage(next, item);
         if (!item.startedAtMs) item.startedAtMs = uuidV7TimeMs(item.turnId) || Date.now();
         item.text = (item.text || '') + (data.delta || '');
         return next;
@@ -276,6 +293,7 @@
         const item = upsertItem(next, itemId, () => ({ id: itemId, type: 'assistant', text: '', done: false }));
         if (finalText) item.text = finalText;
         mergeAssistantMetadata(item, data, ev);
+        mergePendingTurnUsage(next, item);
         if (!item.completedAtMs) item.completedAtMs = data.__history ? uuidV7TimeMs(item.turnId || (ev && ev.turnId)) : Date.now();
         if (!item.startedAtMs) item.startedAtMs = uuidV7TimeMs(item.turnId || (ev && ev.turnId)) || item.completedAtMs;
         if (item.startedAtMs && item.completedAtMs && item.completedAtMs >= item.startedAtMs) item.durationMs = item.completedAtMs - item.startedAtMs;
@@ -332,11 +350,20 @@
       case 'approval_resolved':
         if (data.requestId && next.approvals[String(data.requestId)]) next.approvals[String(data.requestId)].status = 'resolved';
         return next;
-      case 'turn_done':
-        next.phase = 'idle';
-        next.activeTurnId = '';
+      case 'turn_usage': {
+        const turnId = firstString(ev && ev.turnId, data.turnId, data.turn_id);
+        if (turnId) next.turnUsage[turnId] = data;
         mergeTurnMetadata(next, data, ev);
         return next;
+      }
+      case 'turn_done': {
+        next.phase = 'idle';
+        next.activeTurnId = '';
+        mergeTurnMetadata(next, data, ev, true);
+        const turnId = firstString(ev && ev.turnId, data.turnId, data.turn_id, asObject(data.turn).id);
+        if (turnId) delete next.turnUsage[turnId];
+        return next;
+      }
       case 'error':
         next.error = data.message || data.error || '自绘会话出错';
         next.phase = 'error';
