@@ -13,7 +13,7 @@ const markedSrc = await readFile(new URL('./vendor/marked.min.js', import.meta.u
 const sandbox = { globalThis: {} };
 vm.createContext(sandbox);
 vm.runInContext(src, sandbox);
-const { createChatState, appendUserMessage, prependHistory, reduceChatEvent, normalizeDiffFiles, chatPhase, uuidV7TimeMs } = sandbox.globalThis.FleetChatModel;
+const { createChatState, appendUserMessage, prependHistory, reduceChatEvent, normalizeDiffFiles, chatPhase, followupAckId, uuidV7TimeMs } = sandbox.globalThis.FleetChatModel;
 
 const fixedAppNowMs = new Date(2026, 6, 23, 23, 0, 0).getTime();
 class FixedAppDate extends Date {
@@ -208,6 +208,21 @@ test('follow-up queue is FIFO and removing one item preserves the others', () =>
   assert.equal(removed.text, 'first');
   assert.deepEqual(Array.from(chat.followups, (item) => item.id), ['follow-2']);
   assert.equal(second.text, 'second');
+});
+
+test('follow-up acknowledgement uses the Codex client message id', () => {
+  assert.equal(followupAckId({
+    type: 'user_done',
+    data: { clientId: 'follow-1', text: 'guided' },
+  }), 'follow-1');
+  assert.equal(followupAckId({
+    type: 'assistant_done',
+    data: { clientId: 'follow-1' },
+  }), '');
+  assert.equal(followupAckId({
+    type: 'user_done',
+    data: { text: 'legacy message without id' },
+  }), '');
 });
 
 test('self-drawn composer contains native stop control and follow-up queue', () => {

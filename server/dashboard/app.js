@@ -829,6 +829,15 @@ function removeChatFollowup(chat, id) {
   return chat.followups.splice(index, 1)[0];
 }
 
+function acknowledgeChatFollowups(chat, events) {
+  let changed = false;
+  for (const ev of events || []) {
+    const id = FleetChatModel.followupAckId(ev);
+    if (id && removeChatFollowup(chat, id)) changed = true;
+  }
+  return changed;
+}
+
 function disposeChat(chat) {
   if (!chat) return;
   if (chat.events) { try { chat.events.close(); } catch (_) {} }
@@ -1539,7 +1548,8 @@ function renderChatFollowups() {
       h('span', { class: 'chat-followup-text', text: label, title: label }),
       item.images.length ? h('span', { class: 'chat-followup-images', text: `+${item.images.length} 图` }) : null,
       h('div', { class: 'chat-followup-actions' },
-        h('button', { type: 'button', class: 'chat-followup-guide', title: '引导当前任务', onclick: () => guideChatFollowup(item.id) },
+        h('button', { type: 'button', class: 'chat-followup-guide', title: item.guiding ? '正在引导' : '引导当前任务',
+          disabled: item.guiding ? '' : null, onclick: () => guideChatFollowup(item.id) },
           svgIconParts('ic', [{ tag: 'path', attrs: { d: 'M4 5v6a4 4 0 0 0 4 4h11M15 11l4 4-4 4' } }]), '引导'),
         h('button', { type: 'button', class: 'iconbtn bare', title: '编辑追问', 'aria-label': '编辑追问', onclick: () => editChatFollowup(item.id) },
           svgIconParts('ic', [{ tag: 'path', attrs: { d: 'M12 20h9M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z' } }])),
@@ -1692,6 +1702,7 @@ async function openChatSession(s) {
     });
     const resumed = await chat.resumePromise;
     if (state.chatCache.get(chat.cacheKey) === chat) {
+      acknowledgeChatFollowups(chat, resumed.history?.events);
       chat.model = FleetChatModel.prependHistory(chat.model, resumed.history?.events || []);
       chat.model = FleetChatModel.reduceChatEvent(chat.model, {
         type: 'thread_status',
@@ -2011,6 +2022,7 @@ async function loadOlderChatHistory() {
   try {
     const page = await api(chat.macId, `chat/history?assistant=codex&sessionId=${encodeURIComponent(chat.sessionId)}&cursor=${encodeURIComponent(chat.historyCursor)}`);
     if (state.chat !== chat) return;
+    acknowledgeChatFollowups(chat, page.events);
     chat.model = FleetChatModel.prependHistory(chat.model, page.events || []);
     applyChatMetadataDefaults(chat);
     chat.historyCursor = page.nextCursor || '';
@@ -2037,6 +2049,7 @@ function startChatEvents(chat = state.chat) {
       const ev = JSON.parse(e.data);
       updateChatUpdatedAt(chat, Date.now());
       const wasRunning = isChatRunning(chat);
+      acknowledgeChatFollowups(chat, [ev]);
       chat.model = FleetChatModel.reduceChatEvent(chat.model, ev);
       applyChatMetadataDefaults(chat);
       if (state.chat === chat) {
@@ -2130,18 +2143,26 @@ async function flushChatFollowups(chat) {
 async function guideChatFollowup(id) {
   const chat = state.chat;
   const item = chat?.followups?.find((entry) => entry.id === id);
-  if (!chat || !item || !isChatRunning(chat)) return;
+  if (!chat || !item || item.guiding || !isChatRunning(chat)) return;
+  item.guiding = true;
+  renderChatFollowups();
   try {
     await api(chat.macId, 'chat/steer', {
       method: 'POST', headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ assistant: 'codex', sessionId: chat.sessionId, text: item.text, images: item.images.map((img) => ({ id: img.id })) }),
+      body: JSON.stringify({ assistant: 'codex', sessionId: chat.sessionId, clientMessageId: item.id,
+        text: item.text, images: item.images.map((img) => ({ id: img.id })) }),
     });
     removeChatFollowup(chat, id);
     chat.model = FleetChatModel.appendUserMessage(chat.model, item.text.trim(), 'user-' + Date.now(), item.images);
     renderChatFollowups();
     renderChat();
   } catch (e) {
-    toast('引导失败：' + e.message, 'err');
+    const pending = chat.followups?.find((entry) => entry.id === id);
+    if (pending) {
+      pending.guiding = false;
+      renderChatFollowups();
+      toast('引导失败：' + e.message, 'err');
+    }
   }
 }
 

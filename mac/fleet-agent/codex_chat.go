@@ -599,7 +599,7 @@ func (b *codexChatBackend) Input(ctx context.Context, assistant, sessionID, text
 	return ChatInputResult{TurnID: res.Turn.ID}, nil
 }
 
-func (b *codexChatBackend) Steer(ctx context.Context, assistant, sessionID, text string, images []ChatAttachment) (ChatInputResult, error) {
+func (b *codexChatBackend) Steer(ctx context.Context, assistant, sessionID, clientMessageID, text string, images []ChatAttachment) (ChatInputResult, error) {
 	if assistant != "codex" {
 		return ChatInputResult{}, errUnsupportedChatAssistant
 	}
@@ -613,9 +613,13 @@ func (b *codexChatBackend) Steer(ctx context.Context, assistant, sessionID, text
 	if turnID == "" {
 		return ChatInputResult{}, errNoActiveChatTurn
 	}
-	raw, err := rpc.call(ctx, "turn/steer", map[string]interface{}{
+	params := map[string]interface{}{
 		"threadId": sessionID, "expectedTurnId": turnID, "input": codexUserInput(text, images),
-	})
+	}
+	if clientMessageID != "" {
+		params["clientUserMessageId"] = clientMessageID
+	}
+	raw, err := rpc.call(ctx, "turn/steer", params)
 	if err != nil {
 		return ChatInputResult{}, err
 	}

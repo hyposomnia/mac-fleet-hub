@@ -45,6 +45,12 @@
     return phase || 'idle';
   }
 
+  function followupAckId(ev) {
+    if (!ev || ev.type !== 'user_done') return '';
+    const data = asObject(ev.data);
+    return firstString(data.clientId, data.client_id, data.clientUserMessageId, data.client_user_message_id);
+  }
+
   function firstString(...values) {
     for (const value of values) {
       if (typeof value === 'string' && value.trim()) return value.trim();
@@ -390,7 +396,7 @@
     }
   }
 
-  const api = { createChatState, appendUserMessage, prependHistory, reduceChatEvent, normalizeDiffFiles, chatPhase, uuidV7TimeMs };
+  const api = { createChatState, appendUserMessage, prependHistory, reduceChatEvent, normalizeDiffFiles, chatPhase, followupAckId, uuidV7TimeMs };
   root.FleetChatModel = api;
   if (typeof module !== 'undefined') module.exports = api;
 })(typeof globalThis !== 'undefined' ? globalThis : window);

@@ -416,7 +416,7 @@ func TestCodexChatBackendSteerUsesActiveTurnAndLocalImages(t *testing.T) {
 	})
 	b.lastTurn["thread-1"] = "turn-1"
 
-	res, err := b.Steer(context.Background(), "codex", "thread-1", "follow up", []ChatAttachment{{Path: "/tmp/shot.png"}})
+	res, err := b.Steer(context.Background(), "codex", "thread-1", "follow-1", "follow up", []ChatAttachment{{Path: "/tmp/shot.png"}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -427,7 +427,7 @@ func TestCodexChatBackendSteerUsesActiveTurnAndLocalImages(t *testing.T) {
 		t.Fatalf("calls: %+v", rpc.calls)
 	}
 	params := mapFromParams(t, rpc.calls[0].params)
-	if params["threadId"] != "thread-1" || params["expectedTurnId"] != "turn-1" {
+	if params["threadId"] != "thread-1" || params["expectedTurnId"] != "turn-1" || params["clientUserMessageId"] != "follow-1" {
 		t.Fatalf("steer params: %#v", params)
 	}
 	input, ok := params["input"].([]interface{})

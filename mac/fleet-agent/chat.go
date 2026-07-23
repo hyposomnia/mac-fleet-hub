@@ -255,7 +255,7 @@ type chatBackend interface {
 	Resume(ctx context.Context, assistant, sessionID, mode string) (ChatResumeResult, error)
 	History(ctx context.Context, assistant, sessionID, cursor string) (ChatHistoryPage, error)
 	Input(ctx context.Context, assistant, sessionID, text string, images []ChatAttachment, opts ChatTurnOptions) (ChatInputResult, error)
-	Steer(ctx context.Context, assistant, sessionID, text string, images []ChatAttachment) (ChatInputResult, error)
+	Steer(ctx context.Context, assistant, sessionID, clientMessageID, text string, images []ChatAttachment) (ChatInputResult, error)
 	Events(ctx context.Context, assistant, sessionID string) (<-chan ChatEvent, error)
 	Approve(ctx context.Context, assistant, sessionID, requestID, decision string) error
 	Interrupt(ctx context.Context, assistant, sessionID string) error
@@ -274,7 +274,7 @@ func (unavailableChatBackend) History(context.Context, string, string, string) (
 func (unavailableChatBackend) Input(context.Context, string, string, string, []ChatAttachment, ChatTurnOptions) (ChatInputResult, error) {
 	return ChatInputResult{}, errAppServerUnavailable
 }
-func (unavailableChatBackend) Steer(context.Context, string, string, string, []ChatAttachment) (ChatInputResult, error) {
+func (unavailableChatBackend) Steer(context.Context, string, string, string, string, []ChatAttachment) (ChatInputResult, error) {
 	return ChatInputResult{}, errAppServerUnavailable
 }
 func (unavailableChatBackend) Events(context.Context, string, string) (<-chan ChatEvent, error) {
@@ -395,10 +395,11 @@ func handleChatSteer(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req struct {
-		Assistant string `json:"assistant"`
-		SessionID string `json:"sessionId"`
-		Text      string `json:"text"`
-		Images    []struct {
+		Assistant       string `json:"assistant"`
+		SessionID       string `json:"sessionId"`
+		ClientMessageID string `json:"clientMessageId"`
+		Text            string `json:"text"`
+		Images          []struct {
 			ID string `json:"id"`
 		} `json:"images"`
 	}
@@ -408,6 +409,11 @@ func handleChatSteer(w http.ResponseWriter, r *http.Request) {
 	}
 	text := strings.TrimSpace(req.Text)
 	if text == "" && len(req.Images) == 0 {
+		http.Error(w, "bad request", http.StatusBadRequest)
+		return
+	}
+	req.ClientMessageID = strings.TrimSpace(req.ClientMessageID)
+	if len(req.ClientMessageID) > 200 || strings.ContainsAny(req.ClientMessageID, "\r\n\x00") {
 		http.Error(w, "bad request", http.StatusBadRequest)
 		return
 	}
@@ -429,7 +435,7 @@ func handleChatSteer(w http.ResponseWriter, r *http.Request) {
 	if text == "" {
 		sendText = ""
 	}
-	res, err := agentChatBackend.Steer(r.Context(), assistant, req.SessionID, sendText, images)
+	res, err := agentChatBackend.Steer(r.Context(), assistant, req.SessionID, req.ClientMessageID, sendText, images)
 	if err != nil {
 		writeChatErr(w, err)
 		return

@@ -18,7 +18,7 @@ type fakeChatBackend struct {
 	resumeFn    func(context.Context, string, string, string) (ChatResumeResult, error)
 	historyFn   func(context.Context, string, string, string) (ChatHistoryPage, error)
 	inputFn     func(context.Context, string, string, string, []ChatAttachment, ChatTurnOptions) (ChatInputResult, error)
-	steerFn     func(context.Context, string, string, string, []ChatAttachment) (ChatInputResult, error)
+	steerFn     func(context.Context, string, string, string, string, []ChatAttachment) (ChatInputResult, error)
 	eventsFn    func(context.Context, string, string) (<-chan ChatEvent, error)
 	approveFn   func(context.Context, string, string, string, string) error
 	interruptFn func(context.Context, string, string) error
@@ -45,9 +45,9 @@ func (f fakeChatBackend) Input(ctx context.Context, assistant, sessionID, text s
 	return ChatInputResult{}, nil
 }
 
-func (f fakeChatBackend) Steer(ctx context.Context, assistant, sessionID, text string, images []ChatAttachment) (ChatInputResult, error) {
+func (f fakeChatBackend) Steer(ctx context.Context, assistant, sessionID, clientMessageID, text string, images []ChatAttachment) (ChatInputResult, error) {
 	if f.steerFn != nil {
-		return f.steerFn(ctx, assistant, sessionID, text, images)
+		return f.steerFn(ctx, assistant, sessionID, clientMessageID, text, images)
 	}
 	return ChatInputResult{}, nil
 }
@@ -156,14 +156,14 @@ func TestChatInputCallsBackend(t *testing.T) {
 
 func TestChatSteerCallsBackend(t *testing.T) {
 	withChatBackend(t, fakeChatBackend{
-		steerFn: func(ctx context.Context, assistant, sessionID, text string, images []ChatAttachment) (ChatInputResult, error) {
-			if assistant != "codex" || sessionID != "s1" || text != "guide this" || len(images) != 0 {
-				t.Fatalf("steer args got assistant=%s sessionID=%s text=%s images=%+v", assistant, sessionID, text, images)
+		steerFn: func(ctx context.Context, assistant, sessionID, clientMessageID, text string, images []ChatAttachment) (ChatInputResult, error) {
+			if assistant != "codex" || sessionID != "s1" || clientMessageID != "follow-1" || text != "guide this" || len(images) != 0 {
+				t.Fatalf("steer args got assistant=%s sessionID=%s clientMessageID=%s text=%s images=%+v", assistant, sessionID, clientMessageID, text, images)
 			}
 			return ChatInputResult{TurnID: "turn-1"}, nil
 		},
 	})
-	req := httptest.NewRequest(http.MethodPost, "/api/chat/steer", bytes.NewBufferString(`{"assistant":"codex","sessionId":"s1","text":"guide this"}`))
+	req := httptest.NewRequest(http.MethodPost, "/api/chat/steer", bytes.NewBufferString(`{"assistant":"codex","sessionId":"s1","clientMessageId":"follow-1","text":"guide this"}`))
 	rr := httptest.NewRecorder()
 
 	handleChatSteer(rr, req)
@@ -175,7 +175,7 @@ func TestChatSteerCallsBackend(t *testing.T) {
 
 func TestChatSteerWithoutActiveTurnReturnsConflict(t *testing.T) {
 	withChatBackend(t, fakeChatBackend{
-		steerFn: func(context.Context, string, string, string, []ChatAttachment) (ChatInputResult, error) {
+		steerFn: func(context.Context, string, string, string, string, []ChatAttachment) (ChatInputResult, error) {
 			return ChatInputResult{}, errNoActiveChatTurn
 		},
 	})
