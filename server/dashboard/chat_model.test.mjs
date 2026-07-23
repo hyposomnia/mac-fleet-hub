@@ -15,10 +15,17 @@ vm.createContext(sandbox);
 vm.runInContext(src, sandbox);
 const { createChatState, appendUserMessage, prependHistory, reduceChatEvent, normalizeDiffFiles, chatPhase, uuidV7TimeMs } = sandbox.globalThis.FleetChatModel;
 
-const appSandbox = { document: { addEventListener() {} }, EventSource: { CLOSED: 2 } };
+const fixedAppNowMs = new Date(2026, 6, 23, 23, 0, 0).getTime();
+class FixedAppDate extends Date {
+  constructor(...args) { super(...(args.length ? args : [fixedAppNowMs])); }
+  static now() { return fixedAppNowMs; }
+  static parse(value) { return Date.parse(value); }
+  static UTC(...args) { return Date.UTC(...args); }
+}
+const appSandbox = { document: { addEventListener() {} }, EventSource: { CLOSED: 2 }, Date: FixedAppDate };
 vm.createContext(appSandbox);
-vm.runInContext(`${appSrc}\n;globalThis.__chatCacheTest = { chatCacheVictim, isChatConnectionKept, updateChatUpdatedAt, chatAssistantMetaText, chatUserMetaText, chatMessageMetaVisibility, applyChatMetadataDefaults, enqueueChatFollowup, removeChatFollowup, isInternalChatTool: typeof isInternalChatTool === 'function' ? isInternalChatTool : () => false, state };`, appSandbox);
-const { chatCacheVictim, isChatConnectionKept, updateChatUpdatedAt, chatAssistantMetaText, chatUserMetaText, chatMessageMetaVisibility, applyChatMetadataDefaults, enqueueChatFollowup, removeChatFollowup, isInternalChatTool, state: appState } = appSandbox.__chatCacheTest;
+vm.runInContext(`${appSrc}\n;globalThis.__chatCacheTest = { chatCacheVictim, isChatConnectionKept, updateChatUpdatedAt, formatChatDate, chatAssistantMetaText, chatUserMetaText, chatMessageMetaVisibility, applyChatMetadataDefaults, enqueueChatFollowup, removeChatFollowup, isInternalChatTool: typeof isInternalChatTool === 'function' ? isInternalChatTool : () => false, state };`, appSandbox);
+const { chatCacheVictim, isChatConnectionKept, updateChatUpdatedAt, formatChatDate, chatAssistantMetaText, chatUserMetaText, chatMessageMetaVisibility, applyChatMetadataDefaults, enqueueChatFollowup, removeChatFollowup, isInternalChatTool, state: appState } = appSandbox.__chatCacheTest;
 const directiveSandbox = { globalThis: {} };
 vm.createContext(directiveSandbox);
 vm.runInContext(markdownSrc, directiveSandbox);
@@ -181,6 +188,12 @@ test('self-drawn approval menu mirrors Codex three presets', () => {
   assert.match(styleCSS, /\.chat-approval-choice\.full-access\s*\{\s*color:\s*#f04b14/);
 });
 
+test('self-drawn user message time renders outside the bubble', () => {
+  assert.match(appSrc, /class:\s*'chat-user-wrap'/);
+  assert.match(styleCSS, /\.chat-user-wrap\s*\{\s*display:\s*flex;\s*flex-direction:\s*column;\s*align-items:\s*flex-end/);
+  assert.match(styleCSS, /\.chat-row\.user \.chat-card\s*\{[^}]*max-width:\s*100%/s);
+});
+
 test('tool output appends to command card', () => {
   let state = createChatState();
   state = reduceChatEvent(state, { type: 'tool_delta', itemId: 'cmd1', data: { stream: 'stdout', delta: 'pwd\n' } });
@@ -307,9 +320,18 @@ test('user and assistant message metadata is normalized for rendering', () => {
     type: 'assistant_done', itemId: 'a1', turnId: 't1',
     data: { text: 'hello', completedAtMs: new Date(2026, 6, 22, 21, 44, 31).getTime(), usage: { inputTokens: 3807, outputTokens: 89 } },
   });
-  assert.equal(chatUserMetaText(state.items.u1), '2026-07-22 21:42:10');
-  assert.equal(chatAssistantMetaText(state.items.a1), 'gpt-5.6-sol, xhigh  |  in 3,807 / out 89  |  2026-07-22 21:44:31');
+  assert.equal(chatUserMetaText(state.items.u1), '昨天 21:42:10');
+  assert.equal(chatAssistantMetaText(state.items.a1), 'gpt-5.6-sol, xhigh  |  in 3,807 / out 89  |  昨天 21:44:31');
   assert.equal(state.items.a1.durationMs, 91000);
+});
+
+test('chat metadata dates use compact relative labels', () => {
+  const now = new Date(2026, 6, 23, 23, 0, 0).getTime();
+  assert.equal(formatChatDate(new Date(2026, 6, 23, 22, 45, 55).getTime(), now), '22:45:55');
+  assert.equal(formatChatDate(new Date(2026, 6, 22, 22, 45, 55).getTime(), now), '昨天 22:45:55');
+  assert.equal(formatChatDate(new Date(2026, 6, 21, 22, 45, 55).getTime(), now), '前天 22:45:55');
+  assert.equal(formatChatDate(new Date(2026, 0, 3, 22, 46, 47).getTime(), now), '1-3 22:46:47');
+  assert.equal(formatChatDate(new Date(2025, 6, 23, 22, 46, 58).getTime(), now), '2025-7-23 22:46:58');
 });
 
 test('history metadata falls back to Codex UUIDv7 turn time and session defaults', () => {
@@ -322,8 +344,8 @@ test('history metadata falls back to Codex UUIDv7 turn time and session defaults
   const chat = { model: state, selectedModel: 'gpt-5.6-sol', selectedEffort: 'xhigh' };
   applyChatMetadataDefaults(chat);
   state = chat.model;
-  assert.equal(chatUserMetaText(state.items.u1), '2026-07-22 23:55:00');
-  assert.equal(chatAssistantMetaText(state.items.a1), 'gpt-5.6-sol, xhigh  |  2026-07-22 23:55:00');
+  assert.equal(chatUserMetaText(state.items.u1), '昨天 23:55:00');
+  assert.equal(chatAssistantMetaText(state.items.a1), 'gpt-5.6-sol, xhigh  |  昨天 23:55:00');
 });
 
 test('assistant metadata waits for turn completion and uses the last assistant item', () => {

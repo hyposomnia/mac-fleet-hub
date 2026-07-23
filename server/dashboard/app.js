@@ -1001,14 +1001,14 @@ function chatToolDuration(ms) {
   return `${minutes} 分 ${seconds} 秒`;
 }
 
-function formatChatDate(ms) {
+function formatChatDate(ms, nowMs = Date.now()) {
   const value = Number(ms);
   if (!Number.isFinite(value) || value <= 0) return '';
   const d = new Date(value);
   if (!Number.isFinite(d.getTime())) return '';
   const pad = (n) => String(n).padStart(2, '0');
   const time = `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
-  const now = new Date(Date.now());
+  const now = new Date(nowMs);
   const dayOrdinal = (date) => Math.floor(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()) / 86400000);
   const dayDiff = dayOrdinal(now) - dayOrdinal(d);
   if (dayDiff === 0) return time;
