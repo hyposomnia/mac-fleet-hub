@@ -91,6 +91,14 @@ test('chat model and app use the same versioned shell URLs', () => {
   assert.ok(markdownScript < indexHTML.indexOf('<script src="app.js'));
 });
 
+test('custom chat header omits redundant badge and metadata', () => {
+  const source = appSrc.match(/function showChatPane[\s\S]*?\n}\n\nfunction chatAtBottom/)?.[0] || '';
+  assert.ok(source);
+  assert.doesNotMatch(source, /class: 'badge/);
+  assert.doesNotMatch(source, /Codex Desktop-backed/);
+  assert.match(source, /\$\('#win-meta'\)\.textContent = '';/);
+});
+
 test('Codex is the first and default session assistant', () => {
   const tabs = [...indexHTML.matchAll(/<button data-assistant="([^"]+)" role="tab" aria-selected="([^"]+)">/g)]
     .map((match) => ({ assistant: match[1], selected: match[2] }));

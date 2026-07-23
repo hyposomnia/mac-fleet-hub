@@ -915,8 +915,8 @@ function showChatPane(title, cwd) {
   $('#fullscreen-btn').hidden = false;
   $('#chat-pane').hidden = false;
   const tt = $('#win-title'); clear(tt);
-  tt.append(h('span', { class: 'dot live' }), h('span', { class: 'ttl', text: title || 'Codex 会话' }), h('span', { class: 'badge live', text: '自绘' }));
-  $('#win-meta').textContent = macName(state.macId) + ' · ' + (cwd ? projName(cwd) + ' · ' : '') + 'Codex Desktop-backed';
+  tt.append(h('span', { class: 'dot live' }), h('span', { class: 'ttl', text: title || 'Codex 会话' }));
+  $('#win-meta').textContent = '';
   if (isMobile()) $('#app').classList.add('term-open');
 }
 
