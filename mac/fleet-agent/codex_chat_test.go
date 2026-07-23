@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -192,6 +194,71 @@ func TestCodexChatBackendHistoryPassesCursorAndReturnsChronologicalEvents(t *tes
 	params := mapFromParams(t, rpc.calls[0].params)
 	if rpc.calls[0].method != "thread/items/list" || params["cursor"] != "cursor-1" || params["sortDirection"] != "desc" || params["limit"] != float64(chatHistoryPageSize) {
 		t.Fatalf("history params: %#v", params)
+	}
+}
+
+func TestCodexChatBackendHistoryBackfillsUsageFromRollout(t *testing.T) {
+	oldCfg := cfg
+	t.Cleanup(func() { cfg = oldCfg })
+	home := t.TempDir()
+	cfg = Config{CodexHome: home}
+	sessionID := "019f8f79-7f02-7692-b2de-808c33945a83"
+	dir := filepath.Join(home, "sessions", "2026", "07", "23")
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	rollout := filepath.Join(dir, "rollout-2026-07-23T22-55-32-"+sessionID+".jsonl")
+	body := strings.Join([]string{
+		`{"type":"session_meta","payload":{"id":"` + sessionID + `","originator":"Codex Desktop","source":"vscode"}}`,
+		`{"type":"response_item","payload":{"type":"message","role":"assistant","internal_chat_message_metadata_passthrough":{"turn_id":"turn-1"},"content":[{"type":"output_text","text":"old answer"}]}}`,
+		`{"type":"event_msg","payload":{"type":"token_count","info":{"last_token_usage":{"input_tokens":114146,"cached_input_tokens":108439,"output_tokens":1935}}}}`,
+	}, "\n") + "\n"
+	if err := os.WriteFile(rollout, []byte(body), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	rpc := newFakeRPCConn()
+	rpc.reply["thread/items/list"] = json.RawMessage(`{"data":[
+		{"turnId":"turn-1","item":{"id":"a1","type":"agentMessage","text":"old answer","model":"gpt-5.6-sol"}}
+	]}`)
+	b := newCodexChatBackend(func(ctx context.Context) (codexRPCConn, func(), error) {
+		return rpc, func() {}, nil
+	})
+
+	page, err := b.History(context.Background(), "codex", sessionID, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(page.Events) != 1 {
+		t.Fatalf("events got %+v", page.Events)
+	}
+	for _, want := range []string{`"inputTokens":114146`, `"cachedInputTokens":108439`, `"outputTokens":1935`} {
+		if !strings.Contains(string(page.Events[0].Data), want) {
+			t.Fatalf("usage missing %s from %s", want, page.Events[0].Data)
+		}
+	}
+}
+
+func TestCodexTurnUsageFromRolloutKeepsLatestUsagePerTurn(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "rollout.jsonl")
+	body := strings.Join([]string{
+		`{"type":"response_item","payload":{"type":"message","role":"assistant","internal_chat_message_metadata_passthrough":{"turn_id":"turn-1"},"content":[{"type":"output_text","text":"first"}]}}`,
+		`{"type":"event_msg","payload":{"type":"token_count","info":{"last_token_usage":{"input_tokens":12,"cached_input_tokens":8,"output_tokens":3}}}}`,
+		`{"type":"response_item","payload":{"type":"message","role":"assistant","internal_chat_message_metadata_passthrough":{"turn_id":"turn-1"},"content":[{"type":"output_text","text":"final"}]}}`,
+		`{"type":"event_msg","payload":{"type":"token_count","info":{"last_token_usage":{"input_tokens":120,"cached_input_tokens":96,"output_tokens":30}}}}`,
+		`{"type":"response_item","payload":{"type":"message","role":"assistant","internal_chat_message_metadata_passthrough":{"turn_id":"turn-2"},"content":[{"type":"output_text","text":"other"}]}}`,
+		`{"type":"event_msg","payload":{"type":"token_count","info":{"last_token_usage":{"inputTokens":7,"cachedInputTokens":5,"outputTokens":2}}}}`,
+	}, "\n") + "\n"
+	if err := os.WriteFile(path, []byte(body), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	usage := codexTurnUsageFromRollout(path)
+	if got := usage["turn-1"]; got.InputTokens != 120 || got.CachedInputTokens != 96 || got.OutputTokens != 30 {
+		t.Fatalf("turn-1 usage got %+v", got)
+	}
+	if got := usage["turn-2"]; got.InputTokens != 7 || got.CachedInputTokens != 5 || got.OutputTokens != 2 {
+		t.Fatalf("turn-2 usage got %+v", got)
 	}
 }
 

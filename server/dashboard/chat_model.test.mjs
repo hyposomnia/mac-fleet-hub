@@ -32,6 +32,7 @@ function testElement(tag) {
     children: [],
     textContent: '',
     append(...nodes) { this.children.push(...nodes); },
+    appendChild(node) { this.children.push(node); return node; },
     setAttribute(name, value) { this.attributes[name] = String(value); },
   };
 }
@@ -53,8 +54,8 @@ const appSandbox = {
   Date: FixedAppDate,
 };
 vm.createContext(appSandbox);
-vm.runInContext(`${appSrc}\n;globalThis.__chatCacheTest = { chatCacheVictim, isChatConnectionKept, updateChatUpdatedAt, formatChatDate, chatAssistantMetaText, chatUserMetaText, chatMessageMetaVisibility, applyChatMetadataDefaults, enqueueChatFollowup, removeChatFollowup, chatToolStatus, chatToolDuration, chatToolActivityLabel, chatToolHasExpandableBody, isInternalChatTool: typeof isInternalChatTool === 'function' ? isInternalChatTool : () => false, state };`, appSandbox);
-const { chatCacheVictim, isChatConnectionKept, updateChatUpdatedAt, formatChatDate, chatAssistantMetaText, chatUserMetaText, chatMessageMetaVisibility, applyChatMetadataDefaults, enqueueChatFollowup, removeChatFollowup, chatToolStatus, chatToolDuration, chatToolActivityLabel, chatToolHasExpandableBody, isInternalChatTool, state: appState } = appSandbox.__chatCacheTest;
+vm.runInContext(`${appSrc}\n;globalThis.__chatCacheTest = { chatCacheVictim, isChatConnectionKept, updateChatUpdatedAt, formatChatDate, chatAssistantMetaText, chatUserMetaText, chatMessageMetaVisibility, applyChatMetadataDefaults, enqueueChatFollowup, removeChatFollowup, chatToolStatus, chatToolDuration, chatToolActivityLabel, chatToolHasExpandableBody, chatActivityGroupSummaryText, chatActivityActiveSummarySegments, renderChatActivityGroup, isInternalChatTool: typeof isInternalChatTool === 'function' ? isInternalChatTool : () => false, state };`, appSandbox);
+const { chatCacheVictim, isChatConnectionKept, updateChatUpdatedAt, formatChatDate, chatAssistantMetaText, chatUserMetaText, chatMessageMetaVisibility, applyChatMetadataDefaults, enqueueChatFollowup, removeChatFollowup, chatToolStatus, chatToolDuration, chatToolActivityLabel, chatToolHasExpandableBody, chatActivityGroupSummaryText, chatActivityActiveSummarySegments, renderChatActivityGroup, isInternalChatTool, state: appState } = appSandbox.__chatCacheTest;
 function toolLabelText(item) {
   const status = chatToolStatus(item.status);
   return chatToolActivityLabel(item, status, chatToolDuration(item.durationMs)).map(nodeText).join('');
@@ -273,6 +274,7 @@ test('generic tool updates preserve kind, summary, status, and details', () => {
 
 test('tool activity rows mirror Codex inline summaries', () => {
   assert.match(appSrc, /function chatToolActivityLabel\(item, status, duration\)/);
+  assert.match(appSrc, /function renderChatActivityGroup\(items\)/);
   assert.match(appSrc, /class:\s*'chat-tool-verb'/);
   assert.match(appSrc, /class:\s*'chat-tool-command mono'/);
   assert.match(appSrc, /'chat-tool-path mono'/);
@@ -283,6 +285,24 @@ test('tool activity rows mirror Codex inline summaries', () => {
   assert.doesNotMatch(styleCSS, /\.chat-tool-label\s*\{[^}]*margin:\s*0 0 5px/s);
   assert.doesNotMatch(styleCSS, /\.chat-tool-title\s*\{/);
   assert.doesNotMatch(styleCSS, /\.chat-tool-subtitle\s*\{/);
+});
+
+test('consecutive activity summaries collapse like Codex groups', () => {
+  const items = [
+    { type: 'tool', kind: 'commandExecution', summary: 'sed -n 1,80p server/dashboard/app.js', status: 'completed' },
+    { type: 'tool', kind: 'commandExecution', summary: 'npm test', status: 'completed' },
+    { type: 'tool', kind: 'webSearch', summary: 'Codex activity', status: 'completed' },
+  ];
+  assert.equal(chatActivityGroupSummaryText(items), '已读取文件运行了一个命令已搜索网页');
+  const group = renderChatActivityGroup(items);
+  assert.equal(group.className, 'chat-row tool activity-group');
+  assert.match(nodeText(group), /已读取文件运行了一个命令已搜索网页/);
+  assert.match(nodeText(group), /npm test/);
+});
+
+test('running activity group uses the active item summary', () => {
+  assert.deepEqual([...chatActivityActiveSummarySegments({ kind: 'commandExecution', summary: 'bash -lc npm test', status: 'inProgress' })], ['正在运行命令']);
+  assert.deepEqual([...chatActivityActiveSummarySegments({ kind: 'mcpToolCall', title: 'Chrome · Read', summary: 'chrome · read', status: 'inProgress' })], ['正在使用 Chrome 集成']);
 });
 
 test('tool activity labels follow Codex command and MCP wording', () => {
@@ -296,6 +316,7 @@ test('tool activity labels follow Codex command and MCP wording', () => {
 test('read-only tool activities stay collapsed like Codex summaries', () => {
   assert.equal(chatToolHasExpandableBody({ kind: 'fileRead', summary: 'server/dashboard/app.js', detail: 'large file' }), false);
   assert.equal(chatToolHasExpandableBody({ kind: 'webSearch', summary: 'fleet', output: 'results' }), false);
+  assert.equal(chatToolHasExpandableBody({ kind: 'commandExecution', summary: 'sed -n 1,80p server/dashboard/app.js', output: 'content' }), false);
   assert.equal(chatToolHasExpandableBody({ kind: 'commandExecution', summary: 'pwd' }), true);
   assert.equal(chatToolHasExpandableBody({ kind: 'mcpToolCall', title: 'Notion · Search', detail: '{"query":"fleet"}' }), true);
 });

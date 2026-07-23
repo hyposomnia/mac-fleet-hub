@@ -963,9 +963,26 @@ function renderChat({ preserveScroll = false, forceBottom = false } = {}) {
   const model = chat.model || FleetChatModel.createChatState();
   const currentTurn = currentChatTurn(model);
   const metaVisible = chatMessageMetaVisibility(model);
-  for (const id of model.messages) {
+  for (let i = 0; i < model.messages.length; i += 1) {
+    const id = model.messages[i];
     const item = model.items[id];
     if (!item || isInternalChatTool(item)) continue;
+    if (isChatActivityItem(item)) {
+      const group = [{ id, item }];
+      while (i + 1 < model.messages.length) {
+        const nextId = model.messages[i + 1];
+        const nextItem = model.items[nextId];
+        if (!nextItem || isInternalChatTool(nextItem) || !isChatActivityItem(nextItem)) break;
+        group.push({ id: nextId, item: nextItem });
+        i += 1;
+      }
+      stack.append(group.length > 1
+        ? renderChatActivityGroup(group.map((entry) => entry.item))
+        : renderChatItem(item, false, false));
+      const turnMeta = metaVisible.get(group[group.length - 1].id);
+      if (turnMeta?.type === 'assistant') stack.append(renderChatTurnMeta(turnMeta));
+      continue;
+    }
     stack.append(renderChatItem(item, id === currentTurn?.id, item.type === 'user' && metaVisible.has(id)));
     const turnMeta = metaVisible.get(id);
     if (turnMeta?.type === 'assistant') stack.append(renderChatTurnMeta(turnMeta));
@@ -1019,6 +1036,22 @@ function chatToolInlineValue(text, className) {
   return value ? h('span', { class: className, text: value }) : null;
 }
 
+function shellCommandBase(command) {
+  const value = String(command || '').trim();
+  const shell = value.match(/^(?:\/usr\/bin\/env\s+)?(?:bash|zsh|sh)\s+-lc\s+(.+)$/);
+  return shell ? shell[1].replace(/^['"]|['"]$/g, '').trim() : value;
+}
+
+function chatCommandSemantic(item) {
+  if (item?.kind !== 'commandExecution') return '';
+  const cmd = shellCommandBase(item.summary || item.title || '').toLowerCase();
+  if (!cmd) return '';
+  if (/^(?:cat|sed|nl|head|tail|less|more|awk|wc)\b/.test(cmd)) return 'read';
+  if (/^(?:rg|grep)\b/.test(cmd)) return 'search';
+  if (/^(?:ls|find)\b/.test(cmd)) return 'list';
+  return '';
+}
+
 function isNodeReplTool(item, title, summary) {
   const raw = `${title || ''}\n${summary || ''}`.toLowerCase();
   return item.kind === 'mcpToolCall' && (
@@ -1057,6 +1090,15 @@ function chatToolActivityLabel(item, status, duration) {
   const path = chatToolInlineValue(summary, 'chat-tool-path mono');
 
   if (item.kind === 'commandExecution') {
+    const semantic = chatCommandSemantic(item);
+    if (semantic) {
+      const labels = {
+        read: status.key === 'running' ? '正在读取文件' : '已读取文件',
+        search: status.key === 'running' ? '正在搜索文件' : '已搜索文件',
+        list: status.key === 'running' ? '正在列出文件' : '已列出文件',
+      };
+      return [verb(labels[semantic])];
+    }
     if (status.key === 'running') return [verb('正在运行命令'), muted(timer)];
     const label = chatToolStatusVerb(status, { completed: '已运行', stopped: '已停止', failed: '运行失败' });
     return command
@@ -1092,6 +1134,7 @@ function chatToolActivityLabel(item, status, duration) {
 
 function chatToolHasExpandableBody(item) {
   const hasDetail = Boolean(item.detail || item.output || item.progress || item.meta || item.exitCode !== undefined);
+  if (chatCommandSemantic(item)) return false;
   if (item.kind === 'commandExecution') return Boolean(item.summary || hasDetail);
   if (['fileRead', 'imageView', 'webSearch', 'sleep'].includes(item.kind)) return false;
   return hasDetail;
@@ -1163,6 +1206,10 @@ function chatAssistantTurnKey(item, fallbackId) {
 
 function isInternalChatTool(item) {
   return Boolean(item?.internal);
+}
+
+function isChatActivityItem(item) {
+  return item?.type === 'tool' || item?.type === 'diff';
 }
 
 function chatMessageMetaVisibility(model) {
@@ -1240,7 +1287,7 @@ function chatToolIcon(kind) {
   ]);
 }
 
-function renderChatTool(item) {
+function renderChatToolSurface(item, extraClass = '') {
   const status = chatToolStatus(item.status);
   const duration = chatToolDuration(item.durationMs);
   const hasBody = chatToolHasExpandableBody(item);
@@ -1251,7 +1298,8 @@ function renderChatTool(item) {
     h('span', { class: 'chat-tool-label' }, label),
     h('span', { class: 'chat-tool-aside' },
       hasBody ? svgIcon('chat-tool-chevron', 'M6 9l6 6 6-6') : null));
-  if (!hasBody) return chatRow(h('div', { class: 'chat-tool compact' }, header), 'tool');
+  const cls = ['chat-tool compact', extraClass].filter(Boolean).join(' ');
+  if (!hasBody) return h('div', { class: cls }, header);
   const body = h('div', { class: 'chat-tool-body' },
     item.progress ? h('div', { class: 'chat-tool-progress', text: item.progress }) : null,
     item.meta ? h('div', { class: 'chat-tool-meta mono', text: item.meta }) : null,
@@ -1263,24 +1311,149 @@ function renderChatTool(item) {
         item.output || '',
       ].filter(Boolean).join('\n') })) : null,
     item.exitCode !== undefined ? h('div', { class: 'chat-tool-exit mono', text: `退出码 ${item.exitCode}` }) : null);
-  return chatRow(h('details', { class: 'chat-tool compact' }, h('summary', {}, header), body), 'tool');
+  return h('details', { class: cls }, h('summary', {}, header), body);
 }
 
-function renderChatDiff(item) {
+function renderChatTool(item) {
+  return chatRow(renderChatToolSurface(item), 'tool');
+}
+
+function renderChatDiffSurface(item, extraClass = '') {
   const files = item.files || [];
   const header = h('span', { class: 'chat-tool-summary' },
     h('span', { class: 'chat-tool-icon' }, chatToolIcon('fileChange')),
     h('span', { class: 'chat-tool-label' }, h('span', { class: 'chat-tool-verb', text: '已编辑' }), h('span', { class: 'chat-tool-muted', text: '文件' })),
     h('span', { class: 'chat-tool-aside' }, files.length ? svgIcon('chat-tool-chevron', 'M6 9l6 6 6-6') : null));
-  if (!files.length) return chatRow(h('div', { class: 'chat-tool chat-diff compact' }, header), 'diff');
-  return chatRow(h('details', { class: 'chat-tool chat-diff compact' },
+  const cls = ['chat-tool chat-diff compact', extraClass].filter(Boolean).join(' ');
+  if (!files.length) return h('div', { class: cls }, header);
+  return h('details', { class: cls },
     h('summary', {}, header),
     h('div', { class: 'chat-diff-files' }, files.map((file) => h('div', { class: 'chat-diff-file' },
       h('span', { class: 'chat-diff-path mono', text: file.path }),
       h('span', { class: 'chat-diff-stats mono' },
         h('span', { class: 'chat-diff-add', text: `+${file.additions || 0}` }),
-        h('span', { class: 'chat-diff-del', text: `-${file.deletions || 0}` })))))),
-    'diff');
+        h('span', { class: 'chat-diff-del', text: `-${file.deletions || 0}` }))))));
+}
+
+function renderChatDiff(item) {
+  return chatRow(renderChatDiffSurface(item), 'diff');
+}
+
+function chatActivitySourceLabel(item) {
+  const raw = `${item.title || ''}\n${item.summary || ''}`.toLowerCase();
+  if (raw.includes('chrome')) return 'Chrome';
+  if (raw.includes('browser') || raw.includes('浏览器')) return '浏览器';
+  const title = String(item.title || '').trim();
+  const first = title.split(/[·:]/, 1)[0]?.trim();
+  return first && !/^(mcp|工具|调用工具)$/.test(first.toLowerCase()) ? first : '';
+}
+
+function chatActivityGroupStats(items) {
+  const stats = {
+    commands: 0, runningCommands: 0,
+    reads: 0, searches: 0, webSearches: 0,
+    files: 0, tools: 0, runningTools: 0,
+    sources: [],
+  };
+  for (const item of items) {
+    const status = chatToolStatus(item.status);
+    const isCommand = item.type === 'tool' && (item.kind === 'commandExecution' || isNodeReplTool(item, item.title, item.summary));
+    if (isCommand) {
+      const semantic = chatCommandSemantic(item);
+      if (semantic === 'read' || semantic === 'list') stats.reads += 1;
+      else if (semantic === 'search') stats.searches += 1;
+      else {
+        stats.commands += 1;
+        if (status.key === 'running') stats.runningCommands += 1;
+      }
+    } else if (item.type === 'diff') {
+      stats.files += Math.max(1, (item.files || []).length);
+    } else if (item.kind === 'webSearch') {
+      stats.webSearches += 1;
+    } else if (item.kind === 'fileRead' || item.kind === 'imageView') {
+      stats.reads += 1;
+    } else {
+      if (item.kind === 'mcpToolCall') {
+        const source = chatActivitySourceLabel(item);
+        if (source && !stats.sources.includes(source)) stats.sources.push(source);
+      }
+      stats.tools += 1;
+      if (status.key === 'running') stats.runningTools += 1;
+    }
+  }
+  return stats;
+}
+
+function chatActivityPlural(count, one, many) {
+  return count === 1 ? one : many;
+}
+
+function chatActivityGroupSummarySegments(items) {
+  const stats = chatActivityGroupStats(items);
+  const parts = [];
+  if (stats.sources.length) parts.push(`已使用 ${stats.sources.join('、')} 集成`);
+  if (stats.reads > 0) parts.push('已读取文件');
+  if (stats.searches > 0) parts.push('已搜索文件');
+  const completedCommands = stats.commands - stats.runningCommands;
+  if (completedCommands > 0) parts.push(chatActivityPlural(completedCommands, '运行了一个命令', '运行了多个命令'));
+  if (stats.runningCommands > 0) parts.push(chatActivityPlural(stats.runningCommands, '正在运行一个命令', '正在运行多个命令'));
+  if (stats.files > 0) parts.push(chatActivityPlural(stats.files, '编辑了一个文件', '编辑了文件'));
+  if (stats.webSearches > 0) parts.push('已搜索网页');
+  const completedTools = stats.tools - stats.runningTools;
+  if (completedTools > 0 && !stats.sources.length) parts.push(chatActivityPlural(completedTools, '调用了一个工具', '调用了工具'));
+  if (stats.runningTools > 0 && !stats.sources.length) parts.push(chatActivityPlural(stats.runningTools, '正在调用一个工具', '正在调用工具'));
+  return parts.length ? parts : ['已完成'];
+}
+
+function chatActivityGroupSummaryText(items) {
+  return chatActivityGroupSummarySegments(items).join('');
+}
+
+function chatActivityActiveItem(items) {
+  for (let i = items.length - 1; i >= 0; i -= 1) {
+    const item = items[i];
+    if (item.type === 'tool' && chatToolStatus(item.status).key === 'running') return item;
+  }
+  return null;
+}
+
+function chatActivityActiveSummarySegments(item) {
+  if (!item) return null;
+  if (item.kind === 'commandExecution') {
+    const semantic = chatCommandSemantic(item);
+    if (semantic === 'read') return ['正在读取文件'];
+    if (semantic === 'search') return ['正在搜索文件'];
+    if (semantic === 'list') return ['正在列出文件'];
+    return ['正在运行命令'];
+  }
+  if (item.kind === 'webSearch') return ['正在搜索网页'];
+  if (item.kind === 'mcpToolCall') {
+    const source = chatActivitySourceLabel(item);
+    return source ? [`正在使用 ${source} 集成`] : ['正在调用工具'];
+  }
+  return null;
+}
+
+function chatActivityGroupIconKind(items) {
+  const stats = chatActivityGroupStats(items);
+  if (stats.commands > 0) return 'commandExecution';
+  if (stats.files > 0) return 'fileChange';
+  if (stats.searches > 0) return 'webSearch';
+  return items[0]?.kind || 'tool';
+}
+
+function renderChatActivityGroup(items) {
+  const segments = chatActivityActiveSummarySegments(chatActivityActiveItem(items)) || chatActivityGroupSummarySegments(items);
+  const header = h('span', { class: 'chat-tool-summary chat-activity-group-summary' },
+    h('span', { class: 'chat-tool-icon' }, chatToolIcon(chatActivityGroupIconKind(items))),
+    h('span', { class: 'chat-tool-label' }, segments.map((segment) => h('span', { class: 'chat-tool-verb', text: segment }))),
+    h('span', { class: 'chat-tool-aside' }, svgIcon('chat-tool-chevron', 'M6 9l6 6 6-6')));
+  return chatRow(h('details', { class: 'chat-activity-group chat-tool compact' },
+    h('summary', {}, header),
+    h('div', { class: 'chat-activity-group-body' }, items.map((item) => (
+      item.type === 'diff' ? renderChatDiffSurface(item, 'grouped') : renderChatToolSurface(item, 'grouped')
+    )))),
+  'tool activity-group');
 }
 
 function renderChatItem(item, isCurrentTurn = false, showMeta = true) {

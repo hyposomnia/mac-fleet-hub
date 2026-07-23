@@ -1,10 +1,12 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -35,6 +37,7 @@ type codexChatBackend struct {
 	itemsListSupport int
 	historyPages     map[string]codexTurnsPage
 	historyPageOrder []string
+	historyUsage     map[string]codexTurnUsageCache
 }
 
 func newCodexChatBackend(connect codexConnector) *codexChatBackend {
@@ -44,6 +47,7 @@ func newCodexChatBackend(connect codexConnector) *codexChatBackend {
 		lastTurn:     map[string]string{},
 		pending:      map[string]pendingApproval{},
 		historyPages: map[string]codexTurnsPage{},
+		historyUsage: map[string]codexTurnUsageCache{},
 	}
 }
 
@@ -278,7 +282,7 @@ func (b *codexChatBackend) listHistory(ctx context.Context, rpc codexRPCConn, se
 	if err := json.Unmarshal(raw, &page); err != nil {
 		return ChatHistoryPage{}, fmt.Errorf("decode Codex history: %w", err)
 	}
-	return projectCodexHistoryPage(sessionID, page), nil
+	return projectCodexHistoryPage(sessionID, page, b.rolloutUsage(sessionID)), nil
 }
 
 func codexItemsListUnsupported(err error) bool {
@@ -293,6 +297,7 @@ func (b *codexChatBackend) listHistoryByTurns(ctx context.Context, rpc codexRPCC
 	}
 	events := make([]ChatEvent, 0, chatHistoryPageSize)
 	seenPages := map[string]bool{}
+	usageByTurn := b.rolloutUsage(sessionID)
 	for len(events) < chatHistoryPageSize {
 		if seenPages[state.Page] {
 			return ChatHistoryPage{}, fmt.Errorf("Codex history cursor loop")
@@ -309,7 +314,7 @@ func (b *codexChatBackend) listHistoryByTurns(ctx context.Context, rpc codexRPCC
 		for state.Offset < len(entries) && len(events) < chatHistoryPageSize {
 			entry := entries[state.Offset]
 			state.Offset++
-			if ev, ok := projectCodexHistoryItem(sessionID, entry.TurnID, entry.Item); ok {
+			if ev, ok := projectCodexHistoryItemWithUsage(sessionID, entry.TurnID, entry.Item, usageByTurn[entry.TurnID]); ok {
 				events = append(events, ev)
 			}
 		}
@@ -384,6 +389,110 @@ func (b *codexChatBackend) clearHistoryPages(sessionID string) {
 	}
 	b.historyPageOrder = kept
 	b.mu.Unlock()
+}
+
+type codexTokenUsage struct {
+	InputTokens       int64
+	OutputTokens      int64
+	CachedInputTokens int64
+}
+
+func (u codexTokenUsage) empty() bool {
+	return u.InputTokens == 0 && u.OutputTokens == 0 && u.CachedInputTokens == 0
+}
+
+type codexTurnUsageCache struct {
+	path  string
+	mtime int64
+	usage map[string]codexTokenUsage
+}
+
+func (b *codexChatBackend) rolloutUsage(sessionID string) map[string]codexTokenUsage {
+	path := jsonlPathFor("codex", sessionID)
+	if path == "" {
+		return nil
+	}
+	var mtime int64
+	if st, err := os.Stat(path); err == nil {
+		mtime = st.ModTime().UnixMilli()
+	}
+	b.mu.Lock()
+	if cached, ok := b.historyUsage[sessionID]; ok && cached.path == path && cached.mtime == mtime {
+		b.mu.Unlock()
+		return cached.usage
+	}
+	b.mu.Unlock()
+
+	usage := codexTurnUsageFromRollout(path)
+	b.mu.Lock()
+	b.historyUsage[sessionID] = codexTurnUsageCache{path: path, mtime: mtime, usage: usage}
+	b.mu.Unlock()
+	return usage
+}
+
+func codexTurnUsageFromRollout(path string) map[string]codexTokenUsage {
+	out := map[string]codexTokenUsage{}
+	f, err := os.Open(path)
+	if err != nil {
+		return out
+	}
+	defer f.Close()
+
+	currentTurnID := ""
+	sc := bufio.NewScanner(f)
+	sc.Buffer(make([]byte, 1024*1024), 16*1024*1024)
+	for sc.Scan() {
+		var row struct {
+			Type    string `json:"type"`
+			Payload struct {
+				Type        string `json:"type"`
+				TurnID      string `json:"turn_id"`
+				TurnIDCamel string `json:"turnId"`
+				Internal    struct {
+					TurnID      string `json:"turn_id"`
+					TurnIDCamel string `json:"turnId"`
+				} `json:"internal_chat_message_metadata_passthrough"`
+				Info struct {
+					LastTokenUsage struct {
+						InputTokens            int64 `json:"input_tokens"`
+						InputTokensCamel       int64 `json:"inputTokens"`
+						OutputTokens           int64 `json:"output_tokens"`
+						OutputTokensCamel      int64 `json:"outputTokens"`
+						CachedInputTokens      int64 `json:"cached_input_tokens"`
+						CachedInputTokensCamel int64 `json:"cachedInputTokens"`
+					} `json:"last_token_usage"`
+				} `json:"info"`
+			} `json:"payload"`
+		}
+		if json.Unmarshal(sc.Bytes(), &row) != nil {
+			continue
+		}
+		if turnID := firstNonEmpty(row.Payload.TurnID, row.Payload.TurnIDCamel, row.Payload.Internal.TurnID, row.Payload.Internal.TurnIDCamel); turnID != "" {
+			currentTurnID = turnID
+		}
+		if row.Type != "event_msg" || row.Payload.Type != "token_count" || currentTurnID == "" {
+			continue
+		}
+		last := row.Payload.Info.LastTokenUsage
+		usage := codexTokenUsage{
+			InputTokens:       firstPositiveInt64(last.InputTokens, last.InputTokensCamel),
+			OutputTokens:      firstPositiveInt64(last.OutputTokens, last.OutputTokensCamel),
+			CachedInputTokens: firstPositiveInt64(last.CachedInputTokens, last.CachedInputTokensCamel),
+		}
+		if !usage.empty() {
+			out[currentTurnID] = usage
+		}
+	}
+	return out
+}
+
+func firstPositiveInt64(values ...int64) int64 {
+	for _, value := range values {
+		if value > 0 {
+			return value
+		}
+	}
+	return 0
 }
 
 func descendingCodexTurnItems(page codexTurnsPage) []codexHistoryItemEntry {
@@ -639,11 +748,11 @@ func (b *codexChatBackend) modelOptions(ctx context.Context, rpc codexRPCConn) [
 	return out
 }
 
-func projectCodexHistoryPage(sessionID string, page codexItemsPage) ChatHistoryPage {
+func projectCodexHistoryPage(sessionID string, page codexItemsPage, usageByTurn map[string]codexTokenUsage) ChatHistoryPage {
 	events := make([]ChatEvent, 0, len(page.Data))
 	for i := len(page.Data) - 1; i >= 0; i-- {
 		entry := page.Data[i]
-		if ev, ok := projectCodexHistoryItem(sessionID, entry.TurnID, entry.Item); ok {
+		if ev, ok := projectCodexHistoryItemWithUsage(sessionID, entry.TurnID, entry.Item, usageByTurn[entry.TurnID]); ok {
 			events = append(events, ev)
 		}
 	}
@@ -655,6 +764,10 @@ func projectCodexHistoryPage(sessionID string, page codexItemsPage) ChatHistoryP
 }
 
 func projectCodexHistoryItem(sessionID, turnID string, raw json.RawMessage) (ChatEvent, bool) {
+	return projectCodexHistoryItemWithUsage(sessionID, turnID, raw, codexTokenUsage{})
+}
+
+func projectCodexHistoryItemWithUsage(sessionID, turnID string, raw json.RawMessage, usage codexTokenUsage) (ChatEvent, bool) {
 	var base struct {
 		ID   string `json:"id"`
 		Type string `json:"type"`
@@ -716,10 +829,42 @@ func projectCodexHistoryItem(sessionID, turnID string, raw json.RawMessage) (Cha
 		data := map[string]interface{}{}
 		_ = json.Unmarshal(raw, &data)
 		data["text"] = item.Text
+		mergeCodexHistoryUsage(data, usage)
 		return newChatEvent("assistant_done", "codex", sessionID, turnID, base.ID, data), true
 	default:
 		return projectCodexToolItem(sessionID, turnID, raw, "completed")
 	}
+}
+
+func mergeCodexHistoryUsage(data map[string]interface{}, usage codexTokenUsage) {
+	if usage.empty() {
+		return
+	}
+	usageMap, _ := data["usage"].(map[string]interface{})
+	if usageMap == nil {
+		usageMap = map[string]interface{}{}
+	}
+	if usage.InputTokens > 0 && !hasAnyUsageKey(usageMap, "inputTokens", "input_tokens", "promptTokens", "prompt_tokens") {
+		usageMap["inputTokens"] = usage.InputTokens
+	}
+	if usage.OutputTokens > 0 && !hasAnyUsageKey(usageMap, "outputTokens", "output_tokens", "completionTokens", "completion_tokens") {
+		usageMap["outputTokens"] = usage.OutputTokens
+	}
+	if usage.CachedInputTokens > 0 && !hasAnyUsageKey(usageMap, "cachedInputTokens", "cached_input_tokens", "inputCachedTokens", "input_cached_tokens") {
+		usageMap["cachedInputTokens"] = usage.CachedInputTokens
+	}
+	if len(usageMap) > 0 {
+		data["usage"] = usageMap
+	}
+}
+
+func hasAnyUsageKey(m map[string]interface{}, keys ...string) bool {
+	for _, key := range keys {
+		if _, ok := m[key]; ok {
+			return true
+		}
+	}
+	return false
 }
 
 func projectCodexToolItem(sessionID, turnID string, raw json.RawMessage, lifecycleStatus string) (ChatEvent, bool) {
