@@ -146,6 +146,7 @@ test('self-drawn composer contains native stop control and follow-up queue', () 
   assert.match(indexHTML, /data-action="send"/);
   assert.match(styleCSS, /\.chat-send \.chat-stop-icon\s*\{\s*display:\s*none/);
   assert.match(styleCSS, /chat-send\[data-action="interrupt"\]/);
+  assert.match(styleCSS, /#chat-composer\s*\{\s*padding:\s*8px 10px max\(10px,\s*env\(safe-area-inset-bottom,\s*0px\)\)/);
 });
 
 test('tool output appends to command card', () => {
@@ -271,7 +272,7 @@ test('history metadata falls back to Codex UUIDv7 turn time and session defaults
   assert.equal(chatAssistantMetaText(state.items.a1), 'gpt-5.6-sol, xhigh  |  2026-07-22 23:55:00');
 });
 
-test('assistant metadata renders only on the last assistant item in a turn', () => {
+test('assistant metadata waits for turn completion and uses the last assistant item', () => {
   let state = createChatState();
   state = reduceChatEvent(state, {
     type: 'user_done', itemId: 'u1', turnId: 't1',
@@ -285,10 +286,39 @@ test('assistant metadata renders only on the last assistant item in a turn', () 
     type: 'assistant_done', itemId: 'a2', turnId: 't1',
     data: { text: 'second', model: 'gpt-5.6-sol', reasoningEffort: 'xhigh', completedAtMs: new Date(2026, 6, 22, 21, 44, 31).getTime() },
   });
-  const visible = chatMessageMetaVisibility(state);
+  let visible = chatMessageMetaVisibility(state);
   assert.equal(visible.has('u1'), true);
   assert.equal(visible.has('a1'), false);
+  assert.equal(visible.has('a2'), false);
+  state = reduceChatEvent(state, {
+    type: 'turn_done', turnId: 't1',
+    data: { turn: { id: 't1', status: 'completed' } },
+  });
+  visible = chatMessageMetaVisibility(state);
   assert.equal(visible.has('a2'), true);
+  assert.equal(visible.get('a2').id, 'a2');
+});
+
+test('assistant metadata is placed after tools when the turn completes', () => {
+  let state = reduceChatEvent(createChatState(), {
+    type: 'assistant_done', itemId: 'a1', turnId: 't1',
+    data: { text: 'working', model: 'gpt-5.6-sol', completedAtMs: 1784730000000 },
+  });
+  state = reduceChatEvent(state, {
+    type: 'tool_done', itemId: 'tool1', turnId: 't1',
+    data: { kind: 'commandExecution', command: 'pwd', status: 'completed' },
+  });
+  let visible = chatMessageMetaVisibility(state);
+  assert.equal(visible.has('a1'), false);
+  assert.equal(visible.has('tool1'), false);
+  state = reduceChatEvent(state, {
+    type: 'turn_done', turnId: 't1',
+    data: { turn: { id: 't1', status: 'completed' } },
+  });
+  visible = chatMessageMetaVisibility(state);
+  assert.equal(visible.has('a1'), false);
+  assert.equal(visible.has('tool1'), true);
+  assert.equal(visible.get('tool1').id, 'a1');
 });
 
 test('turn completion metadata backfills the last assistant message in that turn', () => {
@@ -306,6 +336,7 @@ test('turn completion metadata backfills the last assistant message in that turn
   assert.equal(state.items.a1.effort, 'high');
   assert.deepEqual(JSON.parse(JSON.stringify(state.items.a1.usage)), { inputTokens: 12, outputTokens: 3 });
   assert.equal(state.items.a1.completedAtMs, 1784730000000);
+  assert.equal(state.items.a1.turnComplete, true);
 });
 
 test('completed command history becomes a tool card', () => {
