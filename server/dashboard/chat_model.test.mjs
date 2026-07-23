@@ -142,6 +142,7 @@ test('follow-up queue is FIFO and removing one item preserves the others', () =>
 test('self-drawn composer contains native stop control and follow-up queue', () => {
   assert.match(indexHTML, /id="chat-followups"/);
   assert.match(indexHTML, /class="ic chat-stop-icon"/);
+  assert.match(indexHTML, /chat-stop-icon"[^>]*><rect x="6" y="6" width="12" height="12" rx="1\.5"/);
   assert.match(indexHTML, /data-action="send"/);
   assert.match(styleCSS, /\.chat-send \.chat-stop-icon\s*\{\s*display:\s*none/);
   assert.match(styleCSS, /chat-send\[data-action="interrupt"\]/);

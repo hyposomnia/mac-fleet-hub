@@ -4,6 +4,10 @@ mac-fleet-hub 变更记录（日期为本地时间）。
 
 ## 2026-07-23
 
+### 放大 Codex 停止生成图标
+- **停止方块**：自绘聊天运行态按钮内的停止方块从 SVG `8×8` 放大到 `12×12`，外部圆形按钮尺寸保持不变。
+- **原生图形**：停止标识继续使用内联 SVG `<rect>`，不依赖字体或 Unicode 字形，跨平台渲染一致。
+
 ### 修复 Codex 迁移会话数量再次缩少
 - **根因**：后续聊天功能合并时，SQLite 查询意外恢复了旧的 `thread_source != subagent` 条件，把 Codex Desktop 仍可见的迁移任务再次过滤掉；MacBook Air M5 的 `aibaji_work_assistant` 因此从 20 条缩成 6 条。
 - **修复**：SQLite 初筛不再使用不可靠的 `thread_source`，继续以 `archived=0`、`source=vscode` 和 rollout `originator=Codex Desktop` 为准；真实子代理仍由对象型 `source` 排除。
