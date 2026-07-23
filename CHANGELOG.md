@@ -4,6 +4,11 @@ mac-fleet-hub 变更记录（日期为本地时间）。
 
 ## 2026-07-23
 
+### 恢复中的活动轮次不再提前显示统计
+- **真实完成信号**：从历史恢复时，仅把 `final_answer` 或带明确完成时间的 assistant item 视为整轮完成；仍在写入的 `commentary` 不再提前显示模型、强度、token 与日期。
+- **独立 app-server 兼容**：即使 fleet-agent 的 app-server 对 Codex Desktop 正在执行的会话返回 `idle`，也能依赖持久化 item 阶段正确隐藏当前轮统计。
+- **静态缓存**：dashboard 外壳缓存升级到 v25。
+
 ### 自绘会话尾部与工具行对齐 Codex Desktop
 - **真实 token 用量**：接入 app-server 的 `thread/tokenUsage/updated` 通知，取 `tokenUsage.last` 回填当前轮 `in / out`，并继续只在整轮完成后显示。
 - **指令状态块**：识别 `::git-commit{...}` 等 Codex UI 指令，以安全、紧凑的状态块显示，不再把协议文本原样露在回复中。

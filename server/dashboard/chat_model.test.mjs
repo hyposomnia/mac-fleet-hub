@@ -362,15 +362,25 @@ test('active resumed turn does not expose historical metadata before completion'
   let state = prependHistory(createChatState(), [
     {
       type: 'assistant_done', itemId: 'a1', turnId: 't1',
-      data: { text: 'still working', model: 'gpt-5.6-sol', completedAtMs: 1784730000000 },
+      data: { text: 'still working', phase: 'commentary', model: 'gpt-5.6-sol' },
+    },
+  ]);
+  assert.equal(chatMessageMetaVisibility(state).has('a1'), false);
+  state = reduceChatEvent(state, {
+    type: 'thread_status',
+    data: { status: 'idle' },
+  });
+  assert.equal(chatMessageMetaVisibility(state).has('a1'), false);
+});
+
+test('historical final answer exposes metadata without a live turn_done event', () => {
+  const state = prependHistory(createChatState(), [
+    {
+      type: 'assistant_done', itemId: 'a1', turnId: 't1',
+      data: { text: 'done', phase: 'final_answer', model: 'gpt-5.6-sol' },
     },
   ]);
   assert.equal(chatMessageMetaVisibility(state).has('a1'), true);
-  state = reduceChatEvent(state, {
-    type: 'thread_status',
-    data: { status: 'active', activeTurnId: 't1' },
-  });
-  assert.equal(chatMessageMetaVisibility(state).has('a1'), false);
 });
 
 test('turn completion metadata backfills the last assistant message in that turn', () => {

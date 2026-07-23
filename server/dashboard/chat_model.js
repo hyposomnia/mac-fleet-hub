@@ -187,6 +187,12 @@
     mergeAssistantMetadata(item, next.turnUsage[item.turnId], { turnId: item.turnId });
   }
 
+  function historicalAssistantCompletesTurn(data, item) {
+    const payload = asObject(data);
+    const phase = firstString(payload.phase, asObject(payload.item).phase).toLowerCase();
+    return phase === 'final_answer' || phase === 'final' || !!item.completedAtMs;
+  }
+
   function diffLineCounts(diff) {
     let additions = 0;
     let deletions = 0;
@@ -294,11 +300,12 @@
         if (finalText) item.text = finalText;
         mergeAssistantMetadata(item, data, ev);
         mergePendingTurnUsage(next, item);
+        const historyTurnComplete = data.__history && historicalAssistantCompletesTurn(data, item);
         if (!item.completedAtMs) item.completedAtMs = data.__history ? uuidV7TimeMs(item.turnId || (ev && ev.turnId)) : Date.now();
         if (!item.startedAtMs) item.startedAtMs = uuidV7TimeMs(item.turnId || (ev && ev.turnId)) || item.completedAtMs;
         if (item.startedAtMs && item.completedAtMs && item.completedAtMs >= item.startedAtMs) item.durationMs = item.completedAtMs - item.startedAtMs;
         item.done = true;
-        if (data.__history) item.turnComplete = true;
+        if (data.__history) item.turnComplete = historyTurnComplete;
         return next;
       }
       case 'user_done': {
