@@ -15,7 +15,7 @@
   <!-- 主题：默认跟随系统 prefers-color-scheme，用户切换后写 localStorage 覆盖（与 app.js initTheme 一致）。
        内联以避免首屏闪烁。 -->
   <script>document.documentElement.dataset.theme = (function () { try { var t = localStorage.getItem('fleet-theme'); if (t) return t; } catch (e) {} return matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark'; })();</script>
-  <link rel="stylesheet" href="style.css?v=36" />
+  <link rel="stylesheet" href="style.css?v=37" />
 </head>
 <body>
   <div id="app" data-mode="sessions">
@@ -221,7 +221,7 @@
         </div>
         <div class="modal-body">
           <div class="kv"><span class="k">Mesh IP</span>
-            <span class="v mono"><span id="hm-ip">—</span>
+            <span class="v"><span id="hm-ip" class="mono">—</span>
               <button id="hm-ping" class="ping-chip" title="重新探测延时">...</button>
             </span>
           </div>
@@ -308,8 +308,8 @@
   </div>
   <script src="vendor/purify.min.js?v=3.2.6"></script>
   <script src="vendor/marked.min.js?v=15.0.12"></script>
-  <script src="markdown.js?v=36"></script>
-  <script src="chat_model.js?v=36"></script>
-  <script src="app.js?v=36"></script>
+  <script src="markdown.js?v=37"></script>
+  <script src="chat_model.js?v=37"></script>
+  <script src="app.js?v=37"></script>
 </body>
 </html>

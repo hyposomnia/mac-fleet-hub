@@ -152,6 +152,7 @@ test('dashboard typography uses one UI scale and reserves monospace for technica
   assert.match(styleCSS, /\.chat-markdown code\s*\{[^}]*font-family:\s*var\(--mono\)/s);
   assert.match(styleCSS, /\.chat-tool pre\s*\{[^}]*font-family:\s*var\(--mono\)/s);
   assert.match(styleCSS, /\.grp-h \.gpath\s*\{[^}]*font-family:\s*var\(--mono\)/s);
+  assert.match(indexHTML, /class="v"><span id="hm-ip" class="mono">/);
 });
 
 test('custom chat header omits redundant badge and metadata', () => {
