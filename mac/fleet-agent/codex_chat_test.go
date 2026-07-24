@@ -18,10 +18,11 @@ type recordedCall struct {
 }
 
 type fakeRPCConn struct {
-	calls []recordedCall
-	notes chan rpcNotification
-	reply map[string]json.RawMessage
-	errs  map[string][]error
+	calls                 []recordedCall
+	notes                 chan rpcNotification
+	reply                 map[string]json.RawMessage
+	errs                  map[string][]error
+	terminatedDescendants int
 }
 
 func newFakeRPCConn() *fakeRPCConn {
@@ -51,6 +52,7 @@ func (f *fakeRPCConn) respond(id json.RawMessage, result interface{}) error {
 	return nil
 }
 func (f *fakeRPCConn) notifications() <-chan rpcNotification { return f.notes }
+func (f *fakeRPCConn) terminateCommandDescendants()          { f.terminatedDescendants++ }
 
 func TestCodexChatBackendResumeUsesThreadResume(t *testing.T) {
 	rpc := newFakeRPCConn()
@@ -464,6 +466,25 @@ func TestCodexChatBackendInterruptWithoutActiveTurn(t *testing.T) {
 	}
 	if len(rpc.calls) != 0 {
 		t.Fatalf("interrupt should not call RPC without a turn: %+v", rpc.calls)
+	}
+}
+
+func TestCodexChatBackendInterruptTerminatesAppServerDescendants(t *testing.T) {
+	rpc := newFakeRPCConn()
+	rpc.reply["turn/interrupt"] = json.RawMessage(`{}`)
+	b := newCodexChatBackend(func(ctx context.Context) (codexRPCConn, func(), error) {
+		return rpc, func() {}, nil
+	})
+	b.lastTurn["thread-1"] = "turn-1"
+
+	if err := b.Interrupt(context.Background(), "codex", "thread-1"); err != nil {
+		t.Fatal(err)
+	}
+	if rpc.terminatedDescendants != 1 {
+		t.Fatalf("descendant cleanup calls got %d", rpc.terminatedDescendants)
+	}
+	if len(rpc.calls) != 1 || rpc.calls[0].method != "turn/interrupt" {
+		t.Fatalf("interrupt calls got %+v", rpc.calls)
 	}
 }
 

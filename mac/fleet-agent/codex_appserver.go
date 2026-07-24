@@ -9,8 +9,10 @@ import (
 	"io"
 	"log"
 	"os/exec"
+	"strings"
 	"sync"
 	"sync/atomic"
+	"syscall"
 	"time"
 )
 
@@ -42,7 +44,8 @@ type rpcNotification struct {
 }
 
 type codexRPCClient struct {
-	rw io.ReadWriter
+	rw        io.ReadWriter
+	processID int
 
 	nextID  atomic.Int64
 	writeMu sync.Mutex
@@ -79,6 +82,61 @@ func newCodexRPCClient(rw io.ReadWriter) *codexRPCClient {
 }
 
 func (c *codexRPCClient) notifications() <-chan rpcNotification { return c.notes }
+
+func (c *codexRPCClient) terminateCommandDescendants() {
+	if c.processID <= 0 {
+		return
+	}
+	pairs, err := processParentPairs()
+	if err != nil {
+		return
+	}
+	for _, pid := range descendantProcessIDs(c.processID, pairs) {
+		_ = syscall.Kill(pid, syscall.SIGKILL)
+	}
+}
+
+func processParentPairs() ([][2]int, error) {
+	out, err := exec.Command("ps", "-axo", "pid=,ppid=").Output()
+	if err != nil {
+		return nil, err
+	}
+	pairs := make([][2]int, 0, 64)
+	scanner := bufio.NewScanner(strings.NewReader(string(out)))
+	for scanner.Scan() {
+		var pid, parentPID int
+		if _, err := fmt.Sscan(scanner.Text(), &pid, &parentPID); err == nil && pid > 0 {
+			pairs = append(pairs, [2]int{pid, parentPID})
+		}
+	}
+	return pairs, scanner.Err()
+}
+
+func descendantProcessIDs(rootPID int, pairs [][2]int) []int {
+	children := make(map[int][]int)
+	for _, pair := range pairs {
+		children[pair[1]] = append(children[pair[1]], pair[0])
+	}
+	queue := []int{rootPID}
+	seen := map[int]bool{rootPID: true}
+	var descendants []int
+	for len(queue) > 0 {
+		parentPID := queue[0]
+		queue = queue[1:]
+		for _, pid := range children[parentPID] {
+			if seen[pid] {
+				continue
+			}
+			seen[pid] = true
+			descendants = append(descendants, pid)
+			queue = append(queue, pid)
+		}
+	}
+	for left, right := 0, len(descendants)-1; left < right; left, right = left+1, right-1 {
+		descendants[left], descendants[right] = descendants[right], descendants[left]
+	}
+	return descendants
+}
 
 func (c *codexRPCClient) run(ctx context.Context) {
 	done := make(chan struct{})
@@ -260,6 +318,7 @@ func connectCodexAppServerStdio(ctx context.Context) (codexRPCConn, func(), erro
 
 	runCtx, cancelRun := context.WithCancel(context.Background())
 	client := newCodexRPCClient(stdioReadWriter{Reader: stdout, Writer: stdin})
+	client.processID = cmd.Process.Pid
 	go client.run(runCtx)
 
 	initCtx, cancelInit := context.WithTimeout(ctx, 15*time.Second)
