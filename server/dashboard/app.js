@@ -962,27 +962,30 @@ function chatAtBottom() {
   return sc.scrollHeight - sc.scrollTop - sc.clientHeight < 64;
 }
 
-function currentChatTurn(model) {
-  for (let i = (model?.messages?.length || 0) - 1; i >= 0; i -= 1) {
-    const id = model.messages[i];
-    if (model.items[id]?.type === 'user') return { id, item: model.items[id] };
-  }
-  return null;
-}
-
 function firstChatLine(text) {
   return String(text || '').split(/\r?\n/, 1)[0].trim();
+}
+
+function chatTurnPinText(rows, viewportTop) {
+  let text = '';
+  for (const row of rows || []) {
+    if (row.getBoundingClientRect().bottom > viewportTop) break;
+    text = row.dataset.chatTurnPin || '';
+  }
+  return text;
 }
 
 function syncChatTurnPin() {
   const sc = $('#chat-scroll');
   const pin = $('#chat-turn-pin');
-  const row = sc?.querySelector('.chat-row.current-turn');
-  if (!sc || !pin || !row || !$('#chat-turn-pin-text').textContent) {
+  const textEl = $('#chat-turn-pin-text');
+  if (!sc || !pin || !textEl) {
     if (pin) pin.hidden = true;
     return;
   }
-  pin.hidden = row.getBoundingClientRect().bottom > sc.getBoundingClientRect().top;
+  const text = chatTurnPinText(sc.querySelectorAll('.chat-row.user[data-chat-turn-pin]'), sc.getBoundingClientRect().top);
+  textEl.textContent = text;
+  pin.hidden = !text;
 }
 
 function renderChat({ preserveScroll = false, forceBottom = false } = {}) {
@@ -998,7 +1001,6 @@ function renderChat({ preserveScroll = false, forceBottom = false } = {}) {
   }
   if (chat.loading) stack.append(chatRow(h('div', { class: 'chat-card muted', text: '正在连接 Codex app-server…' })));
   const model = chat.model || FleetChatModel.createChatState();
-  const currentTurn = currentChatTurn(model);
   const metaVisible = chatMessageMetaVisibility(model);
   for (let i = 0; i < model.messages.length; i += 1) {
     const id = model.messages[i];
@@ -1015,12 +1017,12 @@ function renderChat({ preserveScroll = false, forceBottom = false } = {}) {
       }
       stack.append(group.length > 1
         ? renderChatActivityGroup(group.map((entry) => entry.item))
-        : renderChatItem(item, false, false));
+        : renderChatItem(item, false));
       const turnMeta = metaVisible.get(group[group.length - 1].id);
       if (turnMeta?.type === 'assistant') stack.append(renderChatTurnMeta(turnMeta));
       continue;
     }
-    stack.append(renderChatItem(item, id === currentTurn?.id, item.type === 'user' && metaVisible.has(id)));
+    stack.append(renderChatItem(item, item.type === 'user' && metaVisible.has(id)));
     const turnMeta = metaVisible.get(id);
     if (turnMeta?.type === 'assistant') stack.append(renderChatTurnMeta(turnMeta));
   }
@@ -1028,7 +1030,6 @@ function renderChat({ preserveScroll = false, forceBottom = false } = {}) {
   clear(sc); sc.append(stack);
   if (preserveScroll) sc.scrollTop = oldTop + (sc.scrollHeight - oldHeight);
   else if (forceBottom || stick) sc.scrollTop = sc.scrollHeight;
-  $('#chat-turn-pin-text').textContent = firstChatLine(currentTurn?.item?.text);
   syncChatTurnPin();
   $('#chat-jump').hidden = chatAtBottom();
 }
@@ -1493,7 +1494,7 @@ function renderChatActivityGroup(items) {
   'tool activity-group');
 }
 
-function renderChatItem(item, isCurrentTurn = false, showMeta = true) {
+function renderChatItem(item, showMeta = true) {
   if (item.type === 'user') {
     const parts = [];
     if (item.text) parts.push(h('div', { text: item.text }));
@@ -1504,10 +1505,12 @@ function renderChatItem(item, isCurrentTurn = false, showMeta = true) {
       })));
     }
     const meta = showMeta ? renderChatMessageMeta(chatUserMetaText(item)) : null;
-    return chatRow(h('div', { class: 'chat-user-wrap' },
+    const row = chatRow(h('div', { class: 'chat-user-wrap' },
       h('div', { class: 'chat-card' }, parts.length ? parts : h('div', { text: '' })),
       meta),
-    'user' + (isCurrentTurn ? ' current-turn' : ''));
+    'user');
+    row.dataset.chatTurnPin = firstChatLine(item.text);
+    return row;
   }
   if (item.type === 'assistant') {
     return chatRow(h('div', { class: 'chat-card' },

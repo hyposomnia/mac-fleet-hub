@@ -54,8 +54,8 @@ const appSandbox = {
   Date: FixedAppDate,
 };
 vm.createContext(appSandbox);
-vm.runInContext(`${appSrc}\n;globalThis.__chatCacheTest = { chatCacheVictim, isChatConnectionKept, updateChatUpdatedAt, formatChatDate, chatAssistantMetaText, chatUserMetaText, chatMessageMetaVisibility, applyChatMetadataDefaults, enqueueChatFollowup, removeChatFollowup, normalizeChatDraft, chatToolStatus, chatToolDuration, chatToolActivityLabel, chatToolHasExpandableBody, chatActivityGroupSummaryText, chatActivityActiveSummarySegments, renderChatActivityGroup, isInternalChatTool: typeof isInternalChatTool === 'function' ? isInternalChatTool : () => false, state };`, appSandbox);
-const { chatCacheVictim, isChatConnectionKept, updateChatUpdatedAt, formatChatDate, chatAssistantMetaText, chatUserMetaText, chatMessageMetaVisibility, applyChatMetadataDefaults, enqueueChatFollowup, removeChatFollowup, normalizeChatDraft, chatToolStatus, chatToolDuration, chatToolActivityLabel, chatToolHasExpandableBody, chatActivityGroupSummaryText, chatActivityActiveSummarySegments, renderChatActivityGroup, isInternalChatTool, state: appState } = appSandbox.__chatCacheTest;
+vm.runInContext(`${appSrc}\n;globalThis.__chatCacheTest = { chatCacheVictim, isChatConnectionKept, updateChatUpdatedAt, formatChatDate, chatAssistantMetaText, chatUserMetaText, chatMessageMetaVisibility, applyChatMetadataDefaults, enqueueChatFollowup, removeChatFollowup, normalizeChatDraft, chatToolStatus, chatToolDuration, chatToolActivityLabel, chatToolHasExpandableBody, chatActivityGroupSummaryText, chatActivityActiveSummarySegments, renderChatActivityGroup, chatTurnPinText: typeof chatTurnPinText === 'function' ? chatTurnPinText : () => '', isInternalChatTool: typeof isInternalChatTool === 'function' ? isInternalChatTool : () => false, state };`, appSandbox);
+const { chatCacheVictim, isChatConnectionKept, updateChatUpdatedAt, formatChatDate, chatAssistantMetaText, chatUserMetaText, chatMessageMetaVisibility, applyChatMetadataDefaults, enqueueChatFollowup, removeChatFollowup, normalizeChatDraft, chatToolStatus, chatToolDuration, chatToolActivityLabel, chatToolHasExpandableBody, chatActivityGroupSummaryText, chatActivityActiveSummarySegments, renderChatActivityGroup, chatTurnPinText, isInternalChatTool, state: appState } = appSandbox.__chatCacheTest;
 function toolLabelText(item) {
   const status = chatToolStatus(item.status);
   return chatToolActivityLabel(item, status, chatToolDuration(item.durationMs)).map(nodeText).join('');
@@ -327,6 +327,19 @@ test('self-drawn user message time renders outside the bubble', () => {
   assert.match(appSrc, /class:\s*'chat-user-wrap'/);
   assert.match(styleCSS, /\.chat-user-wrap\s*\{\s*display:\s*flex;\s*flex-direction:\s*column;\s*align-items:\s*flex-end/);
   assert.match(styleCSS, /\.chat-row\.user \.chat-card\s*\{[^}]*max-width:\s*100%/s);
+});
+
+test('turn pin follows the latest user message that has crossed the scroll top', () => {
+  const row = (text, bottom) => ({
+    dataset: { chatTurnPin: text },
+    getBoundingClientRect: () => ({ bottom }),
+  });
+  const rows = [row('first question', 80), row('synced question', 220), row('latest question', 480)];
+  assert.equal(chatTurnPinText(rows, 40), '');
+  assert.equal(chatTurnPinText(rows, 120), 'first question');
+  assert.equal(chatTurnPinText(rows, 300), 'synced question');
+  assert.equal(chatTurnPinText(rows, 600), 'latest question');
+  assert.match(appSrc, /row\.dataset\.chatTurnPin\s*=\s*firstChatLine\(item\.text\)/);
 });
 
 test('tool output appends to command card', () => {
