@@ -92,6 +92,68 @@ test('chat model and app use the same versioned shell URLs', () => {
   assert.ok(markdownScript < indexHTML.indexOf('<script src="app.js'));
 });
 
+test('dashboard typography uses one UI scale and reserves monospace for technical content', () => {
+  const typeTokens = Object.fromEntries(
+    [...styleCSS.matchAll(/--t-([a-z]+):\s*([^;]+);/g)]
+      .map(([, name, value]) => [name, value.trim()]),
+  );
+  assert.deepEqual(typeTokens, {
+    caption: '11px',
+    secondary: '12px',
+    body: '13px',
+    title: '15px',
+    display: '17px',
+  });
+  assert.doesNotMatch(styleCSS, /--t-(?:2xs|xs|sm|base|md|lg|xl|2xl|3xl)\b/);
+  assert.deepEqual(
+    [...new Set([...styleCSS.matchAll(/font-size:\s*([^;}]+)/g)].map(([, value]) => value.trim()))].sort(),
+    [
+      'var(--t-body)',
+      'var(--t-caption)',
+      'var(--t-display)',
+      'var(--t-secondary)',
+      'var(--t-title)',
+    ],
+  );
+  assert.deepEqual(
+    [...new Set([...styleCSS.matchAll(/font-family:\s*([^;}]+)/g)].map(([, value]) => value.trim()))].sort(),
+    ['var(--font)', 'var(--mono)'],
+  );
+
+  const weights = [...new Set(
+    [...styleCSS.matchAll(/font-weight:\s*(\d+)/g)].map(([, value]) => Number(value)),
+  )].sort((a, b) => a - b);
+  assert.deepEqual(weights, [400, 500, 600, 700]);
+
+  for (const selector of ['.ping-chip', '.ses-time', '.win-head .mt']) {
+    const rule = styleCSS.match(new RegExp(`${selector.replaceAll('.', '\\.')}\\s*\\{[^}]*\\}`))?.[0] || '';
+    assert.ok(rule, `missing ${selector} rule`);
+    assert.doesNotMatch(rule, /font-family:\s*var\(--mono\)/);
+    assert.match(rule, /font-variant-numeric:\s*tabular-nums/);
+  }
+
+  assert.doesNotMatch(appSrc, /class:\s*'chat-msg-meta mono'/);
+  assert.doesNotMatch(appSrc, /class:\s*'chat-diff-stats mono'/);
+  assert.doesNotMatch(appSrc, /class:\s*'chat-tool-exit mono'/);
+  assert.match(appSrc, /class:\s*'chat-msg-meta tnum'/);
+  assert.match(appSrc, /class:\s*'chat-diff-stats tnum'/);
+  assert.match(appSrc, /class:\s*'chat-tool-exit tnum'/);
+
+  for (const id of [
+    'st-dmax', 'st-dscroll', 'st-mmax', 'st-mscroll', 'st-autoclose',
+    'st-chat-cache-max', 'st-chat-cache-count', 'st-chat-cache-bytes', 'st-chat-cache-each',
+  ]) {
+    const element = indexHTML.match(new RegExp(`<[^>]+id="${id}"[^>]*>`))?.[0] || '';
+    assert.ok(element, `missing #${id}`);
+    assert.doesNotMatch(element, /\bmono\b/);
+    assert.match(element, /\btnum\b/);
+  }
+
+  assert.match(styleCSS, /\.chat-markdown code\s*\{[^}]*font-family:\s*var\(--mono\)/s);
+  assert.match(styleCSS, /\.chat-tool pre\s*\{[^}]*font-family:\s*var\(--mono\)/s);
+  assert.match(styleCSS, /\.grp-h \.gpath\s*\{[^}]*font-family:\s*var\(--mono\)/s);
+});
+
 test('custom chat header omits redundant badge and metadata', () => {
   const source = appSrc.match(/function showChatPane[\s\S]*?\n}\n\nfunction chatAtBottom/)?.[0] || '';
   assert.ok(source);
@@ -247,8 +309,8 @@ test('self-drawn approval menu mirrors Codex three presets', () => {
   assert.match(styleCSS, /\.chat-approval-choice\.full-access\s*\{\s*color:\s*#f04b14/);
   assert.match(styleCSS, /\.chat-approval-trigger\[data-value="full-access"\][^{]*\{[^}]*color:\s*#f04b14/s);
   assert.match(styleCSS, /\.chat-approval-popover\s*\{[^}]*width:\s*min\(380px,/s);
-  assert.match(styleCSS, /\.chat-approval-title\s*\{[^}]*font-size:\s*var\(--t-sm\)/s);
-  assert.match(styleCSS, /\.chat-approval-desc\s*\{[^}]*font-size:\s*var\(--t-xs\)/s);
+  assert.match(styleCSS, /\.chat-approval-title\s*\{[^}]*font-size:\s*var\(--t-body\)/s);
+  assert.match(styleCSS, /\.chat-approval-desc\s*\{[^}]*font-size:\s*var\(--t-secondary\)/s);
   assert.match(styleCSS, /\.chat-approval-popover,\s*\.chat-options-popover\s*\{[^}]*position:\s*fixed;[^}]*bottom:\s*0/s);
 });
 

@@ -1259,7 +1259,7 @@ function chatMessageMetaVisibility(model) {
 }
 
 function renderChatMessageMeta(text) {
-  return text ? h('div', { class: 'chat-msg-meta mono', text }) : null;
+  return text ? h('div', { class: 'chat-msg-meta tnum', text }) : null;
 }
 
 function renderChatTurnMeta(item) {
@@ -1332,7 +1332,7 @@ function renderChatToolSurface(item, extraClass = '') {
         item.detail || '',
         item.output || '',
       ].filter(Boolean).join('\n') })) : null,
-    item.exitCode !== undefined ? h('div', { class: 'chat-tool-exit mono', text: `退出码 ${item.exitCode}` }) : null);
+    item.exitCode !== undefined ? h('div', { class: 'chat-tool-exit tnum', text: `退出码 ${item.exitCode}` }) : null);
   return h('details', { class: cls }, h('summary', {}, header), body);
 }
 
@@ -1352,7 +1352,7 @@ function renderChatDiffSurface(item, extraClass = '') {
     h('summary', {}, header),
     h('div', { class: 'chat-diff-files' }, files.map((file) => h('div', { class: 'chat-diff-file' },
       h('span', { class: 'chat-diff-path mono', text: file.path }),
-      h('span', { class: 'chat-diff-stats mono' },
+      h('span', { class: 'chat-diff-stats tnum' },
         h('span', { class: 'chat-diff-add', text: `+${file.additions || 0}` }),
         h('span', { class: 'chat-diff-del', text: `-${file.deletions || 0}` }))))));
 }
