@@ -60,6 +60,34 @@ func TestCodexRPCClientCallRoutesResponsesAndIncrementsIDs(t *testing.T) {
 	<-serverDone
 }
 
+func TestDescendantProcessIDsAreLeafFirstAndScoped(t *testing.T) {
+	pairs := [][2]int{
+		{100, 1},
+		{101, 100},
+		{102, 101},
+		{103, 100},
+		{200, 1},
+		{201, 200},
+	}
+	got := descendantProcessIDs(100, pairs)
+	if len(got) != 3 {
+		t.Fatalf("descendants got %v", got)
+	}
+	position := map[int]int{}
+	for i, pid := range got {
+		position[pid] = i
+	}
+	if _, ok := position[103]; !ok {
+		t.Fatalf("direct child missing from %v", got)
+	}
+	if position[102] >= position[101] {
+		t.Fatalf("leaf must precede its parent in %v", got)
+	}
+	if _, ok := position[200]; ok {
+		t.Fatalf("unrelated process included in %v", got)
+	}
+}
+
 func TestCodexRPCClientDeliversNotificationsAndSkipsMalformedJSON(t *testing.T) {
 	clientConn, serverConn := net.Pipe()
 	defer clientConn.Close()

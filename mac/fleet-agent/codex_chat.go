@@ -1278,6 +1278,11 @@ func (b *codexChatBackend) Interrupt(ctx context.Context, assistant, sessionID s
 		return errNoActiveChatTurn
 	}
 	_, err = rpc.call(ctx, "turn/interrupt", map[string]string{"threadId": sessionID, "turnId": turnID})
+	if err == nil {
+		if cleaner, ok := rpc.(interface{ terminateCommandDescendants() }); ok {
+			cleaner.terminateCommandDescendants()
+		}
+	}
 	return err
 }
 
