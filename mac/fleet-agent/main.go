@@ -760,6 +760,9 @@ func codexThreadCreatedMs(r codexThreadRow) int64 {
 }
 
 func codexThreadHasRealActivity(r codexThreadRow) bool {
+	if strings.TrimSpace(r.Preview) != "" {
+		return true
+	}
 	created := codexThreadCreatedMs(r)
 	latest := codexThreadTimeMs(r)
 	if created <= 0 || latest <= 0 {
@@ -782,18 +785,27 @@ func codexThreadTitle(r codexThreadRow, idx map[string]codexIdx) string {
 	return "(无标题)"
 }
 
+func codexVisibleOriginator(originator string) bool {
+	switch strings.TrimSpace(originator) {
+	case "Codex Desktop", "mac_fleet_hub":
+		return true
+	default:
+		return false
+	}
+}
+
 func codexSessionFromThreadRow(r codexThreadRow, idx map[string]codexIdx) (Session, bool) {
 	if r.ID == "" {
 		return Session{}, false
 	}
-	// Codex Desktop persists interactive workspace threads as source=vscode.
-	// CLI/exec/appServer rows share the same DB but are not Desktop sessions.
+	// Codex Desktop and this dashboard's app-server both persist interactive
+	// workspace threads as source=vscode. Other sources share the same DB.
 	if strings.TrimSpace(r.Source) != "vscode" {
 		return Session{}, false
 	}
 	if r.RolloutPath != "" {
 		_, _, _, originator, _, _ := codexRolloutMeta(r.RolloutPath, false)
-		if originator != "Codex Desktop" {
+		if !codexVisibleOriginator(originator) {
 			return Session{}, false
 		}
 	}
@@ -1009,9 +1021,9 @@ func codexRolloutPaths() map[string]string {
 	return out
 }
 
-// scanCodexSessions：列出 Codex desktop app 的活跃会话——即 ~/.codex/sessions 下
-// originator=="Codex Desktop"（排除 codex-tui/codex_exec 命令行运行）、source=="vscode"
-// （Codex Desktop 的持久化入口分类；排除 cli/exec/subagent）、且未被归档
+// scanCodexSessions：列出 Codex Desktop / mac-fleet-hub 自绘界面的活跃会话——
+// 即 ~/.codex/sessions 下 originator 属于这两个受信入口、source=="vscode"
+// （排除 cli/exec/其它 app-server/subagent），且未被归档
 // （rollout 不在 archived_sessions）的会话。标题优先取 session_index 的 thread_name（润色过），
 // 否则取首条非注入 user 文本；cwd 取自 session_meta（故不会出现空 cwd 的「未知项目」）。
 // 同 id 多 rollout（resume/fork）取最新一份。
@@ -1030,7 +1042,7 @@ func scanCodexSessions() []Session {
 			needTitle = strings.TrimSpace(x.title) == "" || codexInjected(strings.TrimSpace(x.title))
 		}
 		id, cwd, mt, originator, srcStr, ftitle := codexRolloutMeta(f, needTitle)
-		if id == "" || originator != "Codex Desktop" || !srcStr || archived[id] {
+		if id == "" || !codexVisibleOriginator(originator) || !srcStr || archived[id] {
 			continue
 		}
 		title := ftitle
@@ -1702,6 +1714,7 @@ func runServer() {
 	mux.HandleFunc("/api/reload", handleReload)
 	mux.HandleFunc("/api/proxy", handleProxy)
 	mux.HandleFunc("/api/info", handleInfo)
+	mux.HandleFunc("/api/chat/start", handleChatStart)
 	mux.HandleFunc("/api/chat/resume", handleChatResume)
 	mux.HandleFunc("/api/chat/history", handleChatHistory)
 	mux.HandleFunc("/api/chat/upload", handleChatUpload)

@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -163,6 +164,54 @@ func codexStatusIsRunning(status string) bool {
 	default:
 		return false
 	}
+}
+
+func codexThreadStartParams(cwd, mode string) map[string]interface{} {
+	params := map[string]interface{}{"cwd": cwd}
+	switch mode {
+	case "auto":
+		params["approvalPolicy"] = "never"
+		params["sandbox"] = "workspace-write"
+	case "bypass":
+		params["approvalPolicy"] = "never"
+		params["sandbox"] = "danger-full-access"
+	}
+	return params
+}
+
+func (b *codexChatBackend) Start(ctx context.Context, assistant, cwd, mode string) (ChatStartResult, error) {
+	if assistant != "codex" {
+		return ChatStartResult{}, errUnsupportedChatAssistant
+	}
+	rpc, err := b.ensure(ctx)
+	if err != nil {
+		return ChatStartResult{}, err
+	}
+	raw, err := rpc.call(ctx, "thread/start", codexThreadStartParams(cwd, mode))
+	if err != nil {
+		return ChatStartResult{}, err
+	}
+	var res struct {
+		Thread struct {
+			ID        string `json:"id"`
+			SessionID string `json:"sessionId"`
+		} `json:"thread"`
+		Cwd string `json:"cwd"`
+	}
+	if err := json.Unmarshal(raw, &res); err != nil {
+		return ChatStartResult{}, fmt.Errorf("decode Codex thread start: %w", err)
+	}
+	sessionID := res.Thread.ID
+	if sessionID == "" {
+		sessionID = res.Thread.SessionID
+	}
+	if sessionID == "" {
+		return ChatStartResult{}, errors.New("Codex thread/start missing thread id")
+	}
+	if res.Cwd == "" {
+		res.Cwd = cwd
+	}
+	return ChatStartResult{SessionID: sessionID, Cwd: res.Cwd}, nil
 }
 
 func (b *codexChatBackend) resumeThread(ctx context.Context, rpc codexRPCConn, sessionID string) (codexResumeWire, error) {

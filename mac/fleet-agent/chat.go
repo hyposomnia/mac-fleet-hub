@@ -213,6 +213,11 @@ var errAppServerUnavailable = errors.New("appserver_unavailable")
 var errUnsupportedChatAssistant = errors.New("unsupported_assistant")
 var errNoActiveChatTurn = errors.New("no_active_turn")
 
+type ChatStartResult struct {
+	SessionID string `json:"sessionId"`
+	Cwd       string `json:"cwd"`
+}
+
 type ChatResumeResult struct {
 	SessionID    string            `json:"sessionId"`
 	ThreadID     string            `json:"threadId"`
@@ -274,6 +279,7 @@ type ChatInputResult struct {
 }
 
 type chatBackend interface {
+	Start(ctx context.Context, assistant, cwd, mode string) (ChatStartResult, error)
 	Resume(ctx context.Context, assistant, sessionID, mode string) (ChatResumeResult, error)
 	History(ctx context.Context, assistant, sessionID, cursor string) (ChatHistoryPage, error)
 	Input(ctx context.Context, assistant, sessionID, text string, images []ChatAttachment, opts ChatTurnOptions) (ChatInputResult, error)
@@ -287,6 +293,9 @@ var agentChatBackend chatBackend = unavailableChatBackend{}
 
 type unavailableChatBackend struct{}
 
+func (unavailableChatBackend) Start(context.Context, string, string, string) (ChatStartResult, error) {
+	return ChatStartResult{}, errAppServerUnavailable
+}
 func (unavailableChatBackend) Resume(context.Context, string, string, string) (ChatResumeResult, error) {
 	return ChatResumeResult{}, errAppServerUnavailable
 }
@@ -323,6 +332,33 @@ func writeChatErr(w http.ResponseWriter, err error) {
 		return
 	}
 	writeErr(w, http.StatusInternalServerError, "chat_failed", err.Error())
+}
+
+func handleChatStart(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	var req struct {
+		Assistant string `json:"assistant"`
+		Cwd       string `json:"cwd"`
+		Mode      string `json:"mode"`
+	}
+	if json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&req) != nil || req.Cwd == "" {
+		http.Error(w, "bad request", http.StatusBadRequest)
+		return
+	}
+	assistant := normAssistant(req.Assistant)
+	if assistant != "codex" {
+		writeErr(w, http.StatusNotImplemented, "unsupported_assistant", "自绘界面暂只支持 Codex。")
+		return
+	}
+	res, err := agentChatBackend.Start(r.Context(), assistant, req.Cwd, normMode(req.Mode, false))
+	if err != nil {
+		writeChatErr(w, err)
+		return
+	}
+	writeJSON(w, res)
 }
 
 func handleChatResume(w http.ResponseWriter, r *http.Request) {

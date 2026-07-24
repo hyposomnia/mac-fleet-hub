@@ -54,6 +54,50 @@ func (f *fakeRPCConn) respond(id json.RawMessage, result interface{}) error {
 func (f *fakeRPCConn) notifications() <-chan rpcNotification { return f.notes }
 func (f *fakeRPCConn) terminateCommandDescendants()          { f.terminatedDescendants++ }
 
+func TestCodexChatBackendStartUsesThreadStart(t *testing.T) {
+	rpc := newFakeRPCConn()
+	rpc.reply["thread/start"] = json.RawMessage(`{
+		"thread":{"id":"thread-new","sessionId":"thread-new"},
+		"cwd":"/repo"
+	}`)
+	b := newCodexChatBackend(func(ctx context.Context) (codexRPCConn, func(), error) {
+		return rpc, func() {}, nil
+	})
+
+	res, err := b.Start(context.Background(), "codex", "/repo", "default")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.SessionID != "thread-new" || res.Cwd != "/repo" {
+		t.Fatalf("bad start result: %+v", res)
+	}
+	if len(rpc.calls) != 1 || rpc.calls[0].method != "thread/start" {
+		t.Fatalf("calls: %+v", rpc.calls)
+	}
+	got := mapFromParams(t, rpc.calls[0].params)
+	if got["cwd"] != "/repo" {
+		t.Fatalf("cwd got %v", got["cwd"])
+	}
+	if _, ok := got["approvalPolicy"]; ok {
+		t.Fatalf("default mode should preserve Codex config: %#v", got)
+	}
+	if _, ok := got["sandbox"]; ok {
+		t.Fatalf("default mode should preserve Codex config: %#v", got)
+	}
+}
+
+func TestCodexChatBackendStartRejectsMissingThreadID(t *testing.T) {
+	rpc := newFakeRPCConn()
+	rpc.reply["thread/start"] = json.RawMessage(`{"thread":{},"cwd":"/repo"}`)
+	b := newCodexChatBackend(func(ctx context.Context) (codexRPCConn, func(), error) {
+		return rpc, func() {}, nil
+	})
+
+	if _, err := b.Start(context.Background(), "codex", "/repo", "default"); err == nil || !strings.Contains(err.Error(), "missing thread id") {
+		t.Fatalf("missing thread id should fail, got %v", err)
+	}
+}
+
 func TestCodexChatBackendResumeUsesThreadResume(t *testing.T) {
 	rpc := newFakeRPCConn()
 	rpc.reply["thread/resume"] = json.RawMessage(`{"thread":{"id":"thread-1"}}`)

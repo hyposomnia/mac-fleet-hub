@@ -775,6 +775,21 @@ async function connect(sessionId, title, cwd, mode) {
 
 function newSessionIn(cwd) {
   closeOverlay('projects-modal');
+  if (canSelfDrawChat()) {
+    api(state.macId, 'chat/start', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ assistant: 'codex', cwd, mode: 'default' }),
+    }).then((r) => {
+      openChatSession({
+        assistant: 'codex',
+        sessionId: r.sessionId,
+        cwd: r.cwd || cwd,
+        title: '新Codex会话 · ' + projName(r.cwd || cwd),
+        mtime: Date.now(),
+      });
+    }).catch((e) => toast('新建失败：' + e.message, 'err'));
+    return;
+  }
   api(state.macId, 'new', {
     method: 'POST', headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ assistant: state.assistant, cwd, mode: 'default' }),

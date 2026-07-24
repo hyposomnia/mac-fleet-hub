@@ -22,9 +22,10 @@ func TestScanCodexActiveDesktopOnly(t *testing.T) {
 	idB := "019e0000-0000-7000-8000-00000000000b"   // Desktop + 不在 index → 首条非注入 user 标题
 	idCmd := "019e0000-0000-7000-8000-0000000000cd" // Desktop + slash command envelope → 清洗成可读标题
 	idIdxCmd := "019e0000-0000-7000-8000-00000000c0de"
-	idSub := "019e0000-0000-7000-8000-00000000005b" // Desktop 但 source 为对象（subagent）→ 排除
-	idCli := "019e0000-0000-7000-8000-00000000c111" // codex-tui 命令行 → 排除
-	idArc := "019e0000-0000-7000-8000-0000000000ac" // Desktop 但已归档 → 排除
+	idFleet := "019e0000-0000-7000-8000-00000000f1ee" // mac-fleet-hub 自绘会话 → 保留
+	idSub := "019e0000-0000-7000-8000-00000000005b"   // Desktop 但 source 为对象（subagent）→ 排除
+	idCli := "019e0000-0000-7000-8000-00000000c111"   // codex-tui 命令行 → 排除
+	idArc := "019e0000-0000-7000-8000-0000000000ac"   // Desktop 但已归档 → 排除
 
 	var idx strings.Builder
 	for _, row := range []struct {
@@ -59,6 +60,7 @@ func TestScanCodexActiveDesktopOnly(t *testing.T) {
 	write(idB, "Codex Desktop", `"vscode"`, "<environment_context>\n  <cwd>x", "<turn_aborted>", "把本地ssh服务器设置上")
 	write(idCmd, "Codex Desktop", `"vscode"`, "<environment_context>\n  <cwd>x", "<command-message>dev</command-message>\n<command-name>/dev</command-name>\n<command-args>修修 session 名字</command-args>")
 	write(idIdxCmd, "Codex Desktop", `"vscode"`, "真实首条idx")
+	write(idFleet, "mac_fleet_hub", `"vscode"`, "自绘新会话")
 	write(idSub, "Codex Desktop", `{"subagent":{"agent_role":"worker"}}`, "真实首条sub")
 	write(idCli, "codex-tui", `"cli"`, "真实首条cli")
 	write(idArc, "Codex Desktop", `"vscode"`, "真实首条arc")
@@ -70,8 +72,8 @@ func TestScanCodexActiveDesktopOnly(t *testing.T) {
 	for _, s := range got {
 		byID[s.SessionID] = s
 	}
-	if len(got) != 4 {
-		t.Fatalf("应只返回 4 个活跃会话(A,B,Cmd,IdxCmd)，得到 %d: %+v", len(got), got)
+	if len(got) != 5 {
+		t.Fatalf("应只返回 5 个活跃会话(A,B,Cmd,IdxCmd,Fleet)，得到 %d: %+v", len(got), got)
 	}
 	if byID[idA].Title != "索引标题" {
 		t.Errorf("A 标题应取 index thread_name，得到 %q", byID[idA].Title)
@@ -84,6 +86,9 @@ func TestScanCodexActiveDesktopOnly(t *testing.T) {
 	}
 	if byID[idIdxCmd].Title != "/deploy" {
 		t.Errorf("index 里的 slash command 标题应清洗成 command-name，得到 %q", byID[idIdxCmd].Title)
+	}
+	if byID[idFleet].Title != "自绘新会话" {
+		t.Errorf("mac-fleet-hub 自绘会话应保留，得到 %+v", byID[idFleet])
 	}
 	if _, ok := byID[idSub]; ok {
 		t.Errorf("subagent 子代理（source 对象）不应出现")
@@ -318,6 +323,25 @@ func TestCodexImportedHistoryWithoutActivityIsNotActive(t *testing.T) {
 	}
 	if got.Live {
 		t.Fatalf("imported history without later activity should not be active: %+v", got)
+	}
+}
+
+func TestCodexThreadWithPromptIsActiveImmediately(t *testing.T) {
+	row := codexThreadRow{
+		ID:           "019e865e-55cc-7362-9cd4-77b6fdf68509",
+		Preview:      "刚发送的第一条消息",
+		Source:       "vscode",
+		ThreadSource: "user",
+		CreatedAtMs:  100_000,
+		UpdatedAtMs:  101_000,
+		RecencyAtMs:  101_000,
+	}
+	got, ok := codexSessionFromThreadRow(row, nil)
+	if !ok {
+		t.Fatal("thread with prompt should be accepted")
+	}
+	if !got.Live {
+		t.Fatalf("thread with a real prompt should become active immediately: %+v", got)
 	}
 }
 

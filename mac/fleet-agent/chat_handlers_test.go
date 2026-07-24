@@ -15,6 +15,7 @@ import (
 )
 
 type fakeChatBackend struct {
+	startFn     func(context.Context, string, string, string) (ChatStartResult, error)
 	resumeFn    func(context.Context, string, string, string) (ChatResumeResult, error)
 	historyFn   func(context.Context, string, string, string) (ChatHistoryPage, error)
 	inputFn     func(context.Context, string, string, string, []ChatAttachment, ChatTurnOptions) (ChatInputResult, error)
@@ -22,6 +23,13 @@ type fakeChatBackend struct {
 	eventsFn    func(context.Context, string, string) (<-chan ChatEvent, error)
 	approveFn   func(context.Context, string, string, string, string) error
 	interruptFn func(context.Context, string, string) error
+}
+
+func (f fakeChatBackend) Start(ctx context.Context, assistant, cwd, mode string) (ChatStartResult, error) {
+	if f.startFn != nil {
+		return f.startFn(ctx, assistant, cwd, mode)
+	}
+	return ChatStartResult{}, nil
 }
 
 func (f fakeChatBackend) Resume(ctx context.Context, assistant, sessionID, mode string) (ChatResumeResult, error) {
@@ -80,6 +88,44 @@ func withChatBackend(t *testing.T, b chatBackend) {
 	prev := agentChatBackend
 	agentChatBackend = b
 	t.Cleanup(func() { agentChatBackend = prev })
+}
+
+func TestChatStartCallsBackend(t *testing.T) {
+	withChatBackend(t, fakeChatBackend{
+		startFn: func(ctx context.Context, assistant, cwd, mode string) (ChatStartResult, error) {
+			if assistant != "codex" || cwd != "/repo" || mode != "default" {
+				t.Fatalf("start args got assistant=%s cwd=%s mode=%s", assistant, cwd, mode)
+			}
+			return ChatStartResult{SessionID: "thread-new", Cwd: "/repo"}, nil
+		},
+	})
+	req := httptest.NewRequest(http.MethodPost, "/api/chat/start", bytes.NewBufferString(`{"assistant":"codex","cwd":"/repo","mode":"default"}`))
+	rr := httptest.NewRecorder()
+
+	handleChatStart(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status got %d body %s", rr.Code, rr.Body.String())
+	}
+	var got ChatStartResult
+	if err := json.Unmarshal(rr.Body.Bytes(), &got); err != nil {
+		t.Fatal(err)
+	}
+	if got.SessionID != "thread-new" || got.Cwd != "/repo" {
+		t.Fatalf("bad start result: %+v", got)
+	}
+}
+
+func TestChatStartRejectsClaude(t *testing.T) {
+	withChatBackend(t, fakeChatBackend{})
+	req := httptest.NewRequest(http.MethodPost, "/api/chat/start", bytes.NewBufferString(`{"assistant":"claude","cwd":"/repo"}`))
+	rr := httptest.NewRecorder()
+
+	handleChatStart(rr, req)
+
+	if rr.Code != http.StatusNotImplemented || !strings.Contains(rr.Body.String(), `"unsupported_assistant"`) {
+		t.Fatalf("status=%d body=%s", rr.Code, rr.Body.String())
+	}
 }
 
 func TestChatResumeRejectsClaude(t *testing.T) {

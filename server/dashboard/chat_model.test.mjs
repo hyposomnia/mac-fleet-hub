@@ -696,3 +696,11 @@ test('send and stop source contracts reject stale active state', () => {
   assert.match(appSrc, /e\.code === 'no_active_turn'/);
   assert.match(appSrc, /type: 'thread_status', data: \{ status: 'idle' \}/);
 });
+
+test('new Codex sessions use the self-drawn start path when enabled', () => {
+  const source = appSrc.match(/function newSessionIn\(cwd\) \{[\s\S]*?\n\}/)?.[0] || '';
+  assert.match(source, /canSelfDrawChat\(\)/);
+  assert.match(source, /'chat\/start'/);
+  assert.match(source, /openChatSession\(/);
+  assert.match(source, /api\(state\.macId,\s*'new'/);
+});
