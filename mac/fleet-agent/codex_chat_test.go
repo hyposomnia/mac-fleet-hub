@@ -358,6 +358,22 @@ func TestCodexChatBackendInputUsesTurnStartTextInput(t *testing.T) {
 	}
 }
 
+func TestCodexChatBackendInputRejectsMissingTurnID(t *testing.T) {
+	rpc := newFakeRPCConn()
+	rpc.reply["thread/resume"] = json.RawMessage(`{"thread":{"id":"thread-1"}}`)
+	rpc.reply["turn/start"] = json.RawMessage(`{"turn":{"status":"failed"}}`)
+	b := newCodexChatBackend(func(ctx context.Context) (codexRPCConn, func(), error) {
+		return rpc, func() {}, nil
+	})
+
+	if _, err := b.Input(context.Background(), "codex", "thread-1", "hello", nil, ChatTurnOptions{}); err == nil || !strings.Contains(err.Error(), "missing turn id") {
+		t.Fatalf("missing turn id should fail, got %v", err)
+	}
+	if b.lastTurn["thread-1"] != "" {
+		t.Fatalf("missing turn id must not create active turn: %#v", b.lastTurn)
+	}
+}
+
 func TestCodexChatBackendInputUsesLocalImages(t *testing.T) {
 	rpc := newFakeRPCConn()
 	rpc.reply["thread/resume"] = json.RawMessage(`{"thread":{"id":"thread-1"}}`)
@@ -433,6 +449,21 @@ func TestCodexChatBackendSteerUsesActiveTurnAndLocalImages(t *testing.T) {
 	input, ok := params["input"].([]interface{})
 	if !ok || len(input) != 2 {
 		t.Fatalf("steer input: %#v", params["input"])
+	}
+}
+
+func TestCodexChatBackendInterruptWithoutActiveTurn(t *testing.T) {
+	rpc := newFakeRPCConn()
+	b := newCodexChatBackend(func(ctx context.Context) (codexRPCConn, func(), error) {
+		return rpc, func() {}, nil
+	})
+
+	err := b.Interrupt(context.Background(), "codex", "thread-1")
+	if !errors.Is(err, errNoActiveChatTurn) {
+		t.Fatalf("interrupt without active turn got %v", err)
+	}
+	if len(rpc.calls) != 0 {
+		t.Fatalf("interrupt should not call RPC without a turn: %+v", rpc.calls)
 	}
 }
 

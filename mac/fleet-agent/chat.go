@@ -108,8 +108,30 @@ func mapCodexNotification(n rpcNotification) []ChatEvent {
 		p := codexEventEnvelope(n.Params)
 		return []ChatEvent{newChatEvent("diff_update", "codex", p.ThreadID, p.TurnID, p.ItemID, p.asMap())}
 	case "turn/completed":
-		p := codexEventEnvelope(n.Params)
-		return []ChatEvent{newChatEvent("turn_done", "codex", p.ThreadID, p.TurnID, p.ItemID, p.asMap())}
+		var p struct {
+			ThreadID string `json:"threadId"`
+			Turn     struct {
+				ID     string `json:"id"`
+				Status string `json:"status"`
+				Error  *struct {
+					Message string `json:"message"`
+				} `json:"error"`
+			} `json:"turn"`
+		}
+		_ = json.Unmarshal(n.Params, &p)
+		var data map[string]json.RawMessage
+		_ = json.Unmarshal(n.Params, &data)
+		events := make([]ChatEvent, 0, 2)
+		if strings.EqualFold(p.Turn.Status, "failed") && p.Turn.Error != nil && p.Turn.Error.Message != "" {
+			errorData := make(map[string]json.RawMessage, len(data)+1)
+			for key, value := range data {
+				errorData[key] = value
+			}
+			message, _ := json.Marshal(p.Turn.Error.Message)
+			errorData["message"] = message
+			events = append(events, newChatEvent("error", "codex", p.ThreadID, p.Turn.ID, "", errorData))
+		}
+		return append(events, newChatEvent("turn_done", "codex", p.ThreadID, p.Turn.ID, "", data))
 	case "error":
 		p := codexEventEnvelope(n.Params)
 		return []ChatEvent{newChatEvent("error", "codex", p.ThreadID, p.TurnID, p.ItemID, p.asMap())}

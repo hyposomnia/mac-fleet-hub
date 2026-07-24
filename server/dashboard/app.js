@@ -130,8 +130,16 @@ async function api(id, path, opts) {
   if (!r.ok) {
     // 后端错误体 {error,message}：优先展示可读 message（如 pty 耗尽），回退状态码
     let msg = `${path}: ${r.status}`;
-    try { const j = await r.json(); if (j && j.message) msg = j.message; } catch (_) {}
-    throw new Error(msg);
+    let code = '';
+    try {
+      const j = await r.json();
+      if (j && j.message) msg = j.message;
+      if (j && typeof j.error === 'string') code = j.error;
+    } catch (_) {}
+    const err = new Error(msg);
+    err.code = code;
+    err.status = r.status;
+    throw err;
   }
   return r.json();
 }
@@ -801,9 +809,14 @@ function chatCacheKey(macId, sessionId) {
   return `${macId || ''}\n${sessionId || ''}`;
 }
 
+function normalizeChatDraft(value) {
+  if (typeof value !== 'string' || value === 'null' || value === 'undefined') return '';
+  return value;
+}
+
 function saveChatDraft(chat = state.chat) {
   const input = $('#chat-input');
-  if (chat && input) chat.draft = input.value || '';
+  if (chat && input) chat.draft = normalizeChatDraft(input.value);
 }
 
 function isChatRunning(chat) {
@@ -1675,7 +1688,8 @@ async function openChatSession(s) {
   updateChatUpdatedAt(chat, s.mtime);
   evictChatCache();
   showChatPane(chat.title, chat.cwd);
-  $('#chat-input').value = chat.draft || '';
+  chat.draft = normalizeChatDraft(chat.draft);
+  $('#chat-input').value = chat.draft;
   resizeChatInput();
   renderChatAttachments();
   renderChatFollowups();
@@ -2104,7 +2118,8 @@ function chatTurnOptions(chat) {
 }
 
 async function sendChatTurn(chat, item) {
-  chat.model = FleetChatModel.appendUserMessage(chat.model, item.text.trim(), 'user-' + Date.now(), item.images);
+  const optimisticId = 'user-' + Date.now();
+  chat.model = FleetChatModel.appendUserMessage(chat.model, item.text.trim(), optimisticId, item.images);
   chat.loading = false;
   chat.submitting = true;
   if (state.chat === chat) {
@@ -2116,11 +2131,15 @@ async function sendChatTurn(chat, item) {
       method: 'POST', headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ assistant: 'codex', sessionId: chat.sessionId, text: item.text, images: item.images.map((img) => ({ id: img.id })), ...chatTurnOptions(chat) }),
     });
+    if (!started || typeof started.turnId !== 'string' || !started.turnId.trim()) {
+      throw new Error('Codex 未返回有效的任务 ID，消息未发送。');
+    }
     chat.model = FleetChatModel.reduceChatEvent(chat.model, { type: 'turn_started', turnId: started.turnId, data: { turnId: started.turnId } });
     return true;
   } catch (e) {
+    chat.model = FleetChatModel.removeMessage(chat.model, optimisticId);
+    chat.model = FleetChatModel.reduceChatEvent(chat.model, { type: 'error', data: { message: e.message } });
     if (state.chat === chat) {
-      chat.model = FleetChatModel.reduceChatEvent(chat.model, { type: 'error', data: { message: e.message } });
       renderChat();
     }
     return false;
@@ -2177,7 +2196,13 @@ async function interruptChat() {
       body: JSON.stringify({ assistant: 'codex', sessionId: chat.sessionId }),
     });
   } catch (e) {
-    toast('停止失败：' + e.message, 'err');
+    if (e.code === 'no_active_turn') {
+      chat.model = FleetChatModel.reduceChatEvent(chat.model, { type: 'thread_status', data: { status: 'idle' } });
+      if (state.chat === chat) renderChat();
+      toast('任务已结束，状态已同步。');
+    } else {
+      toast('停止失败：' + e.message, 'err');
+    }
   } finally {
     chat.interrupting = false;
     updateChatComposerState();

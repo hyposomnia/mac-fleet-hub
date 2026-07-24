@@ -189,6 +189,22 @@ func TestChatSteerWithoutActiveTurnReturnsConflict(t *testing.T) {
 	}
 }
 
+func TestChatInterruptWithoutActiveTurnReturnsConflict(t *testing.T) {
+	withChatBackend(t, fakeChatBackend{
+		interruptFn: func(context.Context, string, string) error {
+			return errNoActiveChatTurn
+		},
+	})
+	req := httptest.NewRequest(http.MethodPost, "/api/chat/interrupt", bytes.NewBufferString(`{"assistant":"codex","sessionId":"s1"}`))
+	rr := httptest.NewRecorder()
+
+	handleChatInterrupt(rr, req)
+
+	if rr.Code != http.StatusConflict || !strings.Contains(rr.Body.String(), `"no_active_turn"`) {
+		t.Fatalf("status=%d body=%s", rr.Code, rr.Body.String())
+	}
+}
+
 func TestChatUploadAndImageOnlyInput(t *testing.T) {
 	tmp := t.TempDir()
 	prevRoot := chatUploadRoot

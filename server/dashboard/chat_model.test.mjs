@@ -13,7 +13,7 @@ const markedSrc = await readFile(new URL('./vendor/marked.min.js', import.meta.u
 const sandbox = { globalThis: {} };
 vm.createContext(sandbox);
 vm.runInContext(src, sandbox);
-const { createChatState, appendUserMessage, prependHistory, reduceChatEvent, normalizeDiffFiles, chatPhase, followupAckId, uuidV7TimeMs } = sandbox.globalThis.FleetChatModel;
+const { createChatState, appendUserMessage, removeMessage, prependHistory, reduceChatEvent, normalizeDiffFiles, chatPhase, followupAckId, uuidV7TimeMs } = sandbox.globalThis.FleetChatModel;
 
 const fixedAppNowMs = new Date(2026, 6, 23, 23, 0, 0).getTime();
 class FixedAppDate extends Date {
@@ -54,8 +54,8 @@ const appSandbox = {
   Date: FixedAppDate,
 };
 vm.createContext(appSandbox);
-vm.runInContext(`${appSrc}\n;globalThis.__chatCacheTest = { chatCacheVictim, isChatConnectionKept, updateChatUpdatedAt, formatChatDate, chatAssistantMetaText, chatUserMetaText, chatMessageMetaVisibility, applyChatMetadataDefaults, enqueueChatFollowup, removeChatFollowup, chatToolStatus, chatToolDuration, chatToolActivityLabel, chatToolHasExpandableBody, chatActivityGroupSummaryText, chatActivityActiveSummarySegments, renderChatActivityGroup, isInternalChatTool: typeof isInternalChatTool === 'function' ? isInternalChatTool : () => false, state };`, appSandbox);
-const { chatCacheVictim, isChatConnectionKept, updateChatUpdatedAt, formatChatDate, chatAssistantMetaText, chatUserMetaText, chatMessageMetaVisibility, applyChatMetadataDefaults, enqueueChatFollowup, removeChatFollowup, chatToolStatus, chatToolDuration, chatToolActivityLabel, chatToolHasExpandableBody, chatActivityGroupSummaryText, chatActivityActiveSummarySegments, renderChatActivityGroup, isInternalChatTool, state: appState } = appSandbox.__chatCacheTest;
+vm.runInContext(`${appSrc}\n;globalThis.__chatCacheTest = { chatCacheVictim, isChatConnectionKept, updateChatUpdatedAt, formatChatDate, chatAssistantMetaText, chatUserMetaText, chatMessageMetaVisibility, applyChatMetadataDefaults, enqueueChatFollowup, removeChatFollowup, normalizeChatDraft, chatToolStatus, chatToolDuration, chatToolActivityLabel, chatToolHasExpandableBody, chatActivityGroupSummaryText, chatActivityActiveSummarySegments, renderChatActivityGroup, isInternalChatTool: typeof isInternalChatTool === 'function' ? isInternalChatTool : () => false, state };`, appSandbox);
+const { chatCacheVictim, isChatConnectionKept, updateChatUpdatedAt, formatChatDate, chatAssistantMetaText, chatUserMetaText, chatMessageMetaVisibility, applyChatMetadataDefaults, enqueueChatFollowup, removeChatFollowup, normalizeChatDraft, chatToolStatus, chatToolDuration, chatToolActivityLabel, chatToolHasExpandableBody, chatActivityGroupSummaryText, chatActivityActiveSummarySegments, renderChatActivityGroup, isInternalChatTool, state: appState } = appSandbox.__chatCacheTest;
 function toolLabelText(item) {
   const status = chatToolStatus(item.status);
   return chatToolActivityLabel(item, status, chatToolDuration(item.durationMs)).map(nodeText).join('');
@@ -583,4 +583,45 @@ test('completed command history becomes a tool card', () => {
   assert.equal(state.items.cmd1.title, '运行命令');
   assert.equal(state.items.cmd1.summary, 'pwd');
   assert.equal(state.items.cmd1.output, '/tmp\n');
+});
+
+test('failed turn keeps its error and exits running state', () => {
+  let state = reduceChatEvent(createChatState(), {
+    type: 'turn_started', turnId: 't1', data: { turn: { id: 't1' } },
+  });
+  state = reduceChatEvent(state, {
+    type: 'error', turnId: 't1', data: { message: 'missing tool output' },
+  });
+  state = reduceChatEvent(state, {
+    type: 'turn_done', turnId: 't1', data: { turn: { id: 't1', status: 'failed' } },
+  });
+  assert.equal(state.phase, 'idle');
+  assert.equal(state.activeTurnId, '');
+  assert.equal(state.error, 'missing tool output');
+});
+
+test('optimistic user message can be removed without discarding later events', () => {
+  let state = appendUserMessage(createChatState(), 'pending', 'optimistic-1', []);
+  state = reduceChatEvent(state, {
+    type: 'assistant_delta', itemId: 'a1', turnId: 't1', data: { delta: 'live' },
+  });
+  state = removeMessage(state, 'optimistic-1');
+  assert.deepEqual(Array.from(state.messages), ['a1']);
+  assert.equal(state.items['optimistic-1'], undefined);
+  assert.equal(state.items.a1.text, 'live');
+});
+
+test('composer draft normalization rejects null-like persisted values', () => {
+  assert.equal(normalizeChatDraft(null), '');
+  assert.equal(normalizeChatDraft(undefined), '');
+  assert.equal(normalizeChatDraft('null'), '');
+  assert.equal(normalizeChatDraft('undefined'), '');
+  assert.equal(normalizeChatDraft('hello'), 'hello');
+});
+
+test('send and stop source contracts reject stale active state', () => {
+  assert.match(appSrc, /typeof started\.turnId !== 'string'/);
+  assert.match(appSrc, /FleetChatModel\.removeMessage\(chat\.model, optimisticId\)/);
+  assert.match(appSrc, /e\.code === 'no_active_turn'/);
+  assert.match(appSrc, /type: 'thread_status', data: \{ status: 'idle' \}/);
 });
