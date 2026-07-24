@@ -643,6 +643,9 @@ svg.ic.fill { fill: currentColor; stroke: none; }
 .chat-approval-trigger:hover, .chat-approval-trigger[aria-expanded="true"] { color: var(--chat-text); background: var(--chat-surface-hover); border-color: var(--chat-border); }
 .chat-approval-trigger:disabled { opacity: .5; cursor: default; }
 .chat-approval-trigger:disabled:hover { color: var(--chat-text-2); background: transparent; border-color: transparent; }
+.chat-approval-trigger[data-value="full-access"],
+.chat-approval-trigger[data-value="full-access"]:hover,
+.chat-approval-trigger[data-value="full-access"][aria-expanded="true"] { color: #f04b14; }
 .chat-approval-trigger .ic { width: 14px; height: 14px; flex: none; }
 #chat-approval-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--t-xs); font-weight: 560; }
 .chat-select-chevron { width: 13px; height: 13px; flex: none; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; pointer-events: none; }
