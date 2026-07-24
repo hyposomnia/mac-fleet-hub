@@ -524,7 +524,7 @@ svg.ic.fill { fill: currentColor; stroke: none; }
 .chat-user-wrap { display: flex; flex-direction: column; align-items: flex-end; max-width: min(74%, 680px); min-width: 0; }
 .chat-card { min-width: 0; color: var(--chat-text); font-size: var(--t-body); line-height: 1.62; overflow-wrap: anywhere; }
 .chat-row.user .chat-card { background: var(--chat-user-bg); border: 1px solid var(--chat-border-light); border-radius: 14px; padding: 10px 12px; width: fit-content; max-width: 100%; white-space: pre-wrap; }
-.chat-row.assistant .chat-card { max-width: min(82%, 760px); }
+.chat-row.assistant .chat-card { width: 100%; max-width: none; }
 .chat-card.muted { color: var(--chat-text-2); }
 .chat-msg-meta { margin-top: 8px; color: var(--chat-text-3); font-size: var(--t-caption); line-height: 1.35; font-variant-numeric: tabular-nums; white-space: normal; }
 .chat-row.user .chat-msg-meta { text-align: right; }
@@ -810,7 +810,7 @@ svg.ic.fill { fill: currentColor; stroke: none; }
   #chat-scroll { padding: 18px 14px 12px; }
   #chat-turn-pin { padding: 7px 14px; }
   .chat-turn-pin-card { max-width: 88%; }
-  .chat-row.user .chat-card, .chat-row.assistant .chat-card, .chat-tool, .chat-approval, .chat-error, .chat-diff { max-width: 88%; }
+  .chat-row.user .chat-card, .chat-tool, .chat-approval, .chat-error, .chat-diff { max-width: 88%; }
   .chat-diff-files { min-width: min(68vw, 560px); }
   #chat-composer { padding: 8px 10px max(10px, env(safe-area-inset-bottom, 0px)); }
   .chat-followup { padding-inline: 12px; font-size: var(--t-secondary); }

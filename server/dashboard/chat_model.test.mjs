@@ -329,6 +329,11 @@ test('self-drawn user message time renders outside the bubble', () => {
   assert.match(styleCSS, /\.chat-row\.user \.chat-card\s*\{[^}]*max-width:\s*100%/s);
 });
 
+test('self-drawn assistant messages fill the conversation column', () => {
+  assert.match(styleCSS, /\.chat-row\.assistant \.chat-card\s*\{[^}]*width:\s*100%;[^}]*max-width:\s*none;/s);
+  assert.doesNotMatch(styleCSS, /\.chat-row\.user \.chat-card,\s*\.chat-row\.assistant \.chat-card/);
+});
+
 test('turn pin follows the latest user message that has crossed the scroll top', () => {
   const row = (text, bottom) => ({
     dataset: { chatTurnPin: text },
