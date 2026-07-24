@@ -48,6 +48,34 @@ func TestMapCodexTurnStartedNotification(t *testing.T) {
 	}
 }
 
+func TestMapCodexTurnCompletedUsesNestedTurnID(t *testing.T) {
+	evs := mapCodexNotification(rpcNotification{
+		Method: "turn/completed",
+		Params: json.RawMessage(`{"threadId":"t1","turn":{"id":"turn1","status":"completed","items":[]}}`),
+	})
+	if len(evs) != 1 || evs[0].Type != "turn_done" || evs[0].SessionID != "t1" || evs[0].TurnID != "turn1" {
+		t.Fatalf("bad turn completed mapping: %+v", evs)
+	}
+}
+
+func TestMapCodexFailedTurnEmitsErrorAndCompletion(t *testing.T) {
+	evs := mapCodexNotification(rpcNotification{
+		Method: "turn/completed",
+		Params: json.RawMessage(`{"threadId":"t1","turn":{"id":"turn1","status":"failed","error":{"message":"missing tool output"}}}`),
+	})
+	if len(evs) != 2 || evs[0].Type != "error" || evs[1].Type != "turn_done" {
+		t.Fatalf("failed turn should emit error then completion: %+v", evs)
+	}
+	for _, ev := range evs {
+		if ev.SessionID != "t1" || ev.TurnID != "turn1" {
+			t.Fatalf("failed turn IDs not preserved: %+v", ev)
+		}
+	}
+	if !strings.Contains(string(evs[0].Data), `"message":"missing tool output"`) {
+		t.Fatalf("error message missing from %s", evs[0].Data)
+	}
+}
+
 func TestMapCodexTokenUsageNotification(t *testing.T) {
 	evs := mapCodexNotification(rpcNotification{
 		Method: "thread/tokenUsage/updated",

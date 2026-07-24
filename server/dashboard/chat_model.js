@@ -247,6 +247,14 @@
     return next;
   }
 
+  function removeMessage(state, id) {
+    const next = cloneState(state);
+    next.messages = next.messages.filter((itemId) => itemId !== id);
+    delete next.items[id];
+    delete next.approvals[id];
+    return next;
+  }
+
   function prependHistory(state, events) {
     let history = createChatState();
     for (const ev of (events || [])) {
@@ -396,7 +404,7 @@
     }
   }
 
-  const api = { createChatState, appendUserMessage, prependHistory, reduceChatEvent, normalizeDiffFiles, chatPhase, followupAckId, uuidV7TimeMs };
+  const api = { createChatState, appendUserMessage, removeMessage, prependHistory, reduceChatEvent, normalizeDiffFiles, chatPhase, followupAckId, uuidV7TimeMs };
   root.FleetChatModel = api;
   if (typeof module !== 'undefined') module.exports = api;
 })(typeof globalThis !== 'undefined' ? globalThis : window);

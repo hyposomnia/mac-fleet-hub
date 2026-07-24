@@ -590,12 +590,15 @@ func (b *codexChatBackend) Input(ctx context.Context, assistant, sessionID, text
 			ID string `json:"id"`
 		} `json:"turn"`
 	}
-	_ = json.Unmarshal(raw, &res)
-	if res.Turn.ID != "" {
-		b.mu.Lock()
-		b.lastTurn[sessionID] = res.Turn.ID
-		b.mu.Unlock()
+	if err := json.Unmarshal(raw, &res); err != nil {
+		return ChatInputResult{}, fmt.Errorf("decode turn/start response: %w", err)
 	}
+	if res.Turn.ID == "" {
+		return ChatInputResult{}, fmt.Errorf("turn/start response missing turn id")
+	}
+	b.mu.Lock()
+	b.lastTurn[sessionID] = res.Turn.ID
+	b.mu.Unlock()
 	return ChatInputResult{TurnID: res.Turn.ID}, nil
 }
 
@@ -1272,7 +1275,7 @@ func (b *codexChatBackend) Interrupt(ctx context.Context, assistant, sessionID s
 	turnID := b.lastTurn[sessionID]
 	b.mu.Unlock()
 	if turnID == "" {
-		return nil
+		return errNoActiveChatTurn
 	}
 	_, err = rpc.call(ctx, "turn/interrupt", map[string]string{"threadId": sessionID, "turnId": turnID})
 	return err
