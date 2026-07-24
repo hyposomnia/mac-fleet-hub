@@ -697,11 +697,11 @@ svg.ic.fill { fill: currentColor; stroke: none; }
 .chat-options-row:disabled:hover { background: transparent; }
 .chat-options-value { overflow: hidden; color: var(--chat-text-2); font-weight: 500; text-overflow: ellipsis; white-space: nowrap; }
 .chat-options-row-chevron { color: var(--chat-text-2); }
-.chat-options-submenu { width: 304px; max-height: min(430px, calc(100dvh - 160px)); padding: 7px; }
+.chat-options-submenu { width: 304px; max-height: calc(100dvh - 160px); padding: 7px; }
 .chat-options-submenu-head { display: flex; align-items: center; min-height: 35px; padding: 2px 7px 4px; }
 .chat-options-submenu-title { color: var(--chat-text-2); font-size: var(--t-secondary); font-weight: 600; }
 .chat-options-back { display: none; width: 30px; height: 30px; margin-left: -4px; }
-.chat-options-choices { max-height: min(370px, calc(100dvh - 215px)); overflow-y: auto; overscroll-behavior: contain; }
+.chat-options-choices { max-height: calc(100dvh - 215px); overflow-y: auto; overscroll-behavior: contain; }
 .chat-option-choice {
   display: grid; grid-template-columns: minmax(0, 1fr) 18px; align-items: center; gap: 10px; width: 100%; min-height: 46px;
   padding: 8px 10px; border-radius: 10px; color: var(--chat-text); text-align: left;
@@ -830,12 +830,12 @@ svg.ic.fill { fill: currentColor; stroke: none; }
   }
   .chat-approval-popover { max-height: min(70dvh, 420px); overflow-y: auto; }
   .chat-options-trigger { max-width: 144px; }
-  .chat-options-popover { display: block; max-height: min(72dvh, 460px); overflow-y: auto; }
+  .chat-options-popover { display: block; max-height: calc(100dvh - 16px); overflow-y: auto; }
   .chat-options-panel { border: 0; border-radius: 0; background: transparent; box-shadow: none; }
   .chat-options-popover.has-submenu .chat-options-main { display: none; }
   .chat-options-main, .chat-options-submenu { width: 100%; padding: 0; }
   .chat-options-submenu { max-height: none; }
-  .chat-options-choices { max-height: calc(min(72dvh, 460px) - 58px); }
+  .chat-options-choices { max-height: none; overflow-y: visible; }
   .chat-options-back { display: inline-flex; }
   /* 弹窗在移动端变底部抽屉 */
   .overlay { place-items: end center; padding: 0; }

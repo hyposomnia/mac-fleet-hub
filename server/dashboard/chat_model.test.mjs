@@ -315,6 +315,14 @@ test('self-drawn approval menu mirrors Codex three presets', () => {
   assert.match(styleCSS, /\.chat-approval-popover,\s*\.chat-options-popover\s*\{[^}]*position:\s*fixed;[^}]*bottom:\s*0/s);
 });
 
+test('self-drawn option submenu grows to the available viewport height', () => {
+  assert.match(styleCSS, /\.chat-options-submenu\s*\{[^}]*max-height:\s*calc\(100dvh - 160px\)/s);
+  assert.match(styleCSS, /\.chat-options-choices\s*\{[^}]*max-height:\s*calc\(100dvh - 215px\)/s);
+  assert.doesNotMatch(styleCSS, /max-height:\s*min\((?:370|430|460)px,/);
+  assert.doesNotMatch(styleCSS, /max-height:\s*min\(72dvh,\s*460px\)/);
+  assert.match(styleCSS, /\.chat-options-choices\s*\{\s*max-height:\s*none;\s*overflow-y:\s*visible;\s*\}/s);
+});
+
 test('self-drawn user message time renders outside the bubble', () => {
   assert.match(appSrc, /class:\s*'chat-user-wrap'/);
   assert.match(styleCSS, /\.chat-user-wrap\s*\{\s*display:\s*flex;\s*flex-direction:\s*column;\s*align-items:\s*flex-end/);
