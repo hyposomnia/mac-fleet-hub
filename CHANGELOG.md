@@ -4,7 +4,8 @@ mac-fleet-hub 变更记录（日期为本地时间）。
 
 ## 2026-07-25
 
-### 修复完全访问权限仅更新界面
+### 修复完全访问权限同步与继承
+- **继承本机会话权限**：Web 恢复 Codex Desktop 会话时读取 app-server 的 `sandboxPolicy`；本机已设为 `never + dangerFullAccess` 的线程会正确显示并继续使用“完全访问权限”。
 - **线程即时同步**：切换 Codex 审批模式时立即调用 `thread/settings/update`，不再等到下一轮发送才把选择传给 app-server。
 - **每轮权限兜底**：每次 `turn/start` 都显式携带当前审批模式；“完全访问权限”稳定映射为 `approvalPolicy=never` 与 `dangerFullAccess`。
 - **失败与运行中语义**：设置失败会回滚到服务端最后确认值；运行中的任务明确提示从下一轮生效，已产生的审批请求不会被静默放行。

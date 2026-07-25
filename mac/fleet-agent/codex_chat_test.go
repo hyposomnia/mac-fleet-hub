@@ -191,7 +191,7 @@ func TestCodexChatBackendResumeRestoresInProgressTurnFromThread(t *testing.T) {
 func TestCodexChatBackendResumeHydratesHistoryAndOptions(t *testing.T) {
 	rpc := newFakeRPCConn()
 	rpc.reply["thread/resume"] = json.RawMessage(`{
-		"thread":{"id":"thread-1"},"model":"gpt-new","reasoningEffort":"xhigh","serviceTier":"priority","approvalPolicy":"never","sandbox":{"type":"workspaceWrite"}
+		"thread":{"id":"thread-1"},"model":"gpt-new","reasoningEffort":"xhigh","serviceTier":"priority","approvalPolicy":"never","sandboxPolicy":{"type":"dangerFullAccess"}
 	}`)
 	rpc.reply["thread/items/list"] = json.RawMessage(`{"data":[
 		{"turnId":"turn-new","item":{"id":"a-new","type":"agentMessage","text":"new answer","model":"gpt-new","reasoningEffort":"xhigh","completedAtMs":1784730000000,"usage":{"inputTokens":12,"outputTokens":3}}},
@@ -215,7 +215,7 @@ func TestCodexChatBackendResumeHydratesHistoryAndOptions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if res.Model != "gpt-new" || res.Effort != "xhigh" || res.ServiceTier != "priority" || res.ApprovalMode != "on-request" || res.History.NextCursor != "older-cursor" {
+	if res.Model != "gpt-new" || res.Effort != "xhigh" || res.ServiceTier != "priority" || res.ApprovalMode != "full-access" || res.History.NextCursor != "older-cursor" {
 		t.Fatalf("bad resume metadata: %+v", res)
 	}
 	if len(res.Models) != 1 || res.Models[0].Value != "gpt-new" || res.Models[0].DefaultEffort != "high" ||

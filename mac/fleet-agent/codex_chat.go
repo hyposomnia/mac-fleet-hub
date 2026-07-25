@@ -150,6 +150,7 @@ type codexResumeWire struct {
 	ReasoningEffort string          `json:"reasoningEffort"`
 	ServiceTier     string          `json:"serviceTier"`
 	ApprovalPolicy  json.RawMessage `json:"approvalPolicy"`
+	SandboxPolicy   json.RawMessage `json:"sandboxPolicy"`
 	Sandbox         json.RawMessage `json:"sandbox"`
 }
 
@@ -295,10 +296,14 @@ func (b *codexChatBackend) Resume(ctx context.Context, assistant, sessionID, mod
 	b.mu.Unlock()
 	b.finishResume(sessionID)
 	resumeFinished = true
+	sandboxPolicy := res.SandboxPolicy
+	if len(sandboxPolicy) == 0 || string(sandboxPolicy) == "null" {
+		sandboxPolicy = res.Sandbox
+	}
 	return ChatResumeResult{
 		SessionID: sessionID, ThreadID: threadID, Status: status, ActiveTurnID: activeTurnID,
 		History: history, Model: res.Model, Effort: res.ReasoningEffort, ServiceTier: res.ServiceTier,
-		ApprovalMode: codexApprovalMode(res.ApprovalPolicy, res.Sandbox),
+		ApprovalMode: codexApprovalMode(res.ApprovalPolicy, sandboxPolicy),
 		Models:       b.modelOptions(ctx, rpc),
 	}, nil
 }
