@@ -21,7 +21,7 @@ type fakeChatBackend struct {
 	inputFn     func(context.Context, string, string, string, []ChatAttachment, ChatTurnOptions) (ChatInputResult, error)
 	steerFn     func(context.Context, string, string, string, string, []ChatAttachment) (ChatInputResult, error)
 	eventsFn    func(context.Context, string, string) (<-chan ChatEvent, error)
-	approveFn   func(context.Context, string, string, string, string) error
+	respondFn   func(context.Context, string, string, string, json.RawMessage) error
 	interruptFn func(context.Context, string, string) error
 }
 
@@ -69,9 +69,9 @@ func (f fakeChatBackend) Events(ctx context.Context, assistant, sessionID string
 	return ch, nil
 }
 
-func (f fakeChatBackend) Approve(ctx context.Context, assistant, sessionID, requestID, decision string) error {
-	if f.approveFn != nil {
-		return f.approveFn(ctx, assistant, sessionID, requestID, decision)
+func (f fakeChatBackend) Respond(ctx context.Context, assistant, sessionID, requestID string, response json.RawMessage) error {
+	if f.respondFn != nil {
+		return f.respondFn(ctx, assistant, sessionID, requestID, response)
 	}
 	return nil
 }
@@ -385,21 +385,47 @@ func TestChatEventsStreamsSSE(t *testing.T) {
 	}
 }
 
-func TestChatApproveCallsBackend(t *testing.T) {
+func TestChatRespondCallsBackend(t *testing.T) {
 	withChatBackend(t, fakeChatBackend{
-		approveFn: func(ctx context.Context, assistant, sessionID, requestID, decision string) error {
-			if assistant != "codex" || sessionID != "s1" || requestID != "42" || decision != "approved" {
-				t.Fatalf("approve args got assistant=%s sessionID=%s requestID=%s decision=%s", assistant, sessionID, requestID, decision)
+		respondFn: func(ctx context.Context, assistant, sessionID, requestID string, response json.RawMessage) error {
+			if assistant != "codex" || sessionID != "s1" || requestID != "42" || string(response) != `{"decision":"accept"}` {
+				t.Fatalf("respond args got assistant=%s sessionID=%s requestID=%s response=%s", assistant, sessionID, requestID, response)
 			}
 			return nil
 		},
 	})
-	req := httptest.NewRequest(http.MethodPost, "/api/chat/approve", bytes.NewBufferString(`{"assistant":"codex","sessionId":"s1","requestId":"42","decision":"approved"}`))
+	req := httptest.NewRequest(http.MethodPost, "/api/chat/respond", bytes.NewBufferString(`{"assistant":"codex","sessionId":"s1","requestId":"42","response":{"decision":"accept"}}`))
 	rr := httptest.NewRecorder()
 
-	handleChatApprove(rr, req)
+	handleChatRespond(rr, req)
 
 	if rr.Code != http.StatusOK {
 		t.Fatalf("status got %d body %s", rr.Code, rr.Body.String())
+	}
+}
+
+func TestChatMediaServesOnlyRegularImages(t *testing.T) {
+	dir := t.TempDir()
+	imagePath := filepath.Join(dir, "pixel.png")
+	// PNG signature plus IHDR marker is enough for net/http content sniffing.
+	if err := os.WriteFile(imagePath, []byte("\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest(http.MethodGet, "/api/chat/media?path="+urlQueryEscape(imagePath), nil)
+	rr := httptest.NewRecorder()
+	handleChatMedia(rr, req)
+	if rr.Code != http.StatusOK || rr.Header().Get("Content-Type") != "image/png" {
+		t.Fatalf("image response status=%d content-type=%q body=%q", rr.Code, rr.Header().Get("Content-Type"), rr.Body.String())
+	}
+
+	textPath := filepath.Join(dir, "secret.txt")
+	if err := os.WriteFile(textPath, []byte("not an image"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	req = httptest.NewRequest(http.MethodGet, "/api/chat/media?path="+urlQueryEscape(textPath), nil)
+	rr = httptest.NewRecorder()
+	handleChatMedia(rr, req)
+	if rr.Code != http.StatusUnsupportedMediaType {
+		t.Fatalf("text response status got %d", rr.Code)
 	}
 }

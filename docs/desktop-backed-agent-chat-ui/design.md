@@ -202,10 +202,13 @@ GET  /api/chat/events
 ### 运行态与追问队列
 
 - `thread/status/changed`、`turn/started`、流式 delta 和 `turn/completed` 共同驱动 `running / idle`；刷新后以 `thread/resume` 返回的 `thread.status` 恢复。
-- `running` 时发送按钮切换为停止按钮，调用 `/api/chat/interrupt`；新输入进入当前浏览器内、按会话隔离的 FIFO 追问队列。
-- 当前 turn 完成后自动发送队首；发送失败时保留该条，避免静默丢消息。
-- “引导”通过 `/api/chat/steer` 映射到 Codex `turn/steer`，携带当前 `expectedTurnId`；成功后才移除队列项。
+- Codex Desktop 的默认 follow-up mode 是 `steer`。`running` 时按 Enter 通过 `/api/chat/steer` 插入当前 turn，携带 `expectedTurnId` 和 `clientUserMessageId`。
+- Cmd/Ctrl+Shift+Enter 显式把输入加入当前浏览器内、按会话隔离的 FIFO 下一轮队列。
+- steer 因 active-turn 竞态失败时撤回 optimistic 消息并恢复成 queue item；当前 turn 完成后自动发送队首，发送失败时保留该条。
+- queue item 的“引导”仍调用 `/api/chat/steer`；只有成功才移除，失败保留原项且不得复制。
 - 编辑会移除队列项并把文字和图片恢复到 composer；删除只移除指定项。
+
+完整协议和验收基线见 `codex-app-server-refactor.md`。
 
 ## Codex driver 设计
 

@@ -2,7 +2,7 @@
   'use strict';
 
   function createChatState() {
-    return { phase: 'idle', activeTurnId: '', messages: [], items: {}, approvals: {}, turnUsage: {}, error: null };
+    return { phase: 'idle', activeTurnId: '', messages: [], items: {}, requests: {}, approvals: {}, turnUsage: {}, error: null };
   }
 
   function cloneState(state) {
@@ -11,6 +11,7 @@
       activeTurnId: state.activeTurnId || '',
       messages: (state.messages || []).slice(),
       items: { ...(state.items || {}) },
+      requests: { ...(state.requests || {}) },
       approvals: { ...(state.approvals || {}) },
       turnUsage: { ...(state.turnUsage || {}) },
       error: state.error || null,
@@ -242,7 +243,22 @@
   function appendUserMessage(state, text, id, images) {
     const next = cloneState(state);
     const itemId = id || ('user-' + Date.now());
-    next.items[itemId] = { id: itemId, type: 'user', text: text || '', images: (images || []).slice(), sentAtMs: Date.now() };
+    next.items[itemId] = {
+      id: itemId, clientId: itemId, type: 'user', text: text || '',
+      images: (images || []).slice(), sentAtMs: Date.now(), optimistic: true,
+    };
+    next.messages.push(itemId);
+    return next;
+  }
+
+  function appendSteeringMessage(state, text, id, images, turnId) {
+    const next = cloneState(state);
+    const itemId = id || ('steer-' + Date.now());
+    next.items[itemId] = {
+      id: itemId, clientId: itemId, type: 'user', text: text || '',
+      images: (images || []).slice(), sentAtMs: Date.now(), turnId: turnId || next.activeTurnId,
+      optimistic: true, steering: true, steeringStatus: 'pending',
+    };
     next.messages.push(itemId);
     return next;
   }
@@ -281,6 +297,8 @@
     if (data.status) item.status = data.status;
     if (data.durationMs !== undefined && data.durationMs !== null) item.durationMs = data.durationMs;
     if (data.exitCode !== undefined && data.exitCode !== null) item.exitCode = data.exitCode;
+    if (data.mediaPath !== undefined) item.mediaPath = data.mediaPath || '';
+    if (Array.isArray(data.commandActions)) item.commandActions = data.commandActions.map((action) => ({ ...action }));
     return item;
   }
 
@@ -332,13 +350,97 @@
         if (data.__history) item.turnComplete = historyTurnComplete;
         return next;
       }
+      case 'reasoning_delta': {
+        const item = upsertItem(next, itemId, () => ({
+          id: itemId, type: 'reasoning', summary: '', status: 'inProgress', startedAtMs: Date.now(),
+        }));
+        item.turnId = firstString(ev && ev.turnId, data.turnId, data.turn_id, item.turnId);
+        item.summary = (item.summary || '') + (data.delta || '');
+        item.status = 'inProgress';
+        return next;
+      }
+      case 'reasoning_update': {
+        const item = upsertItem(next, itemId, () => ({
+          id: itemId, type: 'reasoning', summary: '', status: 'inProgress',
+        }));
+        item.turnId = firstString(ev && ev.turnId, data.turnId, data.turn_id, item.turnId);
+        if (data.summary !== undefined) item.summary = data.summary || item.summary || '';
+        item.status = data.status || item.status;
+        if (data.durationMs !== undefined) item.durationMs = Number(data.durationMs) || 0;
+        if (item.status === 'completed' && !item.completedAtMs) item.completedAtMs = Date.now();
+        return next;
+      }
+      case 'plan_delta': {
+        const item = upsertItem(next, itemId, () => ({ id: itemId, type: 'plan', text: '', status: 'inProgress' }));
+        item.turnId = firstString(ev && ev.turnId, data.turnId, data.turn_id, item.turnId);
+        item.text = (item.text || '') + (data.delta || '');
+        item.status = 'inProgress';
+        return next;
+      }
+      case 'plan_update': {
+        const item = upsertItem(next, itemId, () => ({ id: itemId, type: 'plan', text: '', status: 'inProgress' }));
+        item.turnId = firstString(ev && ev.turnId, data.turnId, data.turn_id, item.turnId);
+        if (data.text !== undefined) item.text = data.text || item.text || '';
+        item.status = data.status || item.status;
+        return next;
+      }
+      case 'todo_update': {
+        const item = upsertItem(next, itemId, () => ({ id: itemId, type: 'todo', steps: [], explanation: '' }));
+        item.turnId = firstString(ev && ev.turnId, data.turnId, data.turn_id, item.turnId);
+        item.steps = Array.isArray(data.plan) ? data.plan.map((step) => ({ ...step })) : item.steps;
+        item.explanation = data.explanation || '';
+        return next;
+      }
+      case 'context_compaction': {
+        const item = upsertItem(next, itemId, () => ({ id: itemId, type: 'context', status: 'completed' }));
+        item.turnId = firstString(ev && ev.turnId, data.turnId, data.turn_id, item.turnId);
+        item.status = data.status || item.status;
+        return next;
+      }
+      case 'review_status': {
+        const item = upsertItem(next, itemId, () => ({ id: itemId, type: 'review', status: '', active: false }));
+        item.turnId = firstString(ev && ev.turnId, data.turnId, data.turn_id, item.turnId);
+        item.status = data.status || item.status;
+        item.active = data.active === true;
+        item.review = data.review || item.review || '';
+        return next;
+      }
       case 'user_done': {
-        const item = upsertItem(next, itemId, () => ({ id: itemId, type: 'user', text: '', images: [] }));
+        const clientId = firstString(data.clientId, data.client_id, data.clientUserMessageId, data.client_user_message_id);
+        let targetId = itemId;
+        if (clientId) {
+          const optimisticId = next.messages.find((id) => next.items[id]?.clientId === clientId);
+          if (optimisticId) targetId = optimisticId;
+        }
+        const item = upsertItem(next, targetId, () => ({ id: targetId, type: 'user', text: '', images: [] }));
+        item.clientId = clientId || item.clientId || '';
+        if (targetId !== itemId) item.serverItemId = itemId;
         item.turnId = firstString(ev && ev.turnId, data.turnId, data.turn_id, item.turnId);
         item.text = data.text || item.text || '';
         item.images = (data.images || item.images || []).slice();
+        item.optimistic = false;
+        if (item.steering) item.steeringStatus = 'persisted';
         mergeMessageTiming(item, data, 'user');
         if (!item.sentAtMs) item.sentAtMs = uuidV7TimeMs(item.turnId || (ev && ev.turnId));
+        return next;
+      }
+      case 'steer_accepted': {
+        const clientId = firstString(data.clientId, data.clientUserMessageId, itemId);
+        const id = next.messages.find((messageId) => next.items[messageId]?.clientId === clientId);
+        if (id && next.items[id]) {
+          next.items[id].steering = true;
+          next.items[id].steeringStatus = 'accepted';
+          next.items[id].turnId = firstString(ev && ev.turnId, data.turnId, next.items[id].turnId);
+        }
+        return next;
+      }
+      case 'steer_failed': {
+        const clientId = firstString(data.clientId, itemId);
+        const id = next.messages.find((messageId) => next.items[messageId]?.clientId === clientId);
+        if (id) {
+          next.messages = next.messages.filter((messageId) => messageId !== id);
+          delete next.items[id];
+        }
         return next;
       }
       case 'tool_delta': {
@@ -364,23 +466,51 @@
         item.raw = data;
         return next;
       }
+      case 'interaction_request':
       case 'approval_request': {
         const requestId = String(data.requestId || data.approvalId || itemId);
-        const item = upsertItem(next, requestId, () => ({ id: requestId, type: 'approval', status: 'pending' }));
+        const method = data.requestMethod || (
+          data.questions ? 'item/tool/requestUserInput'
+            : (data.serverName || data.mode ? 'mcpServer/elicitation/request'
+              : (data.permissions ? 'item/permissions/requestApproval'
+                : (data.command ? 'item/commandExecution/requestApproval' : 'item/fileChange/requestApproval')))
+        );
+        let type = 'approval';
+        if (method === 'item/tool/requestUserInput' || method === 'tool/requestUserInput') type = 'request_user_input';
+        else if (method === 'mcpServer/elicitation/request') type = 'elicitation';
+        const item = upsertItem(next, requestId, () => ({ id: requestId, type, status: 'pending' }));
+        item.type = type;
         item.requestId = requestId;
+        item.requestMethod = method;
         item.itemId = data.itemId || ev.itemId || '';
         item.turnId = firstString(ev && ev.turnId, data.turnId, data.turn_id, item.turnId);
-        item.kind = data.command ? 'command' : (data.permissions ? 'permission' : 'file');
+        item.kind = method === 'item/commandExecution/requestApproval' ? 'command'
+          : (method === 'item/permissions/requestApproval' ? 'permission'
+            : (method === 'item/fileChange/requestApproval' ? 'file' : type));
         item.command = data.command || '';
         item.cwd = data.cwd || '';
         item.reason = data.reason || '';
+        item.questions = Array.isArray(data.questions) ? data.questions.map((question) => ({ ...question })) : [];
+        item.serverName = data.serverName || '';
+        item.mode = data.mode || '';
+        item.message = data.message || '';
+        item.url = data.url || '';
+        item.requestedSchema = asObject(data.requestedSchema);
         item.raw = data;
-        next.approvals[requestId] = item;
+        next.requests[requestId] = item;
+        if (type === 'approval') next.approvals[requestId] = item;
         return next;
       }
-      case 'approval_resolved':
-        if (data.requestId && next.approvals[String(data.requestId)]) next.approvals[String(data.requestId)].status = 'resolved';
+      case 'interaction_resolved':
+      case 'approval_resolved': {
+        const requestId = String(data.requestId || '');
+        if (requestId && next.requests[requestId]) {
+          next.requests[requestId].status = 'resolved';
+          next.requests[requestId].response = data.response || data.decision || null;
+        }
+        if (requestId && next.approvals[requestId]) next.approvals[requestId].status = 'resolved';
         return next;
+      }
       case 'turn_usage': {
         const turnId = firstString(ev && ev.turnId, data.turnId, data.turn_id);
         if (turnId) next.turnUsage[turnId] = data;
@@ -404,7 +534,10 @@
     }
   }
 
-  const api = { createChatState, appendUserMessage, removeMessage, prependHistory, reduceChatEvent, normalizeDiffFiles, chatPhase, followupAckId, uuidV7TimeMs };
+  const api = {
+    createChatState, appendUserMessage, appendSteeringMessage, removeMessage, prependHistory,
+    reduceChatEvent, normalizeDiffFiles, chatPhase, followupAckId, uuidV7TimeMs,
+  };
   root.FleetChatModel = api;
   if (typeof module !== 'undefined') module.exports = api;
 })(typeof globalThis !== 'undefined' ? globalThis : window);

@@ -4,6 +4,15 @@ mac-fleet-hub 变更记录（日期为本地时间）。
 
 ## 2026-07-24
 
+### Codex Desktop / app-server 基础状态机重构
+- **会话目录标准化**：Codex session、搜索、归档和分页改用 Desktop 同参数的 `thread/list`；会话操作改用 `thread/name/set`、archive/unarchive/delete，不再以本地 SQLite/JSONL 扫描作为主数据源。
+- **恢复链路标准化**：按 `thread/read -> thread/resume -> items/turns 分页` hydration，缓存恢复期间 notification，并在 SSE 重连时回放 backlog 和未决交互请求。
+- **原生 follow-up**：Desktop 默认行为改为运行中 Enter 调 `turn/steer`，Cmd/Ctrl+Shift+Enter 显式排下一轮；`clientUserMessageId` 贯穿 optimistic 消息、app-server 与持久化 user item，steer 竞态会重试，失败则撤回正文并恢复 queue。
+- **完整交互请求**：统一保存 app-server request id/method/params，新增 `/api/chat/respond`，覆盖 command/file/permission approval、request user input 与 MCP elicitation。
+- **结构化投影**：补齐 reasoning、plan/todo、context compaction、review、dynamic/MCP/image/subagent 等 item，并支持本地图片安全渲染。
+- **会话管理与扩展**：增加当前/已归档、搜索、加载更多、重命名、归档、删除和 Fleet 本地置顶；保留模型、effort、service tier、token usage、用户消息吸顶与 ttyd fallback。
+- **静态缓存**：dashboard 外壳缓存升级到 v40。
+
 ### AI 回复占满会话正文列
 - **全宽正文**：移除 AI 回复额外的 `82% / 760px` 桌面限宽和 `88%` 移动端限宽，使回复与输入框使用同一正文列宽；用户气泡和工具卡片保持原有紧凑宽度。
 

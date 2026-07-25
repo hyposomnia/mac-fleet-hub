@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -112,20 +113,24 @@ func TestCodexChatBackendResumeUsesThreadResume(t *testing.T) {
 	if res.ThreadID != "thread-1" || res.Status != "idle" {
 		t.Fatalf("bad resume result: %+v", res)
 	}
-	if len(rpc.calls) != 3 || rpc.calls[0].method != "thread/resume" || rpc.calls[1].method != "thread/items/list" || rpc.calls[2].method != "model/list" {
+	if len(rpc.calls) != 4 || rpc.calls[0].method != "thread/read" || rpc.calls[1].method != "thread/resume" ||
+		rpc.calls[2].method != "thread/items/list" || rpc.calls[3].method != "model/list" {
 		t.Fatalf("calls: %+v", rpc.calls)
 	}
-	got := mapFromParams(t, rpc.calls[0].params)
+	readParams := mapFromParams(t, rpc.calls[0].params)
+	if readParams["threadId"] != "thread-1" || readParams["includeTurns"] != false {
+		t.Fatalf("thread/read params got %#v", readParams)
+	}
+	got := mapFromParams(t, rpc.calls[1].params)
 	if got["threadId"] != "thread-1" {
 		t.Fatalf("threadId got %v", got["threadId"])
 	}
 }
 
-func TestCodexChatBackendResumeRestoresActiveTurnFromInitialPage(t *testing.T) {
+func TestCodexChatBackendResumeRestoresActiveTurnFromThread(t *testing.T) {
 	rpc := newFakeRPCConn()
 	rpc.reply["thread/resume"] = json.RawMessage(`{
-		"thread":{"id":"thread-1","status":{"type":"active","activeFlags":[]}},
-		"initialTurnsPage":{"data":[{"id":"turn-live","status":"inProgress","items":[]}]}
+		"thread":{"id":"thread-1","status":{"type":"active","activeFlags":[]},"turns":[{"id":"turn-live","status":"inProgress","items":[]}]}
 	}`)
 	rpc.reply["thread/items/list"] = json.RawMessage(`{"data":[{"turnId":"turn-old","item":{"id":"a-old","type":"agentMessage","text":"previous"}}]}`)
 	b := newCodexChatBackend(func(ctx context.Context) (codexRPCConn, func(), error) {
@@ -141,11 +146,10 @@ func TestCodexChatBackendResumeRestoresActiveTurnFromInitialPage(t *testing.T) {
 	}
 }
 
-func TestCodexChatBackendResumeRestoresInProgressTurnFromInitialPage(t *testing.T) {
+func TestCodexChatBackendResumeRestoresInProgressTurnFromThread(t *testing.T) {
 	rpc := newFakeRPCConn()
 	rpc.reply["thread/resume"] = json.RawMessage(`{
-		"thread":{"id":"thread-1","status":{"type":"inProgress"}},
-		"initialTurnsPage":{"data":[{"id":"turn-live","status":"inProgress","items":[]}]}
+		"thread":{"id":"thread-1","status":{"type":"inProgress"},"turns":[{"id":"turn-live","status":"inProgress","items":[]}]}
 	}`)
 	rpc.reply["thread/items/list"] = json.RawMessage(`{"data":[]}`)
 	b := newCodexChatBackend(func(ctx context.Context) (codexRPCConn, func(), error) {
@@ -204,7 +208,7 @@ func TestCodexChatBackendResumeHydratesHistoryAndOptions(t *testing.T) {
 			t.Fatalf("history metadata missing %s in %s / %s", want, res.History.Events[0].Data, res.History.Events[1].Data)
 		}
 	}
-	params := mapFromParams(t, rpc.calls[1].params)
+	params := mapFromParams(t, rpc.calls[2].params)
 	if params["sortDirection"] != "desc" || params["limit"] != float64(chatHistoryPageSize) {
 		t.Fatalf("initial page params: %#v", params)
 	}
@@ -498,6 +502,34 @@ func TestCodexChatBackendSteerUsesActiveTurnAndLocalImages(t *testing.T) {
 	}
 }
 
+func TestCodexChatBackendEventsReplaysLargeBacklogWithoutBlocking(t *testing.T) {
+	rpc := newFakeRPCConn()
+	b := newCodexChatBackend(func(context.Context) (codexRPCConn, func(), error) {
+		return rpc, func() {}, nil
+	})
+	const eventCount = 96
+	for index := 0; index < eventCount; index++ {
+		b.backlog["thread-1"] = append(b.backlog["thread-1"], ChatEvent{
+			Type: "item/completed",
+			Data: json.RawMessage(`{"status":"completed"}`),
+		})
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	ch, err := b.Events(ctx, "codex", "thread-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for index := 0; index < eventCount; index++ {
+		select {
+		case <-ch:
+		default:
+			t.Fatalf("backlog event %d was not buffered", index)
+		}
+	}
+}
+
 func TestCodexChatBackendInterruptWithoutActiveTurn(t *testing.T) {
 	rpc := newFakeRPCConn()
 	b := newCodexChatBackend(func(ctx context.Context) (codexRPCConn, func(), error) {
@@ -606,7 +638,7 @@ func TestCodexChatBackendEventsDispatchBySessionID(t *testing.T) {
 	}
 }
 
-func TestCodexChatBackendApproveRespondsToServerRequestID(t *testing.T) {
+func TestCodexChatBackendRespondsToServerRequestID(t *testing.T) {
 	rpc := newFakeRPCConn()
 	b := newCodexChatBackend(func(ctx context.Context) (codexRPCConn, func(), error) {
 		return rpc, func() {}, nil
@@ -629,11 +661,146 @@ func TestCodexChatBackendApproveRespondsToServerRequestID(t *testing.T) {
 		t.Fatal("approval event timeout")
 	}
 
-	if err := b.Approve(context.Background(), "codex", "thread-1", "42", "approved"); err != nil {
+	if err := b.Respond(context.Background(), "codex", "thread-1", "42", json.RawMessage(`{"decision":"accept"}`)); err != nil {
 		t.Fatal(err)
 	}
-	if len(rpc.calls) != 1 || rpc.calls[0].method != "response:42" || rpc.calls[0].params != "accept" {
+	if len(rpc.calls) != 1 || rpc.calls[0].method != "response:42" ||
+		!reflect.DeepEqual(rpc.calls[0].params, map[string]interface{}{"decision": "accept"}) {
 		t.Fatalf("calls got %+v", rpc.calls)
+	}
+}
+
+func TestCodexChatBackendRespondsToPermissionRequest(t *testing.T) {
+	rpc := newFakeRPCConn()
+	b := newCodexChatBackend(func(ctx context.Context) (codexRPCConn, func(), error) {
+		return rpc, func() {}, nil
+	})
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	events, err := b.Events(ctx, "codex", "thread-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	rpc.notes <- rpcNotification{
+		ID:     json.RawMessage(`43`),
+		Method: "item/permissions/requestApproval",
+		Params: json.RawMessage(`{"threadId":"thread-1","turnId":"turn-1","itemId":"permission-1","cwd":"/repo","permissions":{"network":{"enabled":true}}}`),
+	}
+	select {
+	case ev := <-events:
+		if ev.Type != "interaction_request" {
+			t.Fatalf("event got %+v", ev)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("permission event timeout")
+	}
+
+	response := json.RawMessage(`{"permissions":{"network":{"enabled":true}},"scope":"session"}`)
+	if err := b.Respond(context.Background(), "codex", "thread-1", "43", response); err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]interface{}{
+		"permissions": map[string]interface{}{"network": map[string]interface{}{"enabled": true}},
+		"scope":       "session",
+	}
+	if len(rpc.calls) != 1 || rpc.calls[0].method != "response:43" || !reflect.DeepEqual(rpc.calls[0].params, want) {
+		t.Fatalf("calls got %#v", rpc.calls)
+	}
+}
+
+func TestCodexChatBackendRespondsToUserInputAndElicitationRequests(t *testing.T) {
+	tests := []struct {
+		name     string
+		method   string
+		params   string
+		response string
+		want     map[string]interface{}
+	}{
+		{
+			name:     "user input",
+			method:   "item/tool/requestUserInput",
+			params:   `{"threadId":"thread-1","turnId":"turn-1","itemId":"ask-1","questions":[{"id":"branch","header":"Branch","question":"Which branch?"}]}`,
+			response: `{"answers":{"branch":{"answers":["main"]}}}`,
+			want: map[string]interface{}{
+				"answers": map[string]interface{}{"branch": map[string]interface{}{"answers": []string{"main"}}},
+			},
+		},
+		{
+			name:     "MCP form elicitation",
+			method:   "mcpServer/elicitation/request",
+			params:   `{"threadId":"thread-1","turnId":"turn-1","serverName":"demo","mode":"form","message":"Details","requestedSchema":{"type":"object","required":["name"],"properties":{"name":{"type":"string"},"count":{"type":"integer"}}}}`,
+			response: `{"action":"accept","content":{"name":"Fleet","count":2}}`,
+			want: map[string]interface{}{
+				"action":  "accept",
+				"content": map[string]interface{}{"name": "Fleet", "count": float64(2)},
+			},
+		},
+	}
+	for index, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			rpc := newFakeRPCConn()
+			b := newCodexChatBackend(func(ctx context.Context) (codexRPCConn, func(), error) {
+				return rpc, func() {}, nil
+			})
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			events, err := b.Events(ctx, "codex", "thread-1")
+			if err != nil {
+				t.Fatal(err)
+			}
+			requestID := fmt.Sprintf("%d", 50+index)
+			rpc.notes <- rpcNotification{ID: json.RawMessage(requestID), Method: test.method, Params: json.RawMessage(test.params)}
+			select {
+			case <-events:
+			case <-time.After(time.Second):
+				t.Fatal("request event timeout")
+			}
+			if err := b.Respond(context.Background(), "codex", "thread-1", requestID, json.RawMessage(test.response)); err != nil {
+				t.Fatal(err)
+			}
+			if len(rpc.calls) != 1 || rpc.calls[0].method != "response:"+requestID ||
+				!reflect.DeepEqual(rpc.calls[0].params, test.want) {
+				t.Fatalf("calls got %#v", rpc.calls)
+			}
+		})
+	}
+}
+
+func TestCodexChatBackendReplaysPendingRequestToReconnectedEvents(t *testing.T) {
+	rpc := newFakeRPCConn()
+	b := newCodexChatBackend(func(ctx context.Context) (codexRPCConn, func(), error) {
+		return rpc, func() {}, nil
+	})
+	firstCtx, cancelFirst := context.WithCancel(context.Background())
+	first, err := b.Events(firstCtx, "codex", "thread-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	rpc.notes <- rpcNotification{
+		ID:     json.RawMessage(`61`),
+		Method: "item/fileChange/requestApproval",
+		Params: json.RawMessage(`{"threadId":"thread-1","turnId":"turn-1","itemId":"patch-1","reason":"write files"}`),
+	}
+	select {
+	case <-first:
+	case <-time.After(time.Second):
+		t.Fatal("first request event timeout")
+	}
+	cancelFirst()
+
+	secondCtx, cancelSecond := context.WithCancel(context.Background())
+	defer cancelSecond()
+	second, err := b.Events(secondCtx, "codex", "thread-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case event := <-second:
+		if event.Type != "interaction_request" || !strings.Contains(string(event.Data), `"requestId":"61"`) {
+			t.Fatalf("replayed event got %+v", event)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("replayed request event timeout")
 	}
 }
 

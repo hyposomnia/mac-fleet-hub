@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"sync"
 )
@@ -20,9 +21,11 @@ const codexHistoryCacheLimit = 32
 
 type codexConnector func(context.Context) (codexRPCConn, func(), error)
 
-type pendingApproval struct {
-	id     json.RawMessage
-	method string
+type pendingCodexRequest struct {
+	id        json.RawMessage
+	method    string
+	params    json.RawMessage
+	sessionID string
 }
 
 type codexChatBackend struct {
@@ -33,7 +36,10 @@ type codexChatBackend struct {
 	cleanup  func()
 	subs     map[string]map[chan ChatEvent]struct{}
 	lastTurn map[string]string
-	pending  map[string]pendingApproval
+	pending  map[string]pendingCodexRequest
+	resuming map[string]bool
+	backlog  map[string][]ChatEvent
+	buffered map[string][]ChatEvent
 	// -1 means thread/items/list is unsupported, 0 unknown, 1 supported.
 	itemsListSupport int
 	historyPages     map[string]codexTurnsPage
@@ -46,7 +52,10 @@ func newCodexChatBackend(connect codexConnector) *codexChatBackend {
 		connect:      connect,
 		subs:         map[string]map[chan ChatEvent]struct{}{},
 		lastTurn:     map[string]string{},
-		pending:      map[string]pendingApproval{},
+		pending:      map[string]pendingCodexRequest{},
+		resuming:     map[string]bool{},
+		backlog:      map[string][]ChatEvent{},
+		buffered:     map[string][]ChatEvent{},
 		historyPages: map[string]codexTurnsPage{},
 		historyUsage: map[string]codexTurnUsageCache{},
 	}
@@ -129,13 +138,11 @@ type codexResumeWire struct {
 	Thread struct {
 		ID     string          `json:"id"`
 		Status json.RawMessage `json:"status"`
-	} `json:"thread"`
-	InitialTurnsPage struct {
-		Data []struct {
+		Turns  []struct {
 			ID     string `json:"id"`
 			Status string `json:"status"`
-		} `json:"data"`
-	} `json:"initialTurnsPage"`
+		} `json:"turns"`
+	} `json:"thread"`
 	Model           string          `json:"model"`
 	ReasoningEffort string          `json:"reasoningEffort"`
 	ServiceTier     string          `json:"serviceTier"`
@@ -215,13 +222,7 @@ func (b *codexChatBackend) Start(ctx context.Context, assistant, cwd, mode strin
 }
 
 func (b *codexChatBackend) resumeThread(ctx context.Context, rpc codexRPCConn, sessionID string) (codexResumeWire, error) {
-	params := map[string]interface{}{
-		"threadId":     sessionID,
-		"excludeTurns": true,
-		"initialTurnsPage": map[string]interface{}{
-			"limit": 1, "sortDirection": "desc", "itemsView": "summary",
-		},
-	}
+	params := map[string]interface{}{"threadId": sessionID}
 	raw, err := rpc.call(ctx, "thread/resume", params)
 	if err != nil {
 		return codexResumeWire{}, err
@@ -239,6 +240,19 @@ func (b *codexChatBackend) Resume(ctx context.Context, assistant, sessionID, mod
 	if err != nil {
 		return ChatResumeResult{}, err
 	}
+	b.beginResume(sessionID)
+	resumeFinished := false
+	defer func() {
+		if !resumeFinished {
+			b.finishResume(sessionID)
+		}
+	}()
+	// Match the Desktop lifecycle: read persisted metadata without loading the
+	// transcript, then resume and reconcile paginated history with notifications
+	// that arrived during hydration.
+	_, _ = rpc.call(ctx, "thread/read", map[string]interface{}{
+		"threadId": sessionID, "includeTurns": false,
+	})
 	res, err := b.resumeThread(ctx, rpc, sessionID)
 	if err != nil {
 		return ChatResumeResult{}, err
@@ -254,10 +268,14 @@ func (b *codexChatBackend) Resume(ctx context.Context, assistant, sessionID, mod
 	}
 	status := codexThreadStatus(res.Thread.Status)
 	activeTurnID := ""
+	latestTurns := res.Thread.Turns
+	if codexStatusIsRunning(status) && len(latestTurns) == 0 {
+		latestTurns = b.latestTurns(ctx, rpc, sessionID)
+	}
 	b.mu.Lock()
 	if codexStatusIsRunning(status) {
-		if len(res.InitialTurnsPage.Data) > 0 {
-			latest := res.InitialTurnsPage.Data[0]
+		if len(latestTurns) > 0 {
+			latest := latestTurns[0]
 			if latest.Status == "" || codexStatusIsRunning(latest.Status) {
 				activeTurnID = latest.ID
 			}
@@ -269,12 +287,54 @@ func (b *codexChatBackend) Resume(ctx context.Context, assistant, sessionID, mod
 		delete(b.lastTurn, sessionID)
 	}
 	b.mu.Unlock()
+	b.finishResume(sessionID)
+	resumeFinished = true
 	return ChatResumeResult{
 		SessionID: sessionID, ThreadID: threadID, Status: status, ActiveTurnID: activeTurnID,
 		History: history, Model: res.Model, Effort: res.ReasoningEffort, ServiceTier: res.ServiceTier,
 		ApprovalMode: codexApprovalMode(res.ApprovalPolicy, res.Sandbox),
 		Models:       b.modelOptions(ctx, rpc),
 	}, nil
+}
+
+func (b *codexChatBackend) latestTurns(ctx context.Context, rpc codexRPCConn, sessionID string) []struct {
+	ID     string `json:"id"`
+	Status string `json:"status"`
+} {
+	raw, err := rpc.call(ctx, "thread/turns/list", map[string]interface{}{
+		"threadId": sessionID, "limit": 1, "sortDirection": "desc", "itemsView": "notLoaded",
+	})
+	if err != nil {
+		return nil
+	}
+	var page struct {
+		Data []struct {
+			ID     string `json:"id"`
+			Status string `json:"status"`
+		} `json:"data"`
+	}
+	if json.Unmarshal(raw, &page) != nil {
+		return nil
+	}
+	return page.Data
+}
+
+func (b *codexChatBackend) beginResume(sessionID string) {
+	b.mu.Lock()
+	b.resuming[sessionID] = true
+	delete(b.buffered, sessionID)
+	b.mu.Unlock()
+}
+
+func (b *codexChatBackend) finishResume(sessionID string) {
+	b.mu.Lock()
+	events := b.buffered[sessionID]
+	delete(b.buffered, sessionID)
+	delete(b.resuming, sessionID)
+	if len(events) > 0 {
+		b.backlog[sessionID] = append(b.backlog[sessionID], events...)
+	}
+	b.mu.Unlock()
 }
 
 func (b *codexChatBackend) History(ctx context.Context, assistant, sessionID, cursor string) (ChatHistoryPage, error) {
@@ -673,7 +733,16 @@ func (b *codexChatBackend) Steer(ctx context.Context, assistant, sessionID, clie
 	}
 	raw, err := rpc.call(ctx, "turn/steer", params)
 	if err != nil {
-		return ChatInputResult{}, err
+		if actualTurnID := codexActualTurnID(err); actualTurnID != "" && actualTurnID != turnID {
+			params["expectedTurnId"] = actualTurnID
+			b.mu.Lock()
+			b.lastTurn[sessionID] = actualTurnID
+			b.mu.Unlock()
+			raw, err = rpc.call(ctx, "turn/steer", params)
+		}
+		if err != nil {
+			return ChatInputResult{}, err
+		}
 	}
 	var res struct {
 		TurnID string `json:"turnId"`
@@ -685,8 +754,34 @@ func (b *codexChatBackend) Steer(ctx context.Context, assistant, sessionID, clie
 	return ChatInputResult{TurnID: res.TurnID}, nil
 }
 
+var codexExpectedTurnPatterns = []*regexp.Regexp{
+	regexp.MustCompile(`(?i)expected active turn id [^[:alnum:]-]*([[:alnum:]-]+)[^[:alnum:]-]+but found [^[:alnum:]-]*([[:alnum:]-]+)`),
+	regexp.MustCompile(`(?i)ExpectedTurnMismatch[^}]*actual:\s*"([^"]+)"`),
+}
+
+func codexActualTurnID(err error) string {
+	if err == nil {
+		return ""
+	}
+	message := err.Error()
+	for index, pattern := range codexExpectedTurnPatterns {
+		match := pattern.FindStringSubmatch(message)
+		if len(match) < 2 {
+			continue
+		}
+		if index == 0 && len(match) >= 3 {
+			return match[2]
+		}
+		return match[1]
+	}
+	return ""
+}
+
 func codexTurnStartParams(sessionID string, input []map[string]string, opts ChatTurnOptions) map[string]interface{} {
 	params := map[string]interface{}{"threadId": sessionID, "input": input}
+	if opts.ClientUserMessageID != "" {
+		params["clientUserMessageId"] = opts.ClientUserMessageID
+	}
 	if opts.Model != "" {
 		params["model"] = opts.Model
 	}
@@ -888,7 +983,51 @@ func projectCodexHistoryItemWithUsage(sessionID, turnID string, raw json.RawMess
 		mergeCodexHistoryUsage(data, usage)
 		return newChatEvent("assistant_done", "codex", sessionID, turnID, base.ID, data), true
 	default:
+		if ev, ok := projectCodexSemanticItem(sessionID, turnID, raw, "completed"); ok {
+			return ev, true
+		}
 		return projectCodexToolItem(sessionID, turnID, raw, "completed")
+	}
+}
+
+func projectCodexSemanticItem(sessionID, turnID string, raw json.RawMessage, lifecycleStatus string) (ChatEvent, bool) {
+	var item struct {
+		ID         string   `json:"id"`
+		Type       string   `json:"type"`
+		Text       string   `json:"text"`
+		Summary    []string `json:"summary"`
+		Review     string   `json:"review"`
+		DurationMS *int64   `json:"durationMs"`
+		ClientID   *string  `json:"clientId"`
+	}
+	if json.Unmarshal(raw, &item) != nil || item.ID == "" {
+		return ChatEvent{}, false
+	}
+	data := map[string]interface{}{"status": lifecycleStatus}
+	switch item.Type {
+	case "userMessage":
+		return projectCodexHistoryItem(sessionID, turnID, raw)
+	case "reasoning":
+		data["summary"] = strings.Join(item.Summary, "\n\n")
+		if item.DurationMS != nil {
+			data["durationMs"] = *item.DurationMS
+		}
+		return newChatEvent("reasoning_update", "codex", sessionID, turnID, item.ID, data), true
+	case "plan":
+		data["text"] = item.Text
+		return newChatEvent("plan_update", "codex", sessionID, turnID, item.ID, data), true
+	case "contextCompaction":
+		return newChatEvent("context_compaction", "codex", sessionID, turnID, item.ID, data), true
+	case "enteredReviewMode":
+		data["active"] = true
+		data["review"] = item.Review
+		return newChatEvent("review_status", "codex", sessionID, turnID, item.ID, data), true
+	case "exitedReviewMode":
+		data["active"] = false
+		data["review"] = item.Review
+		return newChatEvent("review_status", "codex", sessionID, turnID, item.ID, data), true
+	default:
+		return ChatEvent{}, false
 	}
 }
 
@@ -941,16 +1080,18 @@ func projectCodexToolItem(sessionID, turnID string, raw json.RawMessage, lifecyc
 	switch base.Type {
 	case "commandExecution":
 		var item struct {
-			Command          string `json:"command"`
-			Cwd              string `json:"cwd"`
-			AggregatedOutput string `json:"aggregatedOutput"`
-			Status           string `json:"status"`
-			ExitCode         *int   `json:"exitCode"`
-			DurationMS       *int64 `json:"durationMs"`
+			Command          string                   `json:"command"`
+			CommandActions   []map[string]interface{} `json:"commandActions"`
+			Cwd              string                   `json:"cwd"`
+			AggregatedOutput string                   `json:"aggregatedOutput"`
+			Status           string                   `json:"status"`
+			ExitCode         *int                     `json:"exitCode"`
+			DurationMS       *int64                   `json:"durationMs"`
 		}
 		_ = json.Unmarshal(raw, &item)
 		data["title"] = "运行命令"
 		data["summary"] = item.Command
+		data["commandActions"] = item.CommandActions
 		data["meta"] = item.Cwd
 		data["output"] = capChatHistoryText(item.AggregatedOutput, 32<<10)
 		if item.Status != "" {
@@ -1033,6 +1174,7 @@ func projectCodexToolItem(sessionID, turnID string, raw json.RawMessage, lifecyc
 		_ = json.Unmarshal(raw, &item)
 		data["title"] = "查看图片"
 		data["summary"] = item.Path
+		data["mediaPath"] = item.Path
 	case "imageGeneration":
 		var item struct {
 			Status        string `json:"status"`
@@ -1042,6 +1184,7 @@ func projectCodexToolItem(sessionID, turnID string, raw json.RawMessage, lifecyc
 		_ = json.Unmarshal(raw, &item)
 		data["title"] = "生成图片"
 		data["summary"] = firstNonEmpty(item.SavedPath, item.RevisedPrompt)
+		data["mediaPath"] = item.SavedPath
 		if item.Status != "" {
 			data["status"] = item.Status
 		}
@@ -1295,12 +1438,29 @@ func (b *codexChatBackend) Events(ctx context.Context, assistant, sessionID stri
 	if _, err := b.ensure(ctx); err != nil {
 		return nil, err
 	}
-	ch := make(chan ChatEvent, 64)
 	b.mu.Lock()
+	backlog := append([]ChatEvent(nil), b.backlog[sessionID]...)
+	for _, request := range b.pending {
+		if request.sessionID != sessionID {
+			continue
+		}
+		backlog = append(backlog, mapCodexServerRequest(rpcNotification{
+			ID: request.id, Method: request.method, Params: request.params,
+		}))
+	}
+	bufferSize := 64
+	if required := len(backlog) + 32; required > bufferSize {
+		bufferSize = required
+	}
+	ch := make(chan ChatEvent, bufferSize)
+	for _, event := range backlog {
+		ch <- event
+	}
 	if b.subs[sessionID] == nil {
 		b.subs[sessionID] = map[chan ChatEvent]struct{}{}
 	}
 	b.subs[sessionID][ch] = struct{}{}
+	delete(b.backlog, sessionID)
 	b.mu.Unlock()
 	go func() {
 		<-ctx.Done()
@@ -1335,7 +1495,7 @@ func (b *codexChatBackend) Interrupt(ctx context.Context, assistant, sessionID s
 	return err
 }
 
-func (b *codexChatBackend) Approve(ctx context.Context, assistant, sessionID, requestID, decision string) error {
+func (b *codexChatBackend) Respond(ctx context.Context, assistant, sessionID, requestID string, response json.RawMessage) error {
 	if assistant != "codex" {
 		return errUnsupportedChatAssistant
 	}
@@ -1345,38 +1505,41 @@ func (b *codexChatBackend) Approve(ctx context.Context, assistant, sessionID, re
 	}
 	b.mu.Lock()
 	p, ok := b.pending[requestID]
-	if ok {
-		delete(b.pending, requestID)
-	}
 	b.mu.Unlock()
 	if !ok {
-		p = pendingApproval{id: json.RawMessage(requestID), method: "item/commandExecution/requestApproval"}
+		return errChatRequestNotFound
 	}
-	if p.method != "item/commandExecution/requestApproval" {
-		return fmt.Errorf("approval kind not supported yet: %s", p.method)
+	if p.sessionID != sessionID {
+		return errChatRequestNotFound
 	}
-	result := "decline"
-	switch decision {
-	case "approved", "approve", "accept":
-		result = "accept"
-	case "abort", "cancel":
-		result = "cancel"
-	case "denied", "deny", "decline", "":
-		result = "decline"
+	result, err := normalizeCodexServerResponse(p, response)
+	if err != nil {
+		return err
 	}
 	if err := rpc.respond(p.id, result); err != nil {
 		return err
 	}
-	b.publish(newChatEvent("approval_resolved", "codex", sessionID, "", "", map[string]string{"requestId": requestID, "decision": result}))
+	b.mu.Lock()
+	if current, exists := b.pending[requestID]; exists && string(current.id) == string(p.id) {
+		delete(b.pending, requestID)
+	}
+	b.mu.Unlock()
+	b.publish(newChatEvent("interaction_resolved", "codex", sessionID, "", "", map[string]interface{}{
+		"requestId": requestID, "requestMethod": p.method, "response": result,
+	}))
 	return nil
 }
 
 func (b *codexChatBackend) dispatch(notes <-chan rpcNotification) {
 	for n := range notes {
-		if len(n.ID) > 0 {
+		if len(n.ID) > 0 && codexServerRequestSupported(n.Method) {
 			if key := rpcIDKey(n.ID); key != "" {
+				sessionID := codexRequestSessionID(n.Params)
 				b.mu.Lock()
-				b.pending[key] = pendingApproval{id: append(json.RawMessage(nil), n.ID...), method: n.Method}
+				b.pending[key] = pendingCodexRequest{
+					id: append(json.RawMessage(nil), n.ID...), method: n.Method,
+					params: append(json.RawMessage(nil), n.Params...), sessionID: sessionID,
+				}
 				b.mu.Unlock()
 			}
 		}
@@ -1393,6 +1556,13 @@ func (b *codexChatBackend) dispatch(notes <-chan rpcNotification) {
 				}
 				b.mu.Unlock()
 			}
+			b.mu.Lock()
+			if b.resuming[ev.SessionID] {
+				b.buffered[ev.SessionID] = append(b.buffered[ev.SessionID], ev)
+				b.mu.Unlock()
+				continue
+			}
+			b.mu.Unlock()
 			b.publish(ev)
 		}
 	}
@@ -1402,10 +1572,7 @@ func (b *codexChatBackend) publish(ev ChatEvent) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	for ch := range b.subs[ev.SessionID] {
-		select {
-		case ch <- ev:
-		default:
-		}
+		ch <- ev
 	}
 }
 
@@ -1419,4 +1586,236 @@ func rpcIDKey(raw json.RawMessage) string {
 		return fmt.Sprintf("%d", n)
 	}
 	return string(raw)
+}
+
+func codexServerRequestSupported(method string) bool {
+	switch method {
+	case "item/commandExecution/requestApproval",
+		"item/fileChange/requestApproval",
+		"item/permissions/requestApproval",
+		"item/tool/requestUserInput",
+		"tool/requestUserInput",
+		"mcpServer/elicitation/request":
+		return true
+	default:
+		return false
+	}
+}
+
+func codexRequestSessionID(raw json.RawMessage) string {
+	var params struct {
+		ThreadID string `json:"threadId"`
+	}
+	_ = json.Unmarshal(raw, &params)
+	return params.ThreadID
+}
+
+func normalizeCodexServerResponse(request pendingCodexRequest, raw json.RawMessage) (interface{}, error) {
+	var response map[string]interface{}
+	if err := json.Unmarshal(raw, &response); err != nil || response == nil {
+		return nil, fmt.Errorf("invalid response for %s", request.method)
+	}
+	switch request.method {
+	case "item/commandExecution/requestApproval", "item/fileChange/requestApproval":
+		return normalizeCodexApprovalResponse(request.method, response)
+	case "item/permissions/requestApproval":
+		return normalizeCodexPermissionsResponse(request.params, response)
+	case "item/tool/requestUserInput", "tool/requestUserInput":
+		return normalizeCodexUserInputResponse(request.params, response)
+	case "mcpServer/elicitation/request":
+		return normalizeCodexElicitationResponse(request.params, response)
+	default:
+		return nil, fmt.Errorf("unsupported Codex server request: %s", request.method)
+	}
+}
+
+func normalizeCodexApprovalResponse(method string, response map[string]interface{}) (interface{}, error) {
+	if len(response) != 1 {
+		return nil, fmt.Errorf("invalid approval response")
+	}
+	decision, ok := response["decision"].(string)
+	if !ok {
+		return nil, fmt.Errorf("approval response is missing decision")
+	}
+	allowed := map[string]bool{"accept": true, "acceptForSession": true, "decline": true, "cancel": true}
+	if !allowed[decision] {
+		return nil, fmt.Errorf("invalid approval decision")
+	}
+	if method == "item/fileChange/requestApproval" && decision == "acceptForSession" {
+		return map[string]interface{}{"decision": decision}, nil
+	}
+	return map[string]interface{}{"decision": decision}, nil
+}
+
+func normalizeCodexPermissionsResponse(paramsRaw json.RawMessage, response map[string]interface{}) (interface{}, error) {
+	permissions, ok := response["permissions"].(map[string]interface{})
+	if !ok {
+		return nil, fmt.Errorf("permissions response is missing permissions")
+	}
+	scope := "turn"
+	if value, exists := response["scope"]; exists {
+		var valid bool
+		scope, valid = value.(string)
+		if !valid || (scope != "turn" && scope != "session") {
+			return nil, fmt.Errorf("invalid permission scope")
+		}
+	}
+	result := map[string]interface{}{"permissions": permissions, "scope": scope}
+	if value, exists := response["strictAutoReview"]; exists {
+		strict, valid := value.(bool)
+		if !valid {
+			return nil, fmt.Errorf("invalid strictAutoReview value")
+		}
+		result["strictAutoReview"] = strict
+	}
+	if len(response) > len(result) {
+		return nil, fmt.Errorf("invalid permissions response fields")
+	}
+	if len(permissions) == 0 {
+		return result, nil
+	}
+	var params struct {
+		Permissions map[string]interface{} `json:"permissions"`
+	}
+	if err := json.Unmarshal(paramsRaw, &params); err != nil || params.Permissions == nil {
+		return nil, fmt.Errorf("permission request is malformed")
+	}
+	if !jsonValuesEqual(params.Permissions, permissions) {
+		return nil, fmt.Errorf("granted permissions must match the requested permissions")
+	}
+	return result, nil
+}
+
+func normalizeCodexUserInputResponse(paramsRaw json.RawMessage, response map[string]interface{}) (interface{}, error) {
+	if len(response) != 1 {
+		return nil, fmt.Errorf("invalid user input response")
+	}
+	answers, ok := response["answers"].(map[string]interface{})
+	if !ok {
+		return nil, fmt.Errorf("user input response is missing answers")
+	}
+	var params struct {
+		Questions []struct {
+			ID string `json:"id"`
+		} `json:"questions"`
+	}
+	if err := json.Unmarshal(paramsRaw, &params); err != nil {
+		return nil, fmt.Errorf("user input request is malformed")
+	}
+	questionIDs := make(map[string]bool, len(params.Questions))
+	for _, question := range params.Questions {
+		questionIDs[question.ID] = true
+	}
+	normalized := make(map[string]interface{}, len(answers))
+	for id, answerRaw := range answers {
+		if !questionIDs[id] {
+			return nil, fmt.Errorf("unknown user input question: %s", id)
+		}
+		answer, ok := answerRaw.(map[string]interface{})
+		if !ok || len(answer) != 1 {
+			return nil, fmt.Errorf("invalid answer for question: %s", id)
+		}
+		values, ok := answer["answers"].([]interface{})
+		if !ok {
+			return nil, fmt.Errorf("invalid answer for question: %s", id)
+		}
+		stringsOut := make([]string, 0, len(values))
+		for _, value := range values {
+			text, ok := value.(string)
+			if !ok || len(text) > 32*1024 {
+				return nil, fmt.Errorf("invalid answer for question: %s", id)
+			}
+			stringsOut = append(stringsOut, text)
+		}
+		normalized[id] = map[string]interface{}{"answers": stringsOut}
+	}
+	return map[string]interface{}{"answers": normalized}, nil
+}
+
+func normalizeCodexElicitationResponse(paramsRaw json.RawMessage, response map[string]interface{}) (interface{}, error) {
+	action, ok := response["action"].(string)
+	if !ok || (action != "accept" && action != "decline" && action != "cancel") {
+		return nil, fmt.Errorf("invalid elicitation action")
+	}
+	if action != "accept" {
+		if len(response) != 1 {
+			return nil, fmt.Errorf("declined elicitation cannot include content")
+		}
+		return map[string]interface{}{"action": action}, nil
+	}
+	var params struct {
+		Mode            string                 `json:"mode"`
+		RequestedSchema map[string]interface{} `json:"requestedSchema"`
+	}
+	if err := json.Unmarshal(paramsRaw, &params); err != nil {
+		return nil, fmt.Errorf("elicitation request is malformed")
+	}
+	result := map[string]interface{}{"action": action}
+	if params.Mode == "url" {
+		if len(response) != 1 {
+			return nil, fmt.Errorf("URL elicitation response cannot include content")
+		}
+		return result, nil
+	}
+	content, ok := response["content"].(map[string]interface{})
+	if !ok || len(response) != 2 {
+		return nil, fmt.Errorf("accepted elicitation is missing content")
+	}
+	if err := validateCodexElicitationContent(params.RequestedSchema, content); err != nil {
+		return nil, err
+	}
+	result["content"] = content
+	return result, nil
+}
+
+func validateCodexElicitationContent(schema, content map[string]interface{}) error {
+	properties, _ := schema["properties"].(map[string]interface{})
+	required := map[string]bool{}
+	if values, ok := schema["required"].([]interface{}); ok {
+		for _, value := range values {
+			if key, ok := value.(string); ok {
+				required[key] = true
+			}
+		}
+	}
+	for key := range required {
+		if _, exists := content[key]; !exists {
+			return fmt.Errorf("elicitation field is required: %s", key)
+		}
+	}
+	for key, value := range content {
+		field, ok := properties[key].(map[string]interface{})
+		if !ok {
+			return fmt.Errorf("unknown elicitation field: %s", key)
+		}
+		fieldType, _ := field["type"].(string)
+		switch fieldType {
+		case "string":
+			if _, ok := value.(string); !ok {
+				return fmt.Errorf("elicitation field %s must be text", key)
+			}
+		case "number", "integer":
+			number, ok := value.(float64)
+			if !ok || (fieldType == "integer" && number != float64(int64(number))) {
+				return fmt.Errorf("elicitation field %s must be numeric", key)
+			}
+		case "boolean":
+			if _, ok := value.(bool); !ok {
+				return fmt.Errorf("elicitation field %s must be boolean", key)
+			}
+		case "array":
+			if _, ok := value.([]interface{}); !ok {
+				return fmt.Errorf("elicitation field %s must be a list", key)
+			}
+		default:
+			return fmt.Errorf("unsupported elicitation field type: %s", fieldType)
+		}
+	}
+	return nil
+}
+
+func jsonValuesEqual(left, right interface{}) bool {
+	leftJSON, leftErr := json.Marshal(left)
+	rightJSON, rightErr := json.Marshal(right)
+	return leftErr == nil && rightErr == nil && string(leftJSON) == string(rightJSON)
 }

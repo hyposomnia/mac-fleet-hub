@@ -57,6 +57,13 @@ type codexRPCClient struct {
 
 	initMu      sync.Mutex
 	initialized bool
+	serverInfo  codexServerInfo
+}
+
+type codexServerInfo struct {
+	UserAgent      string
+	PlatformFamily string
+	PlatformOS     string
 }
 
 type codexRPCConn interface {
@@ -187,12 +194,11 @@ func (c *codexRPCClient) handleLine(b []byte) {
 	}
 	if probe.Method != "" {
 		n := rpcNotification{ID: append(json.RawMessage(nil), probe.ID...), Method: probe.Method, Params: probe.Params}
-		select {
-		case c.notes <- n:
-		default:
-			// Keep app-server reader non-blocking. Dropping is preferable to
-			// deadlocking the control channel; higher layers can reconnect.
-		}
+		// App-server notifications are state transitions, not telemetry. Losing
+		// one can strand an approval, duplicate history, or leave a turn running
+		// forever in the UI. The backend dispatcher is deliberately lightweight,
+		// so apply backpressure here instead of silently dropping protocol state.
+		c.notes <- n
 	}
 }
 
@@ -285,8 +291,19 @@ func (c *codexRPCClient) initialize(ctx context.Context, version string) error {
 			"experimentalApi": true,
 		},
 	}
-	if _, err := c.call(ctx, "initialize", params); err != nil {
+	raw, err := c.call(ctx, "initialize", params)
+	if err != nil {
 		return err
+	}
+	var info struct {
+		UserAgent      string `json:"userAgent"`
+		PlatformFamily string `json:"platformFamily"`
+		PlatformOS     string `json:"platformOs"`
+	}
+	if json.Unmarshal(raw, &info) == nil {
+		c.serverInfo = codexServerInfo{
+			UserAgent: info.UserAgent, PlatformFamily: info.PlatformFamily, PlatformOS: info.PlatformOS,
+		}
 	}
 	if err := c.notify("initialized", nil); err != nil {
 		return err

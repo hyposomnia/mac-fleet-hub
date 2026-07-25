@@ -200,6 +200,9 @@ type Session struct {
 	Live      bool   `json:"live"`    // Desktop 未归档（活跃）
 	Pty       bool   `json:"pty"`     // 控制台已为该会话起过 fleet tmux（有可终止/可回到的进程）
 	Waiting   bool   `json:"waiting"` // 卡在「等你回答/授权」：jsonl 最后一条 assistant 且 stop_reason==tool_use
+	Status    string `json:"status,omitempty"`
+	Source    string `json:"source,omitempty"`
+	Pinned    bool   `json:"pinned,omitempty"`
 }
 
 // jsonl 行（只取需要字段）
@@ -1088,6 +1091,17 @@ func cwdOfFor(assistant, sid string) string {
 	return cwdOf(sid)
 }
 
+func cwdForSession(ctx context.Context, assistant, sid string) (string, error) {
+	if normAssistant(assistant) != "codex" {
+		return cwdOf(sid), nil
+	}
+	reader, ok := agentChatBackend.(codexThreadReader)
+	if !ok {
+		return "", errAppServerUnavailable
+	}
+	return reader.ThreadCwd(ctx, sid)
+}
+
 func jsonlPathFor(assistant, sid string) string {
 	if normAssistant(assistant) == "codex" {
 		return codexRolloutPaths()[sid] // 文件名即含 uuid，免逐个读
@@ -1329,12 +1343,10 @@ func httpTmuxErr(w http.ResponseWriter, err error) {
 func markSessionRuntime(assistant string, all []Session, ptySet map[string]bool, paths map[string]string) {
 	for i := range all {
 		all[i].Pty = ptySet[shortSidFor(assistant, all[i].SessionID)]
-		// Codex Desktop 的 thread/list / state DB 会把未归档但导入后从未真实
-		// 活动过的旧 legacy thread 也列出来；它们更接近「历史/全部」。Codex
-		// 的「活跃」保留有真实后续活动的未归档线程，同时当前 fleet 已打开
-		// pty 的会话必须算活跃。
 		if assistant == "codex" {
 			all[i].Live = all[i].Live || all[i].Pty
+			all[i].Waiting = all[i].Waiting || sessionWaiting(paths[all[i].SessionID])
+			continue
 		}
 		all[i].Waiting = sessionWaiting(paths[all[i].SessionID])
 	}
@@ -1342,7 +1354,30 @@ func markSessionRuntime(assistant string, all []Session, ptySet map[string]bool,
 
 func handleSessions(w http.ResponseWriter, r *http.Request) {
 	assistant := normAssistant(r.URL.Query().Get("assistant"))
-	all := scanSessionsFor(assistant)
+	if assistant == "codex" {
+		limit := codexDesktopThreadPageSize
+		if value := r.URL.Query().Get("limit"); value != "" {
+			if parsed, err := strconv.Atoi(value); err == nil && parsed > 0 && parsed <= 100 {
+				limit = parsed
+			}
+		}
+		page, err := codexListThreads(r.Context(), codexThreadListOptions{
+			Cursor:   r.URL.Query().Get("cursor"),
+			Search:   r.URL.Query().Get("search"),
+			Archived: r.URL.Query().Get("archived") == "true",
+			Limit:    limit,
+		})
+		if err != nil {
+			writeChatErr(w, err)
+			return
+		}
+		markSessionRuntime(assistant, page.Sessions, fleetTmuxSet(), jsonlPathsFor(assistant))
+		writeJSON(w, map[string]interface{}{
+			"sessions": page.Sessions, "total": len(page.Sessions), "nextCursor": page.NextCursor,
+		})
+		return
+	}
+	all := scanSessions()
 	// 标记每个会话：是否已有 fleet tmux 进程（pty，前端显示「终止」「进入连接」）、
 	// 是否卡在等你回答/授权（waiting，前端显示棕色点）。jsonl 路径一次性建映射避免逐会话扫目录。
 	markSessionRuntime(assistant, all, fleetTmuxSet(), jsonlPathsFor(assistant))
@@ -1359,14 +1394,51 @@ func handleSessions(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, map[string]interface{}{"sessions": list, "total": len(all)})
 }
 
+func handleSessionAction(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	var req struct {
+		Assistant string `json:"assistant"`
+		SessionID string `json:"sessionId"`
+		Action    string `json:"action"`
+		Value     string `json:"value"`
+	}
+	if json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&req) != nil ||
+		normAssistant(req.Assistant) != "codex" || strings.TrimSpace(req.SessionID) == "" {
+		http.Error(w, "bad request", http.StatusBadRequest)
+		return
+	}
+	manager, ok := agentChatBackend.(codexThreadManager)
+	if !ok {
+		writeChatErr(w, errAppServerUnavailable)
+		return
+	}
+	if err := manager.MutateThread(r.Context(), req.SessionID, req.Action, req.Value); err != nil {
+		writeChatErr(w, err)
+		return
+	}
+	writeJSON(w, map[string]bool{"ok": true})
+}
+
 func handleProjects(w http.ResponseWriter, r *http.Request) {
 	assistant := normAssistant(r.URL.Query().Get("assistant"))
+	sessions := scanSessionsFor(assistant)
+	if assistant == "codex" {
+		var err error
+		sessions, err = codexAllThreads(r.Context(), false)
+		if err != nil {
+			writeChatErr(w, err)
+			return
+		}
+	}
 	seen := map[string]*struct {
 		Cwd   string `json:"cwd"`
 		Count int    `json:"count"`
 		Mtime int64  `json:"mtime"`
 	}{}
-	for _, s := range scanSessionsFor(assistant) {
+	for _, s := range sessions {
 		if s.Cwd == "" {
 			continue
 		}
@@ -1499,7 +1571,11 @@ func handleOpen(w http.ResponseWriter, r *http.Request) {
 	}
 	assistant := normAssistant(req.Assistant)
 	mode := normMode(req.Mode, req.Bypass)
-	cwd := cwdOfFor(assistant, req.SessionID)
+	cwd, err := cwdForSession(r.Context(), assistant, req.SessionID)
+	if err != nil {
+		writeChatErr(w, err)
+		return
+	}
 	name := shortSidFor(assistant, req.SessionID)
 	if err := ensureTmux(name, cwd, resumeCmd(assistant, req.SessionID, mode)); err != nil {
 		httpTmuxErr(w, err)
@@ -1618,7 +1694,12 @@ func handleReload(w http.ResponseWriter, r *http.Request) {
 	watchMu.Unlock()
 	tmux("kill-session", "-t", req.Sid)
 	if wt != nil && wt.sessionID != "" {
-		ensureTmux(req.Sid, cwdOfFor(wt.assistant, wt.sessionID), resumeCmd(wt.assistant, wt.sessionID, wt.mode))
+		cwd, err := cwdForSession(r.Context(), wt.assistant, wt.sessionID)
+		if err != nil {
+			writeChatErr(w, err)
+			return
+		}
+		ensureTmux(req.Sid, cwd, resumeCmd(wt.assistant, wt.sessionID, wt.mode))
 		registerWatch(req.Sid, wt.assistant, wt.sessionID, wt.mode) // 重置 offset/tip/external，沿用权限模式
 	}
 	writeJSON(w, map[string]bool{"ok": true})
@@ -1706,6 +1787,7 @@ func runServer() {
 	writeTmuxConf()
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/sessions", handleSessions)
+	mux.HandleFunc("/api/sessions/action", handleSessionAction)
 	mux.HandleFunc("/api/projects", handleProjects)
 	mux.HandleFunc("/api/open", handleOpen)
 	mux.HandleFunc("/api/new", handleNew)
@@ -1719,9 +1801,11 @@ func runServer() {
 	mux.HandleFunc("/api/chat/history", handleChatHistory)
 	mux.HandleFunc("/api/chat/upload", handleChatUpload)
 	mux.HandleFunc("/api/chat/attachment", handleChatAttachment)
+	mux.HandleFunc("/api/chat/media", handleChatMedia)
 	mux.HandleFunc("/api/chat/input", handleChatInput)
 	mux.HandleFunc("/api/chat/steer", handleChatSteer)
 	mux.HandleFunc("/api/chat/events", handleChatEvents)
+	mux.HandleFunc("/api/chat/respond", handleChatRespond)
 	mux.HandleFunc("/api/chat/approve", handleChatApprove)
 	mux.HandleFunc("/api/chat/interrupt", handleChatInterrupt)
 	mux.HandleFunc("/api/health", func(w http.ResponseWriter, r *http.Request) { w.Write([]byte("ok")) })

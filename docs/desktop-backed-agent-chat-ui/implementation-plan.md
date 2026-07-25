@@ -1,5 +1,7 @@
 # Desktop-backed Claude / Codex 自绘会话 UI 实现计划
 
+> 历史 POC 计划。当前 Codex 实现与后续迭代以 `codex-app-server-refactor.md` 为准；本文未勾选项不代表当前实现状态。
+
 > **For `$dev`:** 这是复杂功能。建议按 SDD + TDD 推进，先做 Codex app-server POC，不要同时改 Claude 和 Codex 两条深链路。保留 ttyd fallback。
 
 **Goal:** 让 dashboard 可以不用 ttyd 自绘 Codex 会话交互，优先复用 Desktop/app-server 后端；为 Claude 后续接入 Desktop 会话库 + headless CLI 留抽象。

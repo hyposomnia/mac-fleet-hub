@@ -1,5 +1,7 @@
 # Codex 自绘会话 UI POC — SDD / TDD Slice
 
+> 历史第一阶段切片。当前协议、Desktop parity 和 follow-up 状态机以 `codex-app-server-refactor.md` 为准。
+
 日期：2026-07-16
 分支：`codex-desktop-backed-chat-ui`
 状态：draft PR 起点；本文件限定第一阶段实现边界。

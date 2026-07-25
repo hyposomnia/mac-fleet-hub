@@ -112,10 +112,11 @@ func TestMapCodexNotificationCommandOutputAndApproval(t *testing.T) {
 		Method: "item/commandExecution/requestApproval",
 		Params: json.RawMessage(`{"threadId":"t1","turnId":"turn1","itemId":"cmd1","command":"pwd","cwd":"/tmp"}`),
 	})
-	if len(ap) != 1 || ap[0].Type != "approval_request" || ap[0].ItemID != "cmd1" {
+	if len(ap) != 1 || ap[0].Type != "interaction_request" || ap[0].ItemID != "cmd1" {
 		t.Fatalf("bad approval mapping: %+v", ap)
 	}
-	if !strings.Contains(string(ap[0].Data), `"requestId":42`) {
+	if !strings.Contains(string(ap[0].Data), `"requestId":"42"`) ||
+		!strings.Contains(string(ap[0].Data), `"requestMethod":"item/commandExecution/requestApproval"`) {
 		t.Fatalf("approval missing request id: %s", ap[0].Data)
 	}
 }

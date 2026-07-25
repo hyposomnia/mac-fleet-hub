@@ -9,6 +9,7 @@ const BASE = '';   // 挂在子域根路径（如 fleet.example.com）；若改�
 let MACS = [];          // [{id:'m1'}, ...]，按序号排
 let macNames = {};      // id -> 自定义显示名
 let sessionLoadSeq = 0; // 会话列表请求序号：切主机/切筛选时丢弃旧响应，避免慢请求回写旧列表
+let sessionSearchTimer = null;
 
 // ============================================================
 const $ = (s, r = document) => r.querySelector(s);
@@ -101,6 +102,10 @@ const state = {
   selfDraw: false,       // 实验：Codex 自绘界面（localStorage，默认关）
   chat: null,            // 当前自绘 Codex 会话状态（独立于 ttyd pool）
   chatCache: new Map(),  // key(macId/sessionId) -> 自绘 Codex 会话状态；保持 SSE 连接，切回秒开
+  sessionSearch: '',
+  sessionResults: [],
+  sessionsNextCursor: '',
+  sessionsLoadingMore: false,
 };
 
 // 偏好默认（拉取失败/未设时回退，与 server/enroll defaultSettings 对齐）
@@ -452,8 +457,12 @@ function setMode(mode) {
 function setAssistant(assistant) {
   state.assistant = assistant === 'codex' ? 'codex' : 'claude';
   state.selectedSid = null;
+  state.sessionSearch = '';
+  state.sessionResults = [];
+  state.sessionsNextCursor = '';
   closeChatPane();
   $$('[data-assistant]').forEach((b) => b.setAttribute('aria-selected', String(b.dataset.assistant === state.assistant)));
+  updateSessionFilterUI();
   loadSessions({ clear: true });
   refreshHostCounts();
 }
@@ -473,62 +482,110 @@ function renderSessionSkeleton(wrap) {
   for (let i = 0; i < 3; i++) wrap.append(h('div', { class: 'skel-ses' }, h('div', { class: 'skel l1' }), h('div', { class: 'skel l2' })));
 }
 
+function updateSessionFilterUI() {
+  const codex = state.assistant === 'codex';
+  const scopeButtons = $$('[data-scope]');
+  if (scopeButtons[0]) scopeButtons[0].textContent = codex ? '当前' : '活跃';
+  if (scopeButtons[1]) scopeButtons[1].textContent = codex ? '已归档' : '全部';
+  const searchbar = $('#session-searchbar');
+  if (searchbar) searchbar.hidden = !codex;
+  const input = $('#session-search');
+  if (input && input.value !== state.sessionSearch) input.value = state.sessionSearch;
+}
+
+function renderSessionResults() {
+  const wrap = $('#session-groups');
+  const sessions = state.sessionResults || [];
+  const groups = {};
+  for (const s of sessions) (groups[s.cwd] ||= []).push(s);
+  const ordered = Object.entries(groups).map(([cwd, arr]) => {
+    arr.sort((a, b) => (Number(b.pinned) - Number(a.pinned)) || (b.live - a.live) || (b.mtime - a.mtime));
+    return { cwd, arr, pinned: arr.some((session) => session.pinned), last: Math.max(...arr.map((s) => s.mtime)) };
+  }).sort((a, b) => (Number(b.pinned) - Number(a.pinned)) || (b.last - a.last));
+
+  clear(wrap);
+  if (!ordered.length) {
+    wrap.append(h('div', { class: 'empty', text: state.sessionSearch ? '没有匹配的会话' : '没有会话' }));
+  } else {
+    for (const g of ordered) {
+      const collapsed = state.collapsed.has(g.cwd);
+      const head = h('button', { class: 'grp-h' },
+        svgIcon('chev', 'M6 9l6 6 6-6'),
+        h('span', { class: 'gn', text: projName(g.cwd) }),
+        h('span', { class: 'gpath badge', dataset: { path: projFull(g.cwd) } }, '/'),
+        h('span', { class: 'gc badge', text: String(g.arr.length) }),
+      );
+      const items = h('div', { class: 'grp-items' }, ...g.arr.map(sessionRow));
+      const grp = h('div', { class: 'grp' + (collapsed ? ' collapsed' : '') }, head, items);
+      head.onclick = () => {
+        grp.classList.toggle('collapsed');
+        if (grp.classList.contains('collapsed')) state.collapsed.add(g.cwd);
+        else state.collapsed.delete(g.cwd);
+      };
+      wrap.append(grp);
+    }
+  }
+  const more = $('#sessions-more');
+  if (more) {
+    more.hidden = state.assistant !== 'codex' || !state.sessionsNextCursor;
+    more.disabled = state.sessionsLoadingMore;
+    more.textContent = state.sessionsLoadingMore ? '正在加载…' : '加载更多';
+  }
+}
+
 async function loadSessions(opts = {}) {
   if (state.mode !== 'sessions' || !state.macId) return;
   const wrap = $('#session-groups');
+  const append = opts.append === true;
+  if (append && (state.assistant !== 'codex' || !state.sessionsNextCursor || state.sessionsLoadingMore)) return;
   const req = ++sessionLoadSeq;
   const macId = state.macId;
   const assistant = state.assistant;
   const scope = state.scope;
-  const stale = () => req !== sessionLoadSeq || state.mode !== 'sessions' || state.macId !== macId || state.assistant !== assistant || state.scope !== scope;
+  const search = state.sessionSearch;
+  const cursor = append ? state.sessionsNextCursor : '';
+  const stale = () => req !== sessionLoadSeq || state.mode !== 'sessions' || state.macId !== macId ||
+    state.assistant !== assistant || state.scope !== scope || state.sessionSearch !== search;
   setSessionsLoading(true);
+  state.sessionsLoadingMore = append;
   // 切主机/切助手/切范围时立即清空旧列表；普通刷新保留旧内容直到新数据就绪，避免闪。
-  if (opts.clear || !wrap.querySelector('.grp, .empty, .skel-ses')) renderSessionSkeleton(wrap);
+  if (!append && (opts.clear || !wrap.querySelector('.grp, .empty, .skel-ses'))) renderSessionSkeleton(wrap);
 
   let data;
-  try { data = await api(macId, `sessions?assistant=${assistant}&scope=${scope}`); }
+  const query = new URLSearchParams({ assistant, scope });
+  if (assistant === 'codex') {
+    query.set('archived', String(scope === 'all'));
+    query.set('limit', '50');
+    if (search) query.set('search', search);
+    if (cursor) query.set('cursor', cursor);
+  }
+  try { data = await api(macId, `sessions?${query.toString()}`); }
   catch (e) {
     if (stale()) return;
-    clear(wrap);
-    wrap.append(h('div', { class: 'empty' }, '连不上 ' + macName(macId), h('br'), h('small', { text: e.message })));
+    if (!append) {
+      clear(wrap);
+      wrap.append(h('div', { class: 'empty' }, '连不上 ' + macName(macId), h('br'), h('small', { text: e.message })));
+    } else {
+      toast('加载更多失败：' + e.message, 'err');
+    }
+    state.sessionsLoadingMore = false;
     setSessionsLoading(false);
     return;
   }
   if (stale()) return;
+  state.sessionsLoadingMore = false;
   setSessionsLoading(false);
 
-  const sessions = data.sessions || [];
+  const incoming = data.sessions || [];
+  const sessions = append
+    ? [...state.sessionResults, ...incoming.filter((session) => !state.sessionResults.some((existing) => existing.sessionId === session.sessionId))]
+    : incoming;
+  state.sessionResults = sessions;
+  state.sessionsNextCursor = assistant === 'codex' ? (data.nextCursor || '') : '';
   for (const s of sessions) updateCachedChatFromSession(macId, s);
   const activeN = scope === 'active' ? sessions.length : sessions.filter((s) => s.live).length;
   state.counts[macId] = activeN;
-
-  const groups = {};
-  for (const s of sessions) (groups[s.cwd] ||= []).push(s);
-  const ordered = Object.entries(groups).map(([cwd, arr]) => {
-    arr.sort((a, b) => (b.live - a.live) || (b.mtime - a.mtime));
-    return { cwd, arr, last: Math.max(...arr.map((s) => s.mtime)) };
-  }).sort((a, b) => b.last - a.last);
-
-  clear(wrap);
-  if (!ordered.length) { wrap.append(h('div', { class: 'empty', text: '没有会话' })); return; }
-  for (const g of ordered) {
-    const collapsed = state.collapsed.has(g.cwd);
-    const head = h('button', { class: 'grp-h' },
-      svgIcon('chev', 'M6 9l6 6 6-6'),
-      h('span', { class: 'gn', text: projName(g.cwd) }),
-      // 路径不再行内展示（反正显示不全）：改为软底「/」chip，hover 即时弹完整路径（CSS tooltip，不走有延迟的原生 title）
-      h('span', { class: 'gpath badge', dataset: { path: projFull(g.cwd) } }, '/'),
-      h('span', { class: 'gc badge', text: String(g.arr.length) }),
-    );
-    const items = h('div', { class: 'grp-items' }, ...g.arr.map(sessionRow));
-    const grp = h('div', { class: 'grp' + (collapsed ? ' collapsed' : '') }, head, items);
-    head.onclick = () => {
-      grp.classList.toggle('collapsed');
-      if (grp.classList.contains('collapsed')) state.collapsed.add(g.cwd);
-      else state.collapsed.delete(g.cwd);
-    };
-    wrap.append(grp);
-  }
+  renderSessionResults();
 }
 
 // 软刷新会话列表：定时静默拉取，只就地更新「易变字段」——棕点 waiting / 相对时间 / 计数，
@@ -537,6 +594,7 @@ async function loadSessions(opts = {}) {
 // 这里把对应行的棕点摘掉，不必等手动刷新。会话集合发生增删（结构变了）才回退全量 loadSessions。
 async function refreshSessionsSoft() {
   if (state.mode !== 'sessions' || !state.macId) return;
+  if (state.assistant === 'codex') return;
   const rows = $$('#session-groups .ses');
   if (!rows.length) {
     // 已经渲染成「没有会话」时也要继续探测；否则 agent 修复/会话新建后，
@@ -588,6 +646,10 @@ function sessionRow(s) {
   const live = !!s.pty; // 有运行中进程（行尾绿点）：再连只是重新 attach，不需选权限模式
   const stop = s.pty && h('span', { class: 'stopbtn', title: '终止进程（会话保留）',
     onclick: (e) => { e.stopPropagation(); termSes(sid, s.title); } }, svgStop());
+  const pin = assistant === 'codex' && s.pinned
+    ? h('span', { class: 'ses-pin', title: '已置顶' }, svgIcon('ic', 'M12 17v5M5 3h14l-3 6v4l2 2H6l2-2V9Z'))
+    : null;
+  const menu = assistant === 'codex' ? renderCodexSessionMenu(s) : null;
   const top = h('div', { class: 'ses-top' },
     // 行首点位恒定留出（标题统一对齐）：默认透明占位，仅「等待你回复/选择」(s.waiting) 显棕色点
     h('span', { class: 'dot' + (s.waiting ? ' wait' : ''), title: s.waiting ? '等待你的回复 / 选择' : null }),
@@ -595,7 +657,9 @@ function sessionRow(s) {
     // 紧凑化：不再单起一行显示分支/路径，仅在同行标题后跟相对时间
     h('span', { class: 'ses-time', text: relTime(s.mtime) }),
     h('span', { class: 'chat-cache-status', title: '自绘会话保持连接', 'aria-label': '自绘会话保持连接' }),
+    pin,
     stop,
+    menu,
   );
   // 池内 / 有进程的会话点行即直接进入，不需按钮；仅冷会话才展开三种权限模式。
   const acts = (selfDraw || inPool || live) ? null : h('div', { class: 'ses-acts' },
@@ -617,6 +681,61 @@ function sessionRow(s) {
     selectSes(sid);
   };
   return row;
+}
+
+function renderCodexSessionMenu(session) {
+  const archived = state.scope === 'all';
+  const menu = h('div', { class: 'ses-menu-wrap' },
+    h('button', { type: 'button', class: 'iconbtn bare ses-menu-trigger', title: '会话操作', 'aria-label': '会话操作',
+      onclick: (event) => {
+        event.stopPropagation();
+        const panel = $('.ses-menu', event.currentTarget.parentElement);
+        const opening = panel.hidden;
+        $$('.ses-menu').forEach((other) => { other.hidden = true; });
+        panel.hidden = !opening;
+      } },
+      svgIconParts('ic', [
+        { tag: 'circle', attrs: { cx: '5', cy: '12', r: '1', fill: 'currentColor', stroke: 'none' } },
+        { tag: 'circle', attrs: { cx: '12', cy: '12', r: '1', fill: 'currentColor', stroke: 'none' } },
+        { tag: 'circle', attrs: { cx: '19', cy: '12', r: '1', fill: 'currentColor', stroke: 'none' } },
+      ])),
+    h('div', { class: 'ses-menu', hidden: '' },
+      h('button', { type: 'button', onclick: (event) => { event.stopPropagation(); mutateCodexSession(session, session.pinned ? 'unpin' : 'pin'); } },
+        session.pinned ? '取消置顶' : '置顶'),
+      h('button', { type: 'button', onclick: (event) => { event.stopPropagation(); renameCodexSession(session); } }, '重命名'),
+      h('button', { type: 'button', onclick: (event) => { event.stopPropagation(); mutateCodexSession(session, archived ? 'unarchive' : 'archive'); } },
+        archived ? '移回当前' : '归档'),
+      h('button', { type: 'button', class: 'danger', onclick: (event) => { event.stopPropagation(); deleteCodexSession(session); } }, '删除')));
+  return menu;
+}
+
+async function mutateCodexSession(session, action, value = '') {
+  try {
+    await api(state.macId, 'sessions/action', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ assistant: 'codex', sessionId: session.sessionId, action, value }),
+    });
+    if (action === 'pin' || action === 'unpin') {
+      session.pinned = action === 'pin';
+      renderSessionResults();
+    } else {
+      await loadSessions();
+    }
+  } catch (error) {
+    toast('会话操作失败：' + error.message, 'err');
+  }
+}
+
+function renameCodexSession(session) {
+  const name = window.prompt('重命名会话', session.title || '');
+  if (name == null || !name.trim() || name.trim() === session.title) return;
+  mutateCodexSession(session, 'rename', name.trim());
+}
+
+function deleteCodexSession(session) {
+  if (!window.confirm(`永久删除“${session.title || '这个会话'}”？此操作无法撤销。`)) return;
+  if (state.chat?.sessionId === session.sessionId) closeChatPane();
+  mutateCodexSession(session, 'delete');
 }
 
 function selectSes(sid) {
@@ -1015,14 +1134,16 @@ function renderChat({ preserveScroll = false, forceBottom = false } = {}) {
         group.push({ id: nextId, item: nextItem });
         i += 1;
       }
-      stack.append(group.length > 1
+      const rendered = group.length > 1
         ? renderChatActivityGroup(group.map((entry) => entry.item))
-        : renderChatItem(item, false));
+        : renderChatItem(item, false);
+      if (rendered) stack.append(rendered);
       const turnMeta = metaVisible.get(group[group.length - 1].id);
       if (turnMeta?.type === 'assistant') stack.append(renderChatTurnMeta(turnMeta));
       continue;
     }
-    stack.append(renderChatItem(item, item.type === 'user' && metaVisible.has(id)));
+    const rendered = renderChatItem(item, item.type === 'user' && metaVisible.has(id));
+    if (rendered) stack.append(rendered);
     const turnMeta = metaVisible.get(id);
     if (turnMeta?.type === 'assistant') stack.append(renderChatTurnMeta(turnMeta));
   }
@@ -1082,6 +1203,10 @@ function shellCommandBase(command) {
 
 function chatCommandSemantic(item) {
   if (item?.kind !== 'commandExecution') return '';
+  const actions = Array.isArray(item.commandActions) ? item.commandActions : [];
+  if (actions.some((action) => action?.type === 'search')) return 'search';
+  if (actions.some((action) => action?.type === 'listFiles')) return 'list';
+  if (actions.length && actions.every((action) => action?.type === 'read')) return 'read';
   const cmd = shellCommandBase(item.summary || item.title || '').toLowerCase();
   if (!cmd) return '';
   if (/^(?:cat|sed|nl|head|tail|less|more|awk|wc)\b/.test(cmd)) return 'read';
@@ -1171,10 +1296,11 @@ function chatToolActivityLabel(item, status, duration) {
 }
 
 function chatToolHasExpandableBody(item) {
-  const hasDetail = Boolean(item.detail || item.output || item.progress || item.meta || item.exitCode !== undefined);
+  const hasDetail = Boolean(item.detail || item.output || item.progress || item.meta || item.mediaPath || item.exitCode !== undefined);
   if (chatCommandSemantic(item)) return false;
   if (item.kind === 'commandExecution') return Boolean(item.summary || hasDetail);
-  if (['fileRead', 'imageView', 'webSearch', 'sleep'].includes(item.kind)) return false;
+  if (item.kind === 'imageView') return Boolean(item.mediaPath);
+  if (['fileRead', 'webSearch', 'sleep'].includes(item.kind)) return false;
   return hasDetail;
 }
 
@@ -1339,6 +1465,7 @@ function renderChatToolSurface(item, extraClass = '') {
   const cls = ['chat-tool compact', extraClass].filter(Boolean).join(' ');
   if (!hasBody) return h('div', { class: cls }, header);
   const body = h('div', { class: 'chat-tool-body' },
+    item.mediaPath ? h('img', { class: 'chat-tool-media', src: chatMediaSrc(item.mediaPath), alt: item.summary || 'Codex 图片' }) : null,
     item.progress ? h('div', { class: 'chat-tool-progress', text: item.progress }) : null,
     item.meta ? h('div', { class: 'chat-tool-meta mono', text: item.meta }) : null,
     (item.summary || item.output || item.detail) ? h('div', { class: 'chat-tool-section' },
@@ -1494,6 +1621,230 @@ function renderChatActivityGroup(items) {
   'tool activity-group');
 }
 
+function requestActionButton(label, response, primary = false) {
+  return h('button', {
+    type: 'button',
+    class: `btn sm${primary ? ' primary' : ''}`,
+    onclick: (event) => respondChatRequest(event.currentTarget.closest('[data-request-id]')?.dataset.requestId, response),
+  }, label);
+}
+
+function renderChatApprovalRequest(item) {
+  const pending = item.status !== 'resolved';
+  const raw = item.raw || {};
+  let title = '需要批准文件改动';
+  if (item.kind === 'command') title = '需要批准命令执行';
+  if (item.kind === 'permission') title = '需要授予额外权限';
+  const details = [];
+  if (item.reason) details.push(h('div', { class: 'chat-request-message', text: item.reason }));
+  if (item.command) details.push(h('code', { text: item.command }));
+  if (item.cwd) details.push(h('div', { class: 'muted mono', text: item.cwd }));
+  if (raw.grantRoot) details.push(h('div', { class: 'chat-request-detail', text: `写入范围：${raw.grantRoot}` }));
+  if (item.kind === 'permission' && raw.permissions) {
+    details.push(h('pre', { class: 'chat-request-json', text: JSON.stringify(raw.permissions, null, 2) }));
+  }
+  let actions = null;
+  if (pending && item.kind === 'permission') {
+    actions = h('div', { class: 'chat-approval-actions' },
+      requestActionButton('允许本轮', { permissions: raw.permissions || {}, scope: 'turn' }, true),
+      requestActionButton('允许本会话', { permissions: raw.permissions || {}, scope: 'session' }),
+      requestActionButton('拒绝', { permissions: {}, scope: 'turn' }));
+  } else if (pending) {
+    actions = h('div', { class: 'chat-approval-actions' },
+      requestActionButton('允许一次', { decision: 'accept' }, true),
+      requestActionButton('本会话允许', { decision: 'acceptForSession' }),
+      requestActionButton('拒绝', { decision: 'decline' }));
+  }
+  return chatRow(h('section', { class: 'chat-approval chat-request', dataset: { requestId: item.requestId } },
+    h('div', { class: 'chat-approval-h', text: pending ? title : '请求已处理' }),
+    h('div', { class: 'chat-approval-body' }, details,
+      pending ? actions : h('div', { class: 'muted', text: '已发送响应。' }))), 'approval');
+}
+
+function renderUserInputQuestion(item, question, index) {
+  const name = `request-${item.requestId}-${index}`;
+  const options = Array.isArray(question.options) ? question.options : [];
+  const fields = [];
+  if (options.length) {
+    for (const option of options) {
+      fields.push(h('label', { class: 'chat-request-option' },
+        h('input', { type: 'radio', name, value: option.label, required: '' }),
+        h('span', { class: 'chat-request-option-copy' },
+          h('span', { class: 'chat-request-option-label', text: option.label }),
+          option.description ? h('span', { class: 'chat-request-option-desc', text: option.description }) : null)));
+    }
+    if (question.isOther) {
+      fields.push(h('label', { class: 'chat-request-option other' },
+        h('input', { type: 'radio', name, value: '__other__', required: '' }),
+        h('span', { class: 'chat-request-option-copy' },
+          h('span', { class: 'chat-request-option-label', text: '其他' }),
+          h('input', { class: 'chat-request-input', type: question.isSecret ? 'password' : 'text',
+            dataset: { otherFor: name }, autocomplete: 'off', placeholder: '输入其他答案' }))));
+    }
+  } else {
+    fields.push(h(question.isSecret ? 'input' : 'textarea', {
+      class: 'chat-request-input',
+      type: question.isSecret ? 'password' : null,
+      name,
+      rows: question.isSecret ? null : '3',
+      required: '',
+      autocomplete: question.isSecret ? 'new-password' : 'off',
+    }));
+  }
+  return h('fieldset', { class: 'chat-request-fieldset', dataset: { questionId: question.id, fieldName: name } },
+    question.header ? h('legend', { text: question.header }) : null,
+    h('div', { class: 'chat-request-question', text: question.question || '' }),
+    ...fields);
+}
+
+function userInputResponse(form, item) {
+  const answers = {};
+  for (const fieldset of $$('[data-question-id]', form)) {
+    const id = fieldset.dataset.questionId;
+    const name = fieldset.dataset.fieldName;
+    const options = $$(`input[type="radio"][name="${CSS.escape(name)}"]`, fieldset);
+    let value = '';
+    if (options.length) {
+      const selected = options.find((option) => option.checked);
+      if (!selected) throw new Error('请回答所有问题。');
+      value = selected.value;
+      if (value === '__other__') {
+        value = $(`[data-other-for="${CSS.escape(name)}"]`, fieldset)?.value.trim() || '';
+        if (!value) throw new Error('请输入“其他”答案。');
+      }
+    } else {
+      value = $(`[name="${CSS.escape(name)}"]`, fieldset)?.value || '';
+      if (!value.trim()) throw new Error('请回答所有问题。');
+    }
+    answers[id] = { answers: [value] };
+  }
+  return { answers };
+}
+
+function renderChatUserInputRequest(item) {
+  if (item.status === 'resolved') {
+    return chatRow(h('section', { class: 'chat-approval chat-request' },
+      h('div', { class: 'chat-approval-h', text: '问题已回答' })), 'approval');
+  }
+  const form = h('form', {
+    class: 'chat-approval chat-request',
+    dataset: { requestId: item.requestId },
+    onsubmit: async (event) => {
+      event.preventDefault();
+      try {
+        await respondChatRequest(item.requestId, userInputResponse(event.currentTarget, item));
+      } catch (error) {
+        toast(error.message, 'err');
+      }
+    },
+  },
+  h('div', { class: 'chat-approval-h', text: 'Codex 需要你的回答' }),
+  h('div', { class: 'chat-approval-body' },
+    ...(item.questions || []).map((question, index) => renderUserInputQuestion(item, question, index)),
+    h('div', { class: 'chat-approval-actions' },
+      h('button', { type: 'submit', class: 'btn sm primary' }, '提交回答'))));
+  return chatRow(form, 'approval');
+}
+
+function mcpEnumOptions(schema) {
+  if (Array.isArray(schema.enum)) return schema.enum.map((value, index) => ({
+    value, label: Array.isArray(schema.enumNames) ? (schema.enumNames[index] || value) : value,
+  }));
+  const values = schema.oneOf || schema.items?.anyOf;
+  if (Array.isArray(values)) return values.map((entry) => ({ value: entry.const, label: entry.title || entry.const }));
+  if (Array.isArray(schema.items?.enum)) return schema.items.enum.map((value) => ({ value, label: value }));
+  return [];
+}
+
+function renderMcpFormField(key, schema, required) {
+  const label = schema.title || key;
+  const options = mcpEnumOptions(schema);
+  let control;
+  if (options.length && schema.type === 'array') {
+    control = h('div', { class: 'chat-request-options' }, options.map((option) => h('label', { class: 'chat-request-option' },
+      h('input', { type: 'checkbox', name: key, value: option.value }),
+      h('span', { text: option.label }))));
+  } else if (options.length) {
+    control = h('select', { class: 'chat-request-input', name: key, required: required ? '' : null },
+      required ? h('option', { value: '', text: '请选择' }) : null,
+      ...options.map((option) => h('option', { value: option.value, text: option.label,
+        selected: schema.default === option.value ? '' : null })));
+  } else if (schema.type === 'boolean') {
+    control = h('label', { class: 'chat-request-option inline' },
+      h('input', { type: 'checkbox', name: key, checked: schema.default === true ? '' : null }),
+      h('span', { text: schema.description || label }));
+  } else {
+    control = h('input', {
+      class: 'chat-request-input',
+      name: key,
+      type: schema.type === 'number' || schema.type === 'integer' ? 'number'
+        : (schema.format === 'email' ? 'email' : (schema.format === 'uri' ? 'url' : (schema.format === 'date' ? 'date' : 'text'))),
+      step: schema.type === 'integer' ? '1' : (schema.type === 'number' ? 'any' : null),
+      min: schema.minimum,
+      max: schema.maximum,
+      minlength: schema.minLength,
+      maxlength: schema.maxLength,
+      value: schema.default ?? '',
+      required: required ? '' : null,
+    });
+  }
+  return h('label', { class: 'chat-request-field', dataset: { mcpField: key, fieldType: schema.type || 'string' } },
+    schema.type !== 'boolean' ? h('span', { class: 'chat-request-field-label', text: label }) : null,
+    schema.description && schema.type !== 'boolean' ? h('span', { class: 'chat-request-option-desc', text: schema.description }) : null,
+    control);
+}
+
+function mcpFormResponse(form, item) {
+  const content = {};
+  for (const field of $$('[data-mcp-field]', form)) {
+    const key = field.dataset.mcpField;
+    const type = field.dataset.fieldType;
+    const controls = $$(`[name="${CSS.escape(key)}"]`, field);
+    if (type === 'array') {
+      content[key] = controls.filter((control) => control.checked).map((control) => control.value);
+    } else if (type === 'boolean') {
+      content[key] = !!controls[0]?.checked;
+    } else {
+      const value = controls[0]?.value ?? '';
+      if (value === '' && !controls[0]?.required) continue;
+      content[key] = type === 'number' || type === 'integer' ? Number(value) : value;
+    }
+  }
+  return { action: 'accept', content };
+}
+
+function renderChatElicitationRequest(item) {
+  const pending = item.status !== 'resolved';
+  const schema = item.requestedSchema || {};
+  const required = new Set(Array.isArray(schema.required) ? schema.required : []);
+  const fields = Object.entries(schema.properties || {});
+  const body = [];
+  if (item.message) body.push(h('div', { class: 'chat-request-message', text: item.message }));
+  if (!pending) body.push(h('div', { class: 'muted', text: '已发送响应。' }));
+  else if (item.mode === 'url') {
+    body.push(h('a', { class: 'btn sm primary', href: item.url, target: '_blank', rel: 'noopener noreferrer' }, '打开授权页面'));
+    body.push(h('div', { class: 'chat-approval-actions' },
+      requestActionButton('已完成', { action: 'accept' }, true),
+      requestActionButton('拒绝', { action: 'decline' })));
+  } else {
+    body.push(...fields.map(([key, field]) => renderMcpFormField(key, field || {}, required.has(key))));
+    body.push(h('div', { class: 'chat-approval-actions' },
+      h('button', { type: 'submit', class: 'btn sm primary' }, '提交'),
+      requestActionButton('拒绝', { action: 'decline' })));
+  }
+  const form = h('form', {
+    class: 'chat-approval chat-request',
+    dataset: { requestId: item.requestId },
+    onsubmit: async (event) => {
+      event.preventDefault();
+      if (item.mode === 'url') return;
+      await respondChatRequest(item.requestId, mcpFormResponse(event.currentTarget, item));
+    },
+  }, h('div', { class: 'chat-approval-h', text: item.serverName ? `${item.serverName} 需要更多信息` : '工具需要更多信息' }),
+  h('div', { class: 'chat-approval-body' }, body));
+  return chatRow(form, 'approval');
+}
+
 function renderChatItem(item, showMeta = true) {
   if (item.type === 'user') {
     const parts = [];
@@ -1504,7 +1855,13 @@ function renderChatItem(item, showMeta = true) {
         return src ? h('img', { class: 'chat-img', src, alt: img.name || 'image' }) : h('div', { class: 'chat-img muted', text: img.name || '图片' });
       })));
     }
-    const meta = showMeta ? renderChatMessageMeta(chatUserMetaText(item)) : null;
+    const steeringLabel = item.steering && item.steeringStatus !== 'persisted'
+      ? h('span', { class: `chat-steer-state ${item.steeringStatus || 'pending'}`,
+        text: item.steeringStatus === 'accepted' ? '已插入当前任务' : '正在插入当前任务' })
+      : null;
+    const metaText = showMeta ? chatUserMetaText(item) : '';
+    const meta = (steeringLabel || metaText) ? h('div', { class: 'chat-user-meta' },
+      steeringLabel, renderChatMessageMeta(metaText)) : null;
     const row = chatRow(h('div', { class: 'chat-user-wrap' },
       h('div', { class: 'chat-card' }, parts.length ? parts : h('div', { text: '' })),
       meta),
@@ -1514,19 +1871,43 @@ function renderChatItem(item, showMeta = true) {
   }
   if (item.type === 'assistant') {
     return chatRow(h('div', { class: 'chat-card' },
-      FleetMarkdown.renderMarkdown(item.text)),
+      FleetMarkdown.renderMarkdown(item.text, chatMediaSrc)),
     'assistant');
   }
+  if (item.type === 'reasoning') {
+    const running = chatToolStatus(item.status).key === 'running';
+    const duration = chatToolDuration(item.durationMs);
+    const label = running ? 'Thinking' : (duration ? `Thought for ${duration}` : 'Thought');
+    const summary = item.summary || '';
+    if (!summary && !running) return null;
+    return chatRow(h('details', { class: 'chat-reasoning', open: running ? '' : null },
+      h('summary', {}, h('span', { class: 'chat-reasoning-spinner', 'aria-hidden': 'true' }),
+        h('span', { text: label }), svgIcon('chat-tool-chevron', 'M6 9l6 6 6-6')),
+      summary ? h('div', { class: 'chat-reasoning-body' }, FleetMarkdown.renderMarkdown(summary, chatMediaSrc)) : null),
+    'reasoning');
+  }
+  if (item.type === 'plan') {
+    if (!item.text) return null;
+    return chatRow(h('section', { class: 'chat-plan' },
+      h('div', { class: 'chat-plan-title', text: 'Proposed plan' }),
+      h('div', { class: 'chat-plan-body' }, FleetMarkdown.renderMarkdown(item.text, chatMediaSrc))), 'plan');
+  }
+  if (item.type === 'todo') {
+    if (!item.steps?.length) return null;
+    return chatRow(h('section', { class: 'chat-todo' },
+      item.explanation ? h('div', { class: 'chat-todo-explanation', text: item.explanation }) : null,
+      ...item.steps.map((step) => h('div', { class: `chat-todo-step ${step.status || 'pending'}` },
+        h('span', { class: 'chat-todo-mark', text: step.status === 'completed' ? '✓' : (step.status === 'inProgress' ? '•' : '○') }),
+        h('span', { text: step.step || '' })))), 'todo');
+  }
+  if (item.type === 'context') {
+    return chatRow(h('div', { class: 'chat-context-note', text: 'Conversation compacted' }), 'context');
+  }
+  if (item.type === 'review') return null;
   if (item.type === 'tool') return renderChatTool(item);
-  if (item.type === 'approval') return chatRow(h('div', { class: 'chat-approval' },
-    h('div', { class: 'chat-approval-h', text: item.status === 'resolved' ? '审批已处理' : (item.kind === 'command' ? '需要批准命令执行' : '需要批准权限 / 文件改动') }),
-    h('div', { class: 'chat-approval-body' },
-      item.reason ? h('div', { text: item.reason }) : null,
-      item.command ? h('code', { text: item.command }) : null,
-      item.cwd ? h('div', { class: 'muted mono', text: item.cwd }) : null,
-      item.status === 'resolved' ? h('div', { class: 'muted', text: '已发送决定。' }) : h('div', { class: 'chat-approval-actions' },
-        h('button', { class: 'btn sm primary', onclick: () => resolveApproval(item.requestId, 'approved') }, '批准'),
-        h('button', { class: 'btn sm', onclick: () => resolveApproval(item.requestId, 'denied') }, '拒绝')))), 'approval');
+  if (item.type === 'approval') return renderChatApprovalRequest(item);
+  if (item.type === 'request_user_input') return renderChatUserInputRequest(item);
+  if (item.type === 'elicitation') return renderChatElicitationRequest(item);
   if (item.type === 'diff') return renderChatDiff(item);
   return chatRow(h('div', { class: 'chat-card muted', text: JSON.stringify(item) }));
 }
@@ -1536,6 +1917,15 @@ function chatImageSrc(img) {
   if (img.previewUrl) return img.previewUrl;
   if (img.url && img.url.startsWith('/api/')) return `${apiBase(state.macId)}${img.url}`;
   return img.url || '';
+}
+
+function chatMediaSrc(source) {
+  const value = String(source || '').trim();
+  if (!value) return '';
+  if (/^(?:https?:|data:image\/|blob:)/i.test(value)) return value;
+  if (value.startsWith('/api/')) return `${apiBase(state.chat?.macId || state.macId)}${value}`;
+  if (!value.startsWith('/')) return '';
+  return `${apiBase(state.chat?.macId || state.macId)}/api/chat/media?path=${encodeURIComponent(value)}`;
 }
 
 function resizeChatInput() {
@@ -2099,7 +2489,7 @@ function startChatEvents(chat = state.chat) {
   };
 }
 
-async function submitChatInput() {
+async function submitChatInput({ forceQueue = false } = {}) {
   const chat = state.chat;
   const input = $('#chat-input');
   const raw = typeof input.value === 'string' ? input.value : '';
@@ -2117,8 +2507,20 @@ async function submitChatInput() {
   renderChatAttachments();
   const item = { id: `follow-${Date.now()}-${Math.random().toString(16).slice(2)}`, text: raw, images };
   if (isChatRunning(chat)) {
-    enqueueChatFollowup(chat, item.text, item.images, item.id);
-    renderChatFollowups();
+    if (forceQueue) {
+      enqueueChatFollowup(chat, item.text, item.images, item.id);
+      renderChatFollowups();
+    } else {
+      const steered = await sendChatSteer(chat, item);
+      if (!steered) {
+        enqueueChatFollowup(chat, item.text, item.images, item.id);
+        if (state.chat === chat) {
+          renderChatFollowups();
+          toast('追问未能插入当前任务，已保留到下一轮。', 'err');
+        }
+        if (!isChatRunning(chat)) flushChatFollowups(chat);
+      }
+    }
     return;
   }
   await sendChatTurn(chat, item);
@@ -2136,7 +2538,7 @@ function chatTurnOptions(chat) {
 }
 
 async function sendChatTurn(chat, item) {
-  const optimisticId = 'user-' + Date.now();
+  const optimisticId = item.id || ('user-' + Date.now());
   chat.model = FleetChatModel.appendUserMessage(chat.model, item.text.trim(), optimisticId, item.images);
   chat.loading = false;
   chat.submitting = true;
@@ -2147,7 +2549,10 @@ async function sendChatTurn(chat, item) {
   try {
     const started = await api(chat.macId, 'chat/input', {
       method: 'POST', headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ assistant: 'codex', sessionId: chat.sessionId, text: item.text, images: item.images.map((img) => ({ id: img.id })), ...chatTurnOptions(chat) }),
+      body: JSON.stringify({
+        assistant: 'codex', sessionId: chat.sessionId, clientMessageId: optimisticId,
+        text: item.text, images: item.images.map((img) => ({ id: img.id })), ...chatTurnOptions(chat),
+      }),
     });
     if (!started || typeof started.turnId !== 'string' || !started.turnId.trim()) {
       throw new Error('Codex 未返回有效的任务 ID，消息未发送。');
@@ -2164,6 +2569,38 @@ async function sendChatTurn(chat, item) {
   } finally {
     chat.submitting = false;
     if (state.chat === chat) updateChatComposerState();
+  }
+}
+
+async function sendChatSteer(chat, item) {
+  const clientId = item.id || `steer-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  chat.model = FleetChatModel.appendSteeringMessage(
+    chat.model, item.text.trim(), clientId, item.images, chat.model.activeTurnId,
+  );
+  if (state.chat === chat) renderChat();
+  try {
+    const steered = await api(chat.macId, 'chat/steer', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        assistant: 'codex', sessionId: chat.sessionId, clientMessageId: clientId,
+        text: item.text, images: item.images.map((img) => ({ id: img.id })),
+      }),
+    });
+    chat.model = FleetChatModel.reduceChatEvent(chat.model, {
+      type: 'steer_accepted', itemId: clientId, turnId: steered.turnId,
+      data: { clientId, turnId: steered.turnId },
+    });
+    if (state.chat === chat) renderChat();
+    return true;
+  } catch (e) {
+    chat.model = FleetChatModel.reduceChatEvent(chat.model, {
+      type: 'steer_failed', itemId: clientId, data: { clientId, message: e.message },
+    });
+    item.steerError = e.message;
+    if (state.chat === chat) {
+      renderChat();
+    }
+    return false;
   }
 }
 
@@ -2184,13 +2621,14 @@ async function guideChatFollowup(id) {
   item.guiding = true;
   renderChatFollowups();
   try {
-    await api(chat.macId, 'chat/steer', {
-      method: 'POST', headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ assistant: 'codex', sessionId: chat.sessionId, clientMessageId: item.id,
-        text: item.text, images: item.images.map((img) => ({ id: img.id })) }),
-    });
+    const sent = await sendChatSteer(chat, item);
+    if (!sent) {
+      item.guiding = false;
+      renderChatFollowups();
+      toast('引导失败，追问仍保留在队列：' + (item.steerError || '当前任务已经结束'), 'err');
+      return;
+    }
     removeChatFollowup(chat, id);
-    chat.model = FleetChatModel.appendUserMessage(chat.model, item.text.trim(), 'user-' + Date.now(), item.images);
     renderChatFollowups();
     renderChat();
   } catch (e) {
@@ -2227,18 +2665,26 @@ async function interruptChat() {
   }
 }
 
-async function resolveApproval(requestId, decision) {
+async function respondChatRequest(requestId, response) {
   const chat = state.chat;
-  if (!chat) return;
+  const request = chat?.model?.requests?.[String(requestId)];
+  if (!chat || !requestId || request?.submitting) return;
+  if (request) request.submitting = true;
+  if (state.chat === chat) renderChat();
   try {
-    await api(chat.macId, 'chat/approve', {
+    await api(chat.macId, 'chat/respond', {
       method: 'POST', headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ assistant: 'codex', sessionId: chat.sessionId, requestId, decision }),
+      body: JSON.stringify({ assistant: 'codex', sessionId: chat.sessionId, requestId, response }),
     });
-    chat.model = FleetChatModel.reduceChatEvent(chat.model, { type: 'approval_resolved', data: { requestId, decision } });
+    chat.model = FleetChatModel.reduceChatEvent(chat.model, { type: 'interaction_resolved', data: { requestId, response } });
     renderChat();
   } catch (e) {
-    toast('审批失败：' + e.message, 'err');
+    if (request) request.submitting = false;
+    if (e.code === 'chat_request_not_found') {
+      chat.model = FleetChatModel.reduceChatEvent(chat.model, { type: 'interaction_resolved', data: { requestId } });
+      renderChat();
+    }
+    toast('提交失败：' + e.message, 'err');
   }
 }
 
@@ -2489,7 +2935,11 @@ function doLogout() {
 // ============================================================
 function openOverlay(id) { $('#' + id).hidden = false; }
 function closeOverlay(id) { $('#' + id).hidden = true; }
-function closeMenus() { $('#usermenu').hidden = true; $('#m-menu').hidden = true; }
+function closeMenus() {
+  $('#usermenu').hidden = true;
+  $('#m-menu').hidden = true;
+  $$('.ses-menu').forEach((menu) => { menu.hidden = true; });
+}
 function toggleMenu(id, e) {
   if (e) e.stopPropagation();
   const m = $('#' + id);
@@ -2559,10 +3009,22 @@ function init() {
   $$('[data-assistant]').forEach((b) => b.onclick = () => setAssistant(b.dataset.assistant));
   $$('[data-scope]').forEach((b) => b.onclick = () => {
     state.scope = b.dataset.scope;
+    state.sessionResults = [];
+    state.sessionsNextCursor = '';
     $$('[data-scope]').forEach((x) => x.setAttribute('aria-selected', String(x === b)));
     loadSessions({ clear: true });
   });
   $('#refresh-btn').onclick = () => { loadSessions(); refreshHostCounts(); };
+  $('#sessions-more').onclick = () => loadSessions({ append: true });
+  $('#session-search').oninput = (event) => {
+    clearTimeout(sessionSearchTimer);
+    sessionSearchTimer = setTimeout(() => {
+      state.sessionSearch = event.target.value.trim();
+      state.sessionResults = [];
+      state.sessionsNextCursor = '';
+      loadSessions({ clear: true });
+    }, 180);
+  };
   $('#new-session').onclick = showProjects;
 
   // 终端窗口
@@ -2580,7 +3042,15 @@ function init() {
   $('#chat-file').addEventListener('change', (e) => { addChatFiles(e.target.files); e.target.value = ''; });
   $('#chat-input').addEventListener('input', () => { saveChatDraft(); resizeChatInput(); updateChatComposerState(); });
   $('#chat-input').addEventListener('keydown', (e) => {
-    if (e.key === 'Enter' && !e.shiftKey && !isIMEComposing(e, chatIMEComposing)) { e.preventDefault(); submitChatInput(); }
+    if (e.key === 'Enter' && !isIMEComposing(e, chatIMEComposing)) {
+      if ((e.metaKey || e.ctrlKey) && e.shiftKey) {
+        e.preventDefault();
+        submitChatInput({ forceQueue: true });
+      } else if (!e.shiftKey) {
+        e.preventDefault();
+        submitChatInput();
+      }
+    }
   });
   $('#chat-input').addEventListener('paste', (e) => {
     const files = [...(e.clipboardData?.files || [])].filter((f) => String(f.type || '').startsWith('image/'));
@@ -2673,6 +3143,7 @@ function init() {
     syncKb();
   }
 
+  updateSessionFilterUI();
   setMode('sessions');
   restorePoolSnapshot();
 

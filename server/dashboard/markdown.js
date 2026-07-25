@@ -1,7 +1,7 @@
 (function (root) {
   'use strict';
 
-  const ALLOWED_TAGS = ['p', 'br', 'strong', 'em', 'del', 'blockquote', 'ul', 'ol', 'li', 'pre', 'code', 'a',
+  const ALLOWED_TAGS = ['p', 'br', 'strong', 'em', 'del', 'blockquote', 'ul', 'ol', 'li', 'pre', 'code', 'a', 'img',
     'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'hr', 'table', 'thead', 'tbody', 'tr', 'th', 'td'];
   const DIRECTIVE_LABELS = {
     'created-thread': '已创建任务',
@@ -77,7 +77,7 @@
     return parts;
   }
 
-  function appendMarkdown(body, source) {
+  function appendMarkdown(body, source, resolveMedia) {
     if (!root.marked || !root.DOMPurify) {
       const fallback = document.createElement('p');
       fallback.textContent = source;
@@ -88,13 +88,23 @@
     const chunk = document.createElement('div');
     chunk.innerHTML = root.DOMPurify.sanitize(parsed, {
       ALLOWED_TAGS,
-      ALLOWED_ATTR: ['href', 'title', 'start'],
+      ALLOWED_ATTR: ['href', 'title', 'start', 'src', 'alt'],
     });
     chunk.querySelectorAll('a[href]').forEach((link) => {
       link.target = '_blank';
       link.rel = 'noopener noreferrer';
     });
     chunk.querySelectorAll('a:not([href])').forEach((link) => link.replaceWith(...link.childNodes));
+    chunk.querySelectorAll('img[src]').forEach((img) => {
+      const resolved = typeof resolveMedia === 'function' ? resolveMedia(img.getAttribute('src')) : img.getAttribute('src');
+      if (!resolved) {
+        img.replaceWith(document.createTextNode(img.alt || '图片'));
+        return;
+      }
+      img.src = resolved;
+      img.loading = 'lazy';
+      img.decoding = 'async';
+    });
     body.append(...chunk.childNodes);
   }
 
@@ -151,13 +161,13 @@
     return row;
   }
 
-  function renderMarkdown(text) {
+  function renderMarkdown(text, resolveMedia) {
     const body = document.createElement('div');
     body.className = 'chat-markdown';
     try {
       for (const part of splitCodexContent(text)) {
         if (part.type === 'directive') body.append(renderDirective(part.value));
-        else appendMarkdown(body, part.value);
+        else appendMarkdown(body, part.value, resolveMedia);
       }
     } catch (_) {
       body.textContent = text || '…';

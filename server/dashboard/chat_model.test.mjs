@@ -13,7 +13,7 @@ const markedSrc = await readFile(new URL('./vendor/marked.min.js', import.meta.u
 const sandbox = { globalThis: {} };
 vm.createContext(sandbox);
 vm.runInContext(src, sandbox);
-const { createChatState, appendUserMessage, removeMessage, prependHistory, reduceChatEvent, normalizeDiffFiles, chatPhase, followupAckId, uuidV7TimeMs } = sandbox.globalThis.FleetChatModel;
+const { createChatState, appendUserMessage, appendSteeringMessage, removeMessage, prependHistory, reduceChatEvent, normalizeDiffFiles, chatPhase, followupAckId, uuidV7TimeMs } = sandbox.globalThis.FleetChatModel;
 
 const fixedAppNowMs = new Date(2026, 6, 23, 23, 0, 0).getTime();
 class FixedAppDate extends Date {
@@ -273,6 +273,21 @@ test('follow-up queue is FIFO and removing one item preserves the others', () =>
   assert.equal(second.text, 'second');
 });
 
+test('failed steering removes the optimistic transcript item before queue recovery', () => {
+  let model = createChatState();
+  model = appendSteeringMessage(model, 'change direction', 'steer-1', [], 'turn-1');
+  assert.equal(model.messages.length, 1);
+
+  model = reduceChatEvent(model, {
+    type: 'steer_failed',
+    itemId: 'steer-1',
+    data: { clientId: 'steer-1', message: 'turn already completed' },
+  });
+
+  assert.deepEqual(Array.from(model.messages), []);
+  assert.equal(model.items['steer-1'], undefined);
+});
+
 test('follow-up acknowledgement uses the Codex client message id', () => {
   assert.equal(followupAckId({
     type: 'user_done',
@@ -481,6 +496,56 @@ test('approval keeps app-server request id', () => {
   assert.equal(state.items['42'].type, 'approval');
   assert.equal(state.items['42'].requestId, '42');
   assert.equal(state.approvals['42'].command, 'pwd');
+});
+
+test('server requests preserve their native method and project dedicated interaction types', () => {
+  let state = reduceChatEvent(createChatState(), {
+    type: 'interaction_request',
+    itemId: 'ask1',
+    data: {
+      requestId: '71',
+      requestMethod: 'item/tool/requestUserInput',
+      questions: [{ id: 'scope', header: 'Scope', question: 'Which scope?' }],
+    },
+  });
+  assert.equal(state.items['71'].type, 'request_user_input');
+  assert.equal(state.requests['71'].requestMethod, 'item/tool/requestUserInput');
+  assert.equal(state.items['71'].questions[0].id, 'scope');
+
+  state = reduceChatEvent(state, {
+    type: 'interaction_request',
+    itemId: 'mcp1',
+    data: {
+      requestId: '72',
+      requestMethod: 'mcpServer/elicitation/request',
+      serverName: 'demo',
+      mode: 'form',
+      requestedSchema: { type: 'object', properties: { name: { type: 'string' } } },
+    },
+  });
+  assert.equal(state.items['72'].type, 'elicitation');
+  assert.equal(state.items['72'].requestedSchema.properties.name.type, 'string');
+
+  state = reduceChatEvent(state, {
+    type: 'interaction_resolved',
+    data: { requestId: '71', response: { answers: { scope: { answers: ['all'] } } } },
+  });
+  assert.equal(state.requests['71'].status, 'resolved');
+});
+
+test('image tool projection keeps a renderable media path and command actions', () => {
+  const state = reduceChatEvent(createChatState(), {
+    type: 'tool_update',
+    itemId: 'image1',
+    data: {
+      kind: 'imageGeneration',
+      summary: '/tmp/result.png',
+      mediaPath: '/tmp/result.png',
+      commandActions: [{ type: 'read', path: '/tmp/result.png' }],
+    },
+  });
+  assert.equal(state.items.image1.mediaPath, '/tmp/result.png');
+  assert.equal(state.items.image1.commandActions[0].type, 'read');
 });
 
 test('local user message is appended immediately', () => {

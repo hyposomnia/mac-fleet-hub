@@ -47,6 +47,14 @@ func newChatEvent(typ, assistant, sessionID, turnID, itemID string, data interfa
 	}
 }
 
+func mapCodexServerRequest(n rpcNotification) ChatEvent {
+	p := codexEventEnvelope(n.Params)
+	data := p.asMap()
+	data["requestId"], _ = json.Marshal(rpcIDKey(n.ID))
+	data["requestMethod"], _ = json.Marshal(n.Method)
+	return newChatEvent("interaction_request", "codex", p.ThreadID, p.TurnID, p.ItemID, data)
+}
+
 func mapCodexNotification(n rpcNotification) []ChatEvent {
 	switch n.Method {
 	case "thread/status/changed":
@@ -69,8 +77,20 @@ func mapCodexNotification(n rpcNotification) []ChatEvent {
 	case "item/agentMessage/delta":
 		p := codexEventEnvelope(n.Params)
 		return []ChatEvent{newChatEvent("assistant_delta", "codex", p.ThreadID, p.TurnID, p.ItemID, p.asMap())}
+	case "item/reasoning/summaryTextDelta":
+		p := codexEventEnvelope(n.Params)
+		return []ChatEvent{newChatEvent("reasoning_delta", "codex", p.ThreadID, p.TurnID, p.ItemID, p.asMap())}
+	case "item/plan/delta":
+		p := codexEventEnvelope(n.Params)
+		return []ChatEvent{newChatEvent("plan_delta", "codex", p.ThreadID, p.TurnID, p.ItemID, p.asMap())}
+	case "turn/plan/updated":
+		p := codexEventEnvelope(n.Params)
+		return []ChatEvent{newChatEvent("todo_update", "codex", p.ThreadID, p.TurnID, "todo-"+p.TurnID, p.asMap())}
 	case "item/started":
 		threadID, turnID, item := codexNotificationItem(n.Params)
+		if ev, ok := projectCodexSemanticItem(threadID, turnID, item, "inProgress"); ok {
+			return []ChatEvent{ev}
+		}
 		if ev, ok := projectCodexToolItem(threadID, turnID, item, "inProgress"); ok {
 			return []ChatEvent{ev}
 		}
@@ -82,6 +102,9 @@ func mapCodexNotification(n rpcNotification) []ChatEvent {
 			return []ChatEvent{newChatEvent("assistant_done", "codex", p.ThreadID, p.TurnID, p.ItemID, p.asMap())}
 		default:
 			_, _, item := codexNotificationItem(n.Params)
+			if ev, ok := projectCodexSemanticItem(p.ThreadID, p.TurnID, item, "completed"); ok {
+				return []ChatEvent{ev}
+			}
 			if ev, ok := projectCodexToolItem(p.ThreadID, p.TurnID, item, "completed"); ok {
 				return []ChatEvent{ev}
 			}
@@ -98,15 +121,22 @@ func mapCodexNotification(n rpcNotification) []ChatEvent {
 		data["kind"] = json.RawMessage(`"mcpToolCall"`)
 		return []ChatEvent{newChatEvent("tool_delta", "codex", p.ThreadID, p.TurnID, p.ItemID, data)}
 	case "item/commandExecution/requestApproval", "item/fileChange/requestApproval", "item/permissions/requestApproval":
-		p := codexEventEnvelope(n.Params)
-		data := p.asMap()
-		if len(n.ID) > 0 {
-			data["requestId"] = append(json.RawMessage(nil), n.ID...)
-		}
-		return []ChatEvent{newChatEvent("approval_request", "codex", p.ThreadID, p.TurnID, p.ItemID, data)}
-	case "item/fileChange/patchUpdated":
+		return []ChatEvent{mapCodexServerRequest(n)}
+	case "item/tool/requestUserInput", "tool/requestUserInput", "mcpServer/elicitation/request":
+		return []ChatEvent{mapCodexServerRequest(n)}
+	case "item/fileChange/patchUpdated", "turn/diff/updated":
 		p := codexEventEnvelope(n.Params)
 		return []ChatEvent{newChatEvent("diff_update", "codex", p.ThreadID, p.TurnID, p.ItemID, p.asMap())}
+	case "item/autoApprovalReview/started":
+		p := codexEventEnvelope(n.Params)
+		return []ChatEvent{newChatEvent("review_status", "codex", p.ThreadID, p.TurnID, p.ItemID, map[string]interface{}{
+			"status": "inProgress", "review": p.asMap(),
+		})}
+	case "item/autoApprovalReview/completed":
+		p := codexEventEnvelope(n.Params)
+		return []ChatEvent{newChatEvent("review_status", "codex", p.ThreadID, p.TurnID, p.ItemID, map[string]interface{}{
+			"status": "completed", "review": p.asMap(),
+		})}
 	case "turn/completed":
 		var p struct {
 			ThreadID string `json:"threadId"`
@@ -212,6 +242,7 @@ func (p codexCompletedMeta) asMap() map[string]json.RawMessage {
 var errAppServerUnavailable = errors.New("appserver_unavailable")
 var errUnsupportedChatAssistant = errors.New("unsupported_assistant")
 var errNoActiveChatTurn = errors.New("no_active_turn")
+var errChatRequestNotFound = errors.New("chat_request_not_found")
 
 type ChatStartResult struct {
 	SessionID string `json:"sessionId"`
@@ -259,10 +290,11 @@ type ChatServiceTierOption struct {
 }
 
 type ChatTurnOptions struct {
-	Model        string  `json:"model,omitempty"`
-	Effort       string  `json:"effort,omitempty"`
-	ServiceTier  *string `json:"serviceTier,omitempty"`
-	ApprovalMode string  `json:"approvalMode,omitempty"`
+	Model               string  `json:"model,omitempty"`
+	Effort              string  `json:"effort,omitempty"`
+	ServiceTier         *string `json:"serviceTier,omitempty"`
+	ApprovalMode        string  `json:"approvalMode,omitempty"`
+	ClientUserMessageID string  `json:"-"`
 }
 
 type ChatAttachment struct {
@@ -285,7 +317,7 @@ type chatBackend interface {
 	Input(ctx context.Context, assistant, sessionID, text string, images []ChatAttachment, opts ChatTurnOptions) (ChatInputResult, error)
 	Steer(ctx context.Context, assistant, sessionID, clientMessageID, text string, images []ChatAttachment) (ChatInputResult, error)
 	Events(ctx context.Context, assistant, sessionID string) (<-chan ChatEvent, error)
-	Approve(ctx context.Context, assistant, sessionID, requestID, decision string) error
+	Respond(ctx context.Context, assistant, sessionID, requestID string, response json.RawMessage) error
 	Interrupt(ctx context.Context, assistant, sessionID string) error
 }
 
@@ -311,7 +343,7 @@ func (unavailableChatBackend) Steer(context.Context, string, string, string, str
 func (unavailableChatBackend) Events(context.Context, string, string) (<-chan ChatEvent, error) {
 	return nil, errAppServerUnavailable
 }
-func (unavailableChatBackend) Approve(context.Context, string, string, string, string) error {
+func (unavailableChatBackend) Respond(context.Context, string, string, string, json.RawMessage) error {
 	return errAppServerUnavailable
 }
 func (unavailableChatBackend) Interrupt(context.Context, string, string) error {
@@ -329,6 +361,10 @@ func writeChatErr(w http.ResponseWriter, err error) {
 	}
 	if errors.Is(err, errNoActiveChatTurn) {
 		writeErr(w, http.StatusConflict, "no_active_turn", "当前没有可引导的运行中任务。")
+		return
+	}
+	if errors.Is(err, errChatRequestNotFound) {
+		writeErr(w, http.StatusConflict, "chat_request_not_found", "这个交互请求已经失效或已被处理。")
 		return
 	}
 	writeErr(w, http.StatusInternalServerError, "chat_failed", err.Error())
@@ -401,6 +437,7 @@ func handleChatInput(w http.ResponseWriter, r *http.Request) {
 		Effort       string  `json:"effort"`
 		ServiceTier  *string `json:"serviceTier"`
 		ApprovalMode string  `json:"approvalMode"`
+		ClientID     string  `json:"clientMessageId"`
 		Images       []struct {
 			ID string `json:"id"`
 		} `json:"images"`
@@ -434,6 +471,7 @@ func handleChatInput(w http.ResponseWriter, r *http.Request) {
 	}
 	opts, err := normalizeChatTurnOptions(ChatTurnOptions{
 		Model: req.Model, Effort: req.Effort, ServiceTier: req.ServiceTier, ApprovalMode: req.ApprovalMode,
+		ClientUserMessageID: req.ClientID,
 	})
 	if err != nil {
 		writeErr(w, http.StatusBadRequest, "bad_chat_options", err.Error())
@@ -505,11 +543,15 @@ func normalizeChatTurnOptions(opts ChatTurnOptions) (ChatTurnOptions, error) {
 	opts.Model = strings.TrimSpace(opts.Model)
 	opts.Effort = strings.TrimSpace(opts.Effort)
 	opts.ApprovalMode = strings.TrimSpace(opts.ApprovalMode)
+	opts.ClientUserMessageID = strings.TrimSpace(opts.ClientUserMessageID)
 	if len(opts.Model) > 160 || strings.ContainsAny(opts.Model, "\r\n\x00") {
 		return ChatTurnOptions{}, fmt.Errorf("无效的模型")
 	}
 	if len(opts.Effort) > 40 || strings.ContainsAny(opts.Effort, "\r\n\x00") {
 		return ChatTurnOptions{}, fmt.Errorf("无效的推理强度")
+	}
+	if len(opts.ClientUserMessageID) > 200 || strings.ContainsAny(opts.ClientUserMessageID, "\r\n\x00") {
+		return ChatTurnOptions{}, fmt.Errorf("无效的客户端消息 ID")
 	}
 	if opts.ServiceTier != nil {
 		tier := strings.TrimSpace(*opts.ServiceTier)
@@ -668,6 +710,44 @@ func handleChatAttachment(w http.ResponseWriter, r *http.Request) {
 	http.ServeFile(w, r, att.Path)
 }
 
+func handleChatMedia(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	path := r.URL.Query().Get("path")
+	if path == "" || len(path) > 16*1024 || !filepath.IsAbs(path) || strings.ContainsRune(path, '\x00') {
+		http.Error(w, "bad request", http.StatusBadRequest)
+		return
+	}
+	file, err := os.Open(filepath.Clean(path))
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	defer file.Close()
+	info, err := file.Stat()
+	if err != nil || !info.Mode().IsRegular() || info.Size() > maxChatUploadBytes {
+		http.NotFound(w, r)
+		return
+	}
+	sniff := make([]byte, 512)
+	n, _ := file.Read(sniff)
+	contentType := http.DetectContentType(sniff[:n])
+	if !strings.HasPrefix(contentType, "image/") {
+		http.Error(w, "unsupported media type", http.StatusUnsupportedMediaType)
+		return
+	}
+	if _, err := file.Seek(0, io.SeekStart); err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	w.Header().Set("Content-Type", contentType)
+	w.Header().Set("Cache-Control", "private, max-age=60")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	http.ServeContent(w, r, filepath.Base(path), info.ModTime(), file)
+}
+
 func resolveChatUpload(sessionID, id string) (ChatAttachment, error) {
 	if sessionID == "" || id == "" || filepath.Base(id) != id || strings.Contains(id, "/") || strings.Contains(id, "\\") {
 		return ChatAttachment{}, fmt.Errorf("无效的图片附件")
@@ -790,6 +870,35 @@ func handleChatInterrupt(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, map[string]bool{"ok": true})
 }
 
+func handleChatRespond(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	var req struct {
+		Assistant string          `json:"assistant"`
+		SessionID string          `json:"sessionId"`
+		RequestID string          `json:"requestId"`
+		Response  json.RawMessage `json:"response"`
+	}
+	if json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&req) != nil ||
+		req.SessionID == "" || req.RequestID == "" || len(req.Response) == 0 {
+		http.Error(w, "bad request", http.StatusBadRequest)
+		return
+	}
+	assistant := normAssistant(req.Assistant)
+	if assistant != "codex" {
+		writeErr(w, http.StatusNotImplemented, "unsupported_assistant", "自绘界面暂只支持 Codex。")
+		return
+	}
+	if err := agentChatBackend.Respond(r.Context(), assistant, req.SessionID, req.RequestID, req.Response); err != nil {
+		writeChatErr(w, err)
+		return
+	}
+	writeJSON(w, map[string]bool{"ok": true})
+}
+
+// Deprecated compatibility endpoint for dashboard builds older than /chat/respond.
 func handleChatApprove(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -801,16 +910,22 @@ func handleChatApprove(w http.ResponseWriter, r *http.Request) {
 		RequestID string `json:"requestId"`
 		Decision  string `json:"decision"`
 	}
-	if json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&req) != nil || req.SessionID == "" || req.RequestID == "" {
+	if json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&req) != nil ||
+		req.SessionID == "" || req.RequestID == "" {
 		http.Error(w, "bad request", http.StatusBadRequest)
 		return
 	}
-	assistant := normAssistant(req.Assistant)
-	if assistant != "codex" {
-		writeErr(w, http.StatusNotImplemented, "unsupported_assistant", "自绘界面暂只支持 Codex。")
-		return
+	decision := "decline"
+	switch req.Decision {
+	case "approved", "approve", "accept":
+		decision = "accept"
+	case "always", "acceptForSession":
+		decision = "acceptForSession"
+	case "abort", "cancel":
+		decision = "cancel"
 	}
-	if err := agentChatBackend.Approve(r.Context(), assistant, req.SessionID, req.RequestID, req.Decision); err != nil {
+	response, _ := json.Marshal(map[string]string{"decision": decision})
+	if err := agentChatBackend.Respond(r.Context(), normAssistant(req.Assistant), req.SessionID, req.RequestID, response); err != nil {
 		writeChatErr(w, err)
 		return
 	}
