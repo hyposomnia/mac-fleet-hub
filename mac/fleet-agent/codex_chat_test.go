@@ -189,9 +189,27 @@ func TestCodexChatBackendResumeRestoresInProgressTurnFromThread(t *testing.T) {
 }
 
 func TestCodexChatBackendResumeHydratesHistoryAndOptions(t *testing.T) {
+	oldCfg := cfg
+	t.Cleanup(func() { cfg = oldCfg })
+	home := t.TempDir()
+	cfg = Config{CodexHome: home}
+	sessionID := "019f96ff-d763-7661-b3e0-4d909d9cd315"
+	dir := filepath.Join(home, "sessions", "2026", "07", "25")
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	rollout := filepath.Join(dir, "rollout-2026-07-25T09-59-37-"+sessionID+".jsonl")
+	body := strings.Join([]string{
+		`{"type":"session_meta","payload":{"id":"` + sessionID + `","originator":"Codex Desktop","source":"vscode"}}`,
+		`{"type":"turn_context","payload":{"approval_policy":"never","sandbox_policy":{"type":"danger-full-access"},"permission_profile":{"type":"disabled"}}}`,
+	}, "\n") + "\n"
+	if err := os.WriteFile(rollout, []byte(body), 0644); err != nil {
+		t.Fatal(err)
+	}
+
 	rpc := newFakeRPCConn()
 	rpc.reply["thread/resume"] = json.RawMessage(`{
-		"thread":{"id":"thread-1"},"model":"gpt-new","reasoningEffort":"xhigh","serviceTier":"priority","approvalPolicy":"never","sandboxPolicy":{"type":"dangerFullAccess"}
+		"thread":{"id":"` + sessionID + `"},"model":"gpt-new","reasoningEffort":"xhigh","serviceTier":"priority","approvalPolicy":"on-request","sandbox":{"type":"workspaceWrite"}
 	}`)
 	rpc.reply["thread/items/list"] = json.RawMessage(`{"data":[
 		{"turnId":"turn-new","item":{"id":"a-new","type":"agentMessage","text":"new answer","model":"gpt-new","reasoningEffort":"xhigh","completedAtMs":1784730000000,"usage":{"inputTokens":12,"outputTokens":3}}},
@@ -211,7 +229,7 @@ func TestCodexChatBackendResumeHydratesHistoryAndOptions(t *testing.T) {
 		return rpc, func() {}, nil
 	})
 
-	res, err := b.Resume(context.Background(), "codex", "thread-1", "default")
+	res, err := b.Resume(context.Background(), "codex", sessionID, "default")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -234,6 +252,22 @@ func TestCodexChatBackendResumeHydratesHistoryAndOptions(t *testing.T) {
 	params := mapFromParams(t, rpc.calls[2].params)
 	if params["sortDirection"] != "desc" || params["limit"] != float64(chatHistoryPageSize) {
 		t.Fatalf("initial page params: %#v", params)
+	}
+}
+
+func TestCodexApprovalModeFromRolloutUsesLatestStructuredSettings(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "rollout.jsonl")
+	body := strings.Join([]string{
+		`{"type":"turn_context","payload":{"approval_policy":"never","sandbox_policy":{"type":"danger-full-access"},"permission_profile":{"type":"disabled"}}}`,
+		`{"type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"text","text":"danger-full-access"}]}}`,
+		`{"type":"event_msg","payload":{"type":"thread_settings_applied","thread_settings":{"approval_policy":"on-request","permission_profile":{"type":"workspace"},"active_permission_profile":{"id":":workspace"}}}}`,
+	}, "\n") + "\n"
+	if err := os.WriteFile(path, []byte(body), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	if got := codexApprovalModeFromRollout(path); got != "on-request" {
+		t.Fatalf("approval mode got %q want on-request", got)
 	}
 }
 

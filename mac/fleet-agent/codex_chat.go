@@ -300,10 +300,14 @@ func (b *codexChatBackend) Resume(ctx context.Context, assistant, sessionID, mod
 	if len(sandboxPolicy) == 0 || string(sandboxPolicy) == "null" {
 		sandboxPolicy = res.Sandbox
 	}
+	approvalMode := codexApprovalMode(res.ApprovalPolicy, sandboxPolicy)
+	if rolloutMode := codexApprovalModeFromRollout(jsonlPathFor("codex", sessionID)); rolloutMode != "" {
+		approvalMode = rolloutMode
+	}
 	return ChatResumeResult{
 		SessionID: sessionID, ThreadID: threadID, Status: status, ActiveTurnID: activeTurnID,
 		History: history, Model: res.Model, Effort: res.ReasoningEffort, ServiceTier: res.ServiceTier,
-		ApprovalMode: codexApprovalMode(res.ApprovalPolicy, sandboxPolicy),
+		ApprovalMode: approvalMode,
 		Models:       b.modelOptions(ctx, rpc),
 	}, nil
 }
@@ -926,23 +930,92 @@ func (b *codexChatBackend) Settings(ctx context.Context, assistant, sessionID, a
 }
 
 func codexApprovalMode(policyRaw, sandboxRaw json.RawMessage) string {
+	var policy string
+	_ = json.Unmarshal(policyRaw, &policy)
+	if mode := codexApprovalModeFromSettings(policy, sandboxRaw, "", ""); mode != "" {
+		return mode
+	}
+	return "on-request"
+}
+
+type codexRolloutApprovalSettings struct {
+	ApprovalPolicy string          `json:"approval_policy"`
+	SandboxPolicy  json.RawMessage `json:"sandbox_policy"`
+	Permission     struct {
+		Type string `json:"type"`
+	} `json:"permission_profile"`
+	ActivePermission struct {
+		ID string `json:"id"`
+	} `json:"active_permission_profile"`
+}
+
+func codexApprovalModeFromSettings(policy string, sandboxRaw json.RawMessage, permissionType, activePermissionID string) string {
 	var sandbox struct {
 		Type string `json:"type"`
 	}
 	_ = json.Unmarshal(sandboxRaw, &sandbox)
-	if sandbox.Type == "dangerFullAccess" {
+	policy = strings.ToLower(strings.TrimSpace(policy))
+	permissionType = strings.ToLower(strings.TrimSpace(permissionType))
+	normalizedSandbox := strings.NewReplacer("-", "", "_", "").Replace(strings.ToLower(sandbox.Type))
+	normalizedActive := strings.NewReplacer("-", "", "_", "", ":", "").Replace(strings.ToLower(activePermissionID))
+	if normalizedSandbox == "dangerfullaccess" || normalizedActive == "dangerfullaccess" ||
+		(policy == "never" && permissionType == "disabled") {
 		return "full-access"
 	}
-	var policy string
-	if json.Unmarshal(policyRaw, &policy) == nil {
-		switch policy {
-		case "untrusted", "on-request":
-			return policy
-		case "never":
-			return "on-request"
+	switch policy {
+	case "untrusted", "on-request":
+		return policy
+	case "never":
+		return "on-request"
+	default:
+		return ""
+	}
+}
+
+func codexApprovalModeFromRollout(path string) string {
+	if path == "" {
+		return ""
+	}
+	f, err := os.Open(path)
+	if err != nil {
+		return ""
+	}
+	defer f.Close()
+
+	mode := ""
+	sc := bufio.NewScanner(f)
+	sc.Buffer(make([]byte, 1024*1024), 16*1024*1024)
+	for sc.Scan() {
+		var row struct {
+			Type    string `json:"type"`
+			Payload struct {
+				codexRolloutApprovalSettings
+				Type           string                       `json:"type"`
+				ThreadSettings codexRolloutApprovalSettings `json:"thread_settings"`
+			} `json:"payload"`
+		}
+		if json.Unmarshal(sc.Bytes(), &row) != nil {
+			continue
+		}
+		var settings codexRolloutApprovalSettings
+		switch {
+		case row.Type == "turn_context":
+			settings = row.Payload.codexRolloutApprovalSettings
+		case row.Type == "event_msg" && row.Payload.Type == "thread_settings_applied":
+			settings = row.Payload.ThreadSettings
+		default:
+			continue
+		}
+		if current := codexApprovalModeFromSettings(
+			settings.ApprovalPolicy,
+			settings.SandboxPolicy,
+			settings.Permission.Type,
+			settings.ActivePermission.ID,
+		); current != "" {
+			mode = current
 		}
 	}
-	return "on-request"
+	return mode
 }
 
 func (b *codexChatBackend) modelOptions(ctx context.Context, rpc codexRPCConn) []ChatModelOption {
