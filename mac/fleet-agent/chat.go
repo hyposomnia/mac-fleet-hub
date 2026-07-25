@@ -243,6 +243,7 @@ var errAppServerUnavailable = errors.New("appserver_unavailable")
 var errUnsupportedChatAssistant = errors.New("unsupported_assistant")
 var errNoActiveChatTurn = errors.New("no_active_turn")
 var errChatRequestNotFound = errors.New("chat_request_not_found")
+var errInvalidChatSkill = errors.New("invalid_chat_skill")
 
 type ChatStartResult struct {
 	SessionID string `json:"sessionId"`
@@ -306,6 +307,13 @@ type ChatAttachment struct {
 	Path string `json:"-"`
 }
 
+type ChatSkill struct {
+	Name        string `json:"name"`
+	Description string `json:"description,omitempty"`
+	Path        string `json:"-"`
+	Scope       string `json:"scope,omitempty"`
+}
+
 type ChatInputResult struct {
 	TurnID string `json:"turnId,omitempty"`
 }
@@ -314,8 +322,9 @@ type chatBackend interface {
 	Start(ctx context.Context, assistant, cwd, mode string) (ChatStartResult, error)
 	Resume(ctx context.Context, assistant, sessionID, mode string) (ChatResumeResult, error)
 	History(ctx context.Context, assistant, sessionID, cursor string) (ChatHistoryPage, error)
-	Input(ctx context.Context, assistant, sessionID, text string, images []ChatAttachment, opts ChatTurnOptions) (ChatInputResult, error)
-	Steer(ctx context.Context, assistant, sessionID, clientMessageID, text string, images []ChatAttachment) (ChatInputResult, error)
+	Skills(ctx context.Context, assistant, cwd string) ([]ChatSkill, error)
+	Input(ctx context.Context, assistant, sessionID, text string, images []ChatAttachment, skills []ChatSkill, opts ChatTurnOptions) (ChatInputResult, error)
+	Steer(ctx context.Context, assistant, sessionID, clientMessageID, text string, images []ChatAttachment, skills []ChatSkill) (ChatInputResult, error)
 	Events(ctx context.Context, assistant, sessionID string) (<-chan ChatEvent, error)
 	Respond(ctx context.Context, assistant, sessionID, requestID string, response json.RawMessage) error
 	Interrupt(ctx context.Context, assistant, sessionID string) error
@@ -334,10 +343,13 @@ func (unavailableChatBackend) Resume(context.Context, string, string, string) (C
 func (unavailableChatBackend) History(context.Context, string, string, string) (ChatHistoryPage, error) {
 	return ChatHistoryPage{}, errAppServerUnavailable
 }
-func (unavailableChatBackend) Input(context.Context, string, string, string, []ChatAttachment, ChatTurnOptions) (ChatInputResult, error) {
+func (unavailableChatBackend) Skills(context.Context, string, string) ([]ChatSkill, error) {
+	return nil, errAppServerUnavailable
+}
+func (unavailableChatBackend) Input(context.Context, string, string, string, []ChatAttachment, []ChatSkill, ChatTurnOptions) (ChatInputResult, error) {
 	return ChatInputResult{}, errAppServerUnavailable
 }
-func (unavailableChatBackend) Steer(context.Context, string, string, string, string, []ChatAttachment) (ChatInputResult, error) {
+func (unavailableChatBackend) Steer(context.Context, string, string, string, string, []ChatAttachment, []ChatSkill) (ChatInputResult, error) {
 	return ChatInputResult{}, errAppServerUnavailable
 }
 func (unavailableChatBackend) Events(context.Context, string, string) (<-chan ChatEvent, error) {
@@ -438,7 +450,11 @@ func handleChatInput(w http.ResponseWriter, r *http.Request) {
 		ServiceTier  *string `json:"serviceTier"`
 		ApprovalMode string  `json:"approvalMode"`
 		ClientID     string  `json:"clientMessageId"`
-		Images       []struct {
+		Cwd          string  `json:"cwd"`
+		Skills       []struct {
+			Name string `json:"name"`
+		} `json:"skills"`
+		Images []struct {
 			ID string `json:"id"`
 		} `json:"images"`
 	}
@@ -447,7 +463,7 @@ func handleChatInput(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	text := strings.TrimSpace(req.Text)
-	if text == "" && len(req.Images) == 0 {
+	if text == "" && len(req.Images) == 0 && len(req.Skills) == 0 {
 		http.Error(w, "bad request", http.StatusBadRequest)
 		return
 	}
@@ -469,6 +485,15 @@ func handleChatInput(w http.ResponseWriter, r *http.Request) {
 		}
 		images = append(images, att)
 	}
+	skills, err := resolveRequestedChatSkills(r.Context(), assistant, req.Cwd, req.Skills)
+	if err != nil {
+		if errors.Is(err, errInvalidChatSkill) {
+			writeErr(w, http.StatusBadRequest, "bad_skill", err.Error())
+		} else {
+			writeChatErr(w, err)
+		}
+		return
+	}
 	opts, err := normalizeChatTurnOptions(ChatTurnOptions{
 		Model: req.Model, Effort: req.Effort, ServiceTier: req.ServiceTier, ApprovalMode: req.ApprovalMode,
 		ClientUserMessageID: req.ClientID,
@@ -477,7 +502,7 @@ func handleChatInput(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "bad_chat_options", err.Error())
 		return
 	}
-	res, err := agentChatBackend.Input(r.Context(), assistant, req.SessionID, sendText, images, opts)
+	res, err := agentChatBackend.Input(r.Context(), assistant, req.SessionID, sendText, images, skills, opts)
 	if err != nil {
 		writeChatErr(w, err)
 		return
@@ -495,7 +520,11 @@ func handleChatSteer(w http.ResponseWriter, r *http.Request) {
 		SessionID       string `json:"sessionId"`
 		ClientMessageID string `json:"clientMessageId"`
 		Text            string `json:"text"`
-		Images          []struct {
+		Cwd             string `json:"cwd"`
+		Skills          []struct {
+			Name string `json:"name"`
+		} `json:"skills"`
+		Images []struct {
 			ID string `json:"id"`
 		} `json:"images"`
 	}
@@ -504,7 +533,7 @@ func handleChatSteer(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	text := strings.TrimSpace(req.Text)
-	if text == "" && len(req.Images) == 0 {
+	if text == "" && len(req.Images) == 0 && len(req.Skills) == 0 {
 		http.Error(w, "bad request", http.StatusBadRequest)
 		return
 	}
@@ -527,16 +556,84 @@ func handleChatSteer(w http.ResponseWriter, r *http.Request) {
 		}
 		images = append(images, att)
 	}
+	skills, err := resolveRequestedChatSkills(r.Context(), assistant, req.Cwd, req.Skills)
+	if err != nil {
+		if errors.Is(err, errInvalidChatSkill) {
+			writeErr(w, http.StatusBadRequest, "bad_skill", err.Error())
+		} else {
+			writeChatErr(w, err)
+		}
+		return
+	}
 	sendText := req.Text
 	if text == "" {
 		sendText = ""
 	}
-	res, err := agentChatBackend.Steer(r.Context(), assistant, req.SessionID, req.ClientMessageID, sendText, images)
+	res, err := agentChatBackend.Steer(r.Context(), assistant, req.SessionID, req.ClientMessageID, sendText, images, skills)
 	if err != nil {
 		writeChatErr(w, err)
 		return
 	}
 	writeJSON(w, res)
+}
+
+func handleChatSkills(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	var req struct {
+		Assistant string `json:"assistant"`
+		Cwd       string `json:"cwd"`
+	}
+	if json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&req) != nil {
+		http.Error(w, "bad request", http.StatusBadRequest)
+		return
+	}
+	assistant := normAssistant(req.Assistant)
+	if assistant != "codex" {
+		writeErr(w, http.StatusNotImplemented, "unsupported_assistant", "自绘界面暂只支持 Codex。")
+		return
+	}
+	skills, err := agentChatBackend.Skills(r.Context(), assistant, strings.TrimSpace(req.Cwd))
+	if err != nil {
+		writeChatErr(w, err)
+		return
+	}
+	writeJSON(w, map[string]interface{}{"skills": skills})
+}
+
+func resolveRequestedChatSkills(ctx context.Context, assistant, cwd string, requested []struct {
+	Name string `json:"name"`
+}) ([]ChatSkill, error) {
+	if len(requested) == 0 {
+		return nil, nil
+	}
+	available, err := agentChatBackend.Skills(ctx, assistant, strings.TrimSpace(cwd))
+	if err != nil {
+		return nil, err
+	}
+	byName := make(map[string]ChatSkill, len(available))
+	for _, skill := range available {
+		byName[skill.Name] = skill
+	}
+	resolved := make([]ChatSkill, 0, len(requested))
+	seen := make(map[string]bool, len(requested))
+	for _, item := range requested {
+		name := strings.TrimSpace(item.Name)
+		if name == "" || len(name) > 200 || strings.ContainsAny(name, "\r\n\x00") {
+			return nil, fmt.Errorf("%w: 无效的 skill", errInvalidChatSkill)
+		}
+		skill, ok := byName[name]
+		if !ok {
+			return nil, fmt.Errorf("%w: skill %q 不存在或未启用", errInvalidChatSkill, name)
+		}
+		if !seen[name] {
+			resolved = append(resolved, skill)
+			seen[name] = true
+		}
+	}
+	return resolved, nil
 }
 
 func normalizeChatTurnOptions(opts ChatTurnOptions) (ChatTurnOptions, error) {

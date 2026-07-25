@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
 	"sync"
 )
@@ -640,8 +641,13 @@ func decodeCodexTurnsCursor(cursor string) (codexTurnsCursor, error) {
 	return state, nil
 }
 
-func codexUserInput(text string, images []ChatAttachment) []map[string]string {
-	input := make([]map[string]string, 0, 1+len(images))
+func codexUserInput(text string, images []ChatAttachment, skills []ChatSkill) []map[string]string {
+	input := make([]map[string]string, 0, 1+len(images)+len(skills))
+	for _, skill := range skills {
+		if skill.Name != "" && skill.Path != "" {
+			input = append(input, map[string]string{"type": "skill", "name": skill.Name, "path": skill.Path})
+		}
+	}
 	if text != "" {
 		input = append(input, map[string]string{"type": "text", "text": text})
 	}
@@ -653,7 +659,59 @@ func codexUserInput(text string, images []ChatAttachment) []map[string]string {
 	return input
 }
 
-func (b *codexChatBackend) Input(ctx context.Context, assistant, sessionID, text string, images []ChatAttachment, opts ChatTurnOptions) (ChatInputResult, error) {
+func (b *codexChatBackend) Skills(ctx context.Context, assistant, cwd string) ([]ChatSkill, error) {
+	if assistant != "codex" {
+		return nil, errUnsupportedChatAssistant
+	}
+	rpc, err := b.ensure(ctx)
+	if err != nil {
+		return nil, err
+	}
+	params := map[string]interface{}{}
+	if cwd != "" {
+		params["cwds"] = []string{cwd}
+	}
+	raw, err := rpc.call(ctx, "skills/list", params)
+	if err != nil {
+		return nil, err
+	}
+	var res struct {
+		Data []struct {
+			Cwd    string `json:"cwd"`
+			Skills []struct {
+				Name        string `json:"name"`
+				Description string `json:"description"`
+				Path        string `json:"path"`
+				Scope       string `json:"scope"`
+				Enabled     bool   `json:"enabled"`
+			} `json:"skills"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(raw, &res); err != nil {
+		return nil, fmt.Errorf("decode skills/list response: %w", err)
+	}
+	var skills []ChatSkill
+	seen := map[string]bool{}
+	for _, entry := range res.Data {
+		if cwd != "" && entry.Cwd != "" && entry.Cwd != cwd {
+			continue
+		}
+		for _, skill := range entry.Skills {
+			if skill.Enabled && skill.Name != "" && skill.Path != "" && !seen[skill.Name] {
+				skills = append(skills, ChatSkill{
+					Name: skill.Name, Description: skill.Description, Path: skill.Path, Scope: skill.Scope,
+				})
+				seen[skill.Name] = true
+			}
+		}
+	}
+	sort.SliceStable(skills, func(i, j int) bool {
+		return strings.ToLower(skills[i].Name) < strings.ToLower(skills[j].Name)
+	})
+	return skills, nil
+}
+
+func (b *codexChatBackend) Input(ctx context.Context, assistant, sessionID, text string, images []ChatAttachment, skills []ChatSkill, opts ChatTurnOptions) (ChatInputResult, error) {
 	if assistant != "codex" {
 		return ChatInputResult{}, errUnsupportedChatAssistant
 	}
@@ -674,7 +732,7 @@ func (b *codexChatBackend) Input(ctx context.Context, assistant, sessionID, text
 			return ChatInputResult{}, err
 		}
 	}
-	input := codexUserInput(text, images)
+	input := codexUserInput(text, images, skills)
 	params := codexTurnStartParams(sessionID, input, opts)
 	raw, err := rpc.call(ctx, "turn/start", params)
 	if err != nil {
@@ -711,7 +769,7 @@ func (b *codexChatBackend) Input(ctx context.Context, assistant, sessionID, text
 	return ChatInputResult{TurnID: res.Turn.ID}, nil
 }
 
-func (b *codexChatBackend) Steer(ctx context.Context, assistant, sessionID, clientMessageID, text string, images []ChatAttachment) (ChatInputResult, error) {
+func (b *codexChatBackend) Steer(ctx context.Context, assistant, sessionID, clientMessageID, text string, images []ChatAttachment, skills []ChatSkill) (ChatInputResult, error) {
 	if assistant != "codex" {
 		return ChatInputResult{}, errUnsupportedChatAssistant
 	}
@@ -726,7 +784,7 @@ func (b *codexChatBackend) Steer(ctx context.Context, assistant, sessionID, clie
 		return ChatInputResult{}, errNoActiveChatTurn
 	}
 	params := map[string]interface{}{
-		"threadId": sessionID, "expectedTurnId": turnID, "input": codexUserInput(text, images),
+		"threadId": sessionID, "expectedTurnId": turnID, "input": codexUserInput(text, images, skills),
 	}
 	if clientMessageID != "" {
 		params["clientUserMessageId"] = clientMessageID
@@ -953,7 +1011,7 @@ func projectCodexHistoryItemWithUsage(sessionID, turnID string, raw json.RawMess
 				}
 				images = append(images, img)
 			case "localImage":
-				images = append(images, map[string]string{"name": filepath.Base(part.Path)})
+				images = append(images, map[string]string{"name": filepath.Base(part.Path), "path": part.Path})
 			case "skill":
 				texts = append(texts, "$"+part.Name)
 			case "mention":

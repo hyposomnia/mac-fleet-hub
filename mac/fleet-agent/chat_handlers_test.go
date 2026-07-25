@@ -18,8 +18,9 @@ type fakeChatBackend struct {
 	startFn     func(context.Context, string, string, string) (ChatStartResult, error)
 	resumeFn    func(context.Context, string, string, string) (ChatResumeResult, error)
 	historyFn   func(context.Context, string, string, string) (ChatHistoryPage, error)
-	inputFn     func(context.Context, string, string, string, []ChatAttachment, ChatTurnOptions) (ChatInputResult, error)
-	steerFn     func(context.Context, string, string, string, string, []ChatAttachment) (ChatInputResult, error)
+	skillsFn    func(context.Context, string, string) ([]ChatSkill, error)
+	inputFn     func(context.Context, string, string, string, []ChatAttachment, []ChatSkill, ChatTurnOptions) (ChatInputResult, error)
+	steerFn     func(context.Context, string, string, string, string, []ChatAttachment, []ChatSkill) (ChatInputResult, error)
 	eventsFn    func(context.Context, string, string) (<-chan ChatEvent, error)
 	respondFn   func(context.Context, string, string, string, json.RawMessage) error
 	interruptFn func(context.Context, string, string) error
@@ -46,16 +47,23 @@ func (f fakeChatBackend) History(ctx context.Context, assistant, sessionID, curs
 	return ChatHistoryPage{}, nil
 }
 
-func (f fakeChatBackend) Input(ctx context.Context, assistant, sessionID, text string, images []ChatAttachment, opts ChatTurnOptions) (ChatInputResult, error) {
+func (f fakeChatBackend) Skills(ctx context.Context, assistant, cwd string) ([]ChatSkill, error) {
+	if f.skillsFn != nil {
+		return f.skillsFn(ctx, assistant, cwd)
+	}
+	return nil, nil
+}
+
+func (f fakeChatBackend) Input(ctx context.Context, assistant, sessionID, text string, images []ChatAttachment, skills []ChatSkill, opts ChatTurnOptions) (ChatInputResult, error) {
 	if f.inputFn != nil {
-		return f.inputFn(ctx, assistant, sessionID, text, images, opts)
+		return f.inputFn(ctx, assistant, sessionID, text, images, skills, opts)
 	}
 	return ChatInputResult{}, nil
 }
 
-func (f fakeChatBackend) Steer(ctx context.Context, assistant, sessionID, clientMessageID, text string, images []ChatAttachment) (ChatInputResult, error) {
+func (f fakeChatBackend) Steer(ctx context.Context, assistant, sessionID, clientMessageID, text string, images []ChatAttachment, skills []ChatSkill) (ChatInputResult, error) {
 	if f.steerFn != nil {
-		return f.steerFn(ctx, assistant, sessionID, clientMessageID, text, images)
+		return f.steerFn(ctx, assistant, sessionID, clientMessageID, text, images, skills)
 	}
 	return ChatInputResult{}, nil
 }
@@ -173,7 +181,7 @@ func TestChatResumeBadRequest(t *testing.T) {
 
 func TestChatInputCallsBackend(t *testing.T) {
 	withChatBackend(t, fakeChatBackend{
-		inputFn: func(ctx context.Context, assistant, sessionID, text string, images []ChatAttachment, opts ChatTurnOptions) (ChatInputResult, error) {
+		inputFn: func(ctx context.Context, assistant, sessionID, text string, images []ChatAttachment, skills []ChatSkill, opts ChatTurnOptions) (ChatInputResult, error) {
 			if assistant != "codex" || sessionID != "s1" || text != "hello" {
 				t.Fatalf("input args got assistant=%s sessionID=%s text=%s", assistant, sessionID, text)
 			}
@@ -200,9 +208,83 @@ func TestChatInputCallsBackend(t *testing.T) {
 	}
 }
 
+func TestChatSkillsCallsBackendWithoutExposingPath(t *testing.T) {
+	withChatBackend(t, fakeChatBackend{
+		skillsFn: func(ctx context.Context, assistant, cwd string) ([]ChatSkill, error) {
+			if assistant != "codex" || cwd != "/repo" {
+				t.Fatalf("skills args assistant=%s cwd=%s", assistant, cwd)
+			}
+			return []ChatSkill{{
+				Name: "dev", Description: "Develop", Path: "/repo/.agents/skills/dev/SKILL.md", Scope: "repo",
+			}}, nil
+		},
+	})
+	req := httptest.NewRequest(http.MethodPost, "/api/chat/skills", bytes.NewBufferString(`{"assistant":"codex","cwd":"/repo"}`))
+	rr := httptest.NewRecorder()
+
+	handleChatSkills(rr, req)
+
+	if rr.Code != http.StatusOK || !strings.Contains(rr.Body.String(), `"name":"dev"`) ||
+		!strings.Contains(rr.Body.String(), `"description":"Develop"`) {
+		t.Fatalf("status=%d body=%s", rr.Code, rr.Body.String())
+	}
+	if strings.Contains(rr.Body.String(), "SKILL.md") {
+		t.Fatalf("skill path must stay server-side: %s", rr.Body.String())
+	}
+}
+
+func TestChatInputResolvesSkillNameBeforeCallingBackend(t *testing.T) {
+	const skillPath = "/repo/.agents/skills/dev/SKILL.md"
+	withChatBackend(t, fakeChatBackend{
+		skillsFn: func(ctx context.Context, assistant, cwd string) ([]ChatSkill, error) {
+			return []ChatSkill{{Name: "dev", Path: skillPath}}, nil
+		},
+		inputFn: func(ctx context.Context, assistant, sessionID, text string, images []ChatAttachment, skills []ChatSkill, opts ChatTurnOptions) (ChatInputResult, error) {
+			if text != "fix it" || len(skills) != 1 || skills[0].Name != "dev" || skills[0].Path != skillPath {
+				t.Fatalf("resolved input text=%q skills=%+v", text, skills)
+			}
+			return ChatInputResult{TurnID: "turn-skill"}, nil
+		},
+	})
+	body := `{"assistant":"codex","sessionId":"s1","cwd":"/repo","text":"fix it","skills":[{"name":"dev"}]}`
+	req := httptest.NewRequest(http.MethodPost, "/api/chat/input", bytes.NewBufferString(body))
+	rr := httptest.NewRecorder()
+
+	handleChatInput(rr, req)
+
+	if rr.Code != http.StatusOK || !strings.Contains(rr.Body.String(), `"turnId":"turn-skill"`) {
+		t.Fatalf("status=%d body=%s", rr.Code, rr.Body.String())
+	}
+}
+
+func TestChatInputRejectsUnknownSkillBeforeCallingBackend(t *testing.T) {
+	inputCalled := false
+	withChatBackend(t, fakeChatBackend{
+		skillsFn: func(context.Context, string, string) ([]ChatSkill, error) {
+			return []ChatSkill{{Name: "dev", Path: "/repo/dev/SKILL.md"}}, nil
+		},
+		inputFn: func(context.Context, string, string, string, []ChatAttachment, []ChatSkill, ChatTurnOptions) (ChatInputResult, error) {
+			inputCalled = true
+			return ChatInputResult{}, nil
+		},
+	})
+	body := `{"assistant":"codex","sessionId":"s1","cwd":"/repo","skills":[{"name":"missing"}]}`
+	req := httptest.NewRequest(http.MethodPost, "/api/chat/input", bytes.NewBufferString(body))
+	rr := httptest.NewRecorder()
+
+	handleChatInput(rr, req)
+
+	if rr.Code != http.StatusBadRequest || !strings.Contains(rr.Body.String(), `"bad_skill"`) {
+		t.Fatalf("status=%d body=%s", rr.Code, rr.Body.String())
+	}
+	if inputCalled {
+		t.Fatal("unknown skill must not reach turn/start")
+	}
+}
+
 func TestChatSteerCallsBackend(t *testing.T) {
 	withChatBackend(t, fakeChatBackend{
-		steerFn: func(ctx context.Context, assistant, sessionID, clientMessageID, text string, images []ChatAttachment) (ChatInputResult, error) {
+		steerFn: func(ctx context.Context, assistant, sessionID, clientMessageID, text string, images []ChatAttachment, skills []ChatSkill) (ChatInputResult, error) {
 			if assistant != "codex" || sessionID != "s1" || clientMessageID != "follow-1" || text != "guide this" || len(images) != 0 {
 				t.Fatalf("steer args got assistant=%s sessionID=%s clientMessageID=%s text=%s images=%+v", assistant, sessionID, clientMessageID, text, images)
 			}
@@ -221,7 +303,7 @@ func TestChatSteerCallsBackend(t *testing.T) {
 
 func TestChatSteerWithoutActiveTurnReturnsConflict(t *testing.T) {
 	withChatBackend(t, fakeChatBackend{
-		steerFn: func(context.Context, string, string, string, string, []ChatAttachment) (ChatInputResult, error) {
+		steerFn: func(context.Context, string, string, string, string, []ChatAttachment, []ChatSkill) (ChatInputResult, error) {
 			return ChatInputResult{}, errNoActiveChatTurn
 		},
 	})
@@ -287,7 +369,7 @@ func TestChatUploadAndImageOnlyInput(t *testing.T) {
 	}
 
 	withChatBackend(t, fakeChatBackend{
-		inputFn: func(ctx context.Context, assistant, sessionID, text string, images []ChatAttachment, opts ChatTurnOptions) (ChatInputResult, error) {
+		inputFn: func(ctx context.Context, assistant, sessionID, text string, images []ChatAttachment, skills []ChatSkill, opts ChatTurnOptions) (ChatInputResult, error) {
 			if text != "" || len(images) != 1 {
 				t.Fatalf("input got text=%q images=%+v", text, images)
 			}

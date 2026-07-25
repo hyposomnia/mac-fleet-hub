@@ -54,8 +54,8 @@ const appSandbox = {
   Date: FixedAppDate,
 };
 vm.createContext(appSandbox);
-vm.runInContext(`${appSrc}\n;globalThis.__chatCacheTest = { chatCacheVictim, isChatConnectionKept, updateChatUpdatedAt, formatChatDate, chatAssistantMetaText, chatUserMetaText, chatMessageMetaVisibility, applyChatMetadataDefaults, enqueueChatFollowup, removeChatFollowup, normalizeChatDraft, chatToolStatus, chatToolDuration, chatToolActivityLabel, chatToolHasExpandableBody, chatActivityGroupSummaryText, chatActivityActiveSummarySegments, renderChatActivityGroup, chatTurnPinText: typeof chatTurnPinText === 'function' ? chatTurnPinText : () => '', isInternalChatTool: typeof isInternalChatTool === 'function' ? isInternalChatTool : () => false, state };`, appSandbox);
-const { chatCacheVictim, isChatConnectionKept, updateChatUpdatedAt, formatChatDate, chatAssistantMetaText, chatUserMetaText, chatMessageMetaVisibility, applyChatMetadataDefaults, enqueueChatFollowup, removeChatFollowup, normalizeChatDraft, chatToolStatus, chatToolDuration, chatToolActivityLabel, chatToolHasExpandableBody, chatActivityGroupSummaryText, chatActivityActiveSummarySegments, renderChatActivityGroup, chatTurnPinText, isInternalChatTool, state: appState } = appSandbox.__chatCacheTest;
+vm.runInContext(`${appSrc}\n;globalThis.__chatCacheTest = { chatCacheVictim, isChatConnectionKept, updateChatUpdatedAt, formatChatDate, chatAssistantMetaText, chatUserMetaText, chatMessageMetaVisibility, applyChatMetadataDefaults, enqueueChatFollowup, removeChatFollowup, normalizeChatDraft, chatSkillTriggerAt, parseChatSkillInput, chatImageSrc, chatToolStatus, chatToolDuration, chatToolActivityLabel, chatToolHasExpandableBody, isChatActivityItem, chatActivityGroupSummaryText, chatActivityActiveSummarySegments, chatActivityGroupIconKind, renderChatActivityGroup, chatTurnPinText: typeof chatTurnPinText === 'function' ? chatTurnPinText : () => '', isInternalChatTool: typeof isInternalChatTool === 'function' ? isInternalChatTool : () => false, state };`, appSandbox);
+const { chatCacheVictim, isChatConnectionKept, updateChatUpdatedAt, formatChatDate, chatAssistantMetaText, chatUserMetaText, chatMessageMetaVisibility, applyChatMetadataDefaults, enqueueChatFollowup, removeChatFollowup, normalizeChatDraft, chatSkillTriggerAt, parseChatSkillInput, chatImageSrc, chatToolStatus, chatToolDuration, chatToolActivityLabel, chatToolHasExpandableBody, isChatActivityItem, chatActivityGroupSummaryText, chatActivityActiveSummarySegments, chatActivityGroupIconKind, renderChatActivityGroup, chatTurnPinText, isInternalChatTool, state: appState } = appSandbox.__chatCacheTest;
 function toolLabelText(item) {
   const status = chatToolStatus(item.status);
   return chatToolActivityLabel(item, status, chatToolDuration(item.durationMs)).map(nodeText).join('');
@@ -273,6 +273,43 @@ test('follow-up queue is FIFO and removing one item preserves the others', () =>
   assert.equal(second.text, 'second');
 });
 
+test('chat skill trigger recognizes dollar and slash only at token start', () => {
+  assert.deepEqual(
+    { ...chatSkillTriggerAt('$de', 3) },
+    { start: 0, end: 3, marker: '$', query: 'de' },
+  );
+  assert.deepEqual(
+    { ...chatSkillTriggerAt('fix /d', 6) },
+    { start: 4, end: 6, marker: '/', query: 'd' },
+  );
+  assert.equal(chatSkillTriggerAt('path/foo', 8), null);
+  assert.equal(chatSkillTriggerAt('cost$dev', 8), null);
+  assert.equal(chatSkillTriggerAt('/dev done', 9), null);
+});
+
+test('chat skill parsing supports dollar and slash, deduplicates, and keeps unknown tokens', () => {
+  const available = [
+    { name: 'dev', description: 'Develop' },
+    { name: 'ui', description: 'Design' },
+  ];
+  const parsed = parseChatSkillInput('$dev 修复登录\n/ui 调整界面 /dev /unknown', available);
+  assert.equal(parsed.text, '修复登录\n调整界面 /unknown');
+  assert.deepEqual(Array.from(parsed.skills, (skill) => skill.name), ['dev', 'ui']);
+
+  const unknown = parseChatSkillInput('/missing keep', available);
+  assert.equal(unknown.text, '/missing keep');
+  assert.deepEqual(Array.from(unknown.skills), []);
+});
+
+test('local user image path resolves through the selected Mac media endpoint', () => {
+  appState.macId = 'm2';
+  appState.chat = null;
+  assert.equal(
+    chatImageSrc({ path: '/Users/test/Library/Caches/mac-fleet-hub/chat-uploads/session/image.png' }),
+    '/m2/api/chat/media?path=%2FUsers%2Ftest%2FLibrary%2FCaches%2Fmac-fleet-hub%2Fchat-uploads%2Fsession%2Fimage.png',
+  );
+});
+
 test('failed steering removes the optimistic transcript item before queue recovery', () => {
   let model = createChatState();
   model = appendSteeringMessage(model, 'change direction', 'steer-1', [], 'turn-1');
@@ -419,6 +456,43 @@ test('consecutive activity summaries collapse like Codex groups', () => {
   assert.equal(group.className, 'chat-row tool activity-group');
   assert.match(nodeText(group), /已读取文件运行了一个命令已搜索网页/);
   assert.match(nodeText(group), /npm test/);
+});
+
+test('activity grouping keeps native standalone tool boundaries', () => {
+  assert.equal(isChatActivityItem({ type: 'tool', kind: 'commandExecution' }), true);
+  assert.equal(isChatActivityItem({ type: 'tool', kind: 'fileRead' }), true);
+  assert.equal(isChatActivityItem({ type: 'tool', kind: 'webSearch' }), true);
+  assert.equal(isChatActivityItem({ type: 'tool', kind: 'mcpToolCall', title: 'Chrome · Read' }), true);
+  assert.equal(isChatActivityItem({ type: 'tool', kind: 'dynamicToolCall' }), true);
+  assert.equal(isChatActivityItem({ type: 'diff' }), true);
+
+  assert.equal(isChatActivityItem({ type: 'tool', kind: 'mcpToolCall', title: 'computer-use · click' }), false);
+  assert.equal(isChatActivityItem({ type: 'tool', kind: 'imageView' }), false);
+  assert.equal(isChatActivityItem({ type: 'tool', kind: 'imageGeneration' }), false);
+  assert.equal(isChatActivityItem({ type: 'tool', kind: 'collabAgentToolCall' }), false);
+  assert.equal(isChatActivityItem({ type: 'tool', kind: 'subAgentActivity' }), false);
+});
+
+test('activity group summary follows Codex part ordering and leading labels', () => {
+  const items = [
+    { type: 'tool', kind: 'mcpToolCall', title: 'Chrome · Read', summary: 'chrome · read', status: 'completed' },
+    {
+      type: 'tool', kind: 'commandExecution', summary: 'sed -n 1,80p .agents/skills/dev/SKILL.md',
+      commandActions: [{ type: 'read', path: '/repo/.agents/skills/dev/SKILL.md' }], status: 'completed',
+    },
+    { type: 'diff', files: [{ path: 'app.js' }], status: 'completed' },
+    { type: 'tool', kind: 'commandExecution', summary: 'rg activity server/dashboard', status: 'completed' },
+    { type: 'tool', kind: 'commandExecution', summary: 'npm test', status: 'completed' },
+    { type: 'tool', kind: 'webSearch', summary: 'Codex activity', status: 'completed' },
+  ];
+  assert.equal(
+    chatActivityGroupSummaryText(items),
+    '已使用 Chrome 集成加载了一个工具编辑了一个文件读取文件运行了一个命令已搜索网页',
+  );
+  assert.equal(chatActivityGroupIconKind(items), 'mcpToolCall');
+  assert.equal(chatActivityGroupIconKind(items.slice(1)), 'commandExecution');
+  assert.equal(chatActivityGroupIconKind(items.slice(2)), 'fileChange');
+  assert.equal(chatActivityGroupIconKind(items.slice(3)), 'fileRead');
 });
 
 test('running activity group uses the active item summary', () => {

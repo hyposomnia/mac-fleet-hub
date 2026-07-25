@@ -377,6 +377,25 @@ func TestProjectCodexHistoryIncludesNonFileTools(t *testing.T) {
 	}
 }
 
+func TestProjectCodexHistoryLocalImageKeepsRenderablePath(t *testing.T) {
+	ev, ok := projectCodexHistoryItem("thread-1", "turn-1", json.RawMessage(
+		`{"id":"user-1","type":"userMessage","content":[{"type":"text","text":"看这张图"},{"type":"localImage","path":"/Users/test/Library/Caches/mac-fleet-hub/chat-uploads/session/image.png"}]}`,
+	))
+	if !ok || ev.Type != "user_done" {
+		t.Fatalf("local image projection failed: ok=%v event=%+v", ok, ev)
+	}
+	var data struct {
+		Images []map[string]string `json:"images"`
+	}
+	if err := json.Unmarshal(ev.Data, &data); err != nil {
+		t.Fatal(err)
+	}
+	if len(data.Images) != 1 || data.Images[0]["name"] != "image.png" ||
+		data.Images[0]["path"] != "/Users/test/Library/Caches/mac-fleet-hub/chat-uploads/session/image.png" {
+		t.Fatalf("local image data got %+v", data.Images)
+	}
+}
+
 func TestCodexChatBackendInputUsesTurnStartTextInput(t *testing.T) {
 	rpc := newFakeRPCConn()
 	rpc.reply["thread/resume"] = json.RawMessage(`{"thread":{"id":"thread-1"}}`)
@@ -385,7 +404,7 @@ func TestCodexChatBackendInputUsesTurnStartTextInput(t *testing.T) {
 		return rpc, func() {}, nil
 	})
 
-	res, err := b.Input(context.Background(), "codex", "thread-1", "hello", nil, ChatTurnOptions{})
+	res, err := b.Input(context.Background(), "codex", "thread-1", "hello", nil, nil, ChatTurnOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -408,6 +427,64 @@ func TestCodexChatBackendInputUsesTurnStartTextInput(t *testing.T) {
 	}
 }
 
+func TestCodexChatBackendSkillsUsesSkillsList(t *testing.T) {
+	rpc := newFakeRPCConn()
+	rpc.reply["skills/list"] = json.RawMessage(`{
+		"data":[{
+			"cwd":"/repo",
+			"skills":[
+				{"name":"dev","description":"Develop","path":"/repo/.agents/skills/dev/SKILL.md","scope":"repo","enabled":true},
+				{"name":"disabled","description":"Disabled","path":"/repo/.agents/skills/disabled/SKILL.md","scope":"repo","enabled":false}
+			],
+			"errors":[]
+		}]
+	}`)
+	b := newCodexChatBackend(func(ctx context.Context) (codexRPCConn, func(), error) {
+		return rpc, func() {}, nil
+	})
+
+	got, err := b.Skills(context.Background(), "codex", "/repo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0].Name != "dev" || got[0].Path != "/repo/.agents/skills/dev/SKILL.md" ||
+		got[0].Description != "Develop" || got[0].Scope != "repo" {
+		t.Fatalf("skills got %+v", got)
+	}
+	if len(rpc.calls) != 1 || rpc.calls[0].method != "skills/list" {
+		t.Fatalf("calls: %+v", rpc.calls)
+	}
+	params := mapFromParams(t, rpc.calls[0].params)
+	if !reflect.DeepEqual(params["cwds"], []interface{}{"/repo"}) {
+		t.Fatalf("skills/list params: %#v", params)
+	}
+}
+
+func TestCodexChatBackendInputUsesStructuredSkills(t *testing.T) {
+	rpc := newFakeRPCConn()
+	rpc.reply["thread/resume"] = json.RawMessage(`{"thread":{"id":"thread-1"}}`)
+	rpc.reply["turn/start"] = json.RawMessage(`{"turn":{"id":"turn-1","status":"running"}}`)
+	b := newCodexChatBackend(func(ctx context.Context) (codexRPCConn, func(), error) {
+		return rpc, func() {}, nil
+	})
+	skills := []ChatSkill{{Name: "dev", Path: "/repo/.agents/skills/dev/SKILL.md"}}
+
+	if _, err := b.Input(context.Background(), "codex", "thread-1", "fix it", nil, skills, ChatTurnOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	params := mapFromParams(t, rpc.calls[1].params)
+	input, ok := params["input"].([]interface{})
+	if !ok || len(input) != 2 {
+		t.Fatalf("input got %#v", params["input"])
+	}
+	if !reflect.DeepEqual(input[0], map[string]interface{}{"type": "skill", "name": "dev", "path": "/repo/.agents/skills/dev/SKILL.md"}) {
+		t.Fatalf("skill input got %#v", input[0])
+	}
+	if !reflect.DeepEqual(input[1], map[string]interface{}{"type": "text", "text": "fix it"}) {
+		t.Fatalf("text input got %#v", input[1])
+	}
+}
+
 func TestCodexChatBackendInputRejectsMissingTurnID(t *testing.T) {
 	rpc := newFakeRPCConn()
 	rpc.reply["thread/resume"] = json.RawMessage(`{"thread":{"id":"thread-1"}}`)
@@ -416,7 +493,7 @@ func TestCodexChatBackendInputRejectsMissingTurnID(t *testing.T) {
 		return rpc, func() {}, nil
 	})
 
-	if _, err := b.Input(context.Background(), "codex", "thread-1", "hello", nil, ChatTurnOptions{}); err == nil || !strings.Contains(err.Error(), "missing turn id") {
+	if _, err := b.Input(context.Background(), "codex", "thread-1", "hello", nil, nil, ChatTurnOptions{}); err == nil || !strings.Contains(err.Error(), "missing turn id") {
 		t.Fatalf("missing turn id should fail, got %v", err)
 	}
 	if b.lastTurn["thread-1"] != "" {
@@ -432,7 +509,7 @@ func TestCodexChatBackendInputUsesLocalImages(t *testing.T) {
 		return rpc, func() {}, nil
 	})
 
-	res, err := b.Input(context.Background(), "codex", "thread-1", "", []ChatAttachment{{Path: "/tmp/shot.png"}}, ChatTurnOptions{})
+	res, err := b.Input(context.Background(), "codex", "thread-1", "", []ChatAttachment{{Path: "/tmp/shot.png"}}, nil, ChatTurnOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -458,7 +535,7 @@ func TestCodexChatBackendInputPassesModelAndApprovalOverrides(t *testing.T) {
 	})
 
 	serviceTier := "priority"
-	_, err := b.Input(context.Background(), "codex", "thread-1", "hello", nil, ChatTurnOptions{
+	_, err := b.Input(context.Background(), "codex", "thread-1", "hello", nil, nil, ChatTurnOptions{
 		Model: "gpt-new", Effort: "high", ServiceTier: &serviceTier, ApprovalMode: "full-access",
 	})
 	if err != nil {
@@ -482,7 +559,7 @@ func TestCodexChatBackendSteerUsesActiveTurnAndLocalImages(t *testing.T) {
 	})
 	b.lastTurn["thread-1"] = "turn-1"
 
-	res, err := b.Steer(context.Background(), "codex", "thread-1", "follow-1", "follow up", []ChatAttachment{{Path: "/tmp/shot.png"}})
+	res, err := b.Steer(context.Background(), "codex", "thread-1", "follow-1", "follow up", []ChatAttachment{{Path: "/tmp/shot.png"}}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -499,6 +576,28 @@ func TestCodexChatBackendSteerUsesActiveTurnAndLocalImages(t *testing.T) {
 	input, ok := params["input"].([]interface{})
 	if !ok || len(input) != 2 {
 		t.Fatalf("steer input: %#v", params["input"])
+	}
+}
+
+func TestCodexChatBackendSteerUsesStructuredSkills(t *testing.T) {
+	rpc := newFakeRPCConn()
+	rpc.reply["turn/steer"] = json.RawMessage(`{"turnId":"turn-1"}`)
+	b := newCodexChatBackend(func(ctx context.Context) (codexRPCConn, func(), error) {
+		return rpc, func() {}, nil
+	})
+	b.lastTurn["thread-1"] = "turn-1"
+	skills := []ChatSkill{{Name: "dev", Path: "/repo/.agents/skills/dev/SKILL.md"}}
+
+	if _, err := b.Steer(context.Background(), "codex", "thread-1", "follow-1", "keep going", nil, skills); err != nil {
+		t.Fatal(err)
+	}
+	params := mapFromParams(t, rpc.calls[0].params)
+	input, ok := params["input"].([]interface{})
+	if !ok || len(input) != 2 {
+		t.Fatalf("input got %#v", params["input"])
+	}
+	if !reflect.DeepEqual(input[0], map[string]interface{}{"type": "skill", "name": "dev", "path": "/repo/.agents/skills/dev/SKILL.md"}) {
+		t.Fatalf("skill input got %#v", input[0])
 	}
 }
 
@@ -592,7 +691,7 @@ func TestCodexChatBackendInputRetriesThreadNotFoundOnFreshRPC(t *testing.T) {
 		return rpc2, func() { cleanups++ }, nil
 	})
 
-	res, err := b.Input(context.Background(), "codex", "thread-1", "hello", nil, ChatTurnOptions{})
+	res, err := b.Input(context.Background(), "codex", "thread-1", "hello", nil, nil, ChatTurnOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -948,6 +948,129 @@ function normalizeChatDraft(value) {
   return value;
 }
 
+function chatSkillTriggerAt(value, caret) {
+  if (typeof value !== 'string' || !Number.isInteger(caret) || caret < 0 || caret > value.length) return null;
+  const before = value.slice(0, caret);
+  const match = before.match(/(^|\s)([$/])([A-Za-z0-9_-]*)$/);
+  if (!match) return null;
+  const tokenLength = match[2].length + match[3].length;
+  return { start: caret - tokenLength, end: caret, marker: match[2], query: match[3] };
+}
+
+function parseChatSkillInput(value, available) {
+  const byName = new Map((available || []).filter((skill) => skill?.name).map((skill) => [skill.name, skill]));
+  const skills = [];
+  const seen = new Set();
+  const text = String(value || '').replace(/(^|\s)([$/])([A-Za-z0-9_-]+)(?=$|\s)[ \t]?/g, (token, prefix, marker, name) => {
+    const skill = byName.get(name);
+    if (!skill) return token;
+    if (!seen.has(name)) {
+      skills.push(skill);
+      seen.add(name);
+    }
+    return prefix;
+  }).trim();
+  return { text, skills };
+}
+
+async function loadChatSkills(chat) {
+  const cwd = chat?.cwd || '';
+  if (chat && chat.skillsCwd !== cwd) {
+    chat.skills = [];
+    chat.skillsLoaded = false;
+    chat.skillsCwd = cwd;
+  }
+  if (!chat || chat.skillsLoaded) return chat?.skills || [];
+  if (chat.skillsPromise) {
+    try { await chat.skillsPromise; } catch (_) {}
+    return chat.skills || [];
+  }
+  chat.skillsPromise = api(chat.macId, 'chat/skills', {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ assistant: 'codex', cwd }),
+  });
+  try {
+    const response = await chat.skillsPromise;
+    if (state.chatCache.get(chat.cacheKey) !== chat) return [];
+    chat.skills = Array.isArray(response?.skills) ? response.skills.filter((skill) => skill?.name) : [];
+    chat.skillsLoaded = true;
+    if (state.chat === chat) updateChatSkillMenu();
+    return chat.skills;
+  } catch (_) {
+    chat.skills = [];
+    chat.skillsLoaded = true;
+    if (state.chat === chat) closeChatSkillMenu();
+    return [];
+  } finally {
+    chat.skillsPromise = null;
+  }
+}
+
+function closeChatSkillMenu() {
+  const menu = $('#chat-skill-menu');
+  if (menu) {
+    menu.hidden = true;
+    clear(menu);
+  }
+  if (state.chat) state.chat.skillMenu = null;
+}
+
+function renderChatSkillMenu(chat) {
+  const menu = $('#chat-skill-menu');
+  if (!menu || !chat?.skillMenu) return;
+  clear(menu);
+  const { items, index, marker } = chat.skillMenu;
+  items.forEach((skill, itemIndex) => {
+    menu.append(h('button', {
+      type: 'button', class: 'chat-skill-option' + (itemIndex === index ? ' active' : ''),
+      role: 'option', 'aria-selected': itemIndex === index ? 'true' : 'false',
+      onmousedown: (event) => event.preventDefault(),
+      onclick: () => selectChatSkill(itemIndex),
+    },
+    h('span', { class: 'chat-skill-name', text: `${marker}${skill.name}` }),
+    h('span', { class: 'chat-skill-description', text: skill.description || '' })));
+  });
+  menu.hidden = items.length === 0;
+  menu.querySelector?.('.chat-skill-option.active')?.scrollIntoView?.({ block: 'nearest' });
+}
+
+function updateChatSkillMenu() {
+  const chat = state.chat;
+  const input = $('#chat-input');
+  if (!chat || !input) return;
+  const trigger = chatSkillTriggerAt(input.value, input.selectionStart);
+  if (!trigger) { closeChatSkillMenu(); return; }
+  if (!chat.skillsLoaded) {
+    loadChatSkills(chat);
+    closeChatSkillMenu();
+    return;
+  }
+  const query = trigger.query.toLowerCase();
+  const items = chat.skills.filter((skill) => skill.name.toLowerCase().includes(query)).slice(0, 12);
+  if (!items.length) { closeChatSkillMenu(); return; }
+  const previousName = chat.skillMenu?.items?.[chat.skillMenu.index]?.name;
+  const previousIndex = items.findIndex((skill) => skill.name === previousName);
+  chat.skillMenu = { ...trigger, items, index: previousIndex >= 0 ? previousIndex : 0 };
+  renderChatSkillMenu(chat);
+}
+
+function selectChatSkill(index = state.chat?.skillMenu?.index || 0) {
+  const chat = state.chat;
+  const input = $('#chat-input');
+  const menu = chat?.skillMenu;
+  const skill = menu?.items?.[index];
+  if (!input || !skill) return;
+  const token = `${menu.marker}${skill.name} `;
+  input.value = input.value.slice(0, menu.start) + token + input.value.slice(menu.end);
+  const caret = menu.start + token.length;
+  input.setSelectionRange(caret, caret);
+  chat.draft = input.value;
+  closeChatSkillMenu();
+  resizeChatInput();
+  updateChatComposerState();
+  input.focus();
+}
+
 function saveChatDraft(chat = state.chat) {
   const input = $('#chat-input');
   if (chat && input) chat.draft = normalizeChatDraft(input.value);
@@ -957,13 +1080,15 @@ function isChatRunning(chat) {
   return !!chat && (chat.model?.phase === 'running' || chat.submitting === true);
 }
 
-function enqueueChatFollowup(chat, text, images, id) {
+function enqueueChatFollowup(chat, text, images, id, skills, displayText) {
   if (!chat) return null;
   chat.followups = chat.followups || [];
   const item = {
     id: id || `follow-${Date.now()}-${Math.random().toString(16).slice(2)}`,
     text: typeof text === 'string' ? text : '',
+    displayText: typeof displayText === 'string' ? displayText : '',
     images: Array.isArray(images) ? images.map((image) => ({ ...image })) : [],
+    skills: Array.isArray(skills) ? skills.map((skill) => ({ name: skill.name })) : [],
   };
   chat.followups.push(item);
   return item;
@@ -1215,6 +1340,14 @@ function chatCommandSemantic(item) {
   return '';
 }
 
+function chatCommandLoadsSkill(item) {
+  if (item?.kind !== 'commandExecution') return false;
+  const actions = Array.isArray(item.commandActions) ? item.commandActions : [];
+  return actions.some((action) => (
+    action?.type === 'read' && /(?:^|\/)SKILL\.md$/i.test(String(action.path || action.name || '').trim())
+  ));
+}
+
 function isNodeReplTool(item, title, summary) {
   const raw = `${title || ''}\n${summary || ''}`.toLowerCase();
   return item.kind === 'mcpToolCall' && (
@@ -1373,7 +1506,13 @@ function isInternalChatTool(item) {
 }
 
 function isChatActivityItem(item) {
-  return item?.type === 'tool' || item?.type === 'diff';
+  if (item?.type === 'diff') return true;
+  if (item?.type !== 'tool') return false;
+  if (item.kind === 'mcpToolCall') {
+    const raw = `${item.server || ''}\n${item.title || ''}\n${item.summary || ''}`.toLowerCase();
+    if (/(?:^|[\s._-])computer[\s._-]?use(?:$|[\s._-])/.test(raw)) return false;
+  }
+  return ['commandExecution', 'fileRead', 'webSearch', 'mcpToolCall', 'dynamicToolCall'].includes(item.kind);
 }
 
 function chatMessageMetaVisibility(model) {
@@ -1516,7 +1655,7 @@ function chatActivitySourceLabel(item) {
 function chatActivityGroupStats(items) {
   const stats = {
     commands: 0, runningCommands: 0,
-    reads: 0, searches: 0, webSearches: 0,
+    loadedTools: 0, reads: 0, webSearches: 0,
     files: 0, tools: 0, runningTools: 0,
     sources: [],
   };
@@ -1525,8 +1664,8 @@ function chatActivityGroupStats(items) {
     const isCommand = item.type === 'tool' && (item.kind === 'commandExecution' || isNodeReplTool(item, item.title, item.summary));
     if (isCommand) {
       const semantic = chatCommandSemantic(item);
-      if (semantic === 'read' || semantic === 'list') stats.reads += 1;
-      else if (semantic === 'search') stats.searches += 1;
+      if (semantic === 'read' && chatCommandLoadsSkill(item)) stats.loadedTools += 1;
+      else if (semantic) stats.reads += 1;
       else {
         stats.commands += 1;
         if (status.key === 'running') stats.runningCommands += 1;
@@ -1540,7 +1679,10 @@ function chatActivityGroupStats(items) {
     } else {
       if (item.kind === 'mcpToolCall') {
         const source = chatActivitySourceLabel(item);
-        if (source && !stats.sources.includes(source)) stats.sources.push(source);
+        if (source) {
+          if (!stats.sources.includes(source)) stats.sources.push(source);
+          continue;
+        }
       }
       stats.tools += 1;
       if (status.key === 'running') stats.runningTools += 1;
@@ -1556,17 +1698,24 @@ function chatActivityPlural(count, one, many) {
 function chatActivityGroupSummarySegments(items) {
   const stats = chatActivityGroupStats(items);
   const parts = [];
+  const leading = () => parts.length === 0;
   if (stats.sources.length) parts.push(`已使用 ${stats.sources.join('、')} 集成`);
-  if (stats.reads > 0) parts.push('已读取文件');
-  if (stats.searches > 0) parts.push('已搜索文件');
+  if (stats.loadedTools > 0) {
+    parts.push(stats.loadedTools === 1
+      ? (leading() ? '已加载一个工具' : '加载了一个工具')
+      : (leading() ? '已加载工具' : '加载了工具'));
+  }
+  const completedTools = stats.tools - stats.runningTools;
+  if (completedTools > 0) parts.push(chatActivityPlural(completedTools, '调用了一个工具', '调用了工具'));
+  if (stats.runningTools > 0) parts.push(chatActivityPlural(stats.runningTools, '正在调用一个工具', '正在调用工具'));
+  if (stats.files > 0) {
+    parts.push(stats.files === 1 ? '编辑了一个文件' : (leading() ? '编辑了文件' : '编辑了多个文件'));
+  }
+  if (stats.reads > 0) parts.push(leading() ? '已读取文件' : '读取文件');
   const completedCommands = stats.commands - stats.runningCommands;
   if (completedCommands > 0) parts.push(chatActivityPlural(completedCommands, '运行了一个命令', '运行了多个命令'));
   if (stats.runningCommands > 0) parts.push(chatActivityPlural(stats.runningCommands, '正在运行一个命令', '正在运行多个命令'));
-  if (stats.files > 0) parts.push(chatActivityPlural(stats.files, '编辑了一个文件', '编辑了文件'));
   if (stats.webSearches > 0) parts.push('已搜索网页');
-  const completedTools = stats.tools - stats.runningTools;
-  if (completedTools > 0 && !stats.sources.length) parts.push(chatActivityPlural(completedTools, '调用了一个工具', '调用了工具'));
-  if (stats.runningTools > 0 && !stats.sources.length) parts.push(chatActivityPlural(stats.runningTools, '正在调用一个工具', '正在调用工具'));
   return parts.length ? parts : ['已完成'];
 }
 
@@ -1601,9 +1750,13 @@ function chatActivityActiveSummarySegments(item) {
 
 function chatActivityGroupIconKind(items) {
   const stats = chatActivityGroupStats(items);
-  if (stats.commands > 0) return 'commandExecution';
+  if (stats.sources.length) return 'mcpToolCall';
+  if (stats.loadedTools > 0) return 'commandExecution';
+  if (stats.tools > 0) return items.find((item) => item.kind === 'mcpToolCall' || item.kind === 'dynamicToolCall')?.kind || 'tool';
   if (stats.files > 0) return 'fileChange';
-  if (stats.searches > 0) return 'webSearch';
+  if (stats.reads > 0) return 'fileRead';
+  if (stats.commands > 0) return 'commandExecution';
+  if (stats.webSearches > 0) return 'webSearch';
   return items[0]?.kind || 'tool';
 }
 
@@ -1916,6 +2069,7 @@ function chatImageSrc(img) {
   if (!img) return '';
   if (img.previewUrl) return img.previewUrl;
   if (img.url && img.url.startsWith('/api/')) return `${apiBase(state.macId)}${img.url}`;
+  if (img.path) return chatMediaSrc(img.path);
   return img.url || '';
 }
 
@@ -1958,7 +2112,8 @@ function renderChatFollowups() {
   const items = chat?.followups || [];
   box.hidden = items.length === 0;
   for (const item of items) {
-    const label = item.text || `${item.images.length} 张图片`;
+    const label = item.displayText || item.text
+      || (item.skills?.length ? item.skills.map((skill) => `$${skill.name}`).join(' ') : `${item.images.length} 张图片`);
     box.append(h('div', { class: 'chat-followup', dataset: { id: item.id } },
       svgIconParts('chat-followup-icon', [
         { tag: 'path', attrs: { d: 'M8 6h11M8 12h11M8 18h7' } },
@@ -1985,7 +2140,7 @@ function editChatFollowup(id) {
   if (!item) return;
   const input = $('#chat-input');
   const current = input.value.trim();
-  input.value = [current, item.text].filter(Boolean).join(current ? '\n' : '');
+  input.value = [current, item.displayText || item.text].filter(Boolean).join(current ? '\n' : '');
   chat.draft = input.value;
   chat.attachments = [...(chat.attachments || []), ...item.images.map((image) => ({ ...image }))];
   renderChatFollowups();
@@ -2085,6 +2240,7 @@ async function openChatSession(s) {
       model: FleetChatModel.createChatState(), loading: true, events: null, resumePromise: null,
       attachments: [], objectUrls: [], draft: '', updatedAt: Number(s.mtime) || Date.now(),
       followups: [], sendingFollowup: false, interrupting: false,
+      skills: [], skillsLoaded: false, skillsPromise: null, skillsCwd: s.cwd || '', skillMenu: null,
       historyReady: false, historyLoading: false, historyCursor: '',
       models: [], efforts: [], serviceTiers: [], selectedModel: '', selectedEffort: '', selectedServiceTier: '',
       modelDirty: false, serviceTierDirty: false,
@@ -2093,6 +2249,8 @@ async function openChatSession(s) {
     state.chatCache.set(key, chat);
   }
   state.chat = chat;
+  if (!Array.isArray(chat.skills)) chat.skills = [];
+  if (typeof chat.skillsLoaded !== 'boolean') chat.skillsLoaded = false;
   updateChatUpdatedAt(chat, s.mtime);
   evictChatCache();
   showChatPane(chat.title, chat.cwd);
@@ -2101,6 +2259,8 @@ async function openChatSession(s) {
   resizeChatInput();
   renderChatAttachments();
   renderChatFollowups();
+  closeChatSkillMenu();
+  loadChatSkills(chat);
   if (chat.historyReady) {
     setChatApprovalEnabled(chat, true);
     renderChatOptions(chat);
@@ -2493,27 +2653,34 @@ async function submitChatInput({ forceQueue = false } = {}) {
   const chat = state.chat;
   const input = $('#chat-input');
   const raw = typeof input.value === 'string' ? input.value : '';
-  const text = raw.trim();
   if (!chat) return;
+  if (!chat.skillsLoaded) await loadChatSkills(chat);
+  const parsed = parseChatSkillInput(raw, chat.skills);
+  const text = parsed.text;
   const pending = chat.attachments || [];
   if (pending.some((att) => att.uploading)) { toast('图片还在上传，稍等一下。'); return; }
   if (pending.some((att) => att.error || !att.id)) { toast('有图片上传失败，先移除或重新选择。', 'err'); return; }
-  if (!text && pending.length === 0) return;
+  if (!text && pending.length === 0 && parsed.skills.length === 0) return;
   const images = pending.map((att) => ({ id: att.id, name: att.name, mime: att.mime, size: att.size, url: att.url, previewUrl: att.previewUrl }));
   input.value = '';
   chat.draft = '';
   resizeChatInput();
   chat.attachments = [];
   renderChatAttachments();
-  const item = { id: `follow-${Date.now()}-${Math.random().toString(16).slice(2)}`, text: raw, images };
+  closeChatSkillMenu();
+  const item = {
+    id: `follow-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+    text, displayText: raw.trim(), images,
+    skills: parsed.skills.map((skill) => ({ name: skill.name })),
+  };
   if (isChatRunning(chat)) {
     if (forceQueue) {
-      enqueueChatFollowup(chat, item.text, item.images, item.id);
+      enqueueChatFollowup(chat, item.text, item.images, item.id, item.skills, item.displayText);
       renderChatFollowups();
     } else {
       const steered = await sendChatSteer(chat, item);
       if (!steered) {
-        enqueueChatFollowup(chat, item.text, item.images, item.id);
+        enqueueChatFollowup(chat, item.text, item.images, item.id, item.skills, item.displayText);
         if (state.chat === chat) {
           renderChatFollowups();
           toast('追问未能插入当前任务，已保留到下一轮。', 'err');
@@ -2539,7 +2706,7 @@ function chatTurnOptions(chat) {
 
 async function sendChatTurn(chat, item) {
   const optimisticId = item.id || ('user-' + Date.now());
-  chat.model = FleetChatModel.appendUserMessage(chat.model, item.text.trim(), optimisticId, item.images);
+  chat.model = FleetChatModel.appendUserMessage(chat.model, (item.displayText || item.text).trim(), optimisticId, item.images);
   chat.loading = false;
   chat.submitting = true;
   if (state.chat === chat) {
@@ -2551,7 +2718,8 @@ async function sendChatTurn(chat, item) {
       method: 'POST', headers: { 'content-type': 'application/json' },
       body: JSON.stringify({
         assistant: 'codex', sessionId: chat.sessionId, clientMessageId: optimisticId,
-        text: item.text, images: item.images.map((img) => ({ id: img.id })), ...chatTurnOptions(chat),
+        cwd: chat.cwd || '', text: item.text, skills: item.skills || [],
+        images: item.images.map((img) => ({ id: img.id })), ...chatTurnOptions(chat),
       }),
     });
     if (!started || typeof started.turnId !== 'string' || !started.turnId.trim()) {
@@ -2575,7 +2743,7 @@ async function sendChatTurn(chat, item) {
 async function sendChatSteer(chat, item) {
   const clientId = item.id || `steer-${Date.now()}-${Math.random().toString(16).slice(2)}`;
   chat.model = FleetChatModel.appendSteeringMessage(
-    chat.model, item.text.trim(), clientId, item.images, chat.model.activeTurnId,
+    chat.model, (item.displayText || item.text).trim(), clientId, item.images, chat.model.activeTurnId,
   );
   if (state.chat === chat) renderChat();
   try {
@@ -2583,7 +2751,8 @@ async function sendChatSteer(chat, item) {
       method: 'POST', headers: { 'content-type': 'application/json' },
       body: JSON.stringify({
         assistant: 'codex', sessionId: chat.sessionId, clientMessageId: clientId,
-        text: item.text, images: item.images.map((img) => ({ id: img.id })),
+        cwd: chat.cwd || '', text: item.text, skills: item.skills || [],
+        images: item.images.map((img) => ({ id: img.id })),
       }),
     });
     chat.model = FleetChatModel.reduceChatEvent(chat.model, {
@@ -3040,8 +3209,30 @@ function init() {
   };
   $('#chat-attach').onclick = () => $('#chat-file').click();
   $('#chat-file').addEventListener('change', (e) => { addChatFiles(e.target.files); e.target.value = ''; });
-  $('#chat-input').addEventListener('input', () => { saveChatDraft(); resizeChatInput(); updateChatComposerState(); });
+  $('#chat-input').addEventListener('input', () => {
+    saveChatDraft(); resizeChatInput(); updateChatComposerState(); updateChatSkillMenu();
+  });
   $('#chat-input').addEventListener('keydown', (e) => {
+    const menu = state.chat?.skillMenu;
+    if (menu && !$('#chat-skill-menu').hidden && !isIMEComposing(e, chatIMEComposing)) {
+      if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+        e.preventDefault();
+        const delta = e.key === 'ArrowDown' ? 1 : -1;
+        menu.index = (menu.index + delta + menu.items.length) % menu.items.length;
+        renderChatSkillMenu(state.chat);
+        return;
+      }
+      if (e.key === 'Enter' || e.key === 'Tab') {
+        e.preventDefault();
+        selectChatSkill();
+        return;
+      }
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        closeChatSkillMenu();
+        return;
+      }
+    }
     if (e.key === 'Enter' && !isIMEComposing(e, chatIMEComposing)) {
       if ((e.metaKey || e.ctrlKey) && e.shiftKey) {
         e.preventDefault();
@@ -3112,6 +3303,7 @@ function init() {
     if (!e.target.closest('.menu') && !e.target.closest('#user-btn') && !e.target.closest('#m-menu-btn')) closeMenus();
     if (!e.target.closest('#chat-approval-menu')) closeChatApproval();
     if (!e.target.closest('#chat-options')) closeChatOptions();
+    if (!e.target.closest('#chat-skill-menu') && !e.target.closest('#chat-input')) closeChatSkillMenu();
   });
   document.addEventListener('keydown', (e) => {
     if (e.key !== 'Escape') return;
