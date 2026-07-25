@@ -951,24 +951,36 @@ function normalizeChatDraft(value) {
 function chatSkillTriggerAt(value, caret) {
   if (typeof value !== 'string' || !Number.isInteger(caret) || caret < 0 || caret > value.length) return null;
   const before = value.slice(0, caret);
-  const match = before.match(/(^|\s)([$/])([A-Za-z0-9_-]*)$/);
+  const match = before.match(/(^|\s)([$/])([A-Za-z0-9_.:-]*)$/);
   if (!match) return null;
   const tokenLength = match[2].length + match[3].length;
   return { start: caret - tokenLength, end: caret, marker: match[2], query: match[3] };
 }
 
-function parseChatSkillInput(value, available) {
-  const byName = new Map((available || []).filter((skill) => skill?.name).map((skill) => [skill.name, skill]));
+function chatSkillTokenNames(value) {
+  return Array.from(String(value || '').matchAll(/(?<!\S)[$/]([A-Za-z0-9_.:-]+)(?=$|\s)/g), (match) => match[1]);
+}
+
+function parseChatSkillInput(value, available, preferredIDs = {}) {
+  const byName = new Map();
+  for (const skill of available || []) {
+    if (!skill?.name) continue;
+    const current = byName.get(skill.name);
+    if (!current || (preferredIDs?.[skill.name] && preferredIDs[skill.name] === skill.id)) {
+      byName.set(skill.name, skill);
+    }
+  }
   const skills = [];
   const seen = new Set();
-  const text = String(value || '').replace(/(^|\s)([$/])([A-Za-z0-9_-]+)(?=$|\s)[ \t]?/g, (token, prefix, marker, name) => {
+  const text = String(value || '').replace(/(?<!\S)([$/])([A-Za-z0-9_.:-]+)(?=$|\s)[ \t]?/g, (token, marker, name) => {
     const skill = byName.get(name);
     if (!skill) return token;
-    if (!seen.has(name)) {
+    const key = skill.id || skill.name;
+    if (!seen.has(key)) {
       skills.push(skill);
-      seen.add(name);
+      seen.add(key);
     }
-    return prefix;
+    return '';
   }).trim();
   return { text, skills };
 }
@@ -978,32 +990,34 @@ async function loadChatSkills(chat) {
   if (chat && chat.skillsCwd !== cwd) {
     chat.skills = [];
     chat.skillsLoaded = false;
+    chat.skillsError = '';
     chat.skillsCwd = cwd;
   }
   if (!chat || chat.skillsLoaded) return chat?.skills || [];
-  if (chat.skillsPromise) {
-    try { await chat.skillsPromise; } catch (_) {}
-    return chat.skills || [];
-  }
-  chat.skillsPromise = api(chat.macId, 'chat/skills', {
+  if (chat.skillsPromise) return chat.skillsPromise;
+  const request = api(chat.macId, 'chat/skills', {
     method: 'POST', headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ assistant: 'codex', cwd }),
   });
-  try {
-    const response = await chat.skillsPromise;
+  const task = request.then((response) => {
     if (state.chatCache.get(chat.cacheKey) !== chat) return [];
-    chat.skills = Array.isArray(response?.skills) ? response.skills.filter((skill) => skill?.name) : [];
+    chat.skills = Array.isArray(response?.skills) ? response.skills.filter((skill) => skill?.id && skill?.name) : [];
     chat.skillsLoaded = true;
+    chat.skillsError = '';
     if (state.chat === chat) updateChatSkillMenu();
     return chat.skills;
-  } catch (_) {
-    chat.skills = [];
-    chat.skillsLoaded = true;
-    if (state.chat === chat) closeChatSkillMenu();
-    return [];
-  } finally {
-    chat.skillsPromise = null;
-  }
+  }).catch((error) => {
+    if (state.chatCache.get(chat.cacheKey) === chat) {
+      chat.skillsLoaded = false;
+      chat.skillsError = error?.message || 'Skill 列表加载失败';
+      if (state.chat === chat) closeChatSkillMenu();
+    }
+    throw error;
+  }).finally(() => {
+    if (chat.skillsPromise === task) chat.skillsPromise = null;
+  });
+  chat.skillsPromise = task;
+  return task;
 }
 
 function closeChatSkillMenu() {
@@ -1041,15 +1055,15 @@ function updateChatSkillMenu() {
   const trigger = chatSkillTriggerAt(input.value, input.selectionStart);
   if (!trigger) { closeChatSkillMenu(); return; }
   if (!chat.skillsLoaded) {
-    loadChatSkills(chat);
+    loadChatSkills(chat).catch(() => {});
     closeChatSkillMenu();
     return;
   }
   const query = trigger.query.toLowerCase();
   const items = chat.skills.filter((skill) => skill.name.toLowerCase().includes(query)).slice(0, 12);
   if (!items.length) { closeChatSkillMenu(); return; }
-  const previousName = chat.skillMenu?.items?.[chat.skillMenu.index]?.name;
-  const previousIndex = items.findIndex((skill) => skill.name === previousName);
+  const previousID = chat.skillMenu?.items?.[chat.skillMenu.index]?.id;
+  const previousIndex = items.findIndex((skill) => skill.id === previousID);
   chat.skillMenu = { ...trigger, items, index: previousIndex >= 0 ? previousIndex : 0 };
   renderChatSkillMenu(chat);
 }
@@ -1065,6 +1079,8 @@ function selectChatSkill(index = state.chat?.skillMenu?.index || 0) {
   const caret = menu.start + token.length;
   input.setSelectionRange(caret, caret);
   chat.draft = input.value;
+  chat.skillPreferences = chat.skillPreferences || {};
+  chat.skillPreferences[skill.name] = skill.id;
   closeChatSkillMenu();
   resizeChatInput();
   updateChatComposerState();
@@ -1088,7 +1104,7 @@ function enqueueChatFollowup(chat, text, images, id, skills, displayText) {
     text: typeof text === 'string' ? text : '',
     displayText: typeof displayText === 'string' ? displayText : '',
     images: Array.isArray(images) ? images.map((image) => ({ ...image })) : [],
-    skills: Array.isArray(skills) ? skills.map((skill) => ({ name: skill.name })) : [],
+    skills: Array.isArray(skills) ? skills.map((skill) => ({ id: skill.id, name: skill.name })) : [],
   };
   chat.followups.push(item);
   return item;
@@ -1174,6 +1190,7 @@ function syncChatConnectionIndicators() {
 function closeChatPane({ dispose = false } = {}) {
   const chat = state.chat;
   saveChatDraft(chat);
+  closeChatSkillMenu();
   if (dispose && chat) {
     disposeChat(chat);
     state.chatCache.delete(chat.cacheKey);
@@ -2104,6 +2121,38 @@ function updateChatComposerState() {
   send.setAttribute('aria-label', send.title);
 }
 
+function mergeChatComposerText(failedText, currentText) {
+  const failed = normalizeChatDraft(failedText).trim();
+  const current = normalizeChatDraft(currentText).trim();
+  return [failed, current].filter(Boolean).join(failed && current ? '\n' : '');
+}
+
+function mergeChatAttachments(failedImages, currentImages) {
+  const merged = [];
+  const seen = new Set();
+  for (const image of [...(failedImages || []), ...(currentImages || [])]) {
+    if (!image) continue;
+    const key = image.localId || image.id || image.previewUrl || image.url || image.name;
+    if (key && seen.has(key)) continue;
+    if (key) seen.add(key);
+    merged.push({ ...image });
+  }
+  return merged;
+}
+
+function restoreChatComposerItem(chat, item) {
+  if (!chat || !item) return;
+  const input = state.chat === chat ? $('#chat-input') : null;
+  const currentText = input ? input.value : chat.draft;
+  chat.draft = mergeChatComposerText(item.displayText || item.text, currentText);
+  chat.attachments = mergeChatAttachments(item.images, chat.attachments);
+  if (!input) return;
+  input.value = chat.draft;
+  renderChatAttachments();
+  resizeChatInput();
+  updateChatComposerState();
+}
+
 function renderChatFollowups() {
   const box = $('#chat-followups');
   const chat = state.chat;
@@ -2240,7 +2289,8 @@ async function openChatSession(s) {
       model: FleetChatModel.createChatState(), loading: true, events: null, resumePromise: null,
       attachments: [], objectUrls: [], draft: '', updatedAt: Number(s.mtime) || Date.now(),
       followups: [], sendingFollowup: false, interrupting: false,
-      skills: [], skillsLoaded: false, skillsPromise: null, skillsCwd: s.cwd || '', skillMenu: null,
+      skills: [], skillsLoaded: false, skillsPromise: null, skillsError: '',
+      skillsCwd: s.cwd || '', skillMenu: null, skillPreferences: {},
       historyReady: false, historyLoading: false, historyCursor: '',
       models: [], efforts: [], serviceTiers: [], selectedModel: '', selectedEffort: '', selectedServiceTier: '',
       modelDirty: false, serviceTierDirty: false,
@@ -2251,6 +2301,7 @@ async function openChatSession(s) {
   state.chat = chat;
   if (!Array.isArray(chat.skills)) chat.skills = [];
   if (typeof chat.skillsLoaded !== 'boolean') chat.skillsLoaded = false;
+  if (!chat.skillPreferences || typeof chat.skillPreferences !== 'object') chat.skillPreferences = {};
   updateChatUpdatedAt(chat, s.mtime);
   evictChatCache();
   showChatPane(chat.title, chat.cwd);
@@ -2260,7 +2311,7 @@ async function openChatSession(s) {
   renderChatAttachments();
   renderChatFollowups();
   closeChatSkillMenu();
-  loadChatSkills(chat);
+  loadChatSkills(chat).catch(() => {});
   if (chat.historyReady) {
     setChatApprovalEnabled(chat, true);
     renderChatOptions(chat);
@@ -2652,16 +2703,30 @@ function startChatEvents(chat = state.chat) {
 async function submitChatInput({ forceQueue = false } = {}) {
   const chat = state.chat;
   const input = $('#chat-input');
-  const raw = typeof input.value === 'string' ? input.value : '';
+  let raw = typeof input.value === 'string' ? input.value : '';
   if (!chat) return;
-  if (!chat.skillsLoaded) await loadChatSkills(chat);
-  const parsed = parseChatSkillInput(raw, chat.skills);
+  if (!chat.skillsLoaded && chatSkillTokenNames(raw).length) {
+    try {
+      await loadChatSkills(chat);
+    } catch (_) {
+      if (state.chat === chat) toast('Skill 列表加载失败，消息未发送。请检查连接后重试。', 'err');
+      return;
+    }
+    if (state.chat !== chat) return;
+    raw = typeof input.value === 'string' ? input.value : '';
+  }
+  const parsed = chat.skillsLoaded
+    ? parseChatSkillInput(raw, chat.skills, chat.skillPreferences)
+    : { text: raw.trim(), skills: [] };
   const text = parsed.text;
   const pending = chat.attachments || [];
   if (pending.some((att) => att.uploading)) { toast('图片还在上传，稍等一下。'); return; }
   if (pending.some((att) => att.error || !att.id)) { toast('有图片上传失败，先移除或重新选择。', 'err'); return; }
   if (!text && pending.length === 0 && parsed.skills.length === 0) return;
-  const images = pending.map((att) => ({ id: att.id, name: att.name, mime: att.mime, size: att.size, url: att.url, previewUrl: att.previewUrl }));
+  const images = pending.map((att) => ({
+    localId: att.localId, id: att.id, name: att.name, mime: att.mime, size: att.size,
+    url: att.url, previewUrl: att.previewUrl,
+  }));
   input.value = '';
   chat.draft = '';
   resizeChatInput();
@@ -2671,7 +2736,7 @@ async function submitChatInput({ forceQueue = false } = {}) {
   const item = {
     id: `follow-${Date.now()}-${Math.random().toString(16).slice(2)}`,
     text, displayText: raw.trim(), images,
-    skills: parsed.skills.map((skill) => ({ name: skill.name })),
+    skills: parsed.skills.map((skill) => ({ id: skill.id, name: skill.name })),
   };
   if (isChatRunning(chat)) {
     if (forceQueue) {
@@ -2704,7 +2769,7 @@ function chatTurnOptions(chat) {
   return turnOptions;
 }
 
-async function sendChatTurn(chat, item) {
+async function sendChatTurn(chat, item, { restoreOnFailure = true } = {}) {
   const optimisticId = item.id || ('user-' + Date.now());
   chat.model = FleetChatModel.appendUserMessage(chat.model, (item.displayText || item.text).trim(), optimisticId, item.images);
   chat.loading = false;
@@ -2730,6 +2795,7 @@ async function sendChatTurn(chat, item) {
   } catch (e) {
     chat.model = FleetChatModel.removeMessage(chat.model, optimisticId);
     chat.model = FleetChatModel.reduceChatEvent(chat.model, { type: 'error', data: { message: e.message } });
+    if (restoreOnFailure) restoreChatComposerItem(chat, item);
     if (state.chat === chat) {
       renderChat();
     }
@@ -2777,7 +2843,7 @@ async function flushChatFollowups(chat) {
   if (!chat || chat.sendingFollowup || isChatRunning(chat) || !chat.followups?.length) return;
   chat.sendingFollowup = true;
   const item = chat.followups[0];
-  const sent = await sendChatTurn(chat, item);
+  const sent = await sendChatTurn(chat, item, { restoreOnFailure: false });
   if (sent) removeChatFollowup(chat, item.id);
   chat.sendingFollowup = false;
   if (state.chat === chat) renderChatFollowups();
@@ -3211,6 +3277,10 @@ function init() {
   $('#chat-file').addEventListener('change', (e) => { addChatFiles(e.target.files); e.target.value = ''; });
   $('#chat-input').addEventListener('input', () => {
     saveChatDraft(); resizeChatInput(); updateChatComposerState(); updateChatSkillMenu();
+  });
+  $('#chat-input').addEventListener('click', updateChatSkillMenu);
+  $('#chat-input').addEventListener('keyup', (e) => {
+    if (['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(e.key)) updateChatSkillMenu();
   });
   $('#chat-input').addEventListener('keydown', (e) => {
     const menu = state.chat?.skillMenu;

@@ -433,8 +433,16 @@ func TestCodexChatBackendSkillsUsesSkillsList(t *testing.T) {
 		"data":[{
 			"cwd":"/repo",
 			"skills":[
-				{"name":"dev","description":"Develop","path":"/repo/.agents/skills/dev/SKILL.md","scope":"repo","enabled":true},
-				{"name":"disabled","description":"Disabled","path":"/repo/.agents/skills/disabled/SKILL.md","scope":"repo","enabled":false}
+				{"name":"dev","description":"Long development instructions","shortDescription":"Develop","path":"/repo/.agents/skills/dev/SKILL.md","scope":"repo","enabled":true},
+				{"name":"disabled","description":"Disabled","path":"/repo/.agents/skills/disabled/SKILL.md","scope":"repo","enabled":false},
+				{"name":"tavily","description":"Agents copy","path":"/Users/test/.agents/skills/tavily/SKILL.md","scope":"user","enabled":true},
+				{"name":"tavily","description":"Codex copy","path":"/Users/test/.codex/skills/tavily/SKILL.md","scope":"user","enabled":true}
+			],
+			"errors":[]
+		},{
+			"cwd":"/another-repo",
+			"skills":[
+				{"name":"foreign","description":"Other cwd","path":"/another-repo/.agents/skills/foreign/SKILL.md","scope":"repo","enabled":true}
 			],
 			"errors":[]
 		}]
@@ -447,9 +455,14 @@ func TestCodexChatBackendSkillsUsesSkillsList(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(got) != 1 || got[0].Name != "dev" || got[0].Path != "/repo/.agents/skills/dev/SKILL.md" ||
+	if len(got) != 3 || got[0].Name != "dev" || got[0].Path != "/repo/.agents/skills/dev/SKILL.md" ||
 		got[0].Description != "Develop" || got[0].Scope != "repo" {
 		t.Fatalf("skills got %+v", got)
+	}
+	if got[0].ID == "" || got[1].ID == "" || got[2].ID == "" ||
+		got[1].Name != "tavily" || got[2].Name != "tavily" ||
+		got[1].Path == got[2].Path || got[1].ID == got[2].ID {
+		t.Fatalf("same-name skills must remain distinct: %+v", got)
 	}
 	if len(rpc.calls) != 1 || rpc.calls[0].method != "skills/list" {
 		t.Fatalf("calls: %+v", rpc.calls)

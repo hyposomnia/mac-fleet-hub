@@ -54,8 +54,8 @@ const appSandbox = {
   Date: FixedAppDate,
 };
 vm.createContext(appSandbox);
-vm.runInContext(`${appSrc}\n;globalThis.__chatCacheTest = { chatCacheVictim, isChatConnectionKept, updateChatUpdatedAt, formatChatDate, chatAssistantMetaText, chatUserMetaText, chatMessageMetaVisibility, applyChatMetadataDefaults, enqueueChatFollowup, removeChatFollowup, normalizeChatDraft, chatSkillTriggerAt, parseChatSkillInput, chatImageSrc, chatToolStatus, chatToolDuration, chatToolActivityLabel, chatToolHasExpandableBody, isChatActivityItem, chatActivityGroupSummaryText, chatActivityActiveSummarySegments, chatActivityGroupIconKind, renderChatActivityGroup, chatTurnPinText: typeof chatTurnPinText === 'function' ? chatTurnPinText : () => '', isInternalChatTool: typeof isInternalChatTool === 'function' ? isInternalChatTool : () => false, state };`, appSandbox);
-const { chatCacheVictim, isChatConnectionKept, updateChatUpdatedAt, formatChatDate, chatAssistantMetaText, chatUserMetaText, chatMessageMetaVisibility, applyChatMetadataDefaults, enqueueChatFollowup, removeChatFollowup, normalizeChatDraft, chatSkillTriggerAt, parseChatSkillInput, chatImageSrc, chatToolStatus, chatToolDuration, chatToolActivityLabel, chatToolHasExpandableBody, isChatActivityItem, chatActivityGroupSummaryText, chatActivityActiveSummarySegments, chatActivityGroupIconKind, renderChatActivityGroup, chatTurnPinText, isInternalChatTool, state: appState } = appSandbox.__chatCacheTest;
+vm.runInContext(`${appSrc}\n;globalThis.__chatCacheTest = { chatCacheVictim, isChatConnectionKept, updateChatUpdatedAt, formatChatDate, chatAssistantMetaText, chatUserMetaText, chatMessageMetaVisibility, applyChatMetadataDefaults, enqueueChatFollowup, removeChatFollowup, normalizeChatDraft, chatSkillTriggerAt, parseChatSkillInput, chatSkillTokenNames, mergeChatComposerText, mergeChatAttachments, chatImageSrc, chatToolStatus, chatToolDuration, chatToolActivityLabel, chatToolHasExpandableBody, isChatActivityItem, chatActivityGroupSummaryText, chatActivityActiveSummarySegments, chatActivityGroupIconKind, renderChatActivityGroup, chatTurnPinText: typeof chatTurnPinText === 'function' ? chatTurnPinText : () => '', isInternalChatTool: typeof isInternalChatTool === 'function' ? isInternalChatTool : () => false, state };`, appSandbox);
+const { chatCacheVictim, isChatConnectionKept, updateChatUpdatedAt, formatChatDate, chatAssistantMetaText, chatUserMetaText, chatMessageMetaVisibility, applyChatMetadataDefaults, enqueueChatFollowup, removeChatFollowup, normalizeChatDraft, chatSkillTriggerAt, parseChatSkillInput, chatSkillTokenNames, mergeChatComposerText, mergeChatAttachments, chatImageSrc, chatToolStatus, chatToolDuration, chatToolActivityLabel, chatToolHasExpandableBody, isChatActivityItem, chatActivityGroupSummaryText, chatActivityActiveSummarySegments, chatActivityGroupIconKind, renderChatActivityGroup, chatTurnPinText, isInternalChatTool, state: appState } = appSandbox.__chatCacheTest;
 function toolLabelText(item) {
   const status = chatToolStatus(item.status);
   return chatToolActivityLabel(item, status, chatToolDuration(item.durationMs)).map(nodeText).join('');
@@ -282,6 +282,10 @@ test('chat skill trigger recognizes dollar and slash only at token start', () =>
     { ...chatSkillTriggerAt('fix /d', 6) },
     { start: 4, end: 6, marker: '/', query: 'd' },
   );
+  assert.deepEqual(
+    { ...chatSkillTriggerAt('$browser:control', 16) },
+    { start: 0, end: 16, marker: '$', query: 'browser:control' },
+  );
   assert.equal(chatSkillTriggerAt('path/foo', 8), null);
   assert.equal(chatSkillTriggerAt('cost$dev', 8), null);
   assert.equal(chatSkillTriggerAt('/dev done', 9), null);
@@ -291,14 +295,50 @@ test('chat skill parsing supports dollar and slash, deduplicates, and keeps unkn
   const available = [
     { name: 'dev', description: 'Develop' },
     { name: 'ui', description: 'Design' },
+    { id: 'browser-skill', name: 'browser:control-in-app-browser', description: 'Browser' },
   ];
-  const parsed = parseChatSkillInput('$dev 修复登录\n/ui 调整界面 /dev /unknown', available);
+  const parsed = parseChatSkillInput(
+    '$dev 修复登录\n/ui 调整界面 /dev $browser:control-in-app-browser /unknown',
+    available,
+  );
   assert.equal(parsed.text, '修复登录\n调整界面 /unknown');
-  assert.deepEqual(Array.from(parsed.skills, (skill) => skill.name), ['dev', 'ui']);
+  assert.deepEqual(
+    Array.from(parsed.skills, (skill) => skill.name),
+    ['dev', 'ui', 'browser:control-in-app-browser'],
+  );
 
   const unknown = parseChatSkillInput('/missing keep', available);
   assert.equal(unknown.text, '/missing keep');
   assert.deepEqual(Array.from(unknown.skills), []);
+});
+
+test('same-name skill parsing keeps app-server first-result priority', () => {
+  const available = [
+    { id: 'agents-copy', name: 'tavily', description: 'Agents copy' },
+    { id: 'codex-copy', name: 'tavily', description: 'Codex copy' },
+  ];
+  const parsed = parseChatSkillInput('$tavily search', available);
+  assert.equal(parsed.skills.length, 1);
+  assert.equal(parsed.skills[0].id, 'agents-copy');
+});
+
+test('skill token detection covers plugin-prefixed names before a list retry', () => {
+  assert.deepEqual(
+    Array.from(chatSkillTokenNames('$browser:control-in-app-browser inspect /dev')),
+    ['browser:control-in-app-browser', 'dev'],
+  );
+  assert.deepEqual(Array.from(chatSkillTokenNames('plain text /tmp/file')), []);
+});
+
+test('failed turn recovery preserves text order and deduplicates uploaded images', () => {
+  assert.equal(mergeChatComposerText('failed request', ''), 'failed request');
+  assert.equal(mergeChatComposerText('failed request', 'new draft'), 'failed request\nnew draft');
+  const failed = [{ localId: 'local-1', id: 'upload-1' }, { localId: 'local-2', id: 'upload-2' }];
+  const current = [{ localId: 'local-2', id: 'upload-2' }, { localId: 'local-3', id: 'upload-3' }];
+  assert.deepEqual(
+    Array.from(mergeChatAttachments(failed, current), (image) => image.id),
+    ['upload-1', 'upload-2', 'upload-3'],
+  );
 });
 
 test('local user image path resolves through the selected Mac media endpoint', () => {
@@ -850,6 +890,8 @@ test('composer draft normalization rejects null-like persisted values', () => {
 test('send and stop source contracts reject stale active state', () => {
   assert.match(appSrc, /typeof started\.turnId !== 'string'/);
   assert.match(appSrc, /FleetChatModel\.removeMessage\(chat\.model, optimisticId\)/);
+  assert.match(appSrc, /restoreChatComposerItem\(chat, item\)/);
+  assert.match(appSrc, /Skill 列表加载失败，消息未发送/);
   assert.match(appSrc, /e\.code === 'no_active_turn'/);
   assert.match(appSrc, /type: 'thread_status', data: \{ status: 'idle' \}/);
 });

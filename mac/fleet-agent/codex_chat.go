@@ -679,11 +679,16 @@ func (b *codexChatBackend) Skills(ctx context.Context, assistant, cwd string) ([
 		Data []struct {
 			Cwd    string `json:"cwd"`
 			Skills []struct {
-				Name        string `json:"name"`
-				Description string `json:"description"`
-				Path        string `json:"path"`
-				Scope       string `json:"scope"`
-				Enabled     bool   `json:"enabled"`
+				Name                   string `json:"name"`
+				Description            string `json:"description"`
+				ShortDescription       string `json:"shortDescription"`
+				LegacyShortDescription string `json:"short_description"`
+				Path                   string `json:"path"`
+				Scope                  string `json:"scope"`
+				Enabled                bool   `json:"enabled"`
+				Interface              struct {
+					ShortDescription string `json:"shortDescription"`
+				} `json:"interface"`
 			} `json:"skills"`
 		} `json:"data"`
 	}
@@ -691,17 +696,28 @@ func (b *codexChatBackend) Skills(ctx context.Context, assistant, cwd string) ([
 		return nil, fmt.Errorf("decode skills/list response: %w", err)
 	}
 	var skills []ChatSkill
-	seen := map[string]bool{}
+	seenPaths := map[string]bool{}
 	for _, entry := range res.Data {
-		if cwd != "" && entry.Cwd != "" && entry.Cwd != cwd {
+		if cwd != "" && entry.Cwd != "" && filepath.Clean(entry.Cwd) != filepath.Clean(cwd) {
 			continue
 		}
 		for _, skill := range entry.Skills {
-			if skill.Enabled && skill.Name != "" && skill.Path != "" && !seen[skill.Name] {
+			if skill.Enabled && skill.Name != "" && skill.Path != "" && !seenPaths[skill.Path] {
+				description := strings.TrimSpace(skill.ShortDescription)
+				if description == "" {
+					description = strings.TrimSpace(skill.LegacyShortDescription)
+				}
+				if description == "" {
+					description = strings.TrimSpace(skill.Interface.ShortDescription)
+				}
+				if description == "" {
+					description = skill.Description
+				}
 				skills = append(skills, ChatSkill{
-					Name: skill.Name, Description: skill.Description, Path: skill.Path, Scope: skill.Scope,
+					ID: chatSkillID(skill.Path), Name: skill.Name, Description: description,
+					Path: skill.Path, Scope: skill.Scope,
 				})
-				seen[skill.Name] = true
+				seenPaths[skill.Path] = true
 			}
 		}
 	}

@@ -215,7 +215,8 @@ func TestChatSkillsCallsBackendWithoutExposingPath(t *testing.T) {
 				t.Fatalf("skills args assistant=%s cwd=%s", assistant, cwd)
 			}
 			return []ChatSkill{{
-				Name: "dev", Description: "Develop", Path: "/repo/.agents/skills/dev/SKILL.md", Scope: "repo",
+				ID: "skill-dev", Name: "dev", Description: "Develop",
+				Path: "/repo/.agents/skills/dev/SKILL.md", Scope: "repo",
 			}}, nil
 		},
 	})
@@ -224,7 +225,8 @@ func TestChatSkillsCallsBackendWithoutExposingPath(t *testing.T) {
 
 	handleChatSkills(rr, req)
 
-	if rr.Code != http.StatusOK || !strings.Contains(rr.Body.String(), `"name":"dev"`) ||
+	if rr.Code != http.StatusOK || !strings.Contains(rr.Body.String(), `"id":"skill-dev"`) ||
+		!strings.Contains(rr.Body.String(), `"name":"dev"`) ||
 		!strings.Contains(rr.Body.String(), `"description":"Develop"`) {
 		t.Fatalf("status=%d body=%s", rr.Code, rr.Body.String())
 	}
@@ -235,24 +237,53 @@ func TestChatSkillsCallsBackendWithoutExposingPath(t *testing.T) {
 
 func TestChatInputResolvesSkillNameBeforeCallingBackend(t *testing.T) {
 	const skillPath = "/repo/.agents/skills/dev/SKILL.md"
+	const skillID = "skill-dev"
 	withChatBackend(t, fakeChatBackend{
 		skillsFn: func(ctx context.Context, assistant, cwd string) ([]ChatSkill, error) {
-			return []ChatSkill{{Name: "dev", Path: skillPath}}, nil
+			return []ChatSkill{{ID: skillID, Name: "dev", Path: skillPath}}, nil
 		},
 		inputFn: func(ctx context.Context, assistant, sessionID, text string, images []ChatAttachment, skills []ChatSkill, opts ChatTurnOptions) (ChatInputResult, error) {
-			if text != "fix it" || len(skills) != 1 || skills[0].Name != "dev" || skills[0].Path != skillPath {
+			if text != "fix it" || len(skills) != 1 || skills[0].ID != skillID ||
+				skills[0].Name != "dev" || skills[0].Path != skillPath {
 				t.Fatalf("resolved input text=%q skills=%+v", text, skills)
 			}
 			return ChatInputResult{TurnID: "turn-skill"}, nil
 		},
 	})
-	body := `{"assistant":"codex","sessionId":"s1","cwd":"/repo","text":"fix it","skills":[{"name":"dev"}]}`
+	body := `{"assistant":"codex","sessionId":"s1","cwd":"/repo","text":"fix it","skills":[{"id":"skill-dev","name":"dev"}]}`
 	req := httptest.NewRequest(http.MethodPost, "/api/chat/input", bytes.NewBufferString(body))
 	rr := httptest.NewRecorder()
 
 	handleChatInput(rr, req)
 
 	if rr.Code != http.StatusOK || !strings.Contains(rr.Body.String(), `"turnId":"turn-skill"`) {
+		t.Fatalf("status=%d body=%s", rr.Code, rr.Body.String())
+	}
+}
+
+func TestChatInputUsesFirstAppServerSkillForLegacyNameOnlyRequest(t *testing.T) {
+	const firstPath = "/Users/test/.agents/skills/tavily/SKILL.md"
+	withChatBackend(t, fakeChatBackend{
+		skillsFn: func(context.Context, string, string) ([]ChatSkill, error) {
+			return []ChatSkill{
+				{ID: "first", Name: "tavily", Path: firstPath},
+				{ID: "second", Name: "tavily", Path: "/Users/test/.codex/skills/tavily/SKILL.md"},
+			}, nil
+		},
+		inputFn: func(_ context.Context, _, _, _ string, _ []ChatAttachment, skills []ChatSkill, _ ChatTurnOptions) (ChatInputResult, error) {
+			if len(skills) != 1 || skills[0].ID != "first" || skills[0].Path != firstPath {
+				t.Fatalf("legacy name must resolve to first app-server result: %+v", skills)
+			}
+			return ChatInputResult{TurnID: "turn-first"}, nil
+		},
+	})
+	body := `{"assistant":"codex","sessionId":"s1","cwd":"/repo","skills":[{"name":"tavily"}]}`
+	req := httptest.NewRequest(http.MethodPost, "/api/chat/input", bytes.NewBufferString(body))
+	rr := httptest.NewRecorder()
+
+	handleChatInput(rr, req)
+
+	if rr.Code != http.StatusOK || !strings.Contains(rr.Body.String(), `"turnId":"turn-first"`) {
 		t.Fatalf("status=%d body=%s", rr.Code, rr.Body.String())
 	}
 }

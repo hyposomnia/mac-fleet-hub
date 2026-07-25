@@ -308,10 +308,16 @@ type ChatAttachment struct {
 }
 
 type ChatSkill struct {
+	ID          string `json:"id"`
 	Name        string `json:"name"`
 	Description string `json:"description,omitempty"`
 	Path        string `json:"-"`
 	Scope       string `json:"scope,omitempty"`
+}
+
+func chatSkillID(path string) string {
+	sum := sha256.Sum256([]byte(filepath.Clean(path)))
+	return hex.EncodeToString(sum[:16])
 }
 
 type ChatInputResult struct {
@@ -452,6 +458,7 @@ func handleChatInput(w http.ResponseWriter, r *http.Request) {
 		ClientID     string  `json:"clientMessageId"`
 		Cwd          string  `json:"cwd"`
 		Skills       []struct {
+			ID   string `json:"id"`
 			Name string `json:"name"`
 		} `json:"skills"`
 		Images []struct {
@@ -522,6 +529,7 @@ func handleChatSteer(w http.ResponseWriter, r *http.Request) {
 		Text            string `json:"text"`
 		Cwd             string `json:"cwd"`
 		Skills          []struct {
+			ID   string `json:"id"`
 			Name string `json:"name"`
 		} `json:"skills"`
 		Images []struct {
@@ -604,6 +612,7 @@ func handleChatSkills(w http.ResponseWriter, r *http.Request) {
 }
 
 func resolveRequestedChatSkills(ctx context.Context, assistant, cwd string, requested []struct {
+	ID   string `json:"id"`
 	Name string `json:"name"`
 }) ([]ChatSkill, error) {
 	if len(requested) == 0 {
@@ -613,24 +622,47 @@ func resolveRequestedChatSkills(ctx context.Context, assistant, cwd string, requ
 	if err != nil {
 		return nil, err
 	}
-	byName := make(map[string]ChatSkill, len(available))
+	byID := make(map[string]ChatSkill, len(available))
+	firstByName := make(map[string]ChatSkill, len(available))
 	for _, skill := range available {
-		byName[skill.Name] = skill
+		if skill.ID != "" {
+			byID[skill.ID] = skill
+		}
+		if _, exists := firstByName[skill.Name]; !exists {
+			firstByName[skill.Name] = skill
+		}
 	}
 	resolved := make([]ChatSkill, 0, len(requested))
 	seen := make(map[string]bool, len(requested))
 	for _, item := range requested {
+		id := strings.TrimSpace(item.ID)
 		name := strings.TrimSpace(item.Name)
-		if name == "" || len(name) > 200 || strings.ContainsAny(name, "\r\n\x00") {
+		if len(id) > 128 || strings.ContainsAny(id, "\r\n\x00") ||
+			name == "" || len(name) > 200 || strings.ContainsAny(name, "\r\n\x00") {
 			return nil, fmt.Errorf("%w: 无效的 skill", errInvalidChatSkill)
 		}
-		skill, ok := byName[name]
+		var (
+			skill ChatSkill
+			ok    bool
+		)
+		if id != "" {
+			skill, ok = byID[id]
+			if ok && skill.Name != name {
+				ok = false
+			}
+		} else {
+			skill, ok = firstByName[name]
+		}
 		if !ok {
 			return nil, fmt.Errorf("%w: skill %q 不存在或未启用", errInvalidChatSkill, name)
 		}
-		if !seen[name] {
+		key := skill.ID
+		if key == "" {
+			key = skill.Path
+		}
+		if !seen[key] {
 			resolved = append(resolved, skill)
-			seen[name] = true
+			seen[key] = true
 		}
 	}
 	return resolved, nil
