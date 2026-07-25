@@ -398,6 +398,8 @@ test('self-drawn approval menu mirrors Codex three presets', () => {
   assert.match(appSrc, /value:\s*'full-access',\s*label:\s*'完全访问权限'/);
   assert.match(appSrc, /return 'on-request';/);
   assert.match(appSrc, /trigger\.dataset\.value\s*=\s*selected\.value/);
+  assert.match(appSrc, /api\(chat\.macId,\s*'chat\/settings'/);
+  assert.match(appSrc, /if\s*\(chat\.approvalMode\)\s*turnOptions\.approvalMode\s*=\s*chat\.approvalMode/);
   assert.match(appSrc, /https:\/\/developers\.openai\.com\/codex\/concepts\/sandboxing#how-you-control-it/);
   assert.match(styleCSS, /\.chat-approval-choice\.full-access\s*\{\s*color:\s*#f04b14/);
   assert.match(styleCSS, /\.chat-approval-trigger\[data-value="full-access"\][^{]*\{[^}]*color:\s*#f04b14/s);
@@ -900,6 +902,14 @@ test('new Codex sessions use the self-drawn start path when enabled', () => {
   const source = appSrc.match(/function newSessionIn\(cwd\) \{[\s\S]*?\n\}/)?.[0] || '';
   assert.match(source, /canSelfDrawChat\(\)/);
   assert.match(source, /'chat\/start'/);
-  assert.match(source, /openChatSession\(/);
+  assert.match(source, /openChatSession\(\{[\s\S]*?fresh:\s*true/);
   assert.match(source, /api\(state\.macId,\s*'new'/);
+});
+
+test('fresh Codex sessions become ready without calling resume', () => {
+  const source = appSrc.match(/async function openChatSession\(s\) \{[\s\S]*?\n\}\n\nconst CHAT_EFFORT_LABELS/)?.[0] || '';
+  assert.match(source, /if \(s\.fresh\)/);
+  assert.match(source, /chat\.historyReady = true/);
+  assert.match(source, /startChatEvents\(chat\)/);
+  assert.match(source, /if \(s\.fresh\)[\s\S]*?return;[\s\S]*?'chat\/resume'/);
 });

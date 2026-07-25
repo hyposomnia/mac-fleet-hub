@@ -32,15 +32,16 @@ type pendingCodexRequest struct {
 type codexChatBackend struct {
 	connect codexConnector
 
-	mu       sync.Mutex
-	rpc      codexRPCConn
-	cleanup  func()
-	subs     map[string]map[chan ChatEvent]struct{}
-	lastTurn map[string]string
-	pending  map[string]pendingCodexRequest
-	resuming map[string]bool
-	backlog  map[string][]ChatEvent
-	buffered map[string][]ChatEvent
+	mu           sync.Mutex
+	rpc          codexRPCConn
+	cleanup      func()
+	subs         map[string]map[chan ChatEvent]struct{}
+	lastTurn     map[string]string
+	pending      map[string]pendingCodexRequest
+	resuming     map[string]bool
+	backlog      map[string][]ChatEvent
+	buffered     map[string][]ChatEvent
+	freshThreads map[string]bool
 	// -1 means thread/items/list is unsupported, 0 unknown, 1 supported.
 	itemsListSupport int
 	historyPages     map[string]codexTurnsPage
@@ -57,6 +58,7 @@ func newCodexChatBackend(connect codexConnector) *codexChatBackend {
 		resuming:     map[string]bool{},
 		backlog:      map[string][]ChatEvent{},
 		buffered:     map[string][]ChatEvent{},
+		freshThreads: map[string]bool{},
 		historyPages: map[string]codexTurnsPage{},
 		historyUsage: map[string]codexTurnUsageCache{},
 	}
@@ -219,6 +221,9 @@ func (b *codexChatBackend) Start(ctx context.Context, assistant, cwd, mode strin
 	if res.Cwd == "" {
 		res.Cwd = cwd
 	}
+	b.mu.Lock()
+	b.freshThreads[sessionID] = true
+	b.mu.Unlock()
 	return ChatStartResult{SessionID: sessionID, Cwd: res.Cwd}, nil
 }
 
@@ -735,7 +740,13 @@ func (b *codexChatBackend) Input(ctx context.Context, assistant, sessionID, text
 	if err != nil {
 		return ChatInputResult{}, err
 	}
-	if _, err := b.resumeThread(ctx, rpc, sessionID); err != nil {
+	b.mu.Lock()
+	fresh := b.freshThreads[sessionID]
+	b.mu.Unlock()
+	if !fresh {
+		_, err = b.resumeThread(ctx, rpc, sessionID)
+	}
+	if err != nil {
 		if !codexThreadNotFound(err) {
 			return ChatInputResult{}, err
 		}
@@ -780,6 +791,7 @@ func (b *codexChatBackend) Input(ctx context.Context, assistant, sessionID, text
 		return ChatInputResult{}, fmt.Errorf("turn/start response missing turn id")
 	}
 	b.mu.Lock()
+	delete(b.freshThreads, sessionID)
 	b.lastTurn[sessionID] = res.Turn.ID
 	b.mu.Unlock()
 	return ChatInputResult{TurnID: res.Turn.ID}, nil
@@ -869,15 +881,43 @@ func codexTurnStartParams(sessionID string, input []map[string]string, opts Chat
 			params["serviceTier"] = *opts.ServiceTier
 		}
 	}
-	switch opts.ApprovalMode {
-	case "untrusted", "on-request":
-		params["approvalPolicy"] = opts.ApprovalMode
-		params["sandboxPolicy"] = map[string]interface{}{"type": "workspaceWrite"}
-	case "full-access":
-		params["approvalPolicy"] = "never"
-		params["sandboxPolicy"] = map[string]interface{}{"type": "dangerFullAccess"}
+	for key, value := range codexApprovalSettingsParams(opts.ApprovalMode) {
+		params[key] = value
 	}
 	return params
+}
+
+func codexApprovalSettingsParams(approvalMode string) map[string]interface{} {
+	switch approvalMode {
+	case "untrusted", "on-request":
+		return map[string]interface{}{
+			"approvalPolicy": approvalMode,
+			"sandboxPolicy":  map[string]interface{}{"type": "workspaceWrite"},
+		}
+	case "full-access":
+		return map[string]interface{}{
+			"approvalPolicy": "never",
+			"sandboxPolicy":  map[string]interface{}{"type": "dangerFullAccess"},
+		}
+	default:
+		return nil
+	}
+}
+
+func (b *codexChatBackend) Settings(ctx context.Context, assistant, sessionID, approvalMode string) error {
+	if assistant != "codex" {
+		return errUnsupportedChatAssistant
+	}
+	rpc, err := b.ensure(ctx)
+	if err != nil {
+		return err
+	}
+	params := map[string]interface{}{"threadId": sessionID}
+	for key, value := range codexApprovalSettingsParams(approvalMode) {
+		params[key] = value
+	}
+	_, err = rpc.call(ctx, "thread/settings/update", params)
+	return err
 }
 
 func codexApprovalMode(policyRaw, sandboxRaw json.RawMessage) string {

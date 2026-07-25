@@ -905,6 +905,7 @@ function newSessionIn(cwd) {
         cwd: r.cwd || cwd,
         title: '新Codex会话 · ' + projName(r.cwd || cwd),
         mtime: Date.now(),
+        fresh: true,
       });
     }).catch((e) => toast('新建失败：' + e.message, 'err'));
     return;
@@ -2294,7 +2295,8 @@ async function openChatSession(s) {
       historyReady: false, historyLoading: false, historyCursor: '',
       models: [], efforts: [], serviceTiers: [], selectedModel: '', selectedEffort: '', selectedServiceTier: '',
       modelDirty: false, serviceTierDirty: false,
-      approvalMode: 'on-request', approvalDirty: false,
+      approvalMode: 'on-request', approvalConfirmedMode: 'on-request',
+      approvalUpdateChain: Promise.resolve(),
     };
     state.chatCache.set(key, chat);
   }
@@ -2302,6 +2304,10 @@ async function openChatSession(s) {
   if (!Array.isArray(chat.skills)) chat.skills = [];
   if (typeof chat.skillsLoaded !== 'boolean') chat.skillsLoaded = false;
   if (!chat.skillPreferences || typeof chat.skillPreferences !== 'object') chat.skillPreferences = {};
+  if (s.fresh) {
+    chat.historyReady = true;
+    chat.loading = false;
+  }
   updateChatUpdatedAt(chat, s.mtime);
   evictChatCache();
   showChatPane(chat.title, chat.cwd);
@@ -2494,13 +2500,42 @@ function toggleChatApproval() {
   }
 }
 
-function selectChatApprovalMode(value) {
+async function selectChatApprovalMode(value) {
   if (!state.chat) return;
-  state.chat.approvalMode = normalizeChatApprovalMode(value);
-  state.chat.approvalDirty = true;
-  renderChatApprovalMenu(state.chat);
+  const chat = state.chat;
+  const approvalMode = normalizeChatApprovalMode(value);
+  if (approvalMode === chat.approvalMode) {
+    closeChatApproval();
+    return;
+  }
+  const appliesNextTurn = isChatRunning(chat);
+  chat.approvalMode = approvalMode;
+  renderChatApprovalMenu(chat);
   closeChatApproval();
   $('#chat-approval')?.focus();
+  const previousUpdate = chat.approvalUpdateChain || Promise.resolve();
+  const update = previousUpdate.catch(() => {}).then(() => api(chat.macId, 'chat/settings', {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ assistant: 'codex', sessionId: chat.sessionId, approvalMode }),
+  }));
+  chat.approvalUpdateChain = update;
+  try {
+    const result = await update;
+    chat.approvalConfirmedMode = normalizeChatApprovalMode(result?.approvalMode || approvalMode);
+    if (chat.approvalUpdateChain === update) {
+      chat.approvalMode = chat.approvalConfirmedMode;
+      if (state.chat === chat) renderChatApprovalMenu(chat);
+      if (appliesNextTurn && state.chat === chat) toast('权限已更新，将从下一轮任务生效。');
+    }
+  } catch (e) {
+    if (chat.approvalUpdateChain === update) {
+      chat.approvalMode = normalizeChatApprovalMode(chat.approvalConfirmedMode);
+      if (state.chat === chat) {
+        renderChatApprovalMenu(chat);
+        toast('权限更新失败：' + e.message, 'err');
+      }
+    }
+  }
 }
 
 function configureChatEfforts(chat, preferred = '') {
@@ -2628,7 +2663,8 @@ function renderChatOptions(chat) {
 
 function configureChatOptions(chat, resumed) {
   chat.approvalMode = normalizeChatApprovalMode(resumed.approvalMode);
-  chat.approvalDirty = false;
+  chat.approvalConfirmedMode = chat.approvalMode;
+  chat.approvalUpdateChain = Promise.resolve();
 
   const models = Array.isArray(resumed.models) ? resumed.models.slice() : [];
   if (resumed.model && !models.some((m) => m.value === resumed.model)) {
@@ -2765,7 +2801,7 @@ function chatTurnOptions(chat) {
     if (chat.selectedEffort) turnOptions.effort = chat.selectedEffort;
   }
   if (chat.serviceTierDirty) turnOptions.serviceTier = chat.selectedServiceTier;
-  if (chat.approvalDirty && chat.approvalMode) turnOptions.approvalMode = chat.approvalMode;
+  if (chat.approvalMode) turnOptions.approvalMode = chat.approvalMode;
   return turnOptions;
 }
 

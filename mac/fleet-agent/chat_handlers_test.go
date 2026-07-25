@@ -24,6 +24,7 @@ type fakeChatBackend struct {
 	eventsFn    func(context.Context, string, string) (<-chan ChatEvent, error)
 	respondFn   func(context.Context, string, string, string, json.RawMessage) error
 	interruptFn func(context.Context, string, string) error
+	settingsFn  func(context.Context, string, string, string) error
 }
 
 func (f fakeChatBackend) Start(ctx context.Context, assistant, cwd, mode string) (ChatStartResult, error) {
@@ -87,6 +88,13 @@ func (f fakeChatBackend) Respond(ctx context.Context, assistant, sessionID, requ
 func (f fakeChatBackend) Interrupt(ctx context.Context, assistant, sessionID string) error {
 	if f.interruptFn != nil {
 		return f.interruptFn(ctx, assistant, sessionID)
+	}
+	return nil
+}
+
+func (f fakeChatBackend) Settings(ctx context.Context, assistant, sessionID, approvalMode string) error {
+	if f.settingsFn != nil {
+		return f.settingsFn(ctx, assistant, sessionID, approvalMode)
 	}
 	return nil
 }
@@ -205,6 +213,41 @@ func TestChatInputCallsBackend(t *testing.T) {
 	}
 	if got.TurnID != "turn-1" {
 		t.Fatalf("turn id got %q", got.TurnID)
+	}
+}
+
+func TestChatSettingsUpdatesApprovalMode(t *testing.T) {
+	withChatBackend(t, fakeChatBackend{
+		settingsFn: func(ctx context.Context, assistant, sessionID, approvalMode string) error {
+			if assistant != "codex" || sessionID != "s1" || approvalMode != "full-access" {
+				t.Fatalf("settings args got assistant=%s sessionID=%s approvalMode=%s", assistant, sessionID, approvalMode)
+			}
+			return nil
+		},
+	})
+	req := httptest.NewRequest(http.MethodPost, "/api/chat/settings", bytes.NewBufferString(
+		`{"assistant":"codex","sessionId":"s1","approvalMode":"full-access"}`,
+	))
+	rr := httptest.NewRecorder()
+
+	handleChatSettings(rr, req)
+
+	if rr.Code != http.StatusOK || !strings.Contains(rr.Body.String(), `"approvalMode":"full-access"`) {
+		t.Fatalf("status=%d body=%s", rr.Code, rr.Body.String())
+	}
+}
+
+func TestChatSettingsRejectsUnknownApprovalMode(t *testing.T) {
+	withChatBackend(t, fakeChatBackend{})
+	req := httptest.NewRequest(http.MethodPost, "/api/chat/settings", bytes.NewBufferString(
+		`{"assistant":"codex","sessionId":"s1","approvalMode":"always-trust"}`,
+	))
+	rr := httptest.NewRecorder()
+
+	handleChatSettings(rr, req)
+
+	if rr.Code != http.StatusBadRequest || !strings.Contains(rr.Body.String(), `"bad_chat_options"`) {
+		t.Fatalf("status=%d body=%s", rr.Code, rr.Body.String())
 	}
 }
 

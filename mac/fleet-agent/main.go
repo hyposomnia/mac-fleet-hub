@@ -1798,6 +1798,7 @@ func runServer() {
 	mux.HandleFunc("/api/info", handleInfo)
 	mux.HandleFunc("/api/chat/start", handleChatStart)
 	mux.HandleFunc("/api/chat/resume", handleChatResume)
+	mux.HandleFunc("/api/chat/settings", handleChatSettings)
 	mux.HandleFunc("/api/chat/history", handleChatHistory)
 	mux.HandleFunc("/api/chat/skills", handleChatSkills)
 	mux.HandleFunc("/api/chat/upload", handleChatUpload)

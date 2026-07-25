@@ -334,6 +334,7 @@ type chatBackend interface {
 	Events(ctx context.Context, assistant, sessionID string) (<-chan ChatEvent, error)
 	Respond(ctx context.Context, assistant, sessionID, requestID string, response json.RawMessage) error
 	Interrupt(ctx context.Context, assistant, sessionID string) error
+	Settings(ctx context.Context, assistant, sessionID, approvalMode string) error
 }
 
 var agentChatBackend chatBackend = unavailableChatBackend{}
@@ -365,6 +366,9 @@ func (unavailableChatBackend) Respond(context.Context, string, string, string, j
 	return errAppServerUnavailable
 }
 func (unavailableChatBackend) Interrupt(context.Context, string, string) error {
+	return errAppServerUnavailable
+}
+func (unavailableChatBackend) Settings(context.Context, string, string, string) error {
 	return errAppServerUnavailable
 }
 
@@ -440,6 +444,37 @@ func handleChatResume(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, res)
+}
+
+func handleChatSettings(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	var req struct {
+		Assistant    string `json:"assistant"`
+		SessionID    string `json:"sessionId"`
+		ApprovalMode string `json:"approvalMode"`
+	}
+	if json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&req) != nil || req.SessionID == "" {
+		http.Error(w, "bad request", http.StatusBadRequest)
+		return
+	}
+	assistant := normAssistant(req.Assistant)
+	if assistant != "codex" {
+		writeErr(w, http.StatusNotImplemented, "unsupported_assistant", "自绘界面暂只支持 Codex。")
+		return
+	}
+	opts, err := normalizeChatTurnOptions(ChatTurnOptions{ApprovalMode: req.ApprovalMode})
+	if err != nil || opts.ApprovalMode == "" {
+		writeErr(w, http.StatusBadRequest, "bad_chat_options", "无效的审批模式")
+		return
+	}
+	if err := agentChatBackend.Settings(r.Context(), assistant, req.SessionID, opts.ApprovalMode); err != nil {
+		writeChatErr(w, err)
+		return
+	}
+	writeJSON(w, map[string]string{"approvalMode": opts.ApprovalMode})
 }
 
 func handleChatInput(w http.ResponseWriter, r *http.Request) {

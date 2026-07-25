@@ -99,6 +99,29 @@ func TestCodexChatBackendStartRejectsMissingThreadID(t *testing.T) {
 	}
 }
 
+func TestCodexChatBackendStartThenInputSkipsResumeBeforeFirstTurn(t *testing.T) {
+	rpc := newFakeRPCConn()
+	rpc.reply["thread/start"] = json.RawMessage(`{"thread":{"id":"thread-new"},"cwd":"/repo"}`)
+	rpc.reply["turn/start"] = json.RawMessage(`{"turn":{"id":"turn-1"}}`)
+	b := newCodexChatBackend(func(ctx context.Context) (codexRPCConn, func(), error) {
+		return rpc, func() {}, nil
+	})
+
+	started, err := b.Start(context.Background(), "codex", "/repo", "default")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := b.Input(context.Background(), "codex", started.SessionID, "hello", nil, nil, ChatTurnOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := b.Input(context.Background(), "codex", started.SessionID, "again", nil, nil, ChatTurnOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	if got := methods(rpc.calls); !reflect.DeepEqual(got, []string{"thread/start", "turn/start", "thread/resume", "turn/start"}) {
+		t.Fatalf("only the first turn of a fresh thread should skip resume: %v", got)
+	}
+}
+
 func TestCodexChatBackendResumeUsesThreadResume(t *testing.T) {
 	rpc := newFakeRPCConn()
 	rpc.reply["thread/resume"] = json.RawMessage(`{"thread":{"id":"thread-1"}}`)
@@ -557,6 +580,29 @@ func TestCodexChatBackendInputPassesModelAndApprovalOverrides(t *testing.T) {
 	params := mapFromParams(t, rpc.calls[1].params)
 	if params["model"] != "gpt-new" || params["effort"] != "high" || params["serviceTier"] != "priority" || params["approvalPolicy"] != "never" {
 		t.Fatalf("turn params: %#v", params)
+	}
+	sandbox, ok := params["sandboxPolicy"].(map[string]interface{})
+	if !ok || sandbox["type"] != "dangerFullAccess" {
+		t.Fatalf("sandbox params: %#v", params["sandboxPolicy"])
+	}
+}
+
+func TestCodexChatBackendSettingsUpdatesApprovalImmediately(t *testing.T) {
+	rpc := newFakeRPCConn()
+	rpc.reply["thread/settings/update"] = json.RawMessage(`{}`)
+	b := newCodexChatBackend(func(ctx context.Context) (codexRPCConn, func(), error) {
+		return rpc, func() {}, nil
+	})
+
+	if err := b.Settings(context.Background(), "codex", "thread-1", "full-access"); err != nil {
+		t.Fatal(err)
+	}
+	if len(rpc.calls) != 1 || rpc.calls[0].method != "thread/settings/update" {
+		t.Fatalf("calls: %#v", rpc.calls)
+	}
+	params := mapFromParams(t, rpc.calls[0].params)
+	if params["threadId"] != "thread-1" || params["approvalPolicy"] != "never" {
+		t.Fatalf("settings params: %#v", params)
 	}
 	sandbox, ok := params["sandboxPolicy"].(map[string]interface{})
 	if !ok || sandbox["type"] != "dangerFullAccess" {
