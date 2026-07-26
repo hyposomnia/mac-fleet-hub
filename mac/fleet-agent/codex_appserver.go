@@ -32,9 +32,10 @@ type rpcError struct {
 }
 
 type rpcResponse struct {
-	ID     int64           `json:"id"`
-	Result json.RawMessage `json:"result,omitempty"`
-	Error  *rpcError       `json:"error,omitempty"`
+	ID           int64           `json:"id"`
+	Result       json.RawMessage `json:"result,omitempty"`
+	Error        *rpcError       `json:"error,omitempty"`
+	transportErr error
 }
 
 type rpcNotification struct {
@@ -146,18 +147,31 @@ func descendantProcessIDs(rootPID int, pairs [][2]int) []int {
 }
 
 func (c *codexRPCClient) run(ctx context.Context) {
-	done := make(chan struct{})
-	go func() {
-		defer close(done)
-		sc := bufio.NewScanner(c.rw)
-		sc.Buffer(make([]byte, 64*1024), 16*1024*1024)
-		for sc.Scan() {
-			c.handleLine(sc.Bytes())
+	sc := bufio.NewScanner(c.rw)
+	sc.Buffer(make([]byte, 64*1024), 16*1024*1024)
+	for sc.Scan() {
+		c.handleLine(sc.Bytes())
+	}
+	err := sc.Err()
+	if err == nil {
+		if ctx.Err() != nil {
+			err = ctx.Err()
+		} else {
+			err = io.EOF
 		}
-	}()
-	select {
-	case <-ctx.Done():
-	case <-done:
+	}
+	c.failPending(err)
+	close(c.notes)
+}
+
+func (c *codexRPCClient) failPending(err error) {
+	c.pendingMu.Lock()
+	pending := c.pending
+	c.pending = map[int64]chan rpcResponse{}
+	c.pendingMu.Unlock()
+	for id, ch := range pending {
+		ch <- rpcResponse{ID: id, transportErr: err}
+		close(ch)
 	}
 }
 
@@ -233,6 +247,9 @@ func (c *codexRPCClient) call(ctx context.Context, method string, params interfa
 	}
 	select {
 	case resp := <-ch:
+		if resp.transportErr != nil {
+			return nil, resp.transportErr
+		}
 		if resp.Error != nil {
 			return nil, fmt.Errorf("codex app-server %s failed: %s", method, resp.Error.Message)
 		}

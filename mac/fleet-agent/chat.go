@@ -241,6 +241,8 @@ func (p codexCompletedMeta) asMap() map[string]json.RawMessage {
 
 var errAppServerUnavailable = errors.New("appserver_unavailable")
 var errAppServerTimeout = errors.New("appserver_timeout")
+var errAppServerRecovered = errors.New("appserver_recovered")
+var errAgentRestarting = errors.New("agent_restarting")
 var errUnsupportedChatAssistant = errors.New("unsupported_assistant")
 var errNoActiveChatTurn = errors.New("no_active_turn")
 var errChatRequestNotFound = errors.New("chat_request_not_found")
@@ -384,6 +386,14 @@ func writeChatErr(w http.ResponseWriter, err error) {
 	}
 	if errors.Is(err, errAppServerTimeout) {
 		writeErr(w, http.StatusGatewayTimeout, "appserver_timeout", "Codex app-server 响应超时，连接已重置，请刷新重试。")
+		return
+	}
+	if errors.Is(err, errAppServerRecovered) {
+		writeErr(w, http.StatusServiceUnavailable, "appserver_recovered", "Codex 连接异常但已恢复。请确认刚才的操作结果后重试。")
+		return
+	}
+	if errors.Is(err, errAgentRestarting) {
+		writeErr(w, http.StatusServiceUnavailable, "agent_restarting", "Codex 连接恢复失败，fleet-agent 正在自动重启，请稍后重试。")
 		return
 	}
 	if errors.Is(err, errNoActiveChatTurn) {

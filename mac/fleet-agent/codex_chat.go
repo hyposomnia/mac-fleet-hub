@@ -31,7 +31,10 @@ type pendingCodexRequest struct {
 
 type codexChatBackend struct {
 	connect codexConnector
+	restart func(error)
 
+	connectMu    sync.Mutex
+	restartOnce  sync.Once
 	mu           sync.Mutex
 	rpc          codexRPCConn
 	cleanup      func()
@@ -52,6 +55,7 @@ type codexChatBackend struct {
 func newCodexChatBackend(connect codexConnector) *codexChatBackend {
 	return &codexChatBackend{
 		connect:      connect,
+		restart:      scheduleFleetAgentRestart,
 		subs:         map[string]map[chan ChatEvent]struct{}{},
 		lastTurn:     map[string]string{},
 		pending:      map[string]pendingCodexRequest{},
@@ -77,23 +81,32 @@ func (b *codexChatBackend) ensure(ctx context.Context) (codexRPCConn, error) {
 	}
 	b.mu.Unlock()
 
-	rpc, cleanup, err := b.connect(ctx)
+	b.connectMu.Lock()
+	defer b.connectMu.Unlock()
+	b.mu.Lock()
+	if b.rpc != nil {
+		rpc := b.rpc
+		b.mu.Unlock()
+		return rpc, nil
+	}
+	b.mu.Unlock()
+
+	inner, cleanup, err := b.connect(ctx)
 	if err != nil {
+		if ctx.Err() == nil {
+			wrapped := fmt.Errorf("Codex app-server initialization failed: %w", err)
+			b.scheduleSelfRestart(wrapped)
+			return nil, fmt.Errorf("%w: %v", errAgentRestarting, wrapped)
+		}
 		return nil, errAppServerUnavailable
 	}
+	rpc := codexRPCConn(&recoveringCodexRPC{backend: b, inner: inner})
 
 	b.mu.Lock()
-	if b.rpc == nil {
-		b.rpc = rpc
-		b.cleanup = cleanup
-		go b.dispatch(rpc.notifications())
-	} else {
-		if cleanup != nil {
-			cleanup()
-		}
-	}
-	rpc = b.rpc
+	b.rpc = rpc
+	b.cleanup = cleanup
 	b.mu.Unlock()
+	go b.dispatch(rpc.notifications())
 	return rpc, nil
 }
 

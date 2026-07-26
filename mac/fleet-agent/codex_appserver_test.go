@@ -4,11 +4,44 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
+	"io"
 	"net"
 	"strings"
 	"testing"
 	"time"
 )
+
+func TestCodexRPCClientEOFImmediatelyFailsPendingCalls(t *testing.T) {
+	clientConn, serverConn := net.Pipe()
+	defer clientConn.Close()
+
+	c := newCodexRPCClient(clientConn)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go c.run(ctx)
+
+	serverDone := make(chan struct{})
+	go func() {
+		defer close(serverDone)
+		s := bufio.NewScanner(serverConn)
+		if s.Scan() {
+			_ = serverConn.Close()
+		}
+	}()
+
+	callCtx, cancelCall := context.WithTimeout(context.Background(), time.Second)
+	defer cancelCall()
+	started := time.Now()
+	_, err := c.call(callCtx, "thread/read", map[string]string{"threadId": "t"})
+	if !errors.Is(err, io.EOF) {
+		t.Fatalf("call error got %v, want EOF", err)
+	}
+	if elapsed := time.Since(started); elapsed > 200*time.Millisecond {
+		t.Fatalf("EOF should fail pending calls immediately, took %s", elapsed)
+	}
+	<-serverDone
+}
 
 func TestCodexRPCClientCallRoutesResponsesAndIncrementsIDs(t *testing.T) {
 	clientConn, serverConn := net.Pipe()

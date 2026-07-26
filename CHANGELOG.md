@@ -4,10 +4,12 @@ mac-fleet-hub 变更记录（日期为本地时间）。
 
 ## 2026-07-26
 
-### Codex 会话列表不再永久卡住
-- **目录请求超时**：Codex app-server 的 `thread/list` 超过 10 秒未响应时返回明确的 504，dashboard 会退出骨架屏并显示可重试错误。
-- **连接自动恢复**：超时后清理失联的 app-server 连接与子进程；下一次刷新自动建立新连接，不再依赖重启整个 fleet-agent。
-- **回归保护与产物**：覆盖超时清理和 HTTP 错误映射测试；fleet-agent Darwin amd64/arm64 产物同步重建。
+### Codex app-server 请求触发式自恢复
+- **统一故障检测**：所有 Codex RPC 都有内部 deadline；stdout EOF、broken pipe、connection reset 会立即唤醒挂起请求，不再依赖浏览器断开或永久等待。
+- **安全恢复语义**：失联后清理旧子进程并单路重连；列表、读取、历史、skills 和模型等幂等请求自动重试一次，创建会话、发消息、归档等写请求只恢复连接而不重放，避免重复副作用。
+- **最终自救**：新 app-server 仍无法初始化或幂等重试再次失联时，先返回明确错误，再由 fleet-agent 主动退出，交给 launchd `KeepAlive` 自动拉起；同一进程只安排一次重启。
+- **取消请求隔离**：浏览器切页或主动取消不会触发连接重置和 agent 重启。
+- **回归保护与产物**：覆盖超时重连、EOF 唤醒、写请求不重放、初始化失败自重启、重启防抖与客户端取消；fleet-agent Darwin amd64/arm64 产物同步重建。
 
 ## 2026-07-25
 

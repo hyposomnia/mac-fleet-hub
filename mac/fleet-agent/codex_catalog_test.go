@@ -59,40 +59,173 @@ func TestCodexListThreadsUsesDesktopQueryAndFiltersOnlyHiddenSources(t *testing.
 	}
 }
 
-func TestCodexListThreadsTimeoutResetsStuckAppServer(t *testing.T) {
+func TestCodexListThreadsTimeoutReconnectsAndRetries(t *testing.T) {
+	previousTimeout := codexCatalogCallTimeout
+	codexCatalogCallTimeout = 10 * time.Millisecond
+	t.Cleanup(func() { codexCatalogCallTimeout = previousTimeout })
+
+	rpc1 := newFakeRPCConn()
+	rpc1.block["thread/list"] = true
+	rpc2 := newFakeRPCConn()
+	rpc2.reply["thread/list"] = json.RawMessage(`{"data":[{"id":"recovered","cwd":"/repo","preview":"Recovered"}]}`)
+	connects := 0
+	cleaned := 0
+	backend := newCodexChatBackend(func(context.Context) (codexRPCConn, func(), error) {
+		connects++
+		if connects == 1 {
+			return rpc1, func() { cleaned++ }, nil
+		}
+		return rpc2, func() { cleaned++ }, nil
+	})
+
+	page, err := backend.ListThreads(context.Background(), codexThreadListOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(page.Sessions) != 1 || page.Sessions[0].SessionID != "recovered" {
+		t.Fatalf("recovered page got %+v", page)
+	}
+	if connects != 2 || cleaned != 1 {
+		t.Fatalf("connects=%d cleaned=%d, want 2/1", connects, cleaned)
+	}
+}
+
+func TestCodexRecoveryFailureSchedulesSelfRestartOnce(t *testing.T) {
 	previousTimeout := codexCatalogCallTimeout
 	codexCatalogCallTimeout = 10 * time.Millisecond
 	t.Cleanup(func() { codexCatalogCallTimeout = previousTimeout })
 
 	rpc := newFakeRPCConn()
 	rpc.block["thread/list"] = true
-	cleaned := 0
+	connects := 0
 	backend := newCodexChatBackend(func(context.Context) (codexRPCConn, func(), error) {
-		return rpc, func() { cleaned++ }, nil
+		connects++
+		if connects == 1 {
+			return rpc, func() {}, nil
+		}
+		return nil, nil, errors.New("cannot initialize replacement")
 	})
+	restarts := make(chan error, 2)
+	backend.restart = func(err error) { restarts <- err }
 
 	_, err := backend.ListThreads(context.Background(), codexThreadListOptions{})
-	if !errors.Is(err, errAppServerTimeout) {
-		t.Fatalf("ListThreads error got %v, want app-server timeout", err)
+	if err == nil {
+		t.Fatal("recovery failure should fail the request")
 	}
-	if cleaned != 1 {
-		t.Fatalf("stuck app-server cleanup count got %d, want 1", cleaned)
+	backend.scheduleSelfRestart(errors.New("duplicate trigger"))
+	select {
+	case <-restarts:
+	case <-time.After(time.Second):
+		t.Fatal("self restart was not scheduled")
 	}
-	backend.mu.Lock()
-	defer backend.mu.Unlock()
-	if backend.rpc != nil {
-		t.Fatal("stuck app-server connection was not cleared")
+	select {
+	case err := <-restarts:
+		t.Fatalf("self restart should be deduplicated, got second trigger: %v", err)
+	case <-time.After(30 * time.Millisecond):
 	}
 }
 
-func TestWriteChatErrMapsAppServerTimeoutToGatewayTimeout(t *testing.T) {
-	rr := httptest.NewRecorder()
-	writeChatErr(rr, errAppServerTimeout)
-	if rr.Code != http.StatusGatewayTimeout {
-		t.Fatalf("status got %d, want %d", rr.Code, http.StatusGatewayTimeout)
+func TestCodexInitialConnectionFailureSchedulesSelfRestart(t *testing.T) {
+	backend := newCodexChatBackend(func(context.Context) (codexRPCConn, func(), error) {
+		return nil, nil, errors.New("cannot start app-server")
+	})
+	restarts := make(chan error, 1)
+	backend.restart = func(err error) { restarts <- err }
+
+	_, err := backend.ListThreads(context.Background(), codexThreadListOptions{})
+	if !errors.Is(err, errAgentRestarting) {
+		t.Fatalf("initial connection error got %v, want agent restarting", err)
 	}
-	if body := rr.Body.String(); body == "" || !json.Valid(rr.Body.Bytes()) {
-		t.Fatalf("response should be JSON, got %q", body)
+	select {
+	case <-restarts:
+	case <-time.After(time.Second):
+		t.Fatal("initial connection failure did not schedule self restart")
+	}
+}
+
+func TestCodexCanceledRequestDoesNotRecoverOrRestart(t *testing.T) {
+	rpc := newFakeRPCConn()
+	rpc.block["thread/list"] = true
+	connects := 0
+	cleaned := 0
+	backend := newCodexChatBackend(func(context.Context) (codexRPCConn, func(), error) {
+		connects++
+		return rpc, func() { cleaned++ }, nil
+	})
+	restarts := make(chan error, 1)
+	backend.restart = func(err error) { restarts <- err }
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	_, err := backend.ListThreads(ctx, codexThreadListOptions{})
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("canceled request error got %v", err)
+	}
+	if connects != 1 || cleaned != 0 {
+		t.Fatalf("canceled request should keep connection, connects=%d cleaned=%d", connects, cleaned)
+	}
+	select {
+	case err := <-restarts:
+		t.Fatalf("canceled request scheduled restart: %v", err)
+	case <-time.After(30 * time.Millisecond):
+	}
+}
+
+func TestCodexMutationRecoversConnectionWithoutReplayingWrite(t *testing.T) {
+	previousTimeout := codexRPCCallTimeout
+	codexRPCCallTimeout = 10 * time.Millisecond
+	t.Cleanup(func() { codexRPCCallTimeout = previousTimeout })
+
+	rpc1 := newFakeRPCConn()
+	rpc1.block["thread/archive"] = true
+	rpc2 := newFakeRPCConn()
+	connects := 0
+	backend := newCodexChatBackend(func(context.Context) (codexRPCConn, func(), error) {
+		connects++
+		if connects == 1 {
+			return rpc1, func() {}, nil
+		}
+		return rpc2, func() {}, nil
+	})
+
+	err := backend.MutateThread(context.Background(), "thread-1", "archive", "")
+	if !errors.Is(err, errAppServerRecovered) {
+		t.Fatalf("mutation error got %v, want recovered connection error", err)
+	}
+	if connects != 2 {
+		t.Fatalf("connect count got %d, want 2", connects)
+	}
+	if len(rpc2.calls) != 0 {
+		t.Fatalf("unsafe mutation was replayed on replacement RPC: %+v", rpc2.calls)
+	}
+}
+
+func TestWriteChatErrMapsRecoveryStates(t *testing.T) {
+	tests := []struct {
+		name   string
+		err    error
+		status int
+		code   string
+	}{
+		{name: "timeout", err: errAppServerTimeout, status: http.StatusGatewayTimeout, code: "appserver_timeout"},
+		{name: "recovered", err: errAppServerRecovered, status: http.StatusServiceUnavailable, code: "appserver_recovered"},
+		{name: "restarting", err: errAgentRestarting, status: http.StatusServiceUnavailable, code: "agent_restarting"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			rr := httptest.NewRecorder()
+			writeChatErr(rr, test.err)
+			if rr.Code != test.status {
+				t.Fatalf("status got %d, want %d", rr.Code, test.status)
+			}
+			var body map[string]interface{}
+			if err := json.Unmarshal(rr.Body.Bytes(), &body); err != nil {
+				t.Fatalf("response should be JSON, got %q", rr.Body.String())
+			}
+			if body["error"] != test.code {
+				t.Fatalf("error code got %v, want %s", body["error"], test.code)
+			}
+		})
 	}
 }
 
