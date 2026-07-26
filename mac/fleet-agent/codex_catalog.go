@@ -3,15 +3,19 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
+	"time"
 )
 
 const codexDesktopThreadPageSize = 50
+
+var codexCatalogCallTimeout = 10 * time.Second
 
 type codexThreadListOptions struct {
 	Cursor   string
@@ -61,7 +65,9 @@ type codexThreadWire struct {
 }
 
 func (b *codexChatBackend) ListThreads(ctx context.Context, opts codexThreadListOptions) (codexThreadPage, error) {
-	rpc, err := b.ensure(ctx)
+	callCtx, cancel := context.WithTimeout(ctx, codexCatalogCallTimeout)
+	defer cancel()
+	rpc, err := b.ensure(callCtx)
 	if err != nil {
 		return codexThreadPage{}, err
 	}
@@ -84,12 +90,16 @@ func (b *codexChatBackend) ListThreads(ctx context.Context, opts codexThreadList
 	if search := strings.TrimSpace(opts.Search); search != "" {
 		params["searchTerm"] = search
 	}
-	raw, err := rpc.call(ctx, "thread/list", params)
+	raw, err := rpc.call(callCtx, "thread/list", params)
 	if err != nil && codexRecencySortUnsupported(err) {
 		// recency_at was added after updated_at. Keep the compatibility branch
 		// narrow and explicit instead of falling back to local SQLite guesses.
 		params["sortKey"] = "updated_at"
-		raw, err = rpc.call(ctx, "thread/list", params)
+		raw, err = rpc.call(callCtx, "thread/list", params)
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		b.resetRPC()
+		return codexThreadPage{}, fmt.Errorf("%w: thread/list", errAppServerTimeout)
 	}
 	if err != nil {
 		return codexThreadPage{}, err

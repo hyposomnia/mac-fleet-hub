@@ -23,6 +23,7 @@ type fakeRPCConn struct {
 	notes                 chan rpcNotification
 	reply                 map[string]json.RawMessage
 	errs                  map[string][]error
+	block                 map[string]bool
 	terminatedDescendants int
 }
 
@@ -31,11 +32,16 @@ func newFakeRPCConn() *fakeRPCConn {
 		notes: make(chan rpcNotification, 8),
 		reply: map[string]json.RawMessage{},
 		errs:  map[string][]error{},
+		block: map[string]bool{},
 	}
 }
 
 func (f *fakeRPCConn) call(ctx context.Context, method string, params interface{}) (json.RawMessage, error) {
 	f.calls = append(f.calls, recordedCall{method: method, params: params})
+	if f.block[method] {
+		<-ctx.Done()
+		return nil, ctx.Err()
+	}
 	if len(f.errs[method]) > 0 {
 		err := f.errs[method][0]
 		f.errs[method] = f.errs[method][1:]

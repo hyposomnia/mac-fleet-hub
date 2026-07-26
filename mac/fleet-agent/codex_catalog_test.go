@@ -3,10 +3,14 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"reflect"
 	"testing"
+	"time"
 )
 
 func TestCodexListThreadsUsesDesktopQueryAndFiltersOnlyHiddenSources(t *testing.T) {
@@ -52,6 +56,43 @@ func TestCodexListThreadsUsesDesktopQueryAndFiltersOnlyHiddenSources(t *testing.
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("thread/list params got %#v want %#v", got, want)
+	}
+}
+
+func TestCodexListThreadsTimeoutResetsStuckAppServer(t *testing.T) {
+	previousTimeout := codexCatalogCallTimeout
+	codexCatalogCallTimeout = 10 * time.Millisecond
+	t.Cleanup(func() { codexCatalogCallTimeout = previousTimeout })
+
+	rpc := newFakeRPCConn()
+	rpc.block["thread/list"] = true
+	cleaned := 0
+	backend := newCodexChatBackend(func(context.Context) (codexRPCConn, func(), error) {
+		return rpc, func() { cleaned++ }, nil
+	})
+
+	_, err := backend.ListThreads(context.Background(), codexThreadListOptions{})
+	if !errors.Is(err, errAppServerTimeout) {
+		t.Fatalf("ListThreads error got %v, want app-server timeout", err)
+	}
+	if cleaned != 1 {
+		t.Fatalf("stuck app-server cleanup count got %d, want 1", cleaned)
+	}
+	backend.mu.Lock()
+	defer backend.mu.Unlock()
+	if backend.rpc != nil {
+		t.Fatal("stuck app-server connection was not cleared")
+	}
+}
+
+func TestWriteChatErrMapsAppServerTimeoutToGatewayTimeout(t *testing.T) {
+	rr := httptest.NewRecorder()
+	writeChatErr(rr, errAppServerTimeout)
+	if rr.Code != http.StatusGatewayTimeout {
+		t.Fatalf("status got %d, want %d", rr.Code, http.StatusGatewayTimeout)
+	}
+	if body := rr.Body.String(); body == "" || !json.Valid(rr.Body.Bytes()) {
+		t.Fatalf("response should be JSON, got %q", body)
 	}
 }
 

@@ -240,6 +240,7 @@ func (p codexCompletedMeta) asMap() map[string]json.RawMessage {
 }
 
 var errAppServerUnavailable = errors.New("appserver_unavailable")
+var errAppServerTimeout = errors.New("appserver_timeout")
 var errUnsupportedChatAssistant = errors.New("unsupported_assistant")
 var errNoActiveChatTurn = errors.New("no_active_turn")
 var errChatRequestNotFound = errors.New("chat_request_not_found")
@@ -379,6 +380,10 @@ func writeChatErr(w http.ResponseWriter, err error) {
 	}
 	if errors.Is(err, errAppServerUnavailable) {
 		writeErr(w, http.StatusServiceUnavailable, "appserver_unavailable", "Codex app-server 不可用，可用终端打开。")
+		return
+	}
+	if errors.Is(err, errAppServerTimeout) {
+		writeErr(w, http.StatusGatewayTimeout, "appserver_timeout", "Codex app-server 响应超时，连接已重置，请刷新重试。")
 		return
 	}
 	if errors.Is(err, errNoActiveChatTurn) {
