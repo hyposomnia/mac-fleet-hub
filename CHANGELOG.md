@@ -4,6 +4,10 @@ mac-fleet-hub 变更记录（日期为本地时间）。
 
 ## 2026-07-27
 
+### 修正 iPhone 聊天输入框位置
+- **去除重复安全区**：移动端全屏会话容器已由 iOS 避让底部系统区域，聊天输入框不再重复叠加 `safe-area-inset-bottom`，恢复为距内容区底边 10px。
+- **缓存与回归**：dashboard 外壳缓存升级到 v43，并增加样式契约，防止输入框再次被底部安全区抬高。
+
 ### 修复大型 Codex 会话无法打开
 - **传输层解除假上限**：app-server 单行 JSON 改用无固定 token 上限的换行读取，迁移长会话不再触发 `bufio.Scanner: token too long`。
 - **旧版回退减载**：`thread/turns/list(itemsView=full)` 兼容路径从每页 12 个 turn 收敛到 1 个，避免多个完整 turn 在同一响应内叠加。

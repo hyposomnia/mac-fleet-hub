@@ -886,7 +886,8 @@ textarea.chat-request-input { resize: vertical; }
   .chat-turn-pin-card { max-width: 88%; }
   .chat-row.user .chat-card, .chat-tool, .chat-approval, .chat-error, .chat-diff { max-width: 88%; }
   .chat-diff-files { min-width: min(68vw, 560px); }
-  #chat-composer { padding: 8px 10px max(10px, env(safe-area-inset-bottom, 0px)); }
+  /* The iOS fullscreen shell already insets #win above its bottom system area. */
+  #chat-composer { padding: 8px 10px 10px; }
   .chat-followup { padding-inline: 12px; font-size: var(--t-secondary); }
   .chat-composer-float { top: -60px; left: 10px; right: 10px; }
   .chat-composer-inner { min-height: 108px; padding: 6px; border-radius: 20px; }
