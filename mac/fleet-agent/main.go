@@ -44,6 +44,7 @@ import (
 // ---------------- 配置 ----------------
 type Config struct {
 	Listen       string // 绑定地址，如 100.x.x.x:7682
+	FileRoot     string // Fleet 文件预览许可访问的根目录（与 filebrowser root 一致）
 	ClaudeHome   string // ~/.claude
 	ClaudeBin    string // claude 可执行文件
 	CodexHome    string // ~/.codex
@@ -117,6 +118,7 @@ func loadConfig() Config {
 	idle, _ := strconv.ParseInt(envOr("FLEET_IDLE_SEC", "1800"), 10, 64)
 	return Config{
 		Listen:       envOr("FLEET_LISTEN", "127.0.0.1:7682"),
+		FileRoot:     envOr("FLEET_FILE_ROOT", home),
 		ClaudeHome:   envOr("FLEET_CLAUDE_HOME", filepath.Join(home, ".claude")),
 		ClaudeBin:    envOr("FLEET_CLAUDE_BIN", "claude"),
 		CodexHome:    envOr("FLEET_CODEX_HOME", filepath.Join(home, ".codex")),
@@ -1672,7 +1674,7 @@ func handleInfo(w http.ResponseWriter, r *http.Request) {
 	p := proxyCfg
 	proxyMu.Unlock()
 	writeJSON(w, map[string]interface{}{
-		"macIndex": cfg.MacIndex, "meshIP": host, "proxy": p,
+		"macIndex": cfg.MacIndex, "meshIP": host, "fileRoot": cfg.FileRoot, "proxy": p,
 	})
 }
 
@@ -1796,6 +1798,8 @@ func runServer() {
 	mux.HandleFunc("/api/reload", handleReload)
 	mux.HandleFunc("/api/proxy", handleProxy)
 	mux.HandleFunc("/api/info", handleInfo)
+	mux.HandleFunc("/api/file/preview", handleFilePreview)
+	mux.HandleFunc("/api/file/content", handleFileContent)
 	mux.HandleFunc("/api/chat/start", handleChatStart)
 	mux.HandleFunc("/api/chat/resume", handleChatResume)
 	mux.HandleFunc("/api/chat/settings", handleChatSettings)

@@ -77,7 +77,7 @@
     return parts;
   }
 
-  function appendMarkdown(body, source, resolveMedia) {
+  function appendMarkdown(body, source, resolveMedia, resolveLink) {
     if (!root.marked || !root.DOMPurify) {
       const fallback = document.createElement('p');
       fallback.textContent = source;
@@ -91,6 +91,9 @@
       ALLOWED_ATTR: ['href', 'title', 'start', 'src', 'alt'],
     });
     chunk.querySelectorAll('a[href]').forEach((link) => {
+      const original = link.getAttribute('href');
+      const resolved = typeof resolveLink === 'function' ? resolveLink(original) : original;
+      if (resolved) link.setAttribute('href', resolved);
       link.target = '_blank';
       link.rel = 'noopener noreferrer';
     });
@@ -161,13 +164,13 @@
     return row;
   }
 
-  function renderMarkdown(text, resolveMedia) {
+  function renderMarkdown(text, resolveMedia, resolveLink) {
     const body = document.createElement('div');
     body.className = 'chat-markdown';
     try {
       for (const part of splitCodexContent(text)) {
         if (part.type === 'directive') body.append(renderDirective(part.value));
-        else appendMarkdown(body, part.value, resolveMedia);
+        else appendMarkdown(body, part.value, resolveMedia, resolveLink);
       }
     } catch (_) {
       body.textContent = text || '…';

@@ -15,9 +15,33 @@
   <!-- 主题：默认跟随系统 prefers-color-scheme，用户切换后写 localStorage 覆盖（与 app.js initTheme 一致）。
        内联以避免首屏闪烁。 -->
   <script>document.documentElement.dataset.theme = (function () { try { var t = localStorage.getItem('fleet-theme'); if (t) return t; } catch (e) {} return matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark'; })();</script>
-  <link rel="stylesheet" href="style.css?v=44" />
+  <link rel="stylesheet" href="style.css?v=46" />
 </head>
 <body>
+  <main id="preview-page" hidden>
+    <header class="preview-head">
+      <a class="iconbtn bare preview-close" href="/" title="返回 Fleet" aria-label="返回 Fleet"><svg class="ic" viewBox="0 0 24 24"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg></a>
+      <div class="preview-file-info">
+        <div id="preview-title" class="preview-title">文件预览</div>
+        <div id="preview-path" class="preview-path mono"></div>
+      </div>
+      <div id="preview-meta" class="preview-meta" hidden>
+        <span id="preview-host" class="badge"></span>
+        <span id="preview-kind" class="badge"></span>
+        <span id="preview-size" class="preview-size tnum"></span>
+      </div>
+      <a id="preview-download" class="iconbtn" href="#" title="下载" aria-label="下载" hidden><svg class="ic" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg></a>
+    </header>
+    <section id="preview-stage" class="preview-stage" data-kind="loading">
+      <div class="preview-state" data-preview-kind="loading"><span class="preview-spinner"></span><span>正在载入…</span></div>
+      <div id="preview-error" class="preview-state preview-error" data-preview-kind="error" hidden></div>
+      <article id="preview-markdown" class="preview-markdown" data-preview-kind="markdown" hidden></article>
+      <iframe id="preview-html" class="preview-html" data-preview-kind="html" sandbox="allow-popups allow-popups-to-escape-sandbox" title="HTML 预览" hidden></iframe>
+      <div class="preview-media" data-preview-kind="image" hidden><img id="preview-image" alt="" /></div>
+      <div class="preview-media" data-preview-kind="video" hidden><video id="preview-video" controls playsinline preload="metadata"></video></div>
+      <div class="preview-media preview-audio" data-preview-kind="audio" hidden><audio id="preview-audio" controls preload="metadata"></audio></div>
+    </section>
+  </main>
   <div id="app" data-mode="sessions">
 
     <!-- ───────── 主机栏（桌面左栏） ───────── -->
@@ -320,8 +344,9 @@
   </div>
   <script src="vendor/purify.min.js?v=3.2.6"></script>
   <script src="vendor/marked.min.js?v=15.0.12"></script>
-  <script src="markdown.js?v=44"></script>
-  <script src="chat_model.js?v=44"></script>
-  <script src="app.js?v=44"></script>
+  <script src="markdown.js?v=46"></script>
+  <script src="preview.js?v=46"></script>
+  <script src="chat_model.js?v=46"></script>
+  <script src="app.js?v=46"></script>
 </body>
 </html>

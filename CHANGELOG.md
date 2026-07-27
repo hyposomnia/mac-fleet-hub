@@ -8,6 +8,11 @@ mac-fleet-hub 变更记录（日期为本地时间）。
 - **入口收拢**：新建会话移到刷新按钮旁，列表头部不再展示活跃 / 已归档切换。
 - **低频历史浏览**：设置新增“浏览历史 / 已归档会话”开关，默认关闭，并在本地记住用户选择。
 
+### 聊天本地文件链接可安全预览
+- **Fleet 预览页**：聊天回复中指向当前 Mac 的 Markdown、HTML、图片、视频和音频路径会改写为 `/view`，支持绝对路径、`~/`、相对会话 cwd 与文本行号后缀。
+- **静态 HTML 隔离**：HTML 经 DOMPurify 清洗后放入无脚本 sandbox，本地 CSS/媒体资源通过受限接口加载，不把本地 HTML 作为 Fleet 同源页面执行。
+- **文件边界与流式播放**：fleet-agent 新增预览/内容接口，解析符号链接后限制在 `FLEET_FILE_ROOT` 内；文本限 5 MB，音视频保留 HTTP Range 以支持进度拖动。
+
 ### Codex Desktop 长任务持续同步
 - **跨进程增量对账**：SSE 保持连接时监控对应 rollout 的追加变化，只拉取最新结构化 item 并按内容指纹发布增量，Desktop 与 fleet 使用独立 app-server 时也能持续追上。
 - **真实完成语义**：以 rollout 中同一 `turn_id` 的 `task_started`、`task_complete` 或 `turn_aborted` 判断生命周期，不再被独立 app-server 错报的 `idle/interrupted` 提前终止。

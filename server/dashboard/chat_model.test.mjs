@@ -6,6 +6,7 @@ import vm from 'node:vm';
 const src = await readFile(new URL('./chat_model.js', import.meta.url), 'utf8');
 const appSrc = await readFile(new URL('./app.js', import.meta.url), 'utf8');
 const markdownSrc = await readFile(new URL('./markdown.js', import.meta.url), 'utf8');
+const previewSrc = await readFile(new URL('./preview.js', import.meta.url), 'utf8');
 const indexHTML = await readFile(new URL('./index.html', import.meta.url), 'utf8');
 const styleCSS = await readFile(new URL('./style.css', import.meta.url), 'utf8');
 const serviceWorker = await readFile(new URL('./sw.js', import.meta.url), 'utf8');
@@ -66,21 +67,32 @@ vm.createContext(directiveSandbox);
 vm.runInContext(markdownSrc, directiveSandbox);
 const parseCodexDirective = directiveSandbox.globalThis.FleetMarkdown.parseCodexDirective || (() => null);
 const splitCodexContent = directiveSandbox.globalThis.FleetMarkdown.splitCodexContent || (() => []);
+const previewSandbox = {
+  globalThis: { location: { origin: 'https://fleet.example.test', pathname: '/', search: '' } },
+  URLSearchParams,
+};
+vm.createContext(previewSandbox);
+vm.runInContext(previewSrc, previewSandbox);
+const { resolveLocalLink, resourceURL, fileEndpoint, isPreviewRoute, previewRequest } = previewSandbox.globalThis.FleetPreview;
 
 test('chat model and app use the same versioned shell URLs', () => {
   const styleURL = indexHTML.match(/style\.css\?v=([a-zA-Z0-9_-]+)/);
   const markdownURL = indexHTML.match(/markdown\.js\?v=([a-zA-Z0-9_-]+)/);
+  const previewURL = indexHTML.match(/preview\.js\?v=([a-zA-Z0-9_-]+)/);
   const modelURL = indexHTML.match(/chat_model\.js\?v=([a-zA-Z0-9_-]+)/);
   const appURL = indexHTML.match(/app\.js\?v=([a-zA-Z0-9_-]+)/);
   assert.ok(styleURL);
   assert.ok(markdownURL);
+  assert.ok(previewURL);
   assert.ok(modelURL);
   assert.ok(appURL);
   assert.equal(styleURL[1], appURL[1]);
   assert.equal(markdownURL[1], appURL[1]);
+  assert.equal(previewURL[1], appURL[1]);
   assert.equal(modelURL[1], appURL[1]);
   assert.match(serviceWorker, new RegExp(`/style\\.css\\?v=${styleURL[1]}`));
   assert.match(serviceWorker, new RegExp(`/markdown\\.js\\?v=${markdownURL[1]}`));
+  assert.match(serviceWorker, new RegExp(`/preview\\.js\\?v=${previewURL[1]}`));
   assert.match(serviceWorker, new RegExp(`/chat_model\\.js\\?v=${modelURL[1]}`));
   assert.match(serviceWorker, new RegExp(`/app\\.js\\?v=${appURL[1]}`));
   assert.match(indexHTML, /vendor\/purify\.min\.js\?v=3\.2\.6/);
@@ -88,9 +100,54 @@ test('chat model and app use the same versioned shell URLs', () => {
   assert.match(serviceWorker, /vendor\/purify\.min\.js\?v=3\.2\.6/);
   assert.match(serviceWorker, /vendor\/marked\.min\.js\?v=15\.0\.12/);
   const markdownScript = indexHTML.indexOf('<script src="markdown.js');
+  const previewScript = indexHTML.indexOf('<script src="preview.js');
   assert.ok(indexHTML.indexOf('<script src="vendor/purify.min.js') < markdownScript);
   assert.ok(indexHTML.indexOf('<script src="vendor/marked.min.js') < markdownScript);
   assert.ok(markdownScript < indexHTML.indexOf('<script src="app.js'));
+  assert.ok(markdownScript < previewScript);
+  assert.ok(previewScript < indexHTML.indexOf('<script src="app.js'));
+});
+
+test('local supported file links resolve to the originating Mac preview route', () => {
+  const absolute = resolveLocalLink('/Users/test/My%20Project/docs/plan.md', { macId: 'm2', cwd: '/Users/test/My Project' });
+  const absoluteParams = new URLSearchParams(absolute.split('?')[1]);
+  assert.equal(absolute.split('?')[0], '/view');
+  assert.equal(absoluteParams.get('mac'), 'm2');
+  assert.equal(absoluteParams.get('path'), '/Users/test/My Project/docs/plan.md');
+  assert.equal(absoluteParams.get('cwd'), '/Users/test/My Project');
+
+  assert.match(resolveLocalLink('preview/page.html:12', { macId: 'm1', cwd: '/repo' }), /^\/view\?/);
+  assert.match(resolveLocalLink('../media/demo.mp4', { macId: 'm3', cwd: '/repo/docs' }), /^\/view\?/);
+  assert.equal(resolveLocalLink('https://example.com/file.md', { macId: 'm2' }), '');
+  assert.equal(resolveLocalLink('/Users/test/secret.txt', { macId: 'm2' }), '');
+  assert.equal(resolveLocalLink('/Users/test/image.png', { macId: 'unknown' }), '');
+});
+
+test('preview helpers build protected media URLs and parse only /view routes', () => {
+  assert.equal(
+    resourceURL('./image.png', { macId: 'm2', cwd: '/Users/test/docs' }),
+    '/m2/api/file/content?path=.%2Fimage.png&cwd=%2FUsers%2Ftest%2Fdocs',
+  );
+  assert.equal(resourceURL('https://example.com/image.png', { macId: 'm2' }), '');
+  assert.match(fileEndpoint('content', 'm2', '/Users/test/clip.mp4', { download: true }), /download=1/);
+  assert.equal(isPreviewRoute('/view'), true);
+  assert.equal(isPreviewRoute('/view/'), true);
+  assert.equal(isPreviewRoute('/'), false);
+  assert.deepEqual(
+    JSON.parse(JSON.stringify(previewRequest('?mac=m2&path=%2FUsers%2Ftest%2Fplan.md&cwd=%2Frepo'))),
+    { macId: 'm2', path: '/Users/test/plan.md', cwd: '/repo' },
+  );
+});
+
+test('preview page keeps HTML in a scriptless sandbox and media in native controls', () => {
+  const iframe = indexHTML.match(/<iframe id="preview-html"[^>]*>/)?.[0] || '';
+  assert.match(iframe, /sandbox="allow-popups allow-popups-to-escape-sandbox"/);
+  assert.doesNotMatch(iframe, /allow-scripts|allow-same-origin/);
+  assert.match(indexHTML, /<video id="preview-video" controls playsinline preload="metadata">/);
+  assert.match(indexHTML, /<audio id="preview-audio" controls preload="metadata">/);
+  assert.match(previewSrc, /FORBID_TAGS:[\s\S]*?'script'/);
+  assert.match(previewSrc, /"script-src 'none'"/);
+  assert.match(appSrc, /FleetMarkdown\.renderMarkdown\(item\.text, chatMediaSrc, chatLinkHref\)/);
 });
 
 test('dashboard typography uses one UI scale and reserves monospace for technical content', () => {

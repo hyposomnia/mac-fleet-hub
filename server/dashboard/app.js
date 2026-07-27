@@ -2099,7 +2099,7 @@ function renderChatItem(item, showMeta = true) {
   }
   if (item.type === 'assistant') {
     return chatRow(h('div', { class: 'chat-card' },
-      FleetMarkdown.renderMarkdown(item.text, chatMediaSrc)),
+      FleetMarkdown.renderMarkdown(item.text, chatMediaSrc, chatLinkHref)),
     'assistant');
   }
   if (item.type === 'reasoning') {
@@ -2111,14 +2111,14 @@ function renderChatItem(item, showMeta = true) {
     return chatRow(h('details', { class: 'chat-reasoning', open: running ? '' : null },
       h('summary', {}, h('span', { class: 'chat-reasoning-spinner', 'aria-hidden': 'true' }),
         h('span', { text: label }), svgIcon('chat-tool-chevron', 'M6 9l6 6 6-6')),
-      summary ? h('div', { class: 'chat-reasoning-body' }, FleetMarkdown.renderMarkdown(summary, chatMediaSrc)) : null),
+      summary ? h('div', { class: 'chat-reasoning-body' }, FleetMarkdown.renderMarkdown(summary, chatMediaSrc, chatLinkHref)) : null),
     'reasoning');
   }
   if (item.type === 'plan') {
     if (!item.text) return null;
     return chatRow(h('section', { class: 'chat-plan' },
       h('div', { class: 'chat-plan-title', text: 'Proposed plan' }),
-      h('div', { class: 'chat-plan-body' }, FleetMarkdown.renderMarkdown(item.text, chatMediaSrc))), 'plan');
+      h('div', { class: 'chat-plan-body' }, FleetMarkdown.renderMarkdown(item.text, chatMediaSrc, chatLinkHref))), 'plan');
   }
   if (item.type === 'todo') {
     if (!item.steps?.length) return null;
@@ -2155,6 +2155,14 @@ function chatMediaSrc(source) {
   if (value.startsWith('/api/')) return `${apiBase(state.chat?.macId || state.macId)}${value}`;
   if (!value.startsWith('/')) return '';
   return `${apiBase(state.chat?.macId || state.macId)}/api/chat/media?path=${encodeURIComponent(value)}`;
+}
+
+function chatLinkHref(source) {
+  const chat = state.chat;
+  return FleetPreview.resolveLocalLink(source, {
+    macId: chat?.macId || state.macId,
+    cwd: chat?.cwd || '',
+  }) || source;
 }
 
 function resizeChatInput() {
@@ -3326,6 +3334,11 @@ function wireMobileInput() {
 // ============================================================
 function init() {
   initTheme();
+  if (window.FleetPreview?.isPreviewRoute()) {
+    FleetPreview.initRoute();
+    if ('serviceWorker' in navigator) navigator.serviceWorker.register(`${BASE}/sw.js`).catch(() => {});
+    return;
+  }
   initSessionListPreferences();
   initExperimentFlags();
   renderHosts();
