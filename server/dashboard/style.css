@@ -814,11 +814,11 @@ textarea.chat-request-input { resize: vertical; }
 .chat-reasoning { width: 100%; color: var(--chat-text-2); font-size: var(--t-secondary); }
 .chat-reasoning > summary { display: inline-flex; align-items: center; gap: 6px; min-height: 28px; cursor: pointer; list-style: none; }
 .chat-reasoning > summary::-webkit-details-marker { display: none; }
-.chat-reasoning .chat-tool-chevron { width: 14px; height: 14px; transition: transform var(--dur-1) var(--ease); }
-.chat-reasoning[open] .chat-tool-chevron { transform: rotate(180deg); }
+.chat-reasoning .chat-tool-chevron { width: 14px; height: 14px; transition: none; }
 .chat-reasoning-spinner { width: 9px; height: 9px; border: 1px solid var(--chat-text-3); border-right-color: transparent; border-radius: 50%; animation: spin .9s linear infinite; }
 .chat-reasoning:not([open]) .chat-reasoning-spinner, .chat-reasoning[open] .chat-reasoning-body:not(:empty) ~ .chat-reasoning-spinner { animation: none; }
-.chat-reasoning-body { max-width: 760px; padding: 4px 0 8px 15px; border-left: 1px solid var(--chat-border); color: var(--chat-text-2); }
+.chat-reasoning-body { max-width: 760px; padding: 4px 0 8px 15px; border-left: 1px solid var(--chat-border); color: var(--chat-text-2); font-weight: 400; }
+.chat-reasoning-body strong { color: inherit; font-weight: inherit; }
 .chat-plan { width: 100%; padding: 12px 14px; border: 1px solid var(--chat-border); border-radius: 8px; background: var(--chat-surface-1); }
 .chat-plan-title { margin-bottom: 8px; color: var(--chat-text-2); font-size: var(--t-secondary); font-weight: 600; }
 .chat-plan-body { color: var(--chat-text); }
