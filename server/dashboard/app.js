@@ -151,8 +151,13 @@ async function api(id, path, opts) {
 }
 
 const SELF_DRAW_KEY = 'fleet-experiment-selfdraw';
+const SESSION_ARCHIVE_KEY = 'fleet-show-archived-sessions';
 let chatIMEComposing = false;
 let mobileIMEComposing = false;
+function initSessionListPreferences() {
+  try { state.scope = localStorage.getItem(SESSION_ARCHIVE_KEY) === '1' ? 'all' : 'active'; }
+  catch (_) { state.scope = 'active'; }
+}
 function initExperimentFlags() {
   try { state.selfDraw = localStorage.getItem(SELF_DRAW_KEY) === '1'; } catch (_) { state.selfDraw = false; }
   updateExperimentMenus();
@@ -353,11 +358,13 @@ function openSettings() {
   $('#st-mscroll').value = s.mobileScrollback;
   $('#st-autoclose').value = s.autoCloseMinutes;
   $('#st-chat-cache-max').value = s.chatCacheMaxSessions;
+  $('#st-show-archived').checked = state.scope === 'all';
   renderChatCacheStats();
-  showSettingsTab('terminal');
+  showSettingsTab('sessions');
   openOverlay('settings-modal');
 }
 async function saveSettings() {
+  const nextScope = $('#st-show-archived').checked ? 'all' : 'active';
   const body = {
     desktopMaxWindows: parseInt($('#st-dmax').value, 10) || 0,
     desktopScrollback: parseInt($('#st-dscroll').value, 10) || 0,
@@ -372,16 +379,24 @@ async function saveSettings() {
     });
     if (!r.ok) throw new Error('HTTP ' + r.status);
     state.settings = { ...SETTINGS_DEFAULT, ...(await r.json()) }; // 服务端 normalize 后的真实值
+    const scopeChanged = state.scope !== nextScope;
+    state.scope = nextScope;
+    try { localStorage.setItem(SESSION_ARCHIVE_KEY, nextScope === 'all' ? '1' : '0'); } catch (_) {}
     closeOverlay('settings-modal');
     toast('设置已保存', 'ok');
     poolEvict();              // 上限调小 → 立即按新上限释放多余窗口
     evictChatCache();         // 自绘缓存上限调小 → 立即释放最久未看的连接
     applyScrollbackToPool();  // 回滚行数即时作用到已开终端
+    if (scopeChanged) {
+      state.sessionResults = [];
+      state.sessionsNextCursor = '';
+      loadSessions({ clear: true });
+    }
   } catch (e) { toast('保存失败：' + e.message, 'err'); }
 }
 
 function showSettingsTab(tab) {
-  const key = tab === 'chat' ? 'chat' : 'terminal';
+  const key = tab === 'chat' || tab === 'sessions' ? tab : 'terminal';
   $$('[data-settings-tab]').forEach((b) => b.setAttribute('aria-selected', String(b.dataset.settingsTab === key)));
   $$('[data-settings-panel]').forEach((p) => { p.hidden = p.dataset.settingsPanel !== key; });
   if (key === 'chat') renderChatCacheStats();
@@ -485,9 +500,6 @@ function renderSessionSkeleton(wrap) {
 
 function updateSessionFilterUI() {
   const codex = state.assistant === 'codex';
-  const scopeButtons = $$('[data-scope]');
-  if (scopeButtons[0]) scopeButtons[0].textContent = codex ? '当前' : '活跃';
-  if (scopeButtons[1]) scopeButtons[1].textContent = codex ? '已归档' : '全部';
   const searchbar = $('#session-searchbar');
   if (searchbar) searchbar.hidden = !codex;
   const input = $('#session-search');
@@ -3314,6 +3326,7 @@ function wireMobileInput() {
 // ============================================================
 function init() {
   initTheme();
+  initSessionListPreferences();
   initExperimentFlags();
   renderHosts();
   refreshNames();
@@ -3322,18 +3335,11 @@ function init() {
   setInterval(refreshSessionsSoft, 5000); // 轻量轮询 waiting / Codex 进行中状态（函数自带 mode/macId guard）
   wireMobileInput();
 
-  // 模式 / 范围 / 刷新 / 新建
+  // 模式 / 助手 / 刷新 / 新建
   // 注意 button[data-mode]：#app 本身带 data-mode（CSS 切栅格用），裸 [data-mode] 会把 #app 也选中，
   // 给根容器挂上 onclick → 点页面任意处都冒泡触发 setMode→loadSessions（每次点击闪一下）。
   $$('button[data-mode]').forEach((b) => b.onclick = () => setMode(b.dataset.mode));
   $$('[data-assistant]').forEach((b) => b.onclick = () => setAssistant(b.dataset.assistant));
-  $$('[data-scope]').forEach((b) => b.onclick = () => {
-    state.scope = b.dataset.scope;
-    state.sessionResults = [];
-    state.sessionsNextCursor = '';
-    $$('[data-scope]').forEach((x) => x.setAttribute('aria-selected', String(x === b)));
-    loadSessions({ clear: true });
-  });
   $('#refresh-btn').onclick = () => { loadSessions(); refreshHostCounts(); };
   $('#sessions-more').onclick = () => loadSessions({ append: true });
   $('#session-search').oninput = (event) => {

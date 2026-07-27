@@ -4,6 +4,10 @@ mac-fleet-hub 变更记录（日期为本地时间）。
 
 ## 2026-07-27
 
+### 会话列表默认只显示活跃会话
+- **入口收拢**：新建会话移到刷新按钮旁，列表头部不再展示活跃 / 已归档切换。
+- **低频历史浏览**：设置新增“浏览历史 / 已归档会话”开关，默认关闭，并在本地记住用户选择。
+
 ### Codex Desktop 长任务持续同步
 - **跨进程增量对账**：SSE 保持连接时监控对应 rollout 的追加变化，只拉取最新结构化 item 并按内容指纹发布增量，Desktop 与 fleet 使用独立 app-server 时也能持续追上。
 - **真实完成语义**：以 rollout 中同一 `turn_id` 的 `task_started`、`task_complete` 或 `turn_aborted` 判断生命周期，不再被独立 app-server 错报的 `idle/interrupted` 提前终止。

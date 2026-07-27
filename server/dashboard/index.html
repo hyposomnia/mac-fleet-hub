@@ -79,11 +79,10 @@
           <button data-assistant="codex" role="tab" aria-selected="true">Codex</button>
           <button data-assistant="claude" role="tab" aria-selected="false">Claude</button>
         </div>
-        <div class="seg" role="tablist">
-          <button data-scope="active" role="tab" aria-selected="true">活跃</button>
-          <button data-scope="all" role="tab" aria-selected="false">全部</button>
+        <div class="sc-head-actions">
+          <button id="new-session" class="iconbtn" title="新建会话" aria-label="新建会话"><svg class="ic" viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg></button>
+          <button id="refresh-btn" class="iconbtn" title="刷新" aria-label="刷新"><svg class="ic" viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg></button>
         </div>
-        <button id="refresh-btn" class="iconbtn" title="刷新"><svg class="ic" viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg></button>
       </header>
       <div id="session-searchbar" class="session-searchbar">
         <svg class="ic" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><line x1="16.5" y1="16.5" x2="21" y2="21"/></svg>
@@ -91,7 +90,6 @@
       </div>
       <div id="session-groups" class="sc-body"></div>
       <button id="sessions-more" class="btn sessions-more" hidden>加载更多</button>
-      <button id="new-session" class="newbtn"><svg class="ic" viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg> 新建会话</button>
     </section>
 
     <!-- ───────── 窗口（终端 / 文件） ───────── -->
@@ -252,10 +250,18 @@
         <div class="modal-head"><svg class="ic" viewBox="0 0 24 24" style="width:18px;height:18px"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg><span>设置</span><button class="iconbtn bare x" data-close="settings-modal"><svg class="ic" viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button></div>
         <div class="modal-body">
           <div class="seg set-tabs" role="tablist">
-            <button data-settings-tab="terminal" role="tab" aria-selected="true">终端</button>
+            <button data-settings-tab="sessions" role="tab" aria-selected="true">会话</button>
+            <button data-settings-tab="terminal" role="tab" aria-selected="false">终端</button>
             <button data-settings-tab="chat" role="tab" aria-selected="false">自绘</button>
           </div>
-          <section class="set-group set-panel" data-settings-panel="terminal">
+          <section class="set-group set-panel" data-settings-panel="sessions">
+            <div class="set-group-title">会话列表</div>
+            <div class="kv">
+              <span class="k">浏览历史 / 已归档会话</span>
+              <label class="switch"><input id="st-show-archived" type="checkbox" aria-label="浏览历史或已归档会话" /><span class="tk"></span></label>
+            </div>
+          </section>
+          <section class="set-group set-panel" data-settings-panel="terminal" hidden>
             <div class="set-group-title">终端设置</div>
             <div class="set-sec">桌面端</div>
             <div class="field"><label>最大同时打开的终端窗口数</label><input id="st-dmax" class="input tnum" type="number" min="1" max="30" inputmode="numeric" /></div>

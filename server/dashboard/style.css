@@ -254,7 +254,6 @@ svg.ic.fill { fill: currentColor; stroke: none; }
 .toggle-dot { width: 9px; height: 9px; border-radius: 50%; border: 1px solid var(--border-strong); background: transparent; flex: none; }
 .toggle-dot.on { background: var(--accent); border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
 .modeseg button svg.ic { width: 15px; height: 15px; }
-.newbtn svg.ic { width: 16px; height: 16px; }
 .userrow .cv svg.ic { width: 14px; height: 14px; }
 .send-btn svg.ic { width: 20px; height: 20px; }
 .btn svg.ic { width: 15px; height: 15px; }
@@ -343,11 +342,12 @@ svg.ic.fill { fill: currentColor; stroke: none; }
 .hint { color: var(--text-2); font-size: var(--t-secondary); line-height: 1.5; margin-top: var(--s3); }
 
 .switch { position: relative; width: 42px; height: 24px; flex: none; }
-.switch input { display: none; }
+.switch input { position: absolute; width: 1px; height: 1px; opacity: 0; }
 .switch .tk { position: absolute; inset: 0; border-radius: var(--r-pill); background: var(--surface-2); border: 1px solid var(--border-1); transition: all var(--dur-2) var(--ease); }
 .switch .tk::after { content: ""; position: absolute; top: 2px; left: 2px; width: 18px; height: 18px; border-radius: 50%; background: var(--text-2); transition: all var(--dur-2) var(--ease); }
 .switch input:checked + .tk { background: var(--accent); border-color: var(--accent); }
 .switch input:checked + .tk::after { left: 20px; background: #fff; }
+.switch input:focus-visible + .tk { box-shadow: var(--ring); }
 
 /* 浮层菜单 */
 .menu { position: absolute; z-index: 55; background: var(--surface-1); border: 1px solid var(--border-1); border-radius: 12px; box-shadow: var(--e3); padding: 6px; min-width: 184px; animation: opop .14s var(--ease); }
@@ -408,6 +408,7 @@ svg.ic.fill { fill: currentColor; stroke: none; }
 /* 筛选条撑满本行后，按钮也各占一半填满（否则容器被 flex:1 拉宽、按钮却挤在左边留大片空白） */
 .sc-head .seg { flex: 1 1 128px; min-width: 0; }
 .sc-head .seg button { flex: 1; text-align: center; }
+.sc-head-actions { display: flex; align-items: center; gap: 7px; margin-left: auto; }
 .session-searchbar { display: flex; align-items: center; gap: 7px; margin: 9px 10px 0; padding: 0 9px; min-height: 34px; border: 1px solid var(--border); border-radius: 7px; background: var(--surface-1); color: var(--text-2); }
 .session-searchbar:focus-within { border-color: var(--accent); box-shadow: var(--ring); color: var(--text-1); }
 .session-searchbar .ic { width: 15px; height: 15px; flex: none; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; }
@@ -489,9 +490,6 @@ svg.ic.fill { fill: currentColor; stroke: none; }
    收起态 margin 归零——否则 margin 即便 max-height:0 仍占 9px，把标题往上顶、未选中行看着不垂直居中。 */
 .ses-acts { display: flex; gap: 7px; margin: 0 0 0 17px; max-height: 0; overflow: hidden; opacity: 0; transition: max-height var(--dur-2) var(--ease), opacity var(--dur-2) var(--ease), margin-top var(--dur-2) var(--ease); }
 .ses.sel .ses-acts { max-height: 48px; opacity: 1; margin-top: 8px; }
-
-.newbtn { margin: 10px; padding: 11px; border-radius: 10px; border: 1px dashed var(--border-1); color: var(--text-1); font-weight: 500; font-size: var(--t-body); display: flex; align-items: center; justify-content: center; gap: 8px; transition: all var(--dur-1) var(--ease); }
-.newbtn:hover { background: var(--accent-soft); border-color: var(--accent); color: var(--accent-text); }
 
 .empty { color: var(--text-2); text-align: center; padding: 40px 18px; font-size: var(--t-body); }
 .empty small { color: var(--text-3); }

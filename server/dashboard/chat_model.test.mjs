@@ -174,6 +174,18 @@ test('Codex is the first and default session assistant', () => {
   assert.match(appSrc, /assistant:\s*'codex',\s*\/\/ claude \| codex/);
 });
 
+test('session header keeps archive browsing in settings', () => {
+  const header = indexHTML.match(/<header class="sc-head">[\s\S]*?<\/header>/)?.[0] || '';
+  assert.ok(header);
+  assert.match(header, /class="sc-head-actions"[\s\S]*id="new-session"[\s\S]*id="refresh-btn"/);
+  assert.doesNotMatch(indexHTML, /data-scope=/);
+  assert.match(indexHTML, /data-settings-tab="sessions"/);
+  assert.match(indexHTML, /id="st-show-archived"[^>]*type="checkbox"/);
+  assert.match(appSrc, /SESSION_ARCHIVE_KEY\s*=\s*'fleet-show-archived-sessions'/);
+  assert.match(appSrc, /localStorage\.setItem\(SESSION_ARCHIVE_KEY/);
+  assert.match(styleCSS, /\.sc-head-actions\s*\{/);
+});
+
 test('jump-to-bottom control uses an accessible inline SVG icon', () => {
   assert.match(indexHTML, /<button id="chat-jump"[^>]*aria-label="跳到底部"[^>]*>/);
   assert.match(indexHTML, /<svg class="chat-jump-icon"[^>]*aria-hidden="true">/);
