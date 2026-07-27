@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -11,6 +12,53 @@ import (
 	"testing"
 	"time"
 )
+
+func TestCodexRPCClientAcceptsResponsesLargerThanScannerLimit(t *testing.T) {
+	clientConn, serverConn := net.Pipe()
+	defer clientConn.Close()
+	defer serverConn.Close()
+
+	c := newCodexRPCClient(clientConn)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go c.run(ctx)
+
+	want := bytes.Repeat([]byte("x"), 17*1024*1024)
+	serverDone := make(chan struct{})
+	go func() {
+		defer close(serverDone)
+		s := bufio.NewScanner(serverConn)
+		if !s.Scan() {
+			t.Errorf("missing request: %v", s.Err())
+			return
+		}
+		response := make([]byte, 0, len(want)+32)
+		response = append(response, `{"id":1,"result":{"text":"`...)
+		response = append(response, want...)
+		response = append(response, `"}}`...)
+		response = append(response, '\n')
+		if _, err := serverConn.Write(response); err != nil {
+			t.Errorf("write response: %v", err)
+		}
+	}()
+
+	callCtx, cancelCall := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancelCall()
+	res, err := c.call(callCtx, "thread/read", map[string]string{"threadId": "t"})
+	if err != nil {
+		t.Fatalf("large response: %v", err)
+	}
+	var decoded struct {
+		Text string `json:"text"`
+	}
+	if err := json.Unmarshal(res, &decoded); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if len(decoded.Text) != len(want) {
+		t.Fatalf("response text length got %d want %d", len(decoded.Text), len(want))
+	}
+	<-serverDone
+}
 
 func TestCodexRPCClientEOFImmediatelyFailsPendingCalls(t *testing.T) {
 	clientConn, serverConn := net.Pipe()

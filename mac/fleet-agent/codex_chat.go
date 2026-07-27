@@ -16,7 +16,10 @@ import (
 )
 
 const chatHistoryPageSize = 40
-const codexTurnsPageSize = 12
+
+// A migrated turn can contain an entire legacy transcript. Keep the fallback
+// page to one full turn so old app-server versions do not multiply that cost.
+const codexTurnsPageSize = 1
 const codexTurnsCursorPrefix = "turn-items:"
 const codexHistoryCacheLimit = 32
 

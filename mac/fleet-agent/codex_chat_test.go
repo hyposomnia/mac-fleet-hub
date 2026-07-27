@@ -412,7 +412,7 @@ func TestCodexChatBackendHistoryFallsBackToItemPagingWithinTurns(t *testing.T) {
 		t.Fatalf("second page calls got %#v", got)
 	}
 	params := mapFromParams(t, rpc.calls[1].params)
-	if params["itemsView"] != "full" || params["sortDirection"] != "desc" {
+	if params["itemsView"] != "full" || params["sortDirection"] != "desc" || params["limit"] != float64(1) {
 		t.Fatalf("turn fallback params: %#v", params)
 	}
 }

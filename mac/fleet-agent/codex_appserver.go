@@ -147,18 +147,20 @@ func descendantProcessIDs(rootPID int, pairs [][2]int) []int {
 }
 
 func (c *codexRPCClient) run(ctx context.Context) {
-	sc := bufio.NewScanner(c.rw)
-	sc.Buffer(make([]byte, 64*1024), 16*1024*1024)
-	for sc.Scan() {
-		c.handleLine(sc.Bytes())
-	}
-	err := sc.Err()
-	if err == nil {
-		if ctx.Err() != nil {
-			err = ctx.Err()
-		} else {
-			err = io.EOF
+	r := bufio.NewReaderSize(c.rw, 64*1024)
+	var err error
+	for {
+		var line []byte
+		line, err = r.ReadBytes('\n')
+		if len(line) > 0 {
+			c.handleLine(line)
 		}
+		if err != nil {
+			break
+		}
+	}
+	if errors.Is(err, io.EOF) && ctx.Err() != nil {
+		err = ctx.Err()
 	}
 	c.failPending(err)
 	close(c.notes)
