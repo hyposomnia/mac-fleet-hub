@@ -458,10 +458,21 @@ svg.ic.fill { fill: currentColor; stroke: none; }
 .ses-top .stopbtn:hover { background: var(--danger-soft); border-color: var(--danger); }
 .ses-top .stopbtn:hover::before { opacity: 0; }
 .ses-top .stopbtn:hover svg { opacity: 1; }
-/* 自绘会话的 SSE 仍保持时，沿用 ttyd 的静态绿点语义；它只是状态，不承担终止操作。 */
+/* Codex Desktop 同款进行中点：实时 status=active/running 时显示，优先于缓存连接提示。 */
+.ses-top .session-running-status { width: 25px; height: 25px; flex: none; display: none; place-items: center; }
+.ses-top .session-running-status::before {
+  content: ''; width: 8px; height: 8px; border-radius: 50%; background: var(--online);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--online) 18%, transparent);
+  animation: pulse 1.8s var(--ease) infinite;
+}
+.ses.session-running .session-running-status { display: grid; }
+/* ttyd 行已有可悬停停止的绿点，避免同一行重复两个活动信号。 */
+.ses.conn.session-running .session-running-status { display: none; }
+/* 自绘会话仅保持 SSE 时用中性空心点；真正运行时由上面的绿色进行中点取代。 */
 .ses-top .chat-cache-status { width: 25px; height: 25px; flex: none; display: none; place-items: center; }
-.ses-top .chat-cache-status::before { content: ''; width: 8px; height: 8px; border-radius: 50%; background: var(--online); }
+.ses-top .chat-cache-status::before { content: ''; width: 7px; height: 7px; border-radius: 50%; border: 1.5px solid var(--text-3); }
 .ses.chat-connected .chat-cache-status { display: grid; }
+.ses.session-running .chat-cache-status { display: none; }
 .ses-pin { display: grid; place-items: center; width: 22px; height: 25px; flex: none; color: var(--text-2); }
 .ses-pin .ic { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
 .ses-menu-wrap { position: relative; flex: none; }

@@ -59,6 +59,36 @@ func TestCodexListThreadsUsesDesktopQueryAndFiltersOnlyHiddenSources(t *testing.
 	}
 }
 
+func TestCodexSessionFromThreadMapsDesktopRuntimeStatus(t *testing.T) {
+	name := "Active thread"
+	active, ok := codexSessionFromThread(codexThreadWire{
+		ID:        "thread-active",
+		Name:      &name,
+		Cwd:       "/repo",
+		UpdatedAt: 2,
+		Status:    json.RawMessage(`{"type":"active","activeFlags":["waitingOnApproval"]}`),
+	})
+	if !ok {
+		t.Fatal("active Desktop thread should be visible")
+	}
+	if !active.Live || active.Status != "active" || !active.Waiting {
+		t.Fatalf("active Desktop status was not preserved: %+v", active)
+	}
+
+	idle, ok := codexSessionFromThread(codexThreadWire{
+		ID:        "thread-idle",
+		Preview:   "Idle thread",
+		UpdatedAt: 2,
+		Status:    json.RawMessage(`{"type":"idle"}`),
+	})
+	if !ok {
+		t.Fatal("idle Desktop thread should be visible")
+	}
+	if idle.Live || idle.Status != "idle" || idle.Waiting {
+		t.Fatalf("idle Desktop status was not preserved: %+v", idle)
+	}
+}
+
 func TestCodexListThreadsTimeoutReconnectsAndRetries(t *testing.T) {
 	previousTimeout := codexCatalogCallTimeout
 	codexCatalogCallTimeout = 10 * time.Millisecond

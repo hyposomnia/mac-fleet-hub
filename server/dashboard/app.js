@@ -106,6 +106,7 @@ const state = {
   sessionResults: [],
   sessionsNextCursor: '',
   sessionsLoadingMore: false,
+  sessionsSoftLoading: false,
 };
 
 // 偏好默认（拉取失败/未设时回退，与 server/enroll defaultSettings 对齐）
@@ -588,13 +589,17 @@ async function loadSessions(opts = {}) {
   renderSessionResults();
 }
 
-// 软刷新会话列表：定时静默拉取，只就地更新「易变字段」——棕点 waiting / 相对时间 / 计数，
-// 不 clear 重建整列表（避免每周期把 hover 的路径 tooltip、冷会话展开按钮闪断）。这是棕点的
-// 「退出机制」：用户答完 AskUserQuestion / 授权后 jsonl 末条已变、后端 waiting 转 false，
-// 这里把对应行的棕点摘掉，不必等手动刷新。会话集合发生增删（结构变了）才回退全量 loadSessions。
+// 软刷新会话列表：定时静默拉取，只就地更新「易变字段」——waiting、Codex 运行状态、
+// 相对时间与计数，不 clear 重建整列表（避免每周期把 hover tooltip、展开按钮闪断）。
+// 会话集合或 pty 按钮结构发生变化时才回退全量 loadSessions。
 async function refreshSessionsSoft() {
   if (state.mode !== 'sessions' || !state.macId) return;
-  if (state.assistant === 'codex') return;
+  if (state.sessionsLoadingMore || state.sessionsSoftLoading) return;
+  const macId = state.macId;
+  const assistant = state.assistant;
+  const scope = state.scope;
+  const search = state.sessionSearch;
+  const codex = assistant === 'codex';
   const rows = $$('#session-groups .ses');
   if (!rows.length) {
     // 已经渲染成「没有会话」时也要继续探测；否则 agent 修复/会话新建后，
@@ -602,20 +607,47 @@ async function refreshSessionsSoft() {
     if ($('#session-groups .empty')) loadSessions();
     return; // 首次 / 骨架中 → 交给正在进行的 loadSessions
   }
+  const query = new URLSearchParams({ assistant, scope });
+  if (codex) {
+    query.set('archived', String(scope === 'all'));
+    query.set('limit', String(Math.min(100, Math.max(50, state.sessionResults.length))));
+    if (search) query.set('search', search);
+  }
   let data;
-  try { data = await api(state.macId, `sessions?assistant=${state.assistant}&scope=${state.scope}`); }
+  state.sessionsSoftLoading = true;
+  try { data = await api(macId, `sessions?${query.toString()}`); }
   catch (_) { return; } // 软刷新失败静默，不打断用户
+  finally { state.sessionsSoftLoading = false; }
+  if (state.mode !== 'sessions' || state.macId !== macId || state.assistant !== assistant ||
+      state.scope !== scope || state.sessionSearch !== search) return;
   const sessions = data.sessions || [];
   const domSids = new Set(rows.map((el) => el.dataset.sid));
-  // 会话集合变化（新增 / 消失）→ 结构变了，交给全量重建（含重新分组与排序）
-  if (domSids.size !== sessions.length || sessions.some((s) => !domSids.has(s.sessionId))) {
+  // Claude 返回完整集合，可直接比对。Codex 是分页结果：新会话必在第一页，发现新 id
+  // 就全量刷新；仅在当前结果没有后续页时，才把缺失 id 视为归档/删除。
+  const codexComplete = codex && !state.sessionsNextCursor && !data.nextCursor;
+  if ((!codex && (domSids.size !== sessions.length || sessions.some((s) => !domSids.has(s.sessionId)))) ||
+      (codex && sessions.some((s) => !domSids.has(s.sessionId))) ||
+      (codexComplete && (domSids.size !== sessions.length || [...domSids].some((sid) => !sessions.some((s) => s.sessionId === sid))))) {
     loadSessions();
     return;
   }
   const bySid = {};
   for (const s of sessions) {
     bySid[s.sessionId] = s;
-    updateCachedChatFromSession(state.macId, s);
+    updateCachedChatFromSession(macId, s);
+    if (codex) {
+      const current = state.sessionResults.find((item) => item.sessionId === s.sessionId);
+      if (current) {
+        // pty 的出现/消失会改变终止按钮结构，交给完整渲染处理。
+        if (!!current.pty !== !!s.pty) {
+          loadSessions();
+          return;
+        }
+        Object.assign(current, {
+          live: s.live, waiting: s.waiting, status: s.status, mtime: s.mtime,
+        });
+      }
+    }
   }
   for (const el of rows) {
     const s = bySid[el.dataset.sid];
@@ -629,7 +661,8 @@ async function refreshSessionsSoft() {
     if (tEl) tEl.textContent = relTime(s.mtime);
   }
   const activeN = state.scope === 'active' ? sessions.length : sessions.filter((s) => s.live).length;
-  state.counts[state.macId] = activeN;
+  state.counts[macId] = activeN;
+  syncSessionRuntimeIndicators();
 }
 
 // 会话行：
@@ -643,6 +676,7 @@ function sessionRow(s) {
   const selfDraw = canSelfDrawChat() && assistant === 'codex';
   const inPool = !!poolFind(state.macId, sid, assistant);
   const chatConnected = assistant === 'codex' && isChatConnectionKept(state.macId, sid);
+  const sessionRunning = assistant === 'codex' && isSessionRunning(s, state.macId);
   const live = !!s.pty; // 有运行中进程（行尾绿点）：再连只是重新 attach，不需选权限模式
   const stop = s.pty && h('span', { class: 'stopbtn', title: '终止进程（会话保留）',
     onclick: (e) => { e.stopPropagation(); termSes(sid, s.title); } }, svgStop());
@@ -656,6 +690,7 @@ function sessionRow(s) {
     h('span', { class: 't', text: s.title || '(无标题)' }),
     // 紧凑化：不再单起一行显示分支/路径，仅在同行标题后跟相对时间
     h('span', { class: 'ses-time', text: relTime(s.mtime) }),
+    h('span', { class: 'session-running-status', title: '正在进行', 'aria-label': '正在进行' }),
     h('span', { class: 'chat-cache-status', title: '自绘会话保持连接', 'aria-label': '自绘会话保持连接' }),
     pin,
     stop,
@@ -671,7 +706,8 @@ function sessionRow(s) {
     h('button', { class: 'btn sm warn', title: assistant === 'codex' ? 'codex --ask-for-approval never --sandbox workspace-write（自动批准 + 工作区可写沙箱）' : 'claude --permission-mode auto（自动批准 + 后台安全分类器）',
       onclick: (e) => { e.stopPropagation(); connect(sid, s.title, s.cwd, 'auto'); } }, 'Auto'));
   const row = h('div', {
-    class: 'ses' + (s.pty ? ' conn' : '') + (chatConnected ? ' chat-connected' : '') + (sid === state.selectedSid ? ' sel' : ''),
+    class: 'ses' + (s.pty ? ' conn' : '') + (sessionRunning ? ' session-running' : '') +
+      (chatConnected ? ' chat-connected' : '') + (sid === state.selectedSid ? ' sel' : ''),
     dataset: { sid },
   }, top, acts);
   // 池内 → poolShow 瞬时切换；有进程未在池 → 直接重新 attach；冷会话 → 仅高亮 + 展开三按钮。
@@ -1133,7 +1169,7 @@ function disposeChat(chat) {
   chat.events = null;
   if (chat.objectUrls) for (const u of chat.objectUrls) { try { URL.revokeObjectURL(u); } catch (_) {} }
   chat.objectUrls = [];
-  syncChatConnectionIndicators();
+  syncSessionRuntimeIndicators();
 }
 
 function chatCacheMax() {
@@ -1162,7 +1198,7 @@ function evictChatCache() {
     disposeChat(victim.chat);
     state.chatCache.delete(victim.key);
   }
-  syncChatConnectionIndicators();
+  syncSessionRuntimeIndicators();
   renderChatCacheStats();
 }
 
@@ -1181,10 +1217,19 @@ function isChatConnectionKept(macId, sessionId) {
   return !!(chat?.events && chat.events.readyState !== EventSource.CLOSED);
 }
 
-function syncChatConnectionIndicators() {
+function isSessionRunning(session, macId = state.macId) {
+  const chat = session?.sessionId ? state.chatCache.get(chatCacheKey(macId, session.sessionId)) : null;
+  // 已恢复过的自绘会话有实时 turn 状态，优先于列表轮询的旧快照。
+  if (chat && (chat.historyReady || chat.submitting)) return isChatRunning(chat);
+  return FleetChatModel.chatPhase(session?.status) === 'running';
+}
+
+function syncSessionRuntimeIndicators() {
   if (state.assistant !== 'codex') return;
+  const sessions = new Map(state.sessionResults.map((session) => [session.sessionId, session]));
   $$('#session-groups .ses').forEach((row) => {
     row.classList.toggle('chat-connected', isChatConnectionKept(state.macId, row.dataset.sid));
+    row.classList.toggle('session-running', isSessionRunning(sessions.get(row.dataset.sid), state.macId));
   });
 }
 
@@ -2711,7 +2756,7 @@ function startChatEvents(chat = state.chat) {
   const url = `${apiBase(chat.macId)}/api/chat/events?assistant=codex&sessionId=${encodeURIComponent(chat.sessionId)}`;
   const es = new EventSource(url);
   chat.events = es;
-  syncChatConnectionIndicators();
+  syncSessionRuntimeIndicators();
   es.onmessage = (e) => {
     if (state.chatCache.get(chat.cacheKey) !== chat) return;
     try {
@@ -2721,6 +2766,7 @@ function startChatEvents(chat = state.chat) {
       acknowledgeChatFollowups(chat, [ev]);
       chat.model = FleetChatModel.reduceChatEvent(chat.model, ev);
       applyChatMetadataDefaults(chat);
+      syncSessionRuntimeIndicators();
       if (state.chat === chat) {
         renderChat();
         updateChatComposerState();
@@ -2810,6 +2856,7 @@ async function sendChatTurn(chat, item, { restoreOnFailure = true } = {}) {
   chat.model = FleetChatModel.appendUserMessage(chat.model, (item.displayText || item.text).trim(), optimisticId, item.images);
   chat.loading = false;
   chat.submitting = true;
+  syncSessionRuntimeIndicators();
   if (state.chat === chat) {
     renderChat();
     updateChatComposerState();
@@ -2838,6 +2885,7 @@ async function sendChatTurn(chat, item, { restoreOnFailure = true } = {}) {
     return false;
   } finally {
     chat.submitting = false;
+    syncSessionRuntimeIndicators();
     if (state.chat === chat) updateChatComposerState();
   }
 }
@@ -2925,6 +2973,7 @@ async function interruptChat() {
   } catch (e) {
     if (e.code === 'no_active_turn') {
       chat.model = FleetChatModel.reduceChatEvent(chat.model, { type: 'thread_status', data: { status: 'idle' } });
+      syncSessionRuntimeIndicators();
       if (state.chat === chat) renderChat();
       toast('任务已结束，状态已同步。');
     } else {
@@ -3270,7 +3319,7 @@ function init() {
   refreshNames();
   refreshSettings();
   refreshNodes(); setInterval(refreshNodes, 30000);
-  setInterval(refreshSessionsSoft, 5000); // 会话列表轻量轮询：棕点(waiting)在用户答复 / 授权后自动退出（函数自带 mode/macId guard）
+  setInterval(refreshSessionsSoft, 5000); // 轻量轮询 waiting / Codex 进行中状态（函数自带 mode/macId guard）
   wireMobileInput();
 
   // 模式 / 范围 / 刷新 / 新建
