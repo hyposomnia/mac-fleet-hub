@@ -4,6 +4,11 @@ mac-fleet-hub 变更记录（日期为本地时间）。
 
 ## 2026-07-27
 
+### Codex Desktop 长任务持续同步
+- **跨进程增量对账**：SSE 保持连接时监控对应 rollout 的追加变化，只拉取最新结构化 item 并按内容指纹发布增量，Desktop 与 fleet 使用独立 app-server 时也能持续追上。
+- **真实完成语义**：以 rollout 中同一 `turn_id` 的 `task_started`、`task_complete` 或 `turn_aborted` 判断生命周期，不再被独立 app-server 错报的 `idle/interrupted` 提前终止。
+- **连接与去重**：多个订阅者共享同步 worker，最后一个连接断开或当前 turn 完成后停止；忽略 assistant 消息中持续变化的累计 usage，避免重放旧消息。
+
 ### 修正 iPhone 聊天输入框位置
 - **去除重复安全区**：移动端全屏会话容器已由 iOS 避让底部系统区域，聊天输入框不再重复叠加 `safe-area-inset-bottom`，恢复为距内容区底边 10px。
 - **缓存与回归**：dashboard 外壳缓存升级到 v43，并增加样式契约，防止输入框再次被底部安全区抬高。

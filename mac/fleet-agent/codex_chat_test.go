@@ -836,6 +836,247 @@ func TestCodexChatBackendEventsDispatchBySessionID(t *testing.T) {
 	}
 }
 
+func TestUpdateCodexRolloutTaskStateTracksLatestTurnIncrementally(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "rollout.jsonl")
+	body := strings.Join([]string{
+		`{"type":"event_msg","payload":{"type":"task_started","turn_id":"turn-old"}}`,
+		`{"type":"event_msg","payload":{"type":"task_complete","turn_id":"turn-old"}}`,
+		`{"type":"event_msg","payload":{"type":"task_started","turn_id":"turn-live"}}`,
+	}, "\n") + "\n" + `{"type":"event_msg","payload":{"type":"task_complete"`
+	if err := os.WriteFile(path, []byte(body), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	state := codexRolloutTaskState{}
+	if err := updateCodexRolloutTaskState(testCodexRolloutStamp(t, path), &state); err != nil {
+		t.Fatal(err)
+	}
+	if state.turnID != "turn-live" || state.terminal || state.status != "inProgress" {
+		t.Fatalf("active state got %+v", state)
+	}
+	if state.offset <= 0 || state.offset >= int64(len(body)) {
+		t.Fatalf("partial record changed offset to %d for %d bytes", state.offset, len(body))
+	}
+
+	f, err := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, writeErr := f.WriteString(`,"turn_id":"turn-old"}}` + "\n" +
+		`{"type":"event_msg","payload":{"type":"task_complete","turn_id":"turn-live"}}` + "\n")
+	closeErr := f.Close()
+	if writeErr != nil {
+		t.Fatal(writeErr)
+	}
+	if closeErr != nil {
+		t.Fatal(closeErr)
+	}
+	if err := updateCodexRolloutTaskState(testCodexRolloutStamp(t, path), &state); err != nil {
+		t.Fatal(err)
+	}
+	if state.turnID != "turn-live" || !state.terminal || state.status != "completed" {
+		t.Fatalf("completed state got %+v", state)
+	}
+
+	if err := os.WriteFile(path, []byte(
+		`{"type":"event_msg","payload":{"type":"task_started","turn_id":"turn-new"}}`+"\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := updateCodexRolloutTaskState(testCodexRolloutStamp(t, path), &state); err != nil {
+		t.Fatal(err)
+	}
+	if state.turnID != "turn-new" || state.terminal || state.status != "inProgress" {
+		t.Fatalf("truncated rollout state got %+v", state)
+	}
+}
+
+func TestChatEventFingerprintIgnoresAssistantUsageOnly(t *testing.T) {
+	first := newChatEvent("assistant_done", "codex", "thread-1", "turn-1", "msg-1", map[string]interface{}{
+		"text": "same answer", "usage": map[string]int{"inputTokens": 10},
+	})
+	second := newChatEvent("assistant_done", "codex", "thread-1", "turn-1", "msg-1", map[string]interface{}{
+		"text": "same answer", "usage": map[string]int{"inputTokens": 20},
+	})
+	if chatEventFingerprint(first) != chatEventFingerprint(second) {
+		t.Fatal("assistant usage changed the content fingerprint")
+	}
+
+	second.Data = json.RawMessage(`{"text":"updated answer","usage":{"inputTokens":20}}`)
+	if chatEventFingerprint(first) == chatEventFingerprint(second) {
+		t.Fatal("assistant text change did not change the content fingerprint")
+	}
+
+	usageA := newChatEvent("turn_usage", "codex", "thread-1", "turn-1", "", map[string]int{"inputTokens": 10})
+	usageB := newChatEvent("turn_usage", "codex", "thread-1", "turn-1", "", map[string]int{"inputTokens": 20})
+	if chatEventFingerprint(usageA) == chatEventFingerprint(usageB) {
+		t.Fatal("turn usage change did not change its fingerprint")
+	}
+}
+
+func TestCodexChatBackendReconcileConnectedSessionUsesRolloutLifecycle(t *testing.T) {
+	rpc := newFakeRPCConn()
+	rpc.reply["thread/turns/list"] = json.RawMessage(`{
+		"data":[{"id":"turn-live","status":"interrupted","items":[]}]
+	}`)
+	rpc.reply["thread/items/list"] = json.RawMessage(`{"data":[
+		{"turnId":"turn-live","item":{"id":"reason-1","type":"reasoning","summary":["new thought"]}},
+		{"turnId":"turn-old","item":{"id":"msg-old","type":"agentMessage","text":"old answer"}}
+	]}`)
+	b := newCodexChatBackend(func(ctx context.Context) (codexRPCConn, func(), error) {
+		return rpc, func() {}, nil
+	})
+	ch := make(chan ChatEvent, 16)
+	b.subs["thread-1"] = map[chan ChatEvent]struct{}{ch: {}}
+	oldEvent, ok := projectCodexHistoryItemWithUsage("thread-1", "turn-old",
+		json.RawMessage(`{"id":"msg-old","type":"agentMessage","text":"old answer"}`), codexTokenUsage{})
+	if !ok {
+		t.Fatal("old history item was not projected")
+	}
+	b.rememberSyncEvents("thread-1", []ChatEvent{oldEvent})
+
+	state := codexRolloutTaskState{turnID: "turn-live", status: "inProgress"}
+	completed, err := b.reconcileConnectedSession(context.Background(), rpc, "thread-1", state)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if completed {
+		t.Fatal("running turn reported complete")
+	}
+	first := receiveChatEvents(t, ch, 2)
+	if first[0].Type != "turn_started" || first[0].TurnID != "turn-live" ||
+		first[1].Type != "reasoning_update" || first[1].ItemID != "reason-1" {
+		t.Fatalf("first reconciliation got %+v", first)
+	}
+
+	if _, err := b.reconcileConnectedSession(context.Background(), rpc, "thread-1", state); err != nil {
+		t.Fatal(err)
+	}
+	assertNoChatEvent(t, ch)
+
+	rpc.reply["thread/items/list"] = json.RawMessage(`{"data":[
+		{"turnId":"turn-live","item":{"id":"reason-1","type":"reasoning","summary":["updated thought"]}},
+		{"turnId":"turn-old","item":{"id":"msg-old","type":"agentMessage","text":"old answer"}}
+	]}`)
+	if _, err := b.reconcileConnectedSession(context.Background(), rpc, "thread-1", state); err != nil {
+		t.Fatal(err)
+	}
+	updated := receiveChatEvents(t, ch, 1)
+	if updated[0].Type != "reasoning_update" || !strings.Contains(string(updated[0].Data), "updated thought") {
+		t.Fatalf("updated event got %+v", updated[0])
+	}
+
+	state.terminal = true
+	state.status = "completed"
+	completed, err = b.reconcileConnectedSession(context.Background(), rpc, "thread-1", state)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !completed {
+		t.Fatal("completed turn kept synchronization running")
+	}
+	done := receiveChatEvents(t, ch, 1)
+	if done[0].Type != "turn_done" || done[0].TurnID != "turn-live" {
+		t.Fatalf("completion event got %+v", done[0])
+	}
+	if got := methods(rpc.calls); !reflect.DeepEqual(got, []string{
+		"thread/items/list", "thread/items/list", "thread/items/list", "thread/items/list",
+	}) {
+		t.Fatalf("reconciliation used app-server turn status: %#v", got)
+	}
+}
+
+func TestCodexChatBackendConnectedSyncStopsWithLastSubscriber(t *testing.T) {
+	rpc := newFakeRPCConn()
+	rpc.reply["thread/items/list"] = json.RawMessage(`{"data":[]}`)
+	b := newCodexChatBackend(func(ctx context.Context) (codexRPCConn, func(), error) {
+		return rpc, func() {}, nil
+	})
+	b.syncInterval = 5 * time.Millisecond
+	rollout := filepath.Join(t.TempDir(), "rollout.jsonl")
+	if err := os.WriteFile(rollout, []byte(
+		`{"type":"event_msg","payload":{"type":"task_started","turn_id":"turn-live"}}`+"\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	b.rolloutStamp = func(string) (codexRolloutStamp, bool) {
+		return testCodexRolloutStamp(t, rollout), true
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	events, err := b.Events(ctx, "codex", "thread-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	started := receiveChatEvents(t, events, 1)
+	if started[0].Type != "turn_started" {
+		t.Fatalf("sync start got %+v", started[0])
+	}
+	cancel()
+
+	deadline := time.Now().Add(time.Second)
+	for {
+		b.mu.Lock()
+		_, running := b.syncers["thread-1"]
+		b.mu.Unlock()
+		if !running {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("connected sync did not stop after subscriber cancellation")
+		}
+		time.Sleep(time.Millisecond)
+	}
+}
+
+func TestCodexChatBackendConnectedSyncSurvivesOtherSubscriberDisconnect(t *testing.T) {
+	rpc := newFakeRPCConn()
+	b := newCodexChatBackend(func(ctx context.Context) (codexRPCConn, func(), error) {
+		return rpc, func() {}, nil
+	})
+
+	firstCtx, cancelFirst := context.WithCancel(context.Background())
+	if _, err := b.Events(firstCtx, "codex", "thread-1"); err != nil {
+		t.Fatal(err)
+	}
+	secondCtx, cancelSecond := context.WithCancel(context.Background())
+	if _, err := b.Events(secondCtx, "codex", "thread-1"); err != nil {
+		t.Fatal(err)
+	}
+	cancelFirst()
+
+	deadline := time.Now().Add(time.Second)
+	for {
+		b.mu.Lock()
+		subscriberCount := len(b.subs["thread-1"])
+		_, running := b.syncers["thread-1"]
+		b.mu.Unlock()
+		if subscriberCount == 1 {
+			if !running {
+				t.Fatal("sync stopped while another subscriber remained connected")
+			}
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("first subscriber was not removed")
+		}
+		time.Sleep(time.Millisecond)
+	}
+
+	cancelSecond()
+	deadline = time.Now().Add(time.Second)
+	for {
+		b.mu.Lock()
+		_, running := b.syncers["thread-1"]
+		b.mu.Unlock()
+		if !running {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("sync did not stop after all subscribers disconnected")
+		}
+		time.Sleep(time.Millisecond)
+	}
+}
+
 func TestCodexChatBackendRespondsToServerRequestID(t *testing.T) {
 	rpc := newFakeRPCConn()
 	b := newCodexChatBackend(func(ctx context.Context) (codexRPCConn, func(), error) {
@@ -1008,6 +1249,42 @@ func methods(calls []recordedCall) []string {
 		out = append(out, c.method)
 	}
 	return out
+}
+
+func receiveChatEvents(t *testing.T, ch <-chan ChatEvent, count int) []ChatEvent {
+	t.Helper()
+	events := make([]ChatEvent, 0, count)
+	deadline := time.After(time.Second)
+	for len(events) < count {
+		select {
+		case event, ok := <-ch:
+			if !ok {
+				t.Fatalf("event stream closed after %d/%d events", len(events), count)
+			}
+			events = append(events, event)
+		case <-deadline:
+			t.Fatalf("event timeout after %d/%d events", len(events), count)
+		}
+	}
+	return events
+}
+
+func testCodexRolloutStamp(t *testing.T, path string) codexRolloutStamp {
+	t.Helper()
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return codexRolloutStamp{path: path, size: info.Size(), modTime: info.ModTime().UnixNano()}
+}
+
+func assertNoChatEvent(t *testing.T, ch <-chan ChatEvent) {
+	t.Helper()
+	select {
+	case event := <-ch:
+		t.Fatalf("unexpected duplicate event: %+v", event)
+	case <-time.After(25 * time.Millisecond):
+	}
 }
 
 func mapFromParams(t *testing.T, params interface{}) map[string]interface{} {
