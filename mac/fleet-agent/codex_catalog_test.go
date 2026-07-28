@@ -173,6 +173,52 @@ func TestCodexInitialConnectionFailureSchedulesSelfRestart(t *testing.T) {
 	}
 }
 
+func TestHandleSessionsMissingCodexExecutableReturnsEmptyWithoutRestart(t *testing.T) {
+	previousCfg := cfg
+	previousBackend := agentChatBackend
+	cfg.CodexBin = filepath.Join(t.TempDir(), "missing-codex")
+	cfg.CodexHome = t.TempDir()
+	t.Cleanup(func() {
+		cfg = previousCfg
+		agentChatBackend = previousBackend
+	})
+
+	connects := 0
+	restarts := make(chan error, 1)
+	backend := newCodexChatBackend(func(context.Context) (codexRPCConn, func(), error) {
+		connects++
+		return nil, nil, errors.New("connector must not run")
+	})
+	backend.restart = func(err error) { restarts <- err }
+	agentChatBackend = backend
+
+	req := httptest.NewRequest(http.MethodGet, "/api/sessions?assistant=codex&archived=false", nil)
+	rr := httptest.NewRecorder()
+	handleSessions(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status got %d, want 200: %s", rr.Code, rr.Body.String())
+	}
+	var body struct {
+		Sessions []Session `json:"sessions"`
+		Total    int       `json:"total"`
+	}
+	if err := json.Unmarshal(rr.Body.Bytes(), &body); err != nil {
+		t.Fatalf("response should be JSON, got %q", rr.Body.String())
+	}
+	if body.Sessions == nil || len(body.Sessions) != 0 || body.Total != 0 {
+		t.Fatalf("missing Codex should return an empty list, got %+v", body)
+	}
+	if connects != 0 {
+		t.Fatalf("missing Codex started app-server %d times", connects)
+	}
+	select {
+	case err := <-restarts:
+		t.Fatalf("missing Codex scheduled fleet-agent restart: %v", err)
+	case <-time.After(30 * time.Millisecond):
+	}
+}
+
 func TestCodexCanceledRequestDoesNotRecoverOrRestart(t *testing.T) {
 	rpc := newFakeRPCConn()
 	rpc.block["thread/list"] = true

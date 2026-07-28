@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -343,11 +344,23 @@ func codexSessionSource(raw json.RawMessage) string {
 }
 
 func codexListThreads(ctx context.Context, opts codexThreadListOptions) (codexThreadPage, error) {
+	if !codexExecutableAvailable() {
+		return codexThreadPage{Sessions: []Session{}}, nil
+	}
 	catalog, ok := agentChatBackend.(codexThreadCatalog)
 	if !ok {
 		return codexThreadPage{}, errAppServerUnavailable
 	}
 	return catalog.ListThreads(ctx, opts)
+}
+
+func codexExecutableAvailable() bool {
+	bin := strings.TrimSpace(cfg.CodexBin)
+	if bin == "" {
+		bin = "codex"
+	}
+	_, err := exec.LookPath(bin)
+	return err == nil
 }
 
 func codexAllThreads(ctx context.Context, archived bool) ([]Session, error) {
