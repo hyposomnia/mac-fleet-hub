@@ -1068,6 +1068,7 @@ textarea.chat-request-input { resize: vertical; }
 .file-sources-head { display: flex; align-items: center; gap: 10px; padding: 0 5px; }
 .file-sources-head h1, .file-title-row h1 { margin: 0; color: var(--text); font-size: var(--t-display); font-weight: 600; }
 .file-sources-head .iconbtn { margin-left: auto; }
+.file-settings-mobile { display: none; }
 .file-source-label { margin: 22px 8px 7px; color: var(--text-2); font-size: var(--t-caption); font-weight: 600; }
 .file-location-list { display: grid; gap: 3px; }
 .file-location {
@@ -1141,6 +1142,26 @@ textarea.chat-request-input { resize: vertical; }
 .file-empty small { display: block; max-width: 420px; margin-top: 7px; overflow-wrap: anywhere; }
 .file-layout.is-uploading { cursor: progress; }
 .file-layout.is-uploading .file-actions, .file-layout.is-uploading .file-sources-head .iconbtn { opacity: .55; pointer-events: none; }
+.file-settings-menu {
+  position: fixed; z-index: 75; width: min(230px, calc(100vw - 16px)); padding: 6px;
+  border: 1px solid var(--border); border-radius: 7px; background: var(--surface); box-shadow: var(--e2);
+}
+.file-setting-option {
+  display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 14px;
+  min-height: 42px; padding: 7px 9px; border-radius: 5px; color: var(--text); font-size: var(--t-body); cursor: pointer;
+}
+.file-setting-option:hover { background: var(--surface-hover); }
+.file-setting-option input {
+  -webkit-appearance: none; appearance: none; position: relative; width: 38px; height: 22px; margin: 0;
+  border: 1px solid var(--border-strong); border-radius: 11px; background: var(--surface-2); cursor: pointer;
+}
+.file-setting-option input::after {
+  content: ""; position: absolute; top: 2px; left: 2px; width: 16px; height: 16px;
+  border-radius: 50%; background: var(--text-2); transition: transform .16s ease, background .16s ease;
+}
+.file-setting-option input:checked { border-color: var(--accent); background: var(--accent); }
+.file-setting-option input:checked::after { transform: translateX(16px); background: #fff; }
+.file-setting-option input:focus-visible { outline: 0; box-shadow: var(--ring); }
 .file-preview-panel { display: flex; flex-direction: column; min-width: 0; min-height: 0; border-left: 1px solid var(--border); background: var(--surface); }
 .file-preview-head { display: flex; align-items: center; gap: 8px; min-height: 58px; padding: 8px 9px 8px 13px; border-bottom: 1px solid var(--border); }
 .file-preview-head > div { min-width: 0; flex: 1; }
@@ -1245,6 +1266,7 @@ textarea.chat-request-input { resize: vertical; }
   .file-toolbar { padding: 10px 14px 9px; }
   .file-title-row h1 { font-size: var(--t-title); }
   .file-title-row .iconbtn { width: 38px; height: 38px; }
+  .file-actions .file-settings-mobile { display: grid; }
   .file-breadcrumbs { margin-top: 7px; }
   .file-searchbar { min-height: 44px; margin-top: 9px; }
   .file-searchbar input { font-size: var(--t-title); }

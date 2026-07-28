@@ -57,8 +57,8 @@ const appSandbox = {
   Date: FixedAppDate,
 };
 vm.createContext(appSandbox);
-vm.runInContext(`${appSrc}\n;globalThis.__chatCacheTest = { chatCacheVictim, isChatConnectionKept, isSessionRunning, updateChatUpdatedAt, formatChatDate, chatAssistantMetaText, chatUserMetaText, chatMessageMetaVisibility, applyChatMetadataDefaults, enqueueChatFollowup, removeChatFollowup, normalizeChatDraft, chatSkillTriggerAt, parseChatSkillInput, chatSkillTokenNames, mergeChatComposerText, mergeChatAttachments, chatImageSrc, chatToolStatus, chatToolDuration, chatToolActivityLabel, chatToolHasExpandableBody, isChatActivityItem, chatActivityGroupSummaryText, chatActivityActiveSummarySegments, chatActivityGroupIconKind, renderChatActivityGroup, chatTurnPinText: typeof chatTurnPinText === 'function' ? chatTurnPinText : () => '', isInternalChatTool: typeof isInternalChatTool === 'function' ? isInternalChatTool : () => false, state };`, appSandbox);
-const { chatCacheVictim, isChatConnectionKept, isSessionRunning, updateChatUpdatedAt, formatChatDate, chatAssistantMetaText, chatUserMetaText, chatMessageMetaVisibility, applyChatMetadataDefaults, enqueueChatFollowup, removeChatFollowup, normalizeChatDraft, chatSkillTriggerAt, parseChatSkillInput, chatSkillTokenNames, mergeChatComposerText, mergeChatAttachments, chatImageSrc, chatToolStatus, chatToolDuration, chatToolActivityLabel, chatToolHasExpandableBody, isChatActivityItem, chatActivityGroupSummaryText, chatActivityActiveSummarySegments, chatActivityGroupIconKind, renderChatActivityGroup, chatTurnPinText, isInternalChatTool, state: appState } = appSandbox.__chatCacheTest;
+vm.runInContext(`${appSrc}\n;globalThis.__chatCacheTest = { chatCacheVictim, isChatConnectionKept, isSessionRunning, updateChatUpdatedAt, formatChatDate, chatAssistantMetaText, chatUserMetaText, chatMessageMetaVisibility, applyChatMetadataDefaults, enqueueChatFollowup, removeChatFollowup, normalizeChatDraft, chatSkillTriggerAt, parseChatSkillInput, chatSkillTokenNames, mergeChatComposerText, mergeChatAttachments, chatImageSrc, chatToolStatus, chatToolDuration, chatToolActivityLabel, chatToolHasExpandableBody, isChatActivityItem, chatActivityGroupSummaryText, chatActivityActiveSummarySegments, chatActivityGroupIconKind, renderChatActivityGroup, filterFileEntries, chatTurnPinText: typeof chatTurnPinText === 'function' ? chatTurnPinText : () => '', isInternalChatTool: typeof isInternalChatTool === 'function' ? isInternalChatTool : () => false, state };`, appSandbox);
+const { chatCacheVictim, isChatConnectionKept, isSessionRunning, updateChatUpdatedAt, formatChatDate, chatAssistantMetaText, chatUserMetaText, chatMessageMetaVisibility, applyChatMetadataDefaults, enqueueChatFollowup, removeChatFollowup, normalizeChatDraft, chatSkillTriggerAt, parseChatSkillInput, chatSkillTokenNames, mergeChatComposerText, mergeChatAttachments, chatImageSrc, chatToolStatus, chatToolDuration, chatToolActivityLabel, chatToolHasExpandableBody, isChatActivityItem, chatActivityGroupSummaryText, chatActivityActiveSummarySegments, chatActivityGroupIconKind, renderChatActivityGroup, filterFileEntries, chatTurnPinText, isInternalChatTool, state: appState } = appSandbox.__chatCacheTest;
 function toolLabelText(item) {
   const status = chatToolStatus(item.status);
   return chatToolActivityLabel(item, status, chatToolDuration(item.durationMs)).map(nodeText).join('');
@@ -284,10 +284,12 @@ test('session list aggregates online devices while row actions retain their sour
 test('custom file browser stays on one device and shares the protected preview route', () => {
   for (const id of [
     'file-browser', 'file-device-button', 'file-locations', 'file-breadcrumbs',
-    'file-list', 'file-preview-frame', 'file-upload-input',
+    'file-list', 'file-preview-frame', 'file-upload-input', 'file-settings',
+    'file-settings-mobile', 'file-settings-menu', 'file-show-hidden',
   ]) {
     assert.match(indexHTML, new RegExp(`id="${id}"`));
   }
+  assert.doesNotMatch(indexHTML, /id="file-upload-side"/);
   for (const endpoint of ['file/list', 'file/mkdir', 'file/upload', 'file/rename', 'file/delete']) {
     assert.match(appSrc, new RegExp(endpoint.replace('/', '\\/')));
   }
@@ -297,6 +299,19 @@ test('custom file browser stays on one device and shares the protected preview r
   assert.match(appSrc, /function dismissFilePreview\(\)[\s\S]*?closeFilePreview\(\)[\s\S]*?history\.back\(\)/);
   assert.match(appSrc, /filePreviewDismissing[\s\S]*?replaceFleetHistory\(target\)/);
   assert.doesNotMatch(appSrc, /`\$\{apiBase\(state\.macId\)\}\/files\/`/);
+});
+
+test('file browser hides dotfiles by default and can reveal them without changing search', () => {
+  const entries = [
+    { name: '.git', hidden: true },
+    { name: 'notes.md', hidden: false },
+    { name: '.notes-cache', hidden: true },
+  ];
+  assert.equal(filterFileEntries(entries, false, '').map((entry) => entry.name).join(','), 'notes.md');
+  assert.equal(filterFileEntries(entries, true, '').map((entry) => entry.name).join(','), '.git,notes.md,.notes-cache');
+  assert.equal(filterFileEntries(entries, true, 'notes').map((entry) => entry.name).join(','), 'notes.md,.notes-cache');
+  assert.match(appSrc, /fileShowHidden:\s*false/);
+  assert.match(appSrc, /fileShowHidden:\s*state\.fileShowHidden/);
 });
 
 test('PWA shell supports install, offline navigation, updates, and native shortcuts', () => {

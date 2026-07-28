@@ -80,7 +80,7 @@ func TestFileListReturnsSafeSortedDirectoryEntries(t *testing.T) {
 	if got.Entries[2].Hidden != true || got.Entries[4].Previewable != true {
 		t.Fatalf("entry metadata missing: %+v", got.Entries)
 	}
-	if len(got.Locations) < 2 || got.Locations[0].ID != "home" || got.Locations[1].ID != "projects" {
+	if len(got.Locations) != 1 || got.Locations[0].ID != "user" || got.Locations[0].Name != "用户" {
 		t.Fatalf("unexpected locations: %+v", got.Locations)
 	}
 
@@ -92,6 +92,65 @@ func TestFileListReturnsSafeSortedDirectoryEntries(t *testing.T) {
 	}
 	if got.Parent != realRoot {
 		t.Fatalf("subdirectory parent=%q want %q", got.Parent, realRoot)
+	}
+}
+
+func TestFileBrowserLocationsMergeFinderFavoritesWithMacDefaults(t *testing.T) {
+	root := t.TempDir()
+	for _, name := range []string{"Desktop", "Documents", "Downloads", "Applications", "Work"} {
+		if err := os.Mkdir(filepath.Join(root, name), 0700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	outside := t.TempDir()
+	outsideLink := filepath.Join(root, "Outside")
+	if runtime.GOOS != "windows" {
+		if err := os.Symlink(outside, outsideLink); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	favorites := []finderFavorite{
+		{Name: "应用程序", Path: filepath.Join(root, "Applications")},
+		{Name: "桌面别名", Path: filepath.Join(root, "Desktop")},
+		{Name: "Work", Path: filepath.Join(root, "Work")},
+		{Name: "Work duplicate", Path: filepath.Join(root, "Work")},
+		{Name: "Outside", Path: outside},
+	}
+	if runtime.GOOS != "windows" {
+		favorites = append(favorites, finderFavorite{Name: "Outside link", Path: outsideLink})
+	}
+
+	got := mergeFileBrowserLocations(root, favorites)
+	names := make([]string, 0, len(got))
+	ids := make([]string, 0, len(got))
+	for _, location := range got {
+		names = append(names, location.Name)
+		ids = append(ids, location.ID)
+	}
+	if want := "桌面,Work,文稿,下载,用户"; strings.Join(names, ",") != want {
+		t.Fatalf("location names=%v want %s", names, want)
+	}
+	if want := "desktop,favorite-1,documents,downloads,user"; strings.Join(ids, ",") != want {
+		t.Fatalf("location ids=%v want %s", ids, want)
+	}
+}
+
+func TestFileBrowserLocationsFallBackToMacDefaults(t *testing.T) {
+	root := t.TempDir()
+	for _, name := range []string{"Desktop", "Documents", "Downloads"} {
+		if err := os.Mkdir(filepath.Join(root, name), 0700); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	got := mergeFileBrowserLocations(root, nil)
+	names := make([]string, 0, len(got))
+	for _, location := range got {
+		names = append(names, location.Name)
+	}
+	if want := "桌面,文稿,下载,用户"; strings.Join(names, ",") != want {
+		t.Fatalf("location names=%v want %s", names, want)
 	}
 }
 

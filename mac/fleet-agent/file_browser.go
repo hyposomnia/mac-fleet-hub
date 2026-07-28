@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -8,9 +9,13 @@ import (
 	"mime"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
+	"sync"
+	"time"
 )
 
 const maxFileUploadBytes int64 = 512 << 20
@@ -30,6 +35,11 @@ type fileBrowserEntry struct {
 
 type fileBrowserLocation struct {
 	ID   string `json:"id"`
+	Name string `json:"name"`
+	Path string `json:"path"`
+}
+
+type finderFavorite struct {
 	Name string `json:"name"`
 	Path string `json:"path"`
 }
@@ -178,19 +188,153 @@ func fileBrowserEntryFor(dir string, entry os.DirEntry) (fileBrowserEntry, bool)
 	}, true
 }
 
-func fileBrowserLocations(root string) []fileBrowserLocation {
-	locations := []fileBrowserLocation{{ID: "home", Name: "主目录", Path: root}}
-	for _, location := range []fileBrowserLocation{
-		{ID: "projects", Name: "项目", Path: filepath.Join(root, "Projects")},
-		{ID: "downloads", Name: "下载", Path: filepath.Join(root, "Downloads")},
-		{ID: "desktop", Name: "桌面", Path: filepath.Join(root, "Desktop")},
-	} {
-		info, err := os.Stat(location.Path)
-		if err == nil && info.IsDir() {
-			locations = append(locations, location)
+const finderFavoritesScript = `
+ObjC.import("CoreServices");
+ObjC.bindFunction("CFArrayGetValueAtIndex", ["id", ["pointer", "long"]]);
+var list = $.LSSharedFileListCreate(null, $.kLSSharedFileListFavoriteItems, null);
+var seed = Ref();
+var snapshot = $.LSSharedFileListCopySnapshot(list, seed);
+var result = [];
+var resolutionOptions = (1 << 8) | (1 << 9);
+if (snapshot) {
+  var count = Number($.CFArrayGetCount(snapshot));
+  for (var index = 0; index < count; index++) {
+    try {
+      var item = $.CFArrayGetValueAtIndex(snapshot, index);
+      var stale = Ref();
+      var error = Ref();
+      var url = $.NSURL.URLByResolvingBookmarkDataOptionsRelativeToURLBookmarkDataIsStaleError(
+        item.bookmark.data, resolutionOptions, undefined, stale, error
+      );
+      if (url) result.push({name: ObjC.unwrap(item.name), path: ObjC.unwrap(url.path)});
+    } catch (_) {}
+  }
+}
+JSON.stringify(result);
+`
+
+const finderFavoritesCacheTTL = 5 * time.Minute
+
+var finderFavoritesCache struct {
+	sync.Mutex
+	loadedAt time.Time
+	items    []finderFavorite
+}
+
+func readFinderFavorites() ([]finderFavorite, error) {
+	if runtime.GOOS != "darwin" {
+		return nil, fmt.Errorf("Finder favorites are only available on macOS")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 1500*time.Millisecond)
+	defer cancel()
+	output, err := exec.CommandContext(
+		ctx, "/usr/bin/osascript", "-l", "JavaScript", "-e", finderFavoritesScript,
+	).Output()
+	if err != nil {
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
+		return nil, err
+	}
+	var favorites []finderFavorite
+	if err := json.Unmarshal(output, &favorites); err != nil {
+		return nil, err
+	}
+	return favorites, nil
+}
+
+func cachedFinderFavorites() []finderFavorite {
+	if runtime.GOOS != "darwin" {
+		return nil
+	}
+	finderFavoritesCache.Lock()
+	defer finderFavoritesCache.Unlock()
+	if !finderFavoritesCache.loadedAt.IsZero() &&
+		time.Since(finderFavoritesCache.loadedAt) < finderFavoritesCacheTTL {
+		return append([]finderFavorite(nil), finderFavoritesCache.items...)
+	}
+	favorites, err := readFinderFavorites()
+	finderFavoritesCache.loadedAt = time.Now()
+	if err != nil {
+		finderFavoritesCache.items = nil
+		return nil
+	}
+	finderFavoritesCache.items = append([]finderFavorite(nil), favorites...)
+	return append([]finderFavorite(nil), favorites...)
+}
+
+func realFileBrowserDirectory(root, path string) (string, bool) {
+	pathAbs, err := filepath.Abs(path)
+	if err != nil {
+		return "", false
+	}
+	pathReal, err := filepath.EvalSymlinks(pathAbs)
+	if err != nil || !pathWithinRoot(root, pathReal) {
+		return "", false
+	}
+	info, err := os.Stat(pathReal)
+	return pathReal, err == nil && info.IsDir()
+}
+
+func mergeFileBrowserLocations(root string, favorites []finderFavorite) []fileBrowserLocation {
+	rootReal, err := filepath.EvalSymlinks(root)
+	if err != nil {
+		return nil
+	}
+	defaults := []fileBrowserLocation{
+		{ID: "desktop", Name: "桌面", Path: filepath.Join(rootReal, "Desktop")},
+		{ID: "documents", Name: "文稿", Path: filepath.Join(rootReal, "Documents")},
+		{ID: "downloads", Name: "下载", Path: filepath.Join(rootReal, "Downloads")},
+		{ID: "user", Name: "用户", Path: rootReal},
+	}
+	defaultByPath := make(map[string]fileBrowserLocation, len(defaults))
+	for index := range defaults {
+		if pathReal, ok := realFileBrowserDirectory(rootReal, defaults[index].Path); ok {
+			defaults[index].Path = pathReal
+			defaultByPath[pathReal] = defaults[index]
 		}
 	}
+
+	locations := make([]fileBrowserLocation, 0, len(favorites)+len(defaults))
+	seen := make(map[string]bool, len(favorites)+len(defaults))
+	customIndex := 0
+	for _, favorite := range favorites {
+		if strings.EqualFold(filepath.Base(filepath.Clean(favorite.Path)), "Applications") {
+			continue
+		}
+		pathReal, ok := realFileBrowserDirectory(rootReal, favorite.Path)
+		if !ok || strings.EqualFold(filepath.Base(pathReal), "Applications") || seen[pathReal] {
+			continue
+		}
+		if location, standard := defaultByPath[pathReal]; standard {
+			locations = append(locations, location)
+			seen[pathReal] = true
+			continue
+		}
+		customIndex++
+		name := strings.TrimSpace(favorite.Name)
+		if name == "" {
+			name = filepath.Base(pathReal)
+		}
+		locations = append(locations, fileBrowserLocation{
+			ID: "favorite-" + fmt.Sprint(customIndex), Name: name, Path: pathReal,
+		})
+		seen[pathReal] = true
+	}
+	for _, location := range defaults {
+		pathReal, ok := realFileBrowserDirectory(rootReal, location.Path)
+		if !ok || seen[pathReal] {
+			continue
+		}
+		location.Path = pathReal
+		locations = append(locations, location)
+		seen[pathReal] = true
+	}
 	return locations
+}
+
+func fileBrowserLocations(root string) []fileBrowserLocation {
+	return mergeFileBrowserLocations(root, cachedFinderFavorites())
 }
 
 func handleFileList(w http.ResponseWriter, r *http.Request) {

@@ -122,6 +122,7 @@ const state = {
   fileLocations: [],
   filePaths: {},
   fileSearch: '',
+  fileShowHidden: false,
   fileSelectedPath: '',
   filePreviewPath: '',
   filePreviewDismissing: false,
@@ -194,6 +195,7 @@ function initUIState() {
   state.fileMacId = /^m\d+$/.test(saved.fileMacId || '') ? saved.fileMacId : null;
   state.sessionView = saved.sessionView === 'recent' ? 'recent' : 'project';
   state.filePaths = saved.filePaths && typeof saved.filePaths === 'object' ? saved.filePaths : {};
+  state.fileShowHidden = saved.fileShowHidden === true;
 }
 
 function persistUIState() {
@@ -205,6 +207,7 @@ function persistUIState() {
       fileMacId: state.fileMacId,
       sessionView: state.sessionView,
       filePaths: state.filePaths,
+      fileShowHidden: state.fileShowHidden,
     }));
   } catch (_) {}
 }
@@ -3543,7 +3546,9 @@ function renderFileBrowser() {
 function fileLocationIcon(id) {
   if (id === 'downloads') return svgIcon('ic', 'M12 3v12m-5-5 5 5 5-5M5 21h14');
   if (id === 'desktop') return svgIcon('ic', 'M4 4h16v12H4zM9 20h6M12 16v4');
+  if (id === 'documents') return svgIcon('ic', 'M6 2h8l4 4v16H6zM14 2v5h5M9 12h6M9 16h6');
   if (id === 'projects') return svgIcon('ic', 'M3 7h7l2 2h9v10H3z');
+  if (id.startsWith('favorite-')) return svgIcon('ic', 'M3 6.5A2.5 2.5 0 0 1 5.5 4H9l2 2h7.5A2.5 2.5 0 0 1 21 8.5v8A2.5 2.5 0 0 1 18.5 19h-13A2.5 2.5 0 0 1 3 16.5z');
   return svgIcon('ic', 'M3 11l9-8 9 8v10h-6v-6H9v6H3z');
 }
 
@@ -3594,13 +3599,23 @@ function closeFileMenus() {
   $$('.file-row-menu').forEach((menu) => { menu.hidden = true; });
 }
 
+function filterFileEntries(entries, showHidden, query) {
+  const needle = String(query || '').trim().toLocaleLowerCase();
+  return (entries || []).filter((entry) =>
+    (showHidden || !entry.hidden) &&
+    (!needle || entry.name.toLocaleLowerCase().includes(needle)));
+}
+
 function renderFileEntries() {
   const wrap = $('#file-list');
   clear(wrap);
-  const needle = state.fileSearch.toLocaleLowerCase();
-  const entries = state.fileEntries.filter((entry) => !needle || entry.name.toLocaleLowerCase().includes(needle));
+  const visibleEntries = filterFileEntries(state.fileEntries, state.fileShowHidden, '');
+  const entries = filterFileEntries(state.fileEntries, state.fileShowHidden, state.fileSearch);
   if (!entries.length) {
-    wrap.append(h('div', { class: 'file-empty', text: needle ? '没有匹配的文件' : '这个文件夹是空的' }));
+    const emptyCopy = state.fileSearch
+      ? '没有匹配的文件'
+      : (state.fileEntries.length && !state.fileShowHidden ? '这个文件夹没有可见项目' : '这个文件夹是空的');
+    wrap.append(h('div', { class: 'file-empty', text: emptyCopy }));
   }
   for (const entry of entries) {
     const meta = entry.kind === 'folder' ? '文件夹' : `${formatBytes(entry.size)} · ${formatFileTime(entry.modifiedAt)}`;
@@ -3654,9 +3669,61 @@ function renderFileEntries() {
     menuWrap);
     wrap.append(row);
   }
-  $('#file-count').textContent = needle && entries.length !== state.fileEntries.length
-    ? `${entries.length}/${state.fileEntries.length} 项`
+  $('#file-count').textContent = state.fileSearch && entries.length !== visibleEntries.length
+    ? `${entries.length}/${visibleEntries.length} 项`
     : `${entries.length} 项`;
+}
+
+let fileSettingsTrigger = null;
+
+function syncFileSettingsUI() {
+  const input = $('#file-show-hidden');
+  if (input) input.checked = state.fileShowHidden;
+  const expanded = !$('#file-settings-menu')?.hidden;
+  $$('.file-settings-trigger').forEach((button) => {
+    button.setAttribute('aria-expanded', String(expanded));
+  });
+}
+
+function closeFileSettings({ restoreFocus = false } = {}) {
+  const menu = $('#file-settings-menu');
+  if (!menu || menu.hidden) return;
+  menu.hidden = true;
+  syncFileSettingsUI();
+  if (restoreFocus && fileSettingsTrigger?.isConnected) fileSettingsTrigger.focus();
+}
+
+function positionFileSettings(trigger) {
+  const menu = $('#file-settings-menu');
+  if (!menu || menu.hidden || !trigger) return;
+  const rect = trigger.getBoundingClientRect();
+  const gap = 6;
+  const edge = 8;
+  const width = menu.offsetWidth;
+  const height = menu.offsetHeight;
+  const left = Math.min(
+    Math.max(edge, rect.right - width),
+    Math.max(edge, window.innerWidth - width - edge),
+  );
+  const below = rect.bottom + gap;
+  const top = below + height <= window.innerHeight - edge
+    ? below
+    : Math.max(edge, rect.top - height - gap);
+  menu.style.left = `${Math.round(left)}px`;
+  menu.style.top = `${Math.round(top)}px`;
+}
+
+function toggleFileSettings(trigger, event) {
+  event?.stopPropagation();
+  const menu = $('#file-settings-menu');
+  if (!menu) return;
+  const willOpen = menu.hidden;
+  closeMenus();
+  if (!willOpen) return;
+  fileSettingsTrigger = trigger;
+  menu.hidden = false;
+  syncFileSettingsUI();
+  positionFileSettings(trigger);
 }
 
 function showFilePreview(entry) {
@@ -3975,6 +4042,7 @@ function closeMenus() {
   $('#usermenu').hidden = true;
   $('#m-menu').hidden = true;
   $$('.ses-menu').forEach((menu) => { menu.hidden = true; });
+  closeFileSettings();
 }
 function toggleMenu(id, e) {
   if (e) e.stopPropagation();
@@ -4225,7 +4293,16 @@ function init() {
   $('#file-preview-back').onclick = dismissFilePreview;
   const pickUpload = () => $('#file-upload-input').click();
   $('#file-upload').onclick = pickUpload;
-  $('#file-upload-side').onclick = pickUpload;
+  $$('.file-settings-trigger').forEach((button) => {
+    button.onclick = (event) => toggleFileSettings(button, event);
+  });
+  $('#file-show-hidden').onchange = (event) => {
+    state.fileShowHidden = event.target.checked;
+    persistUIState();
+    syncFileSettingsUI();
+    renderFileEntries();
+  };
+  syncFileSettingsUI();
   $('#file-upload-input').onchange = (event) => {
     uploadFiles(event.target.files);
     event.target.value = '';
@@ -4347,7 +4424,8 @@ function init() {
   // 点空白处关菜单
   document.addEventListener('click', (e) => {
     if (!e.target.closest('.menu') && !e.target.closest('#user-btn') && !e.target.closest('#m-menu-btn') &&
-        !e.target.closest('.mobile-menu-trigger')) closeMenus();
+        !e.target.closest('.mobile-menu-trigger') && !e.target.closest('.file-settings-menu') &&
+        !e.target.closest('.file-settings-trigger')) closeMenus();
     if (!e.target.closest('.file-row-menu-wrap')) closeFileMenus();
     if (!e.target.closest('#chat-approval-menu')) closeChatApproval();
     if (!e.target.closest('#chat-options')) closeChatOptions();
@@ -4355,6 +4433,10 @@ function init() {
   });
   document.addEventListener('keydown', (e) => {
     if (e.key !== 'Escape') return;
+    if (!$('#file-settings-menu').hidden) {
+      closeFileSettings({ restoreFocus: true });
+      return;
+    }
     if (state.filePreviewPath) {
       dismissFilePreview();
       return;
@@ -4372,6 +4454,7 @@ function init() {
   // 跨断点时同步移动输入坞可见性
   addEventListener('resize', () => {
     if (state.mode === 'sessions' && state.termSid) $('#mobile-input').hidden = !isMobile();
+    if (!$('#file-settings-menu').hidden) positionFileSettings(fileSettingsTrigger);
     syncChatTurnPin();
   });
   // 移动端软键盘弹起时把输入坞顶到键盘之上。iOS 键盘不缩布局视口（100dvh/fixed 不变），
