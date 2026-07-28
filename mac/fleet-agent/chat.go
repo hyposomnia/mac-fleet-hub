@@ -249,8 +249,13 @@ var errChatRequestNotFound = errors.New("chat_request_not_found")
 var errInvalidChatSkill = errors.New("invalid_chat_skill")
 
 type ChatStartResult struct {
-	SessionID string `json:"sessionId"`
-	Cwd       string `json:"cwd"`
+	SessionID    string            `json:"sessionId"`
+	Cwd          string            `json:"cwd"`
+	Model        string            `json:"model,omitempty"`
+	Effort       string            `json:"effort,omitempty"`
+	ServiceTier  string            `json:"serviceTier,omitempty"`
+	ApprovalMode string            `json:"approvalMode,omitempty"`
+	Models       []ChatModelOption `json:"models,omitempty"`
 }
 
 type ChatResumeResult struct {

@@ -1001,13 +1001,15 @@ test('new Codex sessions use the self-drawn start path when enabled', () => {
   assert.match(source, /canSelfDrawChat\(\)/);
   assert.match(source, /'chat\/start'/);
   assert.match(source, /openChatSession\(\{[\s\S]*?fresh:\s*true/);
+  assert.match(source, /startOptions:\s*r/);
   assert.match(source, /api\(state\.macId,\s*'new'/);
 });
 
-test('fresh Codex sessions become ready without calling resume', () => {
+test('fresh Codex sessions initialize model options without calling resume', () => {
   const source = appSrc.match(/async function openChatSession\(s\) \{[\s\S]*?\n\}\n\nconst CHAT_EFFORT_LABELS/)?.[0] || '';
   assert.match(source, /if \(s\.fresh\)/);
   assert.match(source, /chat\.historyReady = true/);
+  assert.match(source, /configureChatOptions\(chat,\s*s\.startOptions \|\| \{\}\)/);
   assert.match(source, /startChatEvents\(chat\)/);
   assert.match(source, /if \(s\.fresh\)[\s\S]*?return;[\s\S]*?'chat\/resume'/);
 });

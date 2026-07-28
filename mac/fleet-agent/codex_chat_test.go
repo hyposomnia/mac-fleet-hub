@@ -65,8 +65,19 @@ func TestCodexChatBackendStartUsesThreadStart(t *testing.T) {
 	rpc := newFakeRPCConn()
 	rpc.reply["thread/start"] = json.RawMessage(`{
 		"thread":{"id":"thread-new","sessionId":"thread-new"},
-		"cwd":"/repo"
+		"cwd":"/repo",
+		"model":"gpt-new",
+		"reasoningEffort":"high",
+		"serviceTier":"priority",
+		"approvalPolicy":"on-request",
+		"sandbox":{"type":"workspaceWrite"}
 	}`)
+	rpc.reply["model/list"] = json.RawMessage(`{"data":[{
+		"id":"gpt-new-id","model":"gpt-new","displayName":"GPT New","isDefault":true,
+		"defaultReasoningEffort":"high",
+		"supportedReasoningEfforts":[{"reasoningEffort":"high","description":"Thorough"}],
+		"serviceTiers":[{"id":"priority","name":"Fast","description":"Lower latency"}]
+	}]}`)
 	b := newCodexChatBackend(func(ctx context.Context) (codexRPCConn, func(), error) {
 		return rpc, func() {}, nil
 	})
@@ -78,7 +89,11 @@ func TestCodexChatBackendStartUsesThreadStart(t *testing.T) {
 	if res.SessionID != "thread-new" || res.Cwd != "/repo" {
 		t.Fatalf("bad start result: %+v", res)
 	}
-	if len(rpc.calls) != 1 || rpc.calls[0].method != "thread/start" {
+	if res.Model != "gpt-new" || res.Effort != "high" || res.ServiceTier != "priority" ||
+		res.ApprovalMode != "on-request" || len(res.Models) != 1 || res.Models[0].Value != "gpt-new" {
+		t.Fatalf("start options missing: %+v", res)
+	}
+	if len(rpc.calls) != 2 || rpc.calls[0].method != "thread/start" || rpc.calls[1].method != "model/list" {
 		t.Fatalf("calls: %+v", rpc.calls)
 	}
 	got := mapFromParams(t, rpc.calls[0].params)
@@ -123,7 +138,7 @@ func TestCodexChatBackendStartThenInputSkipsResumeBeforeFirstTurn(t *testing.T) 
 	if _, err := b.Input(context.Background(), "codex", started.SessionID, "again", nil, nil, ChatTurnOptions{}); err != nil {
 		t.Fatal(err)
 	}
-	if got := methods(rpc.calls); !reflect.DeepEqual(got, []string{"thread/start", "turn/start", "thread/resume", "turn/start"}) {
+	if got := methods(rpc.calls); !reflect.DeepEqual(got, []string{"thread/start", "model/list", "turn/start", "thread/resume", "turn/start"}) {
 		t.Fatalf("only the first turn of a fresh thread should skip resume: %v", got)
 	}
 }

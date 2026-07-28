@@ -112,7 +112,10 @@ func TestChatStartCallsBackend(t *testing.T) {
 			if assistant != "codex" || cwd != "/repo" || mode != "default" {
 				t.Fatalf("start args got assistant=%s cwd=%s mode=%s", assistant, cwd, mode)
 			}
-			return ChatStartResult{SessionID: "thread-new", Cwd: "/repo"}, nil
+			return ChatStartResult{
+				SessionID: "thread-new", Cwd: "/repo", Model: "gpt-new", Effort: "high",
+				Models: []ChatModelOption{{Value: "gpt-new", DisplayName: "GPT New", IsDefault: true}},
+			}, nil
 		},
 	})
 	req := httptest.NewRequest(http.MethodPost, "/api/chat/start", bytes.NewBufferString(`{"assistant":"codex","cwd":"/repo","mode":"default"}`))
@@ -129,6 +132,9 @@ func TestChatStartCallsBackend(t *testing.T) {
 	}
 	if got.SessionID != "thread-new" || got.Cwd != "/repo" {
 		t.Fatalf("bad start result: %+v", got)
+	}
+	if got.Model != "gpt-new" || got.Effort != "high" || len(got.Models) != 1 || got.Models[0].Value != "gpt-new" {
+		t.Fatalf("start options missing: %+v", got)
 	}
 }
 

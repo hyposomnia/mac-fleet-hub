@@ -961,6 +961,7 @@ function newSessionIn(cwd) {
         title: '新Codex会话 · ' + projName(r.cwd || cwd),
         mtime: Date.now(),
         fresh: true,
+        startOptions: r,
       });
     }).catch((e) => toast('新建失败：' + e.message, 'err'));
     return;
@@ -2379,6 +2380,7 @@ async function openChatSession(s) {
   if (s.fresh) {
     chat.historyReady = true;
     chat.loading = false;
+    configureChatOptions(chat, s.startOptions || {});
   }
   updateChatUpdatedAt(chat, s.mtime);
   evictChatCache();

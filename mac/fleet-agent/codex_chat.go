@@ -256,7 +256,12 @@ func (b *codexChatBackend) Start(ctx context.Context, assistant, cwd, mode strin
 			ID        string `json:"id"`
 			SessionID string `json:"sessionId"`
 		} `json:"thread"`
-		Cwd string `json:"cwd"`
+		Cwd             string          `json:"cwd"`
+		Model           string          `json:"model"`
+		ReasoningEffort string          `json:"reasoningEffort"`
+		ServiceTier     string          `json:"serviceTier"`
+		ApprovalPolicy  json.RawMessage `json:"approvalPolicy"`
+		Sandbox         json.RawMessage `json:"sandbox"`
 	}
 	if err := json.Unmarshal(raw, &res); err != nil {
 		return ChatStartResult{}, fmt.Errorf("decode Codex thread start: %w", err)
@@ -274,7 +279,12 @@ func (b *codexChatBackend) Start(ctx context.Context, assistant, cwd, mode strin
 	b.mu.Lock()
 	b.freshThreads[sessionID] = true
 	b.mu.Unlock()
-	return ChatStartResult{SessionID: sessionID, Cwd: res.Cwd}, nil
+	return ChatStartResult{
+		SessionID: sessionID, Cwd: res.Cwd,
+		Model: res.Model, Effort: res.ReasoningEffort, ServiceTier: res.ServiceTier,
+		ApprovalMode: codexApprovalMode(res.ApprovalPolicy, res.Sandbox),
+		Models:       b.modelOptions(ctx, rpc),
+	}, nil
 }
 
 func (b *codexChatBackend) resumeThread(ctx context.Context, rpc codexRPCConn, sessionID string) (codexResumeWire, error) {
