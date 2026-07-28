@@ -2,22 +2,30 @@
 <html lang="zh-CN">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover, interactive-widget=resizes-content" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content" />
   <!-- theme-color 跟随系统，主色取自 style.css 令牌（暗 --bg / 亮 --surface），改主色须同步 -->
   <meta name="theme-color" content="#090c12" media="(prefers-color-scheme: dark)" />
   <meta name="theme-color" content="#f6f7f9" media="(prefers-color-scheme: light)" />
   <title>mac fleet hub</title>
   <link rel="manifest" href="manifest.webmanifest" />
   <link rel="icon" href="icons/icon.svg" type="image/svg+xml" />
-  <link rel="apple-touch-icon" href="icons/icon.svg" />
+  <link rel="apple-touch-icon" href="icons/icon-180.png" sizes="180x180" />
+  <meta name="mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="fleet hub" />
   <!-- 主题：默认跟随系统 prefers-color-scheme，用户切换后写 localStorage 覆盖（与 app.js initTheme 一致）。
        内联以避免首屏闪烁。 -->
   <script>document.documentElement.dataset.theme = (function () { try { var t = localStorage.getItem('fleet-theme'); if (t) return t; } catch (e) {} return matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark'; })();</script>
-  <link rel="stylesheet" href="style.css?v=47" />
+  <link rel="stylesheet" href="style.css?v=49" />
 </head>
 <body>
+  <div id="network-status" class="network-status" role="status" hidden>
+    <span class="network-status-dot"></span><span id="network-status-copy">当前离线</span>
+  </div>
+  <div id="pwa-update" class="pwa-update" role="status" hidden>
+    <span>新版本已就绪</span><button id="pwa-update-now" type="button">更新</button>
+  </div>
   <main id="preview-page" hidden>
     <header class="preview-head">
       <a class="iconbtn bare preview-close" href="/" title="返回 Fleet" aria-label="返回 Fleet"><svg class="ic" viewBox="0 0 24 24"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg></a>
@@ -36,7 +44,9 @@
       <div class="preview-state" data-preview-kind="loading"><span class="preview-spinner"></span><span>正在载入…</span></div>
       <div id="preview-error" class="preview-state preview-error" data-preview-kind="error" hidden></div>
       <article id="preview-markdown" class="preview-markdown" data-preview-kind="markdown" hidden></article>
+      <pre id="preview-text" class="preview-text mono" data-preview-kind="text" hidden></pre>
       <iframe id="preview-html" class="preview-html" data-preview-kind="html" sandbox="allow-popups allow-popups-to-escape-sandbox" title="HTML 预览" hidden></iframe>
+      <iframe id="preview-pdf" class="preview-pdf" data-preview-kind="pdf" title="PDF 预览" hidden></iframe>
       <div class="preview-media" data-preview-kind="image" hidden><img id="preview-image" alt="" /></div>
       <div class="preview-media" data-preview-kind="video" hidden><video id="preview-video" controls playsinline preload="metadata"></video></div>
       <div class="preview-media preview-audio" data-preview-kind="audio" hidden><audio id="preview-audio" controls preload="metadata"></audio></div>
@@ -62,6 +72,7 @@
         <div id="usermenu" class="menu" hidden>
           <button data-act="theme"><svg class="ic" viewBox="0 0 24 24"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>切换主题</button>
           <button data-act="settings"><svg class="ic" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>设置</button>
+          <button data-act="install" class="pwa-install-action" hidden><svg class="ic" viewBox="0 0 24 24"><path d="M12 3v12m-5-5 5 5 5-5"/><path d="M5 21h14"/></svg>安装到设备</button>
           <div class="sep"></div>
           <div class="menu-label">实验</div>
           <button data-act="selfdraw"><span class="toggle-dot selfdraw-mark"></span>自绘界面</button>
@@ -79,6 +90,7 @@
       <div id="m-menu" class="menu" hidden>
         <button data-act="theme"><svg class="ic" viewBox="0 0 24 24"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>切换主题</button>
         <button data-act="settings"><svg class="ic" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>设置</button>
+        <button data-act="install" class="pwa-install-action" hidden><svg class="ic" viewBox="0 0 24 24"><path d="M12 3v12m-5-5 5 5 5-5"/><path d="M5 21h14"/></svg>安装到设备</button>
         <div class="sep"></div>
         <div class="menu-label">实验</div>
         <button data-act="selfdraw"><span class="toggle-dot selfdraw-mark"></span>自绘界面</button>
@@ -99,24 +111,95 @@
     <!-- ───────── 会话列 ───────── -->
     <section id="sescol" class="pane">
       <header class="sc-head">
-        <div class="seg" role="tablist">
+        <div class="sc-title-row">
+          <div class="mobile-title-switch" role="tablist" aria-label="内容">
+            <button data-mode="sessions" role="tab" aria-selected="true">会话</button>
+            <button data-mode="files" role="tab" aria-selected="false">文件</button>
+          </div>
+          <div class="seg assistant-seg" role="tablist">
+            <button data-assistant="codex" role="tab" aria-selected="true">Codex</button>
+            <button data-assistant="claude" role="tab" aria-selected="false">Claude</button>
+          </div>
+          <div class="sc-head-actions">
+            <button class="iconbtn bare mobile-menu-trigger" title="菜单" aria-label="菜单" aria-haspopup="true"><svg class="ic" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.87l.04.04-2.87 2.87-.04-.04A1.7 1.7 0 0 0 15 19.4a1.7 1.7 0 0 0-1 1.55V21h-4v-.05A1.7 1.7 0 0 0 9 19.4a1.7 1.7 0 0 0-1.87.34l-.04.04-2.87-2.87.04-.04A1.7 1.7 0 0 0 4.6 15a1.7 1.7 0 0 0-1.55-1H3v-4h.05A1.7 1.7 0 0 0 4.6 9a1.7 1.7 0 0 0-.34-1.87l-.04-.04 2.87-2.87.04.04A1.7 1.7 0 0 0 9 4.6a1.7 1.7 0 0 0 1-1.55V3h4v.05A1.7 1.7 0 0 0 15 4.6a1.7 1.7 0 0 0 1.87-.34l.04-.04 2.87 2.87-.04.04A1.7 1.7 0 0 0 19.4 9a1.7 1.7 0 0 0 1.55 1H21v4h-.05a1.7 1.7 0 0 0-1.55 1Z"/></svg></button>
+            <button id="new-session" class="iconbtn primary-action" title="新建会话" aria-label="新建会话"><svg class="ic" viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg></button>
+          </div>
+        </div>
+        <button id="session-device-button" class="scope-button mobile-device-scope" data-device-context="sessions">
+          <svg class="ic" viewBox="0 0 24 24"><path d="m12 3-8 4 8 4 8-4-8-4Z"/><path d="m4 12 8 4 8-4M4 17l8 4 8-4"/></svg>
+          <strong id="session-device-label">全部设备</strong>
+          <span id="session-device-meta">正在连接</span>
+          <svg class="ic scope-chevron" viewBox="0 0 24 24"><polyline points="6 9 12 15 18 9"/></svg>
+        </button>
+        <div class="seg mobile-assistant-seg" role="tablist">
           <button data-assistant="codex" role="tab" aria-selected="true">Codex</button>
           <button data-assistant="claude" role="tab" aria-selected="false">Claude</button>
         </div>
-        <div class="sc-head-actions">
-          <button id="new-session" class="iconbtn" title="新建会话" aria-label="新建会话"><svg class="ic" viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg></button>
-          <button id="refresh-btn" class="iconbtn" title="刷新" aria-label="刷新"><svg class="ic" viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg></button>
+        <div class="session-search-row">
+          <div id="session-searchbar" class="session-searchbar">
+            <svg class="ic" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><line x1="16.5" y1="16.5" x2="21" y2="21"/></svg>
+            <input id="session-search" type="search" placeholder="搜索全部未归档会话" autocomplete="off" aria-label="搜索会话">
+          </div>
+          <button id="session-view-toggle" class="iconbtn" title="按最近更新排序" aria-label="按最近更新排序" aria-pressed="false"><svg class="ic" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg></button>
         </div>
+        <div class="session-summary"><span id="session-count">0 个未归档</span><span id="session-view-label">按项目分组</span></div>
       </header>
-      <div id="session-searchbar" class="session-searchbar">
-        <svg class="ic" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><line x1="16.5" y1="16.5" x2="21" y2="21"/></svg>
-        <input id="session-search" type="search" placeholder="搜索会话" autocomplete="off" aria-label="搜索 Codex 会话">
-      </div>
       <div id="session-groups" class="sc-body"></div>
     </section>
 
     <!-- ───────── 窗口（终端 / 文件） ───────── -->
     <section id="win" class="pane">
+      <section id="file-browser" hidden>
+        <header class="file-mobile-head">
+          <div class="mobile-title-switch" role="tablist" aria-label="内容">
+            <button data-mode="sessions" role="tab" aria-selected="false">会话</button>
+            <button data-mode="files" role="tab" aria-selected="true">文件</button>
+          </div>
+          <button class="iconbtn bare mobile-menu-trigger" title="菜单" aria-label="菜单" aria-haspopup="true"><svg class="ic" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.87l.04.04-2.87 2.87-.04-.04A1.7 1.7 0 0 0 15 19.4a1.7 1.7 0 0 0-1 1.55V21h-4v-.05A1.7 1.7 0 0 0 9 19.4a1.7 1.7 0 0 0-1.87.34l-.04.04-2.87-2.87.04-.04A1.7 1.7 0 0 0 4.6 15a1.7 1.7 0 0 0-1.55-1H3v-4h.05A1.7 1.7 0 0 0 4.6 9a1.7 1.7 0 0 0-.34-1.87l-.04-.04 2.87-2.87.04.04A1.7 1.7 0 0 0 9 4.6a1.7 1.7 0 0 0 1-1.55V3h4v.05A1.7 1.7 0 0 0 15 4.6a1.7 1.7 0 0 0 1.87-.34l.04-.04 2.87 2.87-.04.04A1.7 1.7 0 0 0 19.4 9a1.7 1.7 0 0 0 1.55 1H21v4h-.05a1.7 1.7 0 0 0-1.55 1Z"/></svg></button>
+        </header>
+        <button id="file-device-button" class="scope-button mobile-device-scope" data-device-context="files">
+          <span class="file-device-avatar" id="file-device-avatar">M</span>
+          <strong id="file-device-label">选择设备</strong>
+          <span id="file-device-meta">文件仅浏览单台设备</span>
+          <svg class="ic scope-chevron" viewBox="0 0 24 24"><polyline points="6 9 12 15 18 9"/></svg>
+        </button>
+        <div class="file-layout">
+          <aside class="file-sources">
+            <div class="file-sources-head"><h1>文件</h1><button id="file-upload-side" class="iconbtn" title="上传文件" aria-label="上传文件"><svg class="ic" viewBox="0 0 24 24"><path d="M12 16V4m0 0 5 5m-5-5L7 9M5 20h14"/></svg></button></div>
+            <div class="file-source-label">位置</div>
+            <nav id="file-locations" class="file-location-list" aria-label="文件位置"></nav>
+          </aside>
+          <section class="file-main">
+            <header class="file-toolbar">
+              <div class="file-title-row">
+                <h1 id="file-folder-title">文件</h1>
+                <div class="file-actions">
+                  <button id="file-upload" class="iconbtn" title="上传文件" aria-label="上传文件"><svg class="ic" viewBox="0 0 24 24"><path d="M12 16V4m0 0 5 5m-5-5L7 9M5 20h14"/></svg></button>
+                  <button id="file-new-folder" class="iconbtn" title="新建文件夹" aria-label="新建文件夹"><svg class="ic" viewBox="0 0 24 24"><path d="M3 6.5A2.5 2.5 0 0 1 5.5 4H9l2 2h7.5A2.5 2.5 0 0 1 21 8.5v8A2.5 2.5 0 0 1 18.5 19h-13A2.5 2.5 0 0 1 3 16.5v-10Z"/><path d="M12 10v5m-2.5-2.5h5"/></svg></button>
+                </div>
+              </div>
+              <nav id="file-breadcrumbs" class="file-breadcrumbs" aria-label="路径"></nav>
+              <div class="file-searchbar">
+                <svg class="ic" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><line x1="16.5" y1="16.5" x2="21" y2="21"/></svg>
+                <input id="file-search" type="search" placeholder="搜索当前文件夹" autocomplete="off" aria-label="搜索文件">
+              </div>
+            </header>
+            <div class="file-table-head"><span>名称</span><span>修改时间</span><span>大小</span><span>操作</span></div>
+            <div id="file-list" class="file-list" aria-live="polite"></div>
+            <footer class="file-status"><span id="file-count">0 项</span><span id="file-status-device"></span></footer>
+          </section>
+          <aside id="file-preview-panel" class="file-preview-panel" hidden>
+            <header class="file-preview-head">
+              <button id="file-preview-back" class="iconbtn bare file-preview-mobile-back" title="返回" aria-label="返回"><svg class="ic" viewBox="0 0 24 24"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg></button>
+              <div><strong id="file-preview-title">文件预览</strong><span id="file-preview-subtitle"></span></div>
+              <a id="file-preview-open" class="iconbtn" href="#" target="_blank" rel="noopener" title="完整预览" aria-label="完整预览"><svg class="ic" viewBox="0 0 24 24"><path d="M14 3h7v7M10 14 21 3M21 14v5a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5"/></svg></a>
+              <button id="file-preview-close" class="iconbtn bare" title="关闭预览" aria-label="关闭预览"><svg class="ic" viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
+            </header>
+            <iframe id="file-preview-frame" title="文件预览"></iframe>
+          </aside>
+        </div>
+        <input id="file-upload-input" type="file" multiple hidden>
+      </section>
       <header class="win-head">
         <button id="win-back" class="iconbtn bare win-back" title="返回（不结束进程）"><svg class="ic" viewBox="0 0 24 24"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg></button>
         <div class="info">
@@ -280,9 +363,10 @@
           <section class="set-group set-panel" data-settings-panel="sessions">
             <div class="set-group-title">会话列表</div>
             <div class="kv">
-              <span class="k">浏览历史 / 已归档会话</span>
-              <label class="switch"><input id="st-show-archived" type="checkbox" aria-label="浏览历史或已归档会话" /><span class="tk"></span></label>
+              <span class="k">显示已归档会话</span>
+              <label class="switch"><input id="st-show-archived" type="checkbox" aria-label="显示已归档会话" /><span class="tk"></span></label>
             </div>
+            <p class="hint">开启后，会话页只显示已归档内容；关闭即回到全部未归档会话。</p>
           </section>
           <section class="set-group set-panel" data-settings-panel="terminal" hidden>
             <div class="set-group-title">终端设置</div>
@@ -310,6 +394,38 @@
           <button class="btn sm" data-close="settings-modal">取消</button>
           <button id="st-save" class="btn sm primary">保存</button>
         </div>
+      </div>
+    </div>
+
+    <!-- ───────── 设备选择（会话可选全部设备；文件与新建会话必须单选） ───────── -->
+    <div id="device-modal" class="overlay" hidden>
+      <div class="modal device-picker-modal">
+        <div class="modal-head"><span id="device-modal-title">选择设备</span><button class="iconbtn bare x" data-close="device-modal" aria-label="关闭"><svg class="ic" viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button></div>
+        <div class="modal-body">
+          <p id="device-modal-subtitle" class="hint device-picker-hint">选择内容所在的 Mac</p>
+          <div class="device-searchbar"><svg class="ic" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><line x1="16.5" y1="16.5" x2="21" y2="21"/></svg><input id="device-search" type="search" placeholder="搜索设备" autocomplete="off" /></div>
+          <div id="device-options" class="device-options"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ───────── 文件命名（新建文件夹 / 重命名共用） ───────── -->
+    <div id="file-name-modal" class="overlay" hidden>
+      <div class="modal">
+        <div class="modal-head"><span id="file-name-title">新建文件夹</span><button class="iconbtn bare x" data-close="file-name-modal" aria-label="关闭"><svg class="ic" viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button></div>
+        <form id="file-name-form">
+          <div class="modal-body"><div class="field"><label for="file-name-input">名称</label><input id="file-name-input" class="input" maxlength="255" autocomplete="off" required /></div></div>
+          <div class="modal-foot"><button type="button" class="btn sm" data-close="file-name-modal">取消</button><button id="file-name-submit" class="btn sm primary">创建</button></div>
+        </form>
+      </div>
+    </div>
+
+    <!-- ───────── 删除文件二次确认 ───────── -->
+    <div id="confirm-file-delete" class="overlay" hidden>
+      <div class="modal" style="max-width:380px">
+        <div class="modal-head">删除文件<button class="iconbtn bare x" data-close="confirm-file-delete" aria-label="关闭"><svg class="ic" viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button></div>
+        <div class="modal-body"><p id="file-delete-copy" class="wrap-pretty"></p></div>
+        <div class="modal-foot"><button class="btn sm" data-close="confirm-file-delete">取消</button><button id="file-delete-confirm" class="btn sm danger">删除</button></div>
       </div>
     </div>
 
@@ -343,9 +459,9 @@
   </div>
   <script src="vendor/purify.min.js?v=3.2.6"></script>
   <script src="vendor/marked.min.js?v=15.0.12"></script>
-  <script src="markdown.js?v=47"></script>
-  <script src="preview.js?v=47"></script>
-  <script src="chat_model.js?v=47"></script>
-  <script src="app.js?v=47"></script>
+  <script src="markdown.js?v=49"></script>
+  <script src="preview.js?v=49"></script>
+  <script src="chat_model.js?v=49"></script>
+  <script src="app.js?v=49"></script>
 </body>
 </html>

@@ -1,33 +1,83 @@
-// 极简 service worker —— 只为让 PWA 可安装 + 外壳静态资源离线可用。
-// 不缓存 /api/ 与 iframe 内容（终端/文件必须实时）。
-const CACHE = 'fleet-shell-v47';
-const SHELL = ['/', '/index.html', '/style.css?v=47', '/vendor/purify.min.js?v=3.2.6',
-  '/vendor/marked.min.js?v=15.0.12', '/markdown.js?v=47', '/preview.js?v=47', '/chat_model.js?v=47', '/app.js?v=47', '/manifest.webmanifest'];
+// PWA 外壳缓存。终端、API 与用户文件必须实时，明确不进入 Cache Storage。
+const CACHE = 'fleet-shell-v49';
+const SHELL = [
+  '/', '/index.html', '/style.css?v=49',
+  '/vendor/purify.min.js?v=3.2.6', '/vendor/marked.min.js?v=15.0.12',
+  '/markdown.js?v=49', '/preview.js?v=49', '/chat_model.js?v=49', '/app.js?v=49',
+  '/manifest.webmanifest', '/icons/icon.svg', '/icons/icon-180.png', '/icons/icon-192.png',
+  '/icons/icon-512.png', '/icons/icon-maskable-512.png',
+];
+const SHELL_KEYS = new Set(SHELL);
 
-self.addEventListener('install', (e) => {
-  // {cache:'reload'} 绕过浏览器 HTTP 缓存预缓存最新外壳——否则可能把旧版 app.js 存进来，
-  // 部署后新 index.html 与旧 app.js 不匹配会直接报错（如引用已删除的 DOM 元素）。
-  e.waitUntil(
-    caches.open(CACHE)
-      .then((c) => Promise.all(SHELL.map((u) => fetch(u, { cache: 'reload' }).then((r) => c.put(u, r)))))
-      .then(() => self.skipWaiting())
-  );
+function isSensitivePath(pathname) {
+  return pathname.startsWith('/api/') ||
+    /^\/m\d+(?:\/|$)/.test(pathname) ||
+    pathname.startsWith('/auth/') ||
+    pathname.startsWith('/enroll/') ||
+    pathname.startsWith('/files/');
+}
+
+async function cacheFresh(cache, request, key = request) {
+  const response = await fetch(request, { cache: 'no-cache' });
+  if (response && response.ok) await cache.put(key, response.clone());
+  return response;
+}
+
+self.addEventListener('install', (event) => {
+  event.waitUntil((async () => {
+    const cache = await caches.open(CACHE);
+    // 单个可选图标失败不应让整个 PWA 安装失败。
+    await Promise.allSettled(SHELL.map(async (url) => {
+      const response = await fetch(url, { cache: 'reload' });
+      if (!response.ok) throw new Error(`${url}: ${response.status}`);
+      await cache.put(url, response);
+    }));
+  })());
 });
-self.addEventListener('activate', (e) => {
-  e.waitUntil(caches.keys().then((ks) => Promise.all(ks.filter((k) => k !== CACHE).map((k) => caches.delete(k)))).then(() => self.clients.claim()));
+
+self.addEventListener('activate', (event) => {
+  event.waitUntil((async () => {
+    const keys = await caches.keys();
+    await Promise.all(keys.filter((key) => key !== CACHE).map((key) => caches.delete(key)));
+    await self.clients.claim();
+  })());
 });
-self.addEventListener('fetch', (e) => {
-  const url = new URL(e.request.url);
-  // 外壳静态资源：network-first 且强制重新校验（{cache:'no-cache'}）——默认 fetch 会命中浏览器
-  // HTTP 缓存，把旧外壳喂回来，造成「部署了新版但客户端仍跑旧 app.js」。失败才回退缓存（离线可用）。
-  // 其余（api / term / files）一律直连网络，不缓存。
-  if (e.request.method === 'GET' && SHELL.includes(url.pathname + url.search)) {
-    e.respondWith(
-      fetch(e.request, { cache: 'no-cache' }).then((r) => {
-        const copy = r.clone();
-        caches.open(CACHE).then((c) => c.put(e.request, copy));
-        return r;
-      }).catch(() => caches.match(e.request))
-    );
+
+self.addEventListener('message', (event) => {
+  if (event.data?.type === 'SKIP_WAITING') self.skipWaiting();
+});
+
+self.addEventListener('fetch', (event) => {
+  const request = event.request;
+  const url = new URL(request.url);
+  if (request.method !== 'GET' || url.origin !== self.location.origin || isSensitivePath(url.pathname)) return;
+
+  if (request.mode === 'navigate') {
+    event.respondWith((async () => {
+      const cache = await caches.open(CACHE);
+      try {
+        const response = await fetch(request, { cache: 'no-cache' });
+        if (response.ok) await cache.put('/index.html', response.clone());
+        return response;
+      } catch (_) {
+        return (await cache.match('/index.html')) ||
+          (await cache.match('/')) ||
+          new Response('fleet hub 暂时离线', {
+            status: 503,
+            headers: { 'content-type': 'text/plain; charset=utf-8' },
+          });
+      }
+    })());
+    return;
   }
+
+  const key = url.pathname + url.search;
+  if (!SHELL_KEYS.has(key) && !SHELL_KEYS.has(url.pathname)) return;
+  const refresh = caches.open(CACHE).then((cache) => cacheFresh(cache, request));
+  event.waitUntil(refresh.then(() => undefined).catch(() => {}));
+  event.respondWith(
+    caches.match(request)
+      .then((cached) => cached || refresh)
+      .catch(() => new Response('', { status: 504, statusText: 'Offline' }))
+  );
 });

@@ -10,6 +10,7 @@ const previewSrc = await readFile(new URL('./preview.js', import.meta.url), 'utf
 const indexHTML = await readFile(new URL('./index.html', import.meta.url), 'utf8');
 const styleCSS = await readFile(new URL('./style.css', import.meta.url), 'utf8');
 const serviceWorker = await readFile(new URL('./sw.js', import.meta.url), 'utf8');
+const manifest = JSON.parse(await readFile(new URL('./manifest.webmanifest', import.meta.url), 'utf8'));
 const markedSrc = await readFile(new URL('./vendor/marked.min.js', import.meta.url), 'utf8');
 const sandbox = { globalThis: {} };
 vm.createContext(sandbox);
@@ -118,8 +119,9 @@ test('local supported file links resolve to the originating Mac preview route', 
 
   assert.match(resolveLocalLink('preview/page.html:12', { macId: 'm1', cwd: '/repo' }), /^\/view\?/);
   assert.match(resolveLocalLink('../media/demo.mp4', { macId: 'm3', cwd: '/repo/docs' }), /^\/view\?/);
+  assert.match(resolveLocalLink('/Users/test/secret.txt', { macId: 'm2' }), /^\/view\?/);
+  assert.match(resolveLocalLink('/Users/test/report.pdf', { macId: 'm2' }), /^\/view\?/);
   assert.equal(resolveLocalLink('https://example.com/file.md', { macId: 'm2' }), '');
-  assert.equal(resolveLocalLink('/Users/test/secret.txt', { macId: 'm2' }), '');
   assert.equal(resolveLocalLink('/Users/test/image.png', { macId: 'unknown' }), '');
 });
 
@@ -135,8 +137,9 @@ test('preview helpers build protected media URLs and parse only /view routes', (
   assert.equal(isPreviewRoute('/'), false);
   assert.deepEqual(
     JSON.parse(JSON.stringify(previewRequest('?mac=m2&path=%2FUsers%2Ftest%2Fplan.md&cwd=%2Frepo'))),
-    { macId: 'm2', path: '/Users/test/plan.md', cwd: '/repo' },
+    { macId: 'm2', path: '/Users/test/plan.md', cwd: '/repo', embed: false },
   );
+  assert.equal(previewRequest('?mac=m2&path=%2Ftmp%2Fnote.txt&embed=1').embed, true);
 });
 
 test('preview page keeps HTML in a scriptless sandbox and media in native controls', () => {
@@ -145,6 +148,11 @@ test('preview page keeps HTML in a scriptless sandbox and media in native contro
   assert.doesNotMatch(iframe, /allow-scripts|allow-same-origin/);
   assert.match(indexHTML, /<video id="preview-video" controls playsinline preload="metadata">/);
   assert.match(indexHTML, /<audio id="preview-audio" controls preload="metadata">/);
+  assert.match(indexHTML, /<pre id="preview-text"[^>]*data-preview-kind="text"/);
+  assert.match(indexHTML, /<iframe id="preview-pdf"[^>]*data-preview-kind="pdf"/);
+  assert.match(previewSrc, /meta\.kind === 'text'/);
+  assert.match(previewSrc, /meta\.kind === 'pdf'/);
+  assert.match(previewSrc, /dataset\.previewEmbed = request\.embed/);
   assert.match(previewSrc, /FORBID_TAGS:[\s\S]*?'script'/);
   assert.match(previewSrc, /"script-src 'none'"/);
   assert.match(appSrc, /FleetMarkdown\.renderMarkdown\(item\.text, chatMediaSrc, chatLinkHref\)/);
@@ -161,6 +169,7 @@ test('dashboard typography uses one UI scale and reserves monospace for technica
     body: '13px',
     title: '15px',
     display: '17px',
+    page: '28px',
   });
   assert.doesNotMatch(styleCSS, /--t-(?:2xs|xs|sm|base|md|lg|xl|2xl|3xl)\b/);
   assert.deepEqual(
@@ -169,6 +178,7 @@ test('dashboard typography uses one UI scale and reserves monospace for technica
       'var(--t-body)',
       'var(--t-caption)',
       'var(--t-display)',
+      'var(--t-page)',
       'var(--t-secondary)',
       'var(--t-title)',
     ],
@@ -227,6 +237,8 @@ test('Codex is the first and default session assistant', () => {
   assert.deepEqual(tabs, [
     { assistant: 'codex', selected: 'true' },
     { assistant: 'claude', selected: 'false' },
+    { assistant: 'codex', selected: 'true' },
+    { assistant: 'claude', selected: 'false' },
   ]);
   assert.match(appSrc, /assistant:\s*'codex',\s*\/\/ claude \| codex/);
 });
@@ -234,10 +246,14 @@ test('Codex is the first and default session assistant', () => {
 test('session header keeps archive browsing in settings', () => {
   const header = indexHTML.match(/<header class="sc-head">[\s\S]*?<\/header>/)?.[0] || '';
   assert.ok(header);
-  assert.match(header, /class="sc-head-actions"[\s\S]*id="new-session"[\s\S]*id="refresh-btn"/);
+  assert.match(header, /class="sc-head-actions"[\s\S]*id="new-session"/);
+  assert.match(header, /id="session-device-button"[\s\S]*id="session-device-label">全部设备/);
+  assert.match(header, /id="session-search"[\s\S]*id="session-view-toggle"/);
+  assert.doesNotMatch(header, /id="refresh-btn"/);
   assert.doesNotMatch(indexHTML, /data-scope=/);
   assert.match(indexHTML, /data-settings-tab="sessions"/);
   assert.match(indexHTML, /id="st-show-archived"[^>]*type="checkbox"/);
+  assert.match(indexHTML, />显示已归档会话</);
   assert.match(appSrc, /SESSION_ARCHIVE_KEY\s*=\s*'fleet-show-archived-sessions'/);
   assert.match(appSrc, /localStorage\.setItem\(SESSION_ARCHIVE_KEY/);
   assert.match(styleCSS, /\.sc-head-actions\s*\{/);
@@ -250,6 +266,56 @@ test('session pagination loads automatically near the scroll boundary', () => {
   assert.match(appSrc, /scrollHeight\s*-\s*wrap\.scrollTop\s*-\s*wrap\.clientHeight\s*<=\s*240/);
   assert.match(appSrc, /\$\('#session-groups'\)\.onscroll\s*=\s*maybeLoadMoreSessions/);
   assert.match(appSrc, /loadSessions\(\{\s*append:\s*true\s*\}\)/);
+});
+
+test('session list aggregates online devices while row actions retain their source Mac', () => {
+  assert.match(appSrc, /sessionMacId:\s*'all'/);
+  assert.match(appSrc, /sessionCursors:\s*\{\}/);
+  assert.match(appSrc, /MACS\.filter\(\(m\) => state\.nodes\[m\.id\]\)/);
+  assert.match(appSrc, /Promise\.all\(targets\.map\(async \(macId\)/);
+  assert.match(appSrc, /macId,\s*assistant:\s*session\.assistant \|\| state\.assistant/);
+  assert.match(appSrc, /dataset:\s*\{\s*sid,\s*mac:\s*macId,\s*assistant\s*\}/);
+  assert.match(appSrc, /api\(session\.macId,\s*'sessions\/action'/);
+  assert.match(appSrc, /termSes\(sid,\s*s\.title,\s*macId,\s*assistant\)/);
+  assert.match(appSrc, /query\.set\('archived',\s*String\(state\.scope === 'all'\)\)/);
+  assert.match(appSrc, /query\.set\('scope',\s*state\.scope === 'all' \? 'all' : 'active'\)/);
+});
+
+test('custom file browser stays on one device and shares the protected preview route', () => {
+  for (const id of [
+    'file-browser', 'file-device-button', 'file-locations', 'file-breadcrumbs',
+    'file-list', 'file-preview-frame', 'file-upload-input',
+  ]) {
+    assert.match(indexHTML, new RegExp(`id="${id}"`));
+  }
+  for (const endpoint of ['file/list', 'file/mkdir', 'file/upload', 'file/rename', 'file/delete']) {
+    assert.match(appSrc, new RegExp(endpoint.replace('/', '\\/')));
+  }
+  assert.match(appSrc, /if \(context === 'sessions'\)[\s\S]*id:\s*'all'/);
+  assert.match(appSrc, /fileMacId:\s*null/);
+  assert.match(appSrc, /filePreviewRoute\(state\.fileMacId,\s*entry\.path,\s*true\)/);
+  assert.match(appSrc, /function dismissFilePreview\(\)[\s\S]*?closeFilePreview\(\)[\s\S]*?history\.back\(\)/);
+  assert.match(appSrc, /filePreviewDismissing[\s\S]*?replaceFleetHistory\(target\)/);
+  assert.doesNotMatch(appSrc, /`\$\{apiBase\(state\.macId\)\}\/files\/`/);
+});
+
+test('PWA shell supports install, offline navigation, updates, and native shortcuts', () => {
+  assert.equal(manifest.id, '/');
+  assert.deepEqual(manifest.display_override, ['window-controls-overlay', 'standalone', 'minimal-ui']);
+  assert.ok(manifest.icons.some((icon) => icon.sizes === '192x192' && icon.type === 'image/png'));
+  assert.ok(manifest.icons.some((icon) => icon.sizes === '512x512' && icon.purpose === 'maskable'));
+  assert.deepEqual(manifest.shortcuts.map((shortcut) => shortcut.url), ['/?mode=sessions', '/?mode=files']);
+  assert.match(indexHTML, /rel="apple-touch-icon" href="icons\/icon-180\.png"/);
+  assert.match(indexHTML, /id="network-status"/);
+  assert.match(indexHTML, /class="pwa-install-action"/);
+  assert.match(serviceWorker, /Promise\.allSettled\(SHELL\.map/);
+  assert.match(serviceWorker, /request\.mode === 'navigate'/);
+  assert.match(serviceWorker, /cache\.match\('\/index\.html'\)/);
+  assert.match(serviceWorker, /SKIP_WAITING/);
+  assert.match(serviceWorker, /\^\\\/m\\d\+/);
+  assert.match(appSrc, /beforeinstallprompt/);
+  assert.match(appSrc, /controllerchange/);
+  assert.match(appSrc, /addEventListener\('offline'/);
 });
 
 test('jump-to-bottom control uses an accessible inline SVG icon', () => {

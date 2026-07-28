@@ -25,6 +25,30 @@ var (
 		".markdown": {Kind: "markdown", MIME: "text/markdown; charset=utf-8", Text: true},
 		".html":     {Kind: "html", MIME: "text/html; charset=utf-8", Text: true},
 		".htm":      {Kind: "html", MIME: "text/html; charset=utf-8", Text: true},
+		".txt":      {Kind: "text", MIME: "text/plain; charset=utf-8", Text: true},
+		".log":      {Kind: "text", MIME: "text/plain; charset=utf-8", Text: true},
+		".json":     {Kind: "text", MIME: "application/json; charset=utf-8", Text: true},
+		".jsonl":    {Kind: "text", MIME: "application/x-ndjson; charset=utf-8", Text: true},
+		".js":       {Kind: "text", MIME: "text/javascript; charset=utf-8", Text: true},
+		".mjs":      {Kind: "text", MIME: "text/javascript; charset=utf-8", Text: true},
+		".cjs":      {Kind: "text", MIME: "text/javascript; charset=utf-8", Text: true},
+		".ts":       {Kind: "text", MIME: "text/plain; charset=utf-8", Text: true},
+		".tsx":      {Kind: "text", MIME: "text/plain; charset=utf-8", Text: true},
+		".jsx":      {Kind: "text", MIME: "text/plain; charset=utf-8", Text: true},
+		".go":       {Kind: "text", MIME: "text/plain; charset=utf-8", Text: true},
+		".py":       {Kind: "text", MIME: "text/x-python; charset=utf-8", Text: true},
+		".rb":       {Kind: "text", MIME: "text/plain; charset=utf-8", Text: true},
+		".sh":       {Kind: "text", MIME: "text/x-shellscript; charset=utf-8", Text: true},
+		".zsh":      {Kind: "text", MIME: "text/x-shellscript; charset=utf-8", Text: true},
+		".yaml":     {Kind: "text", MIME: "application/yaml; charset=utf-8", Text: true},
+		".yml":      {Kind: "text", MIME: "application/yaml; charset=utf-8", Text: true},
+		".toml":     {Kind: "text", MIME: "application/toml; charset=utf-8", Text: true},
+		".xml":      {Kind: "text", MIME: "application/xml; charset=utf-8", Text: true},
+		".csv":      {Kind: "text", MIME: "text/csv; charset=utf-8", Text: true},
+		".ini":      {Kind: "text", MIME: "text/plain; charset=utf-8", Text: true},
+		".conf":     {Kind: "text", MIME: "text/plain; charset=utf-8", Text: true},
+		".env":      {Kind: "text", MIME: "text/plain; charset=utf-8", Text: true},
+		".css":      {Kind: "text", MIME: "text/css; charset=utf-8", Text: true, Stream: true},
 		".png":      {Kind: "image", MIME: "image/png", Stream: true},
 		".jpg":      {Kind: "image", MIME: "image/jpeg", Stream: true},
 		".jpeg":     {Kind: "image", MIME: "image/jpeg", Stream: true},
@@ -41,8 +65,7 @@ var (
 		".wav":      {Kind: "audio", MIME: "audio/wav", Stream: true},
 		".ogg":      {Kind: "audio", MIME: "audio/ogg", Stream: true},
 		".flac":     {Kind: "audio", MIME: "audio/flac", Stream: true},
-		// CSS 只作为静态 HTML 的子资源，不作为独立预览格式。
-		".css": {Kind: "stylesheet", MIME: "text/css; charset=utf-8", Stream: true},
+		".pdf":      {Kind: "pdf", MIME: "application/pdf", Stream: true},
 	}
 )
 
@@ -76,7 +99,7 @@ func handleFilePreview(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	format, ok := previewFormatForPath(path)
-	if !ok || format.Kind == "stylesheet" {
+	if !ok {
 		writeErr(w, http.StatusUnsupportedMediaType, "unsupported_file", "暂不支持预览这种文件格式。")
 		return
 	}
@@ -136,7 +159,7 @@ func handleFileContent(w http.ResponseWriter, r *http.Request) {
 	}
 	format, ok := previewFormatForPath(path)
 	download := r.URL.Query().Get("download") == "1"
-	if !ok || (!download && !format.Stream) {
+	if !download && (!ok || !format.Stream) {
 		writeErr(w, http.StatusUnsupportedMediaType, "unsupported_file", "该文件不能作为预览资源输出。")
 		return
 	}
@@ -151,13 +174,16 @@ func handleFileContent(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusNotFound, "file_not_found", "文件不存在或不是普通文件。")
 		return
 	}
-	if format.Kind == "stylesheet" && info.Size() > maxPreviewTextBytes {
+	if strings.EqualFold(filepath.Ext(path), ".css") && info.Size() > maxPreviewTextBytes {
 		writeErr(w, http.StatusRequestEntityTooLarge, "preview_too_large", "样式文件超过 5 MB，无法加载。")
 		return
 	}
 
 	disposition := "inline"
 	contentType := format.MIME
+	if !ok {
+		contentType = "application/octet-stream"
+	}
 	if download {
 		disposition = "attachment"
 		contentType = "application/octet-stream"
@@ -168,7 +194,7 @@ func handleFileContent(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", contentType)
 	w.Header().Set("Cache-Control", "private, max-age=60")
 	w.Header().Set("X-Content-Type-Options", "nosniff")
-	if format.Kind == "stylesheet" {
+	if strings.EqualFold(filepath.Ext(path), ".css") {
 		w.Header().Set("Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'")
 	}
 	http.ServeContent(w, r, filepath.Base(path), info.ModTime(), file)

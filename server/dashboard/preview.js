@@ -3,6 +3,9 @@
 
   const PREVIEW_EXTENSIONS = new Set([
     '.md', '.markdown', '.html', '.htm',
+    '.txt', '.log', '.json', '.jsonl', '.js', '.mjs', '.cjs', '.ts', '.tsx', '.jsx',
+    '.go', '.py', '.rb', '.sh', '.zsh', '.yaml', '.yml', '.toml', '.xml', '.csv', '.ini', '.conf', '.env',
+    '.pdf',
     '.png', '.jpg', '.jpeg', '.gif', '.webp', '.avif',
     '.mp4', '.m4v', '.webm', '.mov',
     '.mp3', '.m4a', '.aac', '.wav', '.ogg', '.flac',
@@ -96,7 +99,7 @@
     const macId = params.get('mac') || '';
     const path = params.get('path') || '';
     if (!/^m\d+$/.test(macId) || !path) return null;
-    return { macId, path, cwd: params.get('cwd') || '' };
+    return { macId, path, cwd: params.get('cwd') || '', embed: params.get('embed') === '1' };
   }
 
   function setPreviewState(kind) {
@@ -188,7 +191,10 @@
     const previewMeta = document.querySelector('#preview-meta');
     if (title) title.textContent = meta.name || '文件预览';
     if (path) path.textContent = meta.path || request.path;
-    if (kind) kind.textContent = ({ markdown: 'Markdown', html: 'HTML', image: '图片', video: '视频', audio: '音频' })[meta.kind] || meta.kind;
+    if (kind) kind.textContent = ({
+      markdown: 'Markdown', text: '文本', html: 'HTML', pdf: 'PDF',
+      image: '图片', video: '视频', audio: '音频',
+    })[meta.kind] || meta.kind;
     if (size) size.textContent = formatBytes(meta.size);
     if (previewMeta) previewMeta.hidden = false;
     document.title = `${meta.name || '文件'} - fleet hub`;
@@ -215,8 +221,17 @@
       setPreviewState('html');
       return;
     }
+    if (meta.kind === 'text') {
+      const target = document.querySelector('#preview-text');
+      target.textContent = meta.content || '';
+      setPreviewState('text');
+      return;
+    }
     const source = fileEndpoint('content', request.macId, meta.path);
-    if (meta.kind === 'image') {
+    if (meta.kind === 'pdf') {
+      const frame = document.querySelector('#preview-pdf');
+      frame.src = source;
+    } else if (meta.kind === 'image') {
       const image = document.querySelector('#preview-image');
       image.alt = meta.name || '图片';
       image.onerror = () => showPreviewError('浏览器无法显示这张图片。');
@@ -245,6 +260,7 @@
       showPreviewError('预览链接缺少主机或文件路径。');
       return;
     }
+    document.documentElement.dataset.previewEmbed = request.embed ? 'true' : 'false';
     const host = document.querySelector('#preview-host');
     if (host) host.textContent = request.macId.toUpperCase();
     try {

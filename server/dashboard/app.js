@@ -9,6 +9,7 @@ const BASE = '';   // 挂在子域根路径（如 fleet.example.com）；若改�
 let MACS = [];          // [{id:'m1'}, ...]，按序号排
 let macNames = {};      // id -> 自定义显示名
 let sessionLoadSeq = 0; // 会话列表请求序号：切主机/切筛选时丢弃旧响应，避免慢请求回写旧列表
+let fileLoadSeq = 0;    // 文件目录请求序号：切设备/目录时丢弃旧响应
 let sessionSearchTimer = null;
 
 // ============================================================
@@ -80,9 +81,12 @@ function svgStop() {
 
 const state = {
   macId: null,
+  sessionMacId: 'all', // 会话列表设备范围：all | mN；终端 / 自绘会话仍使用具体 macId
+  fileMacId: null,     // 文件始终绑定一台具体设备
   mode: 'sessions',      // sessions | files
   assistant: 'codex',    // claude | codex
   scope: 'active',       // active | all
+  sessionView: 'project', // project | recent
   termSid: null,         // 当前终端 tmux 会话名（watch / reload 用）
   termUrl: null,         // 当前终端 iframe URL（files↔sessions 切换后恢复用）
   termSessionId: null,   // 当前终端对应的 sessionId（判断「进入连接」是否就是当前终端）
@@ -92,6 +96,7 @@ const state = {
   curMode: 'default',    // 当前终端的权限模式：default | bypass | auto
   killTarget: null,      // 待终止的 sessionId（二次确认用）
   killAssistant: null,   // 待终止会话所属助手
+  killMacId: null,       // 待终止会话所在设备
   nodes: {},             // id -> online
   counts: {},            // id -> 活跃会话数（主机栏/主机条展示）
   collapsed: new Set(),  // 已折叠的分组 cwd
@@ -104,9 +109,28 @@ const state = {
   chatCache: new Map(),  // key(macId/sessionId) -> 自绘 Codex 会话状态；保持 SSE 连接，切回秒开
   sessionSearch: '',
   sessionResults: [],
-  sessionsNextCursor: '',
+  sessionCursors: {},    // macId -> Codex nextCursor
+  sessionErrors: {},
   sessionsLoadingMore: false,
   sessionsSoftLoading: false,
+  selectedSessionMacId: null,
+  selectedSessionAssistant: null,
+  filePath: '',
+  fileRoot: '',
+  fileParent: '',
+  fileEntries: [],
+  fileLocations: [],
+  filePaths: {},
+  fileSearch: '',
+  fileSelectedPath: '',
+  filePreviewPath: '',
+  filePreviewDismissing: false,
+  fileLoading: false,
+  fileNameMode: '',
+  fileTarget: null,
+  fileDeleteTarget: null,
+  devicePickerContext: 'sessions',
+  deferredInstallPrompt: null,
 };
 
 // 偏好默认（拉取失败/未设时回退，与 server/enroll defaultSettings 对齐）
@@ -152,8 +176,38 @@ async function api(id, path, opts) {
 
 const SELF_DRAW_KEY = 'fleet-experiment-selfdraw';
 const SESSION_ARCHIVE_KEY = 'fleet-show-archived-sessions';
+const UI_STATE_KEY = 'fleet-ui-state-v1';
 let chatIMEComposing = false;
 let mobileIMEComposing = false;
+
+function initUIState() {
+  let saved = {};
+  try { saved = JSON.parse(localStorage.getItem(UI_STATE_KEY) || '{}') || {}; } catch (_) {}
+  const routeMode = new URLSearchParams(location.search).get('mode');
+  state.mode = routeMode === 'files' || routeMode === 'sessions'
+    ? routeMode
+    : (saved.mode === 'files' ? 'files' : 'sessions');
+  state.assistant = saved.assistant === 'claude' ? 'claude' : 'codex';
+  state.sessionMacId = saved.sessionMacId === 'all' || /^m\d+$/.test(saved.sessionMacId || '')
+    ? saved.sessionMacId
+    : 'all';
+  state.fileMacId = /^m\d+$/.test(saved.fileMacId || '') ? saved.fileMacId : null;
+  state.sessionView = saved.sessionView === 'recent' ? 'recent' : 'project';
+  state.filePaths = saved.filePaths && typeof saved.filePaths === 'object' ? saved.filePaths : {};
+}
+
+function persistUIState() {
+  try {
+    localStorage.setItem(UI_STATE_KEY, JSON.stringify({
+      mode: state.mode,
+      assistant: state.assistant,
+      sessionMacId: state.sessionMacId,
+      fileMacId: state.fileMacId,
+      sessionView: state.sessionView,
+      filePaths: state.filePaths,
+    }));
+  } catch (_) {}
+}
 function initSessionListPreferences() {
   try { state.scope = localStorage.getItem(SESSION_ARCHIVE_KEY) === '1' ? 'all' : 'active'; }
   catch (_) { state.scope = 'active'; }
@@ -249,19 +303,30 @@ function toast(msg, kind = 'info') {
 }
 
 // ============================================================
-//  主机栏（桌面行）/ 主机条（移动 chips）
+//  设备范围（桌面侧栏 / 移动端选择器）
 // ============================================================
 function renderHosts() {
   const nav = $('#host-list'); clear(nav);
-  nav.append(h('div', { class: 'hd eyebrow', text: '主机' }));
+  nav.append(h('div', { class: 'hd eyebrow', text: state.mode === 'files' ? '文件所在设备' : '会话设备' }));
   const chips = $('#host-chips'); clear(chips);
   if (!MACS.length) { nav.append(h('div', { class: 'empty', text: '暂无已入网的 Mac' })); return; }
+  const selected = state.mode === 'files' ? state.fileMacId : state.sessionMacId;
+  if (state.mode === 'sessions') {
+    const onlineCount = MACS.filter((m) => state.nodes[m.id]).length;
+    const all = h('button', { class: 'host host-all', dataset: { mac: 'all' }, 'aria-current': String(selected === 'all') },
+      h('span', { class: 'host-stack' }, svgIcon('ic', 'm12 3-8 4 8 4 8-4-8-4ZM4 12l8 4 8-4M4 17l8 4 8-4')),
+      h('span', { class: 'nm', text: '全部设备' }),
+      h('span', { class: 'ct', text: `${onlineCount}/${MACS.length} 在线` }),
+    );
+    all.onclick = () => setSessionDevice('all');
+    nav.append(all);
+  }
   for (const m of MACS) {
     const online = state.nodes[m.id];
     // 桌面行
     const info = h('span', { class: 'i', title: '设置 / 代理', text: 'ⓘ' });
     info.onclick = (e) => { e.stopPropagation(); openHostModal(m.id); };
-    const row = h('button', { class: 'host', dataset: { mac: m.id }, 'aria-current': String(m.id === state.macId) },
+    const row = h('button', { class: 'host', dataset: { mac: m.id }, 'aria-current': String(m.id === selected) },
       h('span', { class: 'dot ' + (online ? 'on' : 'off') }),
       h('span', { class: 'nm', text: macName(m.id) }),
       // 会话数不再显示；仅离线时标「离线」（在线/离线 dot 已在前面）
@@ -270,28 +335,57 @@ function renderHosts() {
     );
     row.onclick = () => selectMac(m.id);
     nav.append(row);
-    // 移动 chip
-    const chip = h('button', { class: 'chip', dataset: { mac: m.id }, 'aria-current': String(m.id === state.macId) },
-      h('span', { class: 'dot ' + (online ? 'on' : 'off') }),
-      macName(m.id),
-      online ? null : h('span', { class: 'ct', text: '离线' }), // 会话数不显示，仅离线状态
-    );
-    chip.onclick = () => selectMac(m.id);
-    chips.append(chip);
   }
+  updateDeviceScopeUI();
 }
 
 function selectMac(id) {
-  if (state.macId === id) return;
+  if (state.mode === 'files') setFileDevice(id);
+  else setSessionDevice(id);
+}
+
+function activateConcreteMac(id) {
+  if (!/^m\d+$/.test(id || '')) return false;
   state.macId = id;
-  // 切主机：终端回空态（不自动复用上一台的窗口）。池条目按 macId 保留、仍占 pty；
-  // 选中本台某个已开会话会瞬时显示（poolFind 按 macId 匹配）。
+  renderHosts();
+  return true;
+}
+
+function setSessionDevice(id) {
+  if (id !== 'all' && !MACS.some((m) => m.id === id)) return;
+  if (state.sessionMacId === id) { closeOverlay('device-modal'); return; }
+  state.sessionMacId = id;
+  if (id !== 'all') state.macId = id;
   $('#app').classList.remove('term-open');
   state.selectedSid = null;
+  state.selectedSessionMacId = null;
+  state.sessionResults = [];
+  state.sessionCursors = {};
   renderHosts();
+  updateDeviceScopeUI();
+  persistUIState();
   closeMenus();
-  if (state.mode === 'files') loadFiles();
-  else { loadSessions({ clear: true }); showEmpty(); }
+  closeOverlay('device-modal');
+  loadSessions({ clear: true });
+  showEmpty();
+}
+
+function setFileDevice(id) {
+  if (!MACS.some((m) => m.id === id)) return;
+  const changed = state.fileMacId !== id;
+  const hadPreviewHistory = changed && !!history.state?.fleet && !!history.state.filePreviewPath;
+  state.fileMacId = id;
+  state.macId = id;
+  state.filePath = state.filePaths[id] || '';
+  state.fileSelectedPath = '';
+  if (changed) closeFilePreview();
+  renderHosts();
+  updateDeviceScopeUI();
+  persistUIState();
+  if (hadPreviewHistory) replaceFleetHistory({ fileMacId: id, filePath: state.filePath, filePreviewPath: '' });
+  closeMenus();
+  closeOverlay('device-modal');
+  if (state.mode === 'files') loadFiles({ clear: changed });
 }
 
 // ============================================================
@@ -313,10 +407,19 @@ async function refreshNodes() {
       online[id] = n.online === true || n.online === 'true';
     }
     ids.sort((a, b) => (+a.slice(1)) - (+b.slice(1)));
+    const previousIDs = MACS.map((m) => m.id).join(',');
+    const previousOnline = JSON.stringify(state.nodes);
     MACS = ids.map((id) => ({ id }));
     state.nodes = online;
+    const rosterChanged = previousIDs !== ids.join(',') || previousOnline !== JSON.stringify(online);
+    const known = new Set(ids);
+    if (state.sessionMacId !== 'all' && !known.has(state.sessionMacId)) state.sessionMacId = 'all';
+    if (!known.has(state.fileMacId)) state.fileMacId = MACS.find((m) => online[m.id])?.id || MACS[0]?.id || null;
+    if (!known.has(state.macId)) state.macId = state.fileMacId;
     renderHosts();
-    if (!state.macId && MACS.length) selectMac(MACS[0].id);
+    updateDeviceScopeUI();
+    if (state.mode === 'sessions' && (rosterChanged || !state.sessionResults.length)) loadSessions();
+    else if (state.mode === 'files' && state.fileMacId && !state.fileEntries.length) loadFiles();
     refreshHostCounts();
   } catch (_) {}
 }
@@ -389,7 +492,8 @@ async function saveSettings() {
     applyScrollbackToPool();  // 回滚行数即时作用到已开终端
     if (scopeChanged) {
       state.sessionResults = [];
-      state.sessionsNextCursor = '';
+      state.sessionCursors = {};
+      updateSessionFilterUI();
       loadSessions({ clear: true });
     }
   } catch (e) { toast('保存失败：' + e.message, 'err'); }
@@ -462,23 +566,35 @@ function applyScrollbackToPool() {
 //  模式切换（会话 / 文件）
 // ============================================================
 function setMode(mode) {
-  state.mode = mode;
+  state.mode = mode === 'files' ? 'files' : 'sessions';
+  mode = state.mode;
   $('#app').dataset.mode = mode;
   if (mode !== 'sessions') $('#app').classList.remove('term-open'); // 离开会话模式收起终端 push
   $$('button[data-mode]').forEach((b) => b.setAttribute('aria-selected', String(b.dataset.mode === mode)));
-  if (mode === 'files') loadFiles();
-  else { loadSessions(); restoreTermOrEmpty(); }
+  renderHosts();
+  updateDeviceScopeUI();
+  persistUIState();
+  if (mode === 'files') {
+    $('#file-browser').hidden = false;
+    loadFiles();
+  } else {
+    $('#file-browser').hidden = true;
+    loadSessions();
+    restoreTermOrEmpty();
+  }
 }
 
 function setAssistant(assistant) {
   state.assistant = assistant === 'codex' ? 'codex' : 'claude';
   state.selectedSid = null;
+  state.selectedSessionMacId = null;
   state.sessionSearch = '';
   state.sessionResults = [];
-  state.sessionsNextCursor = '';
+  state.sessionCursors = {};
   closeChatPane();
   $$('[data-assistant]').forEach((b) => b.setAttribute('aria-selected', String(b.dataset.assistant === state.assistant)));
   updateSessionFilterUI();
+  persistUIState();
   loadSessions({ clear: true });
   refreshHostCounts();
 }
@@ -487,10 +603,10 @@ function setAssistant(assistant) {
 //  会话列表
 // ============================================================
 function setSessionsLoading(on) {
-  const btn = $('#refresh-btn');
-  if (!btn) return;
-  btn.classList.toggle('loading', on);
-  btn.setAttribute('aria-busy', String(on));
+  const wrap = $('#session-groups');
+  if (wrap) wrap.setAttribute('aria-busy', String(on));
+  const head = $('.sc-head');
+  if (head) head.classList.toggle('is-loading', on);
 }
 
 function renderSessionSkeleton(wrap) {
@@ -499,17 +615,88 @@ function renderSessionSkeleton(wrap) {
 }
 
 function updateSessionFilterUI() {
-  const codex = state.assistant === 'codex';
-  const searchbar = $('#session-searchbar');
-  if (searchbar) searchbar.hidden = !codex;
   const input = $('#session-search');
   if (input && input.value !== state.sessionSearch) input.value = state.sessionSearch;
+  if (input) input.placeholder = state.scope === 'all' ? '搜索已归档会话' : '搜索全部未归档会话';
+  const toggle = $('#session-view-toggle');
+  const recent = state.sessionView === 'recent';
+  if (toggle) {
+    toggle.setAttribute('aria-pressed', String(recent));
+    toggle.title = recent ? '按项目分组' : '按最近更新排序';
+    toggle.setAttribute('aria-label', toggle.title);
+  }
+  const label = $('#session-view-label');
+  if (label) label.textContent = recent ? '按最近更新' : '按项目分组';
+}
+
+function sessionKey(session) {
+  return `${session?.macId || ''}\n${session?.assistant || state.assistant}\n${session?.sessionId || ''}`;
+}
+
+function sessionTargetMacs({ append = false } = {}) {
+  let ids;
+  if (state.sessionMacId === 'all') {
+    ids = MACS.filter((m) => state.nodes[m.id]).map((m) => m.id);
+  } else {
+    ids = MACS.some((m) => m.id === state.sessionMacId) ? [state.sessionMacId] : [];
+  }
+  if (append) ids = ids.filter((id) => !!state.sessionCursors[id]);
+  return ids;
+}
+
+function sessionHasMore() {
+  return state.assistant === 'codex' && Object.values(state.sessionCursors).some(Boolean);
+}
+
+function sessionQuery(macId, { cursor = '', soft = false } = {}) {
+  const query = new URLSearchParams({ assistant: state.assistant });
+  if (state.assistant === 'codex') {
+    query.set('archived', String(state.scope === 'all'));
+    query.set('limit', soft ? '100' : '50');
+    if (state.sessionSearch) query.set('search', state.sessionSearch);
+    if (cursor) query.set('cursor', cursor);
+  } else {
+    query.set('scope', state.scope === 'all' ? 'all' : 'active');
+  }
+  return api(macId, `sessions?${query.toString()}`);
+}
+
+function normalizeDeviceSessions(macId, data) {
+  let sessions = (data?.sessions || []).map((session) => ({
+    ...session,
+    macId,
+    assistant: session.assistant || state.assistant,
+  }));
+  if (state.assistant === 'claude') {
+    if (state.scope === 'all') sessions = sessions.filter((session) => !session.live);
+    if (state.sessionSearch) {
+      const needle = state.sessionSearch.toLocaleLowerCase();
+      sessions = sessions.filter((session) =>
+        `${session.title || ''}\n${session.cwd || ''}\n${macName(macId)}`.toLocaleLowerCase().includes(needle));
+    }
+  }
+  return sessions;
 }
 
 function renderSessionResults(opts = {}) {
   const wrap = $('#session-groups');
   const previousScrollTop = opts.preserveScroll ? wrap.scrollTop : 0;
-  const sessions = state.sessionResults || [];
+  const sessions = [...(state.sessionResults || [])].sort((a, b) =>
+    (Number(b.pinned) - Number(a.pinned)) || (Number(b.mtime) - Number(a.mtime)));
+  const count = $('#session-count');
+  if (count) {
+    const noun = state.scope === 'all' ? '个已归档' : '个未归档';
+    count.textContent = `${sessions.length} ${noun}`;
+  }
+
+  clear(wrap);
+  if (!sessions.length) {
+    let message = state.sessionSearch ? '没有匹配的会话' : (state.scope === 'all' ? '没有已归档会话' : '没有未归档会话');
+    if (state.sessionMacId === 'all' && MACS.length && !MACS.some((m) => state.nodes[m.id])) message = '设备均处于离线状态';
+    wrap.append(h('div', { class: 'empty', text: message }));
+  } else if (state.sessionView === 'recent') {
+    wrap.append(h('div', { class: 'recent-session-list' }, ...sessions.map(sessionRow)));
+  } else {
   const groups = {};
   for (const s of sessions) (groups[s.cwd] ||= []).push(s);
   const ordered = Object.entries(groups).map(([cwd, arr]) => {
@@ -517,10 +704,6 @@ function renderSessionResults(opts = {}) {
     return { cwd, arr, pinned: arr.some((session) => session.pinned), last: Math.max(...arr.map((s) => s.mtime)) };
   }).sort((a, b) => (Number(b.pinned) - Number(a.pinned)) || (b.last - a.last));
 
-  clear(wrap);
-  if (!ordered.length) {
-    wrap.append(h('div', { class: 'empty', text: state.sessionSearch ? '没有匹配的会话' : '没有会话' }));
-  } else {
     for (const g of ordered) {
       const collapsed = state.collapsed.has(g.cwd);
       const head = h('button', { class: 'grp-h' },
@@ -539,29 +722,34 @@ function renderSessionResults(opts = {}) {
       wrap.append(grp);
     }
   }
+  const failed = Object.keys(state.sessionErrors || {});
+  if (failed.length) {
+    wrap.append(h('div', { class: 'session-partial-note', text: `${failed.map(macName).join('、')} 暂时无法连接` }));
+  }
   if (opts.preserveScroll) wrap.scrollTop = previousScrollTop;
   requestAnimationFrame(maybeLoadMoreSessions);
 }
 
 function maybeLoadMoreSessions() {
   const wrap = $('#session-groups');
-  if (!wrap || state.mode !== 'sessions' || state.assistant !== 'codex' || !state.sessionsNextCursor ||
-      state.sessionsLoadingMore || $('#refresh-btn')?.classList.contains('loading')) return;
+  if (!wrap || state.mode !== 'sessions' || !sessionHasMore() ||
+      state.sessionsLoadingMore || wrap.getAttribute('aria-busy') === 'true') return;
   if (wrap.scrollHeight - wrap.scrollTop - wrap.clientHeight <= 240) loadSessions({ append: true });
 }
 
 async function loadSessions(opts = {}) {
-  if (state.mode !== 'sessions' || !state.macId) return;
+  if (state.mode !== 'sessions' || !MACS.length) return;
   const wrap = $('#session-groups');
   const append = opts.append === true;
-  if (append && (state.assistant !== 'codex' || !state.sessionsNextCursor || state.sessionsLoadingMore)) return;
+  if (append && (!sessionHasMore() || state.sessionsLoadingMore)) return;
   const req = ++sessionLoadSeq;
-  const macId = state.macId;
+  const sessionMacId = state.sessionMacId;
   const assistant = state.assistant;
   const scope = state.scope;
   const search = state.sessionSearch;
-  const cursor = append ? state.sessionsNextCursor : '';
-  const stale = () => req !== sessionLoadSeq || state.mode !== 'sessions' || state.macId !== macId ||
+  const targets = sessionTargetMacs({ append });
+  const previousCursors = { ...state.sessionCursors };
+  const stale = () => req !== sessionLoadSeq || state.mode !== 'sessions' || state.sessionMacId !== sessionMacId ||
     state.assistant !== assistant || state.scope !== scope || state.sessionSearch !== search;
   setSessionsLoading(true);
   state.sessionsLoadingMore = append;
@@ -569,42 +757,54 @@ async function loadSessions(opts = {}) {
   // 切主机/切助手/切范围时立即清空旧列表；普通刷新保留旧内容直到新数据就绪，避免闪。
   if (!append && (opts.clear || !wrap.querySelector('.grp, .empty, .skel-ses'))) renderSessionSkeleton(wrap);
 
-  let data;
-  const query = new URLSearchParams({ assistant, scope });
-  if (assistant === 'codex') {
-    query.set('archived', String(scope === 'all'));
-    query.set('limit', '50');
-    if (search) query.set('search', search);
-    if (cursor) query.set('cursor', cursor);
-  }
-  try { data = await api(macId, `sessions?${query.toString()}`); }
-  catch (e) {
-    if (stale()) return;
-    if (!append) {
-      clear(wrap);
-      wrap.append(h('div', { class: 'empty' }, '连不上 ' + macName(macId), h('br'), h('small', { text: e.message })));
-    } else {
-      toast('加载更多失败：' + e.message, 'err');
+  const results = await Promise.all(targets.map(async (macId) => {
+    try {
+      const data = await sessionQuery(macId, { cursor: append ? previousCursors[macId] : '' });
+      return { macId, data };
+    } catch (error) {
+      return { macId, error };
     }
+  }));
+  if (stale()) {
     state.sessionsLoadingMore = false;
     wrap.classList.remove('loading-more');
     setSessionsLoading(false);
     return;
   }
-  if (stale()) return;
   state.sessionsLoadingMore = false;
   wrap.classList.remove('loading-more');
   setSessionsLoading(false);
 
-  const incoming = data.sessions || [];
+  const errors = {};
+  const nextCursors = append ? { ...previousCursors } : {};
+  const incoming = [];
+  for (const result of results) {
+    if (result.error) {
+      errors[result.macId] = result.error.message;
+      continue;
+    }
+    incoming.push(...normalizeDeviceSessions(result.macId, result.data));
+    if (assistant === 'codex') nextCursors[result.macId] = result.data.nextCursor || '';
+    else nextCursors[result.macId] = '';
+  }
+  if (!targets.length && sessionMacId !== 'all') errors[sessionMacId] = '设备不可用';
+  state.sessionErrors = errors;
+  state.sessionCursors = nextCursors;
+  const seen = new Set((append ? state.sessionResults : []).map(sessionKey));
   const sessions = append
-    ? [...state.sessionResults, ...incoming.filter((session) => !state.sessionResults.some((existing) => existing.sessionId === session.sessionId))]
+    ? [...state.sessionResults, ...incoming.filter((session) => {
+      const key = sessionKey(session);
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    })]
     : incoming;
   state.sessionResults = sessions;
-  state.sessionsNextCursor = assistant === 'codex' ? (data.nextCursor || '') : '';
-  for (const s of sessions) updateCachedChatFromSession(macId, s);
-  const activeN = scope === 'active' ? sessions.length : sessions.filter((s) => s.live).length;
-  state.counts[macId] = activeN;
+  for (const s of sessions) updateCachedChatFromSession(s.macId, s);
+  for (const macId of targets) {
+    const own = sessions.filter((s) => s.macId === macId);
+    state.counts[macId] = scope === 'active' ? own.length : own.filter((s) => s.live).length;
+  }
   renderSessionResults({ preserveScroll: append });
 }
 
@@ -612,75 +812,78 @@ async function loadSessions(opts = {}) {
 // 相对时间与计数，不 clear 重建整列表（避免每周期把 hover tooltip、展开按钮闪断）。
 // 会话集合或 pty 按钮结构发生变化时才回退全量 loadSessions。
 async function refreshSessionsSoft() {
-  if (state.mode !== 'sessions' || !state.macId) return;
+  if (state.mode !== 'sessions' || !MACS.length) return;
   if (state.sessionsLoadingMore || state.sessionsSoftLoading) return;
-  const macId = state.macId;
+  const sessionMacId = state.sessionMacId;
   const assistant = state.assistant;
   const scope = state.scope;
   const search = state.sessionSearch;
-  const codex = assistant === 'codex';
   const rows = $$('#session-groups .ses');
   if (!rows.length) {
-    // 已经渲染成「没有会话」时也要继续探测；否则 agent 修复/会话新建后，
-    // 页面会永远停在空态，必须手动点刷新。
     if ($('#session-groups .empty')) loadSessions();
-    return; // 首次 / 骨架中 → 交给正在进行的 loadSessions
+    return;
   }
-  const query = new URLSearchParams({ assistant, scope });
-  if (codex) {
-    query.set('archived', String(scope === 'all'));
-    query.set('limit', String(Math.min(100, Math.max(50, state.sessionResults.length))));
-    if (search) query.set('search', search);
-  }
-  let data;
+  const targets = sessionTargetMacs();
   state.sessionsSoftLoading = true;
-  try { data = await api(macId, `sessions?${query.toString()}`); }
-  catch (_) { return; } // 软刷新失败静默，不打断用户
-  finally { state.sessionsSoftLoading = false; }
-  if (state.mode !== 'sessions' || state.macId !== macId || state.assistant !== assistant ||
+  const results = await Promise.all(targets.map(async (macId) => {
+    try { return { macId, data: await sessionQuery(macId, { soft: true }) }; }
+    catch (error) { return { macId, error }; }
+  }));
+  state.sessionsSoftLoading = false;
+  if (state.mode !== 'sessions' || state.sessionMacId !== sessionMacId || state.assistant !== assistant ||
       state.scope !== scope || state.sessionSearch !== search) return;
-  const sessions = data.sessions || [];
-  const domSids = new Set(rows.map((el) => el.dataset.sid));
-  // Claude 返回完整集合，可直接比对。Codex 是分页结果：新会话必在第一页，发现新 id
-  // 就全量刷新；仅在当前结果没有后续页时，才把缺失 id 视为归档/删除。
-  const codexComplete = codex && !state.sessionsNextCursor && !data.nextCursor;
-  if ((!codex && (domSids.size !== sessions.length || sessions.some((s) => !domSids.has(s.sessionId)))) ||
-      (codex && sessions.some((s) => !domSids.has(s.sessionId))) ||
-      (codexComplete && (domSids.size !== sessions.length || [...domSids].some((sid) => !sessions.some((s) => s.sessionId === sid))))) {
+
+  const fresh = [];
+  const freshByMac = {};
+  for (const result of results) {
+    if (result.error) continue;
+    const sessions = normalizeDeviceSessions(result.macId, result.data);
+    fresh.push(...sessions);
+    freshByMac[result.macId] = { sessions, nextCursor: result.data.nextCursor || '' };
+  }
+  const currentByKey = new Map(state.sessionResults.map((session) => [sessionKey(session), session]));
+  const freshByKey = new Map(fresh.map((session) => [sessionKey(session), session]));
+  const structuralChange = fresh.some((session) => {
+    const current = currentByKey.get(sessionKey(session));
+    return !current || !!current.pty !== !!session.pty;
+  }) || targets.some((macId) => {
+    const page = freshByMac[macId];
+    if (!page) return false;
+    const complete = assistant === 'claude' || (!state.sessionCursors[macId] && !page.nextCursor);
+    return complete && state.sessionResults.some((session) =>
+      session.macId === macId && !freshByKey.has(sessionKey(session)));
+  });
+  if (structuralChange) {
     loadSessions();
     return;
   }
-  const bySid = {};
-  for (const s of sessions) {
-    bySid[s.sessionId] = s;
-    updateCachedChatFromSession(macId, s);
-    if (codex) {
-      const current = state.sessionResults.find((item) => item.sessionId === s.sessionId);
-      if (current) {
-        // pty 的出现/消失会改变终止按钮结构，交给完整渲染处理。
-        if (!!current.pty !== !!s.pty) {
-          loadSessions();
-          return;
-        }
-        Object.assign(current, {
-          live: s.live, waiting: s.waiting, status: s.status, mtime: s.mtime,
-        });
-      }
+
+  for (const session of fresh) {
+    const current = currentByKey.get(sessionKey(session));
+    if (current) {
+      Object.assign(current, {
+        live: session.live, waiting: session.waiting, status: session.status, mtime: session.mtime,
+      });
     }
+    updateCachedChatFromSession(session.macId, session);
   }
   for (const el of rows) {
-    const s = bySid[el.dataset.sid];
-    if (!s) continue;
+    const session = freshByKey.get(`${el.dataset.mac}\n${el.dataset.assistant}\n${el.dataset.sid}`);
+    if (!session) continue;
     const dot = el.querySelector('.dot');
     if (dot) {
-      dot.classList.toggle('wait', !!s.waiting);
-      dot.title = s.waiting ? '等待你的回复 / 选择' : ''; // 置空 = 移除 tooltip（勿用 null，会渲染成 "null"）
+      dot.classList.toggle('wait', !!session.waiting);
+      dot.title = session.waiting ? '等待你的回复 / 选择' : '';
     }
     const tEl = el.querySelector('.ses-time');
-    if (tEl) tEl.textContent = relTime(s.mtime);
+    if (tEl) tEl.textContent = relTime(session.mtime);
+    const status = el.querySelector('.ses-status');
+    if (status) {
+      const value = sessionStatus(session);
+      status.textContent = value.text;
+      status.className = `ses-status${value.className ? ' ' + value.className : ''}`;
+    }
   }
-  const activeN = state.scope === 'active' ? sessions.length : sessions.filter((s) => s.live).length;
-  state.counts[macId] = activeN;
   syncSessionRuntimeIndicators();
 }
 
@@ -689,16 +892,31 @@ async function refreshSessionsSoft() {
 //   仅有进程未在池时 api open 重新 attach（tmux 复用，权限模式启动时已固定，不再让选）。
 // 仅「冷会话」（无进程且未在池）点行才展开「连接 / Bypass / Auto」——那才是真正新起 Claude。
 // 开了 pty 的会话另显「终止 ⏹」（与是否在池无关）。
+function sessionStatus(session) {
+  if (session.waiting) return { text: '等待回复', className: 'waiting' };
+  if (session.pty || FleetChatModel.chatPhase(session.status) === 'running') return { text: '正在进行', className: 'running' };
+  return { text: state.scope === 'all' ? '已归档' : '空闲', className: '' };
+}
+
+function activateSession(session) {
+  state.macId = session.macId;
+  state.selectedSid = session.sessionId;
+  state.selectedSessionMacId = session.macId;
+  state.selectedSessionAssistant = session.assistant || state.assistant;
+  renderHosts();
+}
+
 function sessionRow(s) {
   const sid = s.sessionId;
+  const macId = s.macId;
   const assistant = s.assistant || state.assistant;
   const selfDraw = canSelfDrawChat() && assistant === 'codex';
-  const inPool = !!poolFind(state.macId, sid, assistant);
-  const chatConnected = assistant === 'codex' && isChatConnectionKept(state.macId, sid);
-  const sessionRunning = assistant === 'codex' && isSessionRunning(s, state.macId);
+  const inPool = !!poolFind(macId, sid, assistant);
+  const chatConnected = assistant === 'codex' && isChatConnectionKept(macId, sid);
+  const sessionRunning = assistant === 'codex' && isSessionRunning(s, macId);
   const live = !!s.pty; // 有运行中进程（行尾绿点）：再连只是重新 attach，不需选权限模式
   const stop = s.pty && h('span', { class: 'stopbtn', title: '终止进程（会话保留）',
-    onclick: (e) => { e.stopPropagation(); termSes(sid, s.title); } }, svgStop());
+    onclick: (e) => { e.stopPropagation(); termSes(sid, s.title, macId, assistant); } }, svgStop());
   const pin = assistant === 'codex' && s.pinned
     ? h('span', { class: 'ses-pin', title: '已置顶' }, svgIcon('ic', 'M12 17v5M5 3h14l-3 6v4l2 2H6l2-2V9Z'))
     : null;
@@ -715,25 +933,36 @@ function sessionRow(s) {
     stop,
     menu,
   );
+  const status = sessionStatus(s);
+  const meta = h('div', { class: 'ses-meta' },
+    h('span', { class: 'session-device-name', text: macName(macId) }),
+    state.sessionView === 'recent'
+      ? h('span', { class: 'session-project-name', text: projName(s.cwd) })
+      : h('span', { class: 'session-project-name', text: assistantLabel(assistant) }),
+    h('span', { class: `ses-status${status.className ? ' ' + status.className : ''}`, text: status.text }),
+  );
   // 池内 / 有进程的会话点行即直接进入，不需按钮；仅冷会话才展开三种权限模式。
   const acts = (selfDraw || inPool || live) ? null : h('div', { class: 'ses-acts' },
     h('button', { class: 'btn sm accent', title: '普通连接（逐项确认工具权限）',
-      onclick: (e) => { e.stopPropagation(); connect(sid, s.title, s.cwd, 'default'); } },
+      onclick: (e) => { e.stopPropagation(); connect(sid, s.title, s.cwd, 'default', macId, assistant); } },
       h('span', { class: 'gi', text: '→' }), '连接'),
     h('button', { class: 'btn sm danger', title: assistant === 'codex' ? 'codex --dangerously-bypass-approvals-and-sandbox' : 'claude --dangerously-skip-permissions（跳过全部工具权限确认）',
-      onclick: (e) => { e.stopPropagation(); connect(sid, s.title, s.cwd, 'bypass'); } }, 'Bypass'),
+      onclick: (e) => { e.stopPropagation(); connect(sid, s.title, s.cwd, 'bypass', macId, assistant); } }, 'Bypass'),
     h('button', { class: 'btn sm warn', title: assistant === 'codex' ? 'codex --ask-for-approval never --sandbox workspace-write（自动批准 + 工作区可写沙箱）' : 'claude --permission-mode auto（自动批准 + 后台安全分类器）',
-      onclick: (e) => { e.stopPropagation(); connect(sid, s.title, s.cwd, 'auto'); } }, 'Auto'));
+      onclick: (e) => { e.stopPropagation(); connect(sid, s.title, s.cwd, 'auto', macId, assistant); } }, 'Auto'));
+  const selected = sid === state.selectedSid && macId === state.selectedSessionMacId &&
+    assistant === (state.selectedSessionAssistant || state.assistant);
   const row = h('div', {
     class: 'ses' + (s.pty ? ' conn' : '') + (sessionRunning ? ' session-running' : '') +
-      (chatConnected ? ' chat-connected' : '') + (sid === state.selectedSid ? ' sel' : ''),
-    dataset: { sid },
-  }, top, acts);
+      (chatConnected ? ' chat-connected' : '') + (selected ? ' sel' : ''),
+    dataset: { sid, mac: macId, assistant },
+  }, top, meta, acts);
   // 池内 → poolShow 瞬时切换；有进程未在池 → 直接重新 attach；冷会话 → 仅高亮 + 展开三按钮。
   row.onclick = () => {
+    activateSession(s);
     if (selfDraw) { openChatSession(s); return; }
-    if (!inPool && live) { connect(sid, s.title, s.cwd, 'default'); return; }
-    selectSes(sid);
+    if (!inPool && live) { connect(sid, s.title, s.cwd, 'default', macId, assistant); return; }
+    selectSes(sid, macId, assistant);
   };
   return row;
 }
@@ -766,7 +995,7 @@ function renderCodexSessionMenu(session) {
 
 async function mutateCodexSession(session, action, value = '') {
   try {
-    await api(state.macId, 'sessions/action', {
+    await api(session.macId, 'sessions/action', {
       method: 'POST', headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ assistant: 'codex', sessionId: session.sessionId, action, value }),
     });
@@ -789,15 +1018,19 @@ function renameCodexSession(session) {
 
 function deleteCodexSession(session) {
   if (!window.confirm(`永久删除“${session.title || '这个会话'}”？此操作无法撤销。`)) return;
-  if (state.chat?.sessionId === session.sessionId) closeChatPane();
+  if (state.chat?.sessionId === session.sessionId && state.chat?.macId === session.macId) closeChatPane();
   mutateCodexSession(session, 'delete');
 }
 
-function selectSes(sid) {
+function selectSes(sid, macId = state.macId, assistant = state.assistant) {
+  state.macId = macId;
   state.selectedSid = sid;
-  $$('.ses').forEach((el) => el.classList.toggle('sel', el.dataset.sid === sid));
+  state.selectedSessionMacId = macId;
+  state.selectedSessionAssistant = assistant;
+  $$('.ses').forEach((el) => el.classList.toggle('sel',
+    el.dataset.sid === sid && el.dataset.mac === macId && el.dataset.assistant === assistant));
   // 已在池中的会话：选中即瞬时切换，不必再点「进入连接」
-  const e = poolFind(state.macId, sid);
+  const e = poolFind(macId, sid, assistant);
   if (e) poolShow(e);
 }
 
@@ -889,7 +1122,10 @@ function poolShow(entry) {
   $('#fullscreen-btn').hidden = false;
   $('#mobile-input').hidden = !isMobile();
   renderTermHead();
-  if (isMobile()) $('#app').classList.add('term-open');
+  if (isMobile()) {
+    if (!$('#app').classList.contains('term-open')) pushFleetHistory({ mode: 'sessions', term: true });
+    $('#app').classList.add('term-open');
+  }
   closeMenus();
   startWatch();
 }
@@ -930,19 +1166,23 @@ function poolAdd(macId, assistant, sessionId, sid, url, title, cwd, permMode) {
 // ============================================================
 //  连接 / 新建 → 终端 iframe（权限模式：default / bypass / auto）
 // ============================================================
-async function connect(sessionId, title, cwd, mode) {
+async function connect(sessionId, title, cwd, mode, macId = state.macId, assistant = state.assistant) {
   mode = mode || 'default';
-  selectSes(sessionId); // 已在池则 selectSes 已瞬时切过去；这里再确保权限模式一致
-  const exist = poolFind(state.macId, sessionId);
+  if (!macId) return;
+  state.macId = macId;
+  selectSes(sessionId, macId, assistant); // 已在池则瞬时切过去；这里再确保权限模式一致
+  const exist = poolFind(macId, sessionId, assistant);
   if (exist && exist.permMode === mode) { poolShow(exist); return; } // 池内同模式：瞬时切回，不重连
   if (exist) poolDrop(exist); // 权限模式变了 → 丢弃旧窗口按新模式重开
   try {
-    const r = await api(state.macId, 'open', {
+    const r = await api(macId, 'open', {
       method: 'POST', headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ assistant: state.assistant, sessionId, mode }),
+      body: JSON.stringify({ assistant, sessionId, mode }),
     });
     state.selectedSid = sessionId;
-    poolAdd(state.macId, state.assistant, sessionId, r.sid, r.url, title || '会话', cwd, r.mode || mode);
+    state.selectedSessionMacId = macId;
+    state.selectedSessionAssistant = assistant;
+    poolAdd(macId, assistant, sessionId, r.sid, r.url, title || '会话', cwd, r.mode || mode);
     loadSessions(); // 刷新 pty 标记：该会话现在有进程 → 行变「进入连接」+ 显示 ⏹（无骨架闪）
   } catch (e) { toast('连接失败：' + e.message, 'err'); }
 }
@@ -956,6 +1196,7 @@ function newSessionIn(cwd) {
     }).then((r) => {
       openChatSession({
         assistant: 'codex',
+        macId: state.macId,
         sessionId: r.sessionId,
         cwd: r.cwd || cwd,
         title: '新Codex会话 · ' + projName(r.cwd || cwd),
@@ -1246,10 +1487,11 @@ function isSessionRunning(session, macId = state.macId) {
 
 function syncSessionRuntimeIndicators() {
   if (state.assistant !== 'codex') return;
-  const sessions = new Map(state.sessionResults.map((session) => [session.sessionId, session]));
+  const sessions = new Map(state.sessionResults.map((session) => [sessionKey(session), session]));
   $$('#session-groups .ses').forEach((row) => {
-    row.classList.toggle('chat-connected', isChatConnectionKept(state.macId, row.dataset.sid));
-    row.classList.toggle('session-running', isSessionRunning(sessions.get(row.dataset.sid), state.macId));
+    const key = `${row.dataset.mac}\n${row.dataset.assistant}\n${row.dataset.sid}`;
+    row.classList.toggle('chat-connected', isChatConnectionKept(row.dataset.mac, row.dataset.sid));
+    row.classList.toggle('session-running', isSessionRunning(sessions.get(key), row.dataset.mac));
   });
 }
 
@@ -1281,7 +1523,10 @@ function showChatPane(title, cwd) {
   const tt = $('#win-title'); clear(tt);
   tt.append(h('span', { class: 'dot live' }), h('span', { class: 'ttl', text: title || 'Codex 会话' }));
   $('#win-meta').textContent = '';
-  if (isMobile()) $('#app').classList.add('term-open');
+  if (isMobile()) {
+    if (!$('#app').classList.contains('term-open')) pushFleetHistory({ mode: 'sessions', term: true });
+    $('#app').classList.add('term-open');
+  }
 }
 
 function chatAtBottom() {
@@ -2347,18 +2592,24 @@ function renderChatError(msg) {
 
 async function openChatSession(s) {
   if (!canSelfDrawChat()) return;
+  const macId = s.macId || state.macId;
+  if (!macId) return;
+  state.macId = macId;
   state.selectedSid = s.sessionId;
-  $$('.ses').forEach((el) => el.classList.toggle('sel', el.dataset.sid === s.sessionId));
+  state.selectedSessionMacId = macId;
+  state.selectedSessionAssistant = 'codex';
+  $$('.ses').forEach((el) => el.classList.toggle('sel',
+    el.dataset.sid === s.sessionId && el.dataset.mac === macId && el.dataset.assistant === 'codex'));
   closeChatPane();
   stopWatch(); hideBanner(); closeMenus();
-  const key = chatCacheKey(state.macId, s.sessionId);
+  const key = chatCacheKey(macId, s.sessionId);
   let chat = state.chatCache.get(key);
   if (chat) {
     chat.title = s.title || chat.title || 'Codex 会话';
     chat.cwd = s.cwd || chat.cwd || '';
   } else {
     chat = {
-      cacheKey: key, macId: state.macId,
+      cacheKey: key, macId,
       sessionId: s.sessionId, title: s.title || 'Codex 会话', cwd: s.cwd || '',
       model: FleetChatModel.createChatState(), loading: true, events: null, resumePromise: null,
       attachments: [], objectUrls: [], draft: '', updatedAt: Number(s.mtime) || Date.now(),
@@ -3069,6 +3320,8 @@ async function restorePoolSnapshot() {
   state.macId = snap.macId;
   state.assistant = snap.cur ? (snap.cur.assistant === 'codex' ? 'codex' : 'claude') : 'codex';
   state.selectedSid = snap.cur ? snap.cur.sessionId : null; // 侧栏高亮对齐快照当前会话
+  state.selectedSessionMacId = snap.cur ? snap.macId : null;
+  state.selectedSessionAssistant = snap.cur ? state.assistant : null;
   $$('[data-assistant]').forEach((b) => b.setAttribute('aria-selected', String(b.dataset.assistant === state.assistant)));
   renderHosts();
   loadSessions();
@@ -3082,22 +3335,453 @@ function backToList() { $('#app').classList.remove('term-open'); }
 // ============================================================
 //  文件浏览器
 // ============================================================
-function loadFiles() {
-  if (!state.macId) return;
+function updateDeviceScopeUI() {
+  const onlineCount = MACS.filter((m) => state.nodes[m.id]).length;
+  const sessionLabel = $('#session-device-label');
+  const sessionMeta = $('#session-device-meta');
+  if (sessionLabel) sessionLabel.textContent = state.sessionMacId === 'all' ? '全部设备' : macName(state.sessionMacId);
+  if (sessionMeta) {
+    sessionMeta.textContent = state.sessionMacId === 'all'
+      ? `${onlineCount}/${MACS.length} 台在线`
+      : (state.nodes[state.sessionMacId] ? '在线' : '离线');
+  }
+  const fileLabel = $('#file-device-label');
+  const fileMeta = $('#file-device-meta');
+  const fileAvatar = $('#file-device-avatar');
+  if (fileLabel) fileLabel.textContent = state.fileMacId ? macName(state.fileMacId) : '选择设备';
+  if (fileMeta) fileMeta.textContent = state.fileMacId
+    ? (state.nodes[state.fileMacId] ? '在线 · 文件仅限当前设备' : '离线')
+    : '文件仅浏览单台设备';
+  if (fileAvatar) fileAvatar.textContent = state.fileMacId ? state.fileMacId.toUpperCase() : 'M';
+  const statusDevice = $('#file-status-device');
+  if (statusDevice) statusDevice.textContent = state.fileMacId ? macName(state.fileMacId) : '';
+}
+
+function openDevicePicker(context = 'sessions') {
+  state.devicePickerContext = context;
+  const title = context === 'new-session' ? '选择运行设备' : (context === 'files' ? '选择文件设备' : '选择会话设备');
+  const subtitle = context === 'sessions'
+    ? '可汇总全部在线设备的未归档会话'
+    : (context === 'files' ? '文件操作一次只作用于一台 Mac' : '新会话需要在一台具体的 Mac 上运行');
+  $('#device-modal-title').textContent = title;
+  $('#device-modal-subtitle').textContent = subtitle;
+  $('#device-search').value = '';
+  renderDeviceOptions();
+  openOverlay('device-modal');
+  requestAnimationFrame(() => $('#device-search').focus());
+}
+
+function renderDeviceOptions() {
+  const wrap = $('#device-options');
+  if (!wrap) return;
+  clear(wrap);
+  const query = ($('#device-search')?.value || '').trim().toLocaleLowerCase();
+  const context = state.devicePickerContext;
+  const selected = context === 'sessions' ? state.sessionMacId : state.fileMacId;
+  const addOption = ({ id, name, detail, online, all = false }) => {
+    if (query && !`${name}\n${detail}`.toLocaleLowerCase().includes(query)) return;
+    const choose = () => {
+      if (context === 'sessions') setSessionDevice(id);
+      else if (context === 'files') setFileDevice(id);
+      else {
+        activateConcreteMac(id);
+        closeOverlay('device-modal');
+        showProjects();
+      }
+    };
+    const main = h('button', { type: 'button', class: 'device-option-main', onclick: choose },
+      h('span', { class: 'device-option-avatar', text: all ? 'ALL' : id.toUpperCase() }),
+      h('span', { class: 'device-option-copy' },
+        h('strong', { text: name }),
+        h('small', { text: detail }),
+      ),
+      h('span', { class: `device-option-state${online ? ' online' : ''}`, text: all ? '' : (online ? '在线' : '离线') }),
+      id === selected ? svgIcon('device-option-check', 'M5 12l4 4L19 6') : h('span'),
+    );
+    const info = all ? h('span') : h('button', {
+      type: 'button', class: 'iconbtn bare device-option-info', title: '设备设置', 'aria-label': `${name} 设置`,
+      onclick: (event) => { event.stopPropagation(); closeOverlay('device-modal'); openHostModal(id); },
+    }, svgIconParts('ic', [
+      { tag: 'circle', attrs: { cx: '12', cy: '12', r: '9' } },
+      { tag: 'path', attrs: { d: 'M12 11v5M12 8h.01' } },
+    ]));
+    wrap.append(h('div', { class: 'device-option', 'aria-current': String(id === selected) }, main, info));
+  };
+  if (context === 'sessions') {
+    const online = MACS.filter((m) => state.nodes[m.id]).length;
+    addOption({ id: 'all', name: '全部设备', detail: `${online}/${MACS.length} 台设备在线`, online: online > 0, all: true });
+  }
+  for (const mac of MACS) {
+    addOption({
+      id: mac.id,
+      name: macName(mac.id),
+      detail: context === 'sessions' ? `${state.counts[mac.id] || 0} 个近期会话` : '主目录与常用位置',
+      online: !!state.nodes[mac.id],
+    });
+  }
+  if (!wrap.children.length) wrap.append(h('div', { class: 'empty', text: '没有匹配的设备' }));
+}
+
+function requestNewSession() {
+  if (state.sessionMacId === 'all') {
+    openDevicePicker('new-session');
+    return;
+  }
+  activateConcreteMac(state.sessionMacId);
+  showProjects();
+}
+
+function filePreviewRoute(macId, path, embed = false) {
+  const query = new URLSearchParams({ mac: macId, path });
+  if (embed) query.set('embed', '1');
+  return `${BASE}/view?${query.toString()}`;
+}
+
+function fileDownloadURL(macId, path) {
+  return window.FleetPreview?.fileEndpoint('content', macId, path, { download: true })
+    || `${apiBase(macId)}/api/file/content?path=${encodeURIComponent(path)}&download=1`;
+}
+
+function fileBaseName(path) {
+  const parts = String(path || '').split('/').filter(Boolean);
+  return parts.pop() || '文件';
+}
+
+function formatFileTime(ms) {
+  const value = Number(ms);
+  if (!value) return '—';
+  const date = new Date(value);
+  const sameYear = date.getFullYear() === new Date().getFullYear();
+  return new Intl.DateTimeFormat('zh-CN', {
+    year: sameYear ? undefined : 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', hour12: false,
+  }).format(date);
+}
+
+function loadFiles(opts = {}) {
+  if (!state.fileMacId) {
+    state.fileMacId = MACS.find((m) => state.nodes[m.id])?.id || MACS[0]?.id || null;
+  }
+  if (!state.fileMacId) {
+    const list = $('#file-list');
+    if (list) { clear(list); list.append(h('div', { class: 'file-empty', text: '暂无可用设备' })); }
+    return;
+  }
+  state.macId = state.fileMacId;
   closeChatPane();
   stopWatch(); hideBanner();
   $('#app').classList.remove('term-open');
-  state.current = null;                                  // 文件模式：脱离终端池（reconnect/reload 转而作用于 #frame）
+  state.current = null;
   for (const e of state.pool) e.iframe.classList.remove('show');
-  $('#frame').src = `${apiBase(state.macId)}/files/`;
-  $('#frame').classList.add('show');
+  $('#frame').classList.remove('show');
+  $('#file-browser').hidden = false;
   $('#empty-state').hidden = true;
-  $('#reconnect-btn').hidden = false;
-  $('#fullscreen-btn').hidden = false;
+  $('#reconnect-btn').hidden = true;
+  $('#fullscreen-btn').hidden = true;
   $('#mobile-input').hidden = true;
-  const tt = $('#win-title'); clear(tt); tt.append(h('span', { class: 'ttl', text: '文件 · ' + macName(state.macId) }));
-  $('#win-meta').textContent = macName(state.macId);
+  updateDeviceScopeUI();
+  const path = opts.clear ? '' : (state.filePath || state.filePaths[state.fileMacId] || '');
+  loadFileDirectory(path, { fallback: true });
   closeMenus();
+}
+
+async function loadFileDirectory(path = '', opts = {}) {
+  if (!state.fileMacId) return;
+  const req = ++fileLoadSeq;
+  const macId = state.fileMacId;
+  const replacePreviewHistory = opts.pushHistory && !!history.state?.fleet && !!history.state.filePreviewPath;
+  if (replacePreviewHistory) closeFilePreview();
+  state.fileLoading = true;
+  const list = $('#file-list');
+  clear(list);
+  list.append(h('div', { class: 'file-loading', text: '正在载入文件…' }));
+  try {
+    const query = new URLSearchParams();
+    if (path) query.set('path', path);
+    const queryString = query.toString();
+    const data = await api(macId, `file/list${queryString ? '?' + queryString : ''}`);
+    if (req !== fileLoadSeq || state.fileMacId !== macId || state.mode !== 'files') return;
+    state.fileRoot = data.root || '';
+    state.filePath = data.path || data.root || '';
+    state.fileParent = data.parent || '';
+    state.fileEntries = data.entries || [];
+    state.fileLocations = data.locations || [];
+    state.filePaths[macId] = state.filePath;
+    state.fileSelectedPath = '';
+    state.fileLoading = false;
+    persistUIState();
+    renderFileBrowser();
+    if (opts.pushHistory) {
+      const historyState = { mode: 'files', fileMacId: macId, filePath: state.filePath, filePreviewPath: '' };
+      if (replacePreviewHistory) replaceFleetHistory(historyState);
+      else pushFleetHistory(historyState);
+    } else if (history.state?.fleet && !history.state.filePreviewPath) {
+      replaceFleetHistory({ mode: 'files', fileMacId: macId, filePath: state.filePath, filePreviewPath: '' });
+    }
+  } catch (error) {
+    if (req !== fileLoadSeq || state.fileMacId !== macId) return;
+    if (path && opts.fallback !== false) {
+      state.filePath = '';
+      loadFileDirectory('', { fallback: false });
+      return;
+    }
+    state.fileLoading = false;
+    clear(list);
+    list.append(h('div', { class: 'file-empty' }, '无法读取文件', h('small', { text: error.message })));
+    $('#file-count').textContent = '0 项';
+  }
+}
+
+function renderFileBrowser() {
+  renderFileLocations();
+  renderFileBreadcrumbs();
+  renderFileEntries();
+  $('#file-folder-title').textContent = state.filePath === state.fileRoot ? '主目录' : fileBaseName(state.filePath);
+  updateDeviceScopeUI();
+}
+
+function fileLocationIcon(id) {
+  if (id === 'downloads') return svgIcon('ic', 'M12 3v12m-5-5 5 5 5-5M5 21h14');
+  if (id === 'desktop') return svgIcon('ic', 'M4 4h16v12H4zM9 20h6M12 16v4');
+  if (id === 'projects') return svgIcon('ic', 'M3 7h7l2 2h9v10H3z');
+  return svgIcon('ic', 'M3 11l9-8 9 8v10h-6v-6H9v6H3z');
+}
+
+function renderFileLocations() {
+  const wrap = $('#file-locations');
+  clear(wrap);
+  for (const location of state.fileLocations) {
+    const current = state.filePath === location.path || state.filePath.startsWith(location.path + '/');
+    const button = h('button', { class: 'file-location', 'aria-current': String(current) },
+      fileLocationIcon(location.id),
+      h('span', { text: location.name }),
+    );
+    button.onclick = () => loadFileDirectory(location.path, { pushHistory: true, fallback: false });
+    wrap.append(button);
+  }
+}
+
+function renderFileBreadcrumbs() {
+  const wrap = $('#file-breadcrumbs');
+  clear(wrap);
+  const root = state.fileRoot;
+  const relative = state.filePath.startsWith(root) ? state.filePath.slice(root.length) : '';
+  const parts = relative.split('/').filter(Boolean);
+  let current = root;
+  const appendCrumb = (name, path, last) => {
+    const button = h('button', { class: 'file-crumb', text: name, 'aria-current': last ? 'page' : null });
+    button.onclick = () => loadFileDirectory(path, { pushHistory: true, fallback: false });
+    wrap.append(button);
+  };
+  appendCrumb('主目录', root, !parts.length);
+  parts.forEach((part, index) => {
+    current += '/' + part;
+    wrap.append(h('span', { class: 'file-crumb-separator', text: '/' }));
+    appendCrumb(part, current, index === parts.length - 1);
+  });
+  requestAnimationFrame(() => { wrap.scrollLeft = wrap.scrollWidth; });
+}
+
+function fileGlyph(entry) {
+  const folder = entry.kind === 'folder';
+  return h('span', { class: `file-glyph${folder ? ' folder' : (entry.previewable ? ' previewable' : '')}` },
+    folder
+      ? svgIcon('ic', 'M3 6.5A2.5 2.5 0 0 1 5.5 4H9l2 2h7.5A2.5 2.5 0 0 1 21 8.5v8a2.5 2.5 0 0 1-2.5 2.5h-13A2.5 2.5 0 0 1 3 16.5z')
+      : svgIcon('ic', 'M6 2h8l4 4v16H6zM14 2v5h5'));
+}
+
+function closeFileMenus() {
+  $$('.file-row-menu').forEach((menu) => { menu.hidden = true; });
+}
+
+function renderFileEntries() {
+  const wrap = $('#file-list');
+  clear(wrap);
+  const needle = state.fileSearch.toLocaleLowerCase();
+  const entries = state.fileEntries.filter((entry) => !needle || entry.name.toLocaleLowerCase().includes(needle));
+  if (!entries.length) {
+    wrap.append(h('div', { class: 'file-empty', text: needle ? '没有匹配的文件' : '这个文件夹是空的' }));
+  }
+  for (const entry of entries) {
+    const meta = entry.kind === 'folder' ? '文件夹' : `${formatBytes(entry.size)} · ${formatFileTime(entry.modifiedAt)}`;
+    const name = h('div', { class: 'file-name-cell', dataset: { mobileMeta: meta } },
+      fileGlyph(entry),
+      h('strong', { text: entry.name }),
+    );
+    const menuWrap = h('div', { class: 'file-row-menu-wrap' });
+    const trigger = h('button', {
+      type: 'button', class: 'iconbtn bare file-row-menu-trigger', title: '文件操作', 'aria-label': `${entry.name} 操作`,
+      onclick: (event) => {
+        event.stopPropagation();
+        const panel = $('.file-row-menu', menuWrap);
+        const opening = panel.hidden;
+        closeFileMenus();
+        panel.hidden = !opening;
+      },
+    }, svgIconParts('ic', [
+      { tag: 'circle', attrs: { cx: '5', cy: '12', r: '1', fill: 'currentColor', stroke: 'none' } },
+      { tag: 'circle', attrs: { cx: '12', cy: '12', r: '1', fill: 'currentColor', stroke: 'none' } },
+      { tag: 'circle', attrs: { cx: '19', cy: '12', r: '1', fill: 'currentColor', stroke: 'none' } },
+    ]));
+    const menu = h('div', { class: 'file-row-menu', hidden: '' });
+    if (entry.previewable) {
+      menu.append(h('button', { type: 'button', onclick: (event) => { event.stopPropagation(); closeFileMenus(); openFilePreview(entry); } }, '预览'));
+    }
+    if (entry.kind === 'file') {
+      menu.append(h('a', {
+        href: fileDownloadURL(state.fileMacId, entry.path), download: entry.name,
+        onclick: (event) => event.stopPropagation(),
+      }, '下载'));
+    }
+    menu.append(
+      h('button', { type: 'button', onclick: (event) => { event.stopPropagation(); closeFileMenus(); openFileNameModal('rename', entry); } }, '重命名'),
+      h('button', { type: 'button', class: 'danger', onclick: (event) => { event.stopPropagation(); closeFileMenus(); confirmFileDelete(entry); } }, '删除'),
+    );
+    menuWrap.append(trigger, menu);
+    const row = h('div', {
+      class: 'file-row', role: 'button', tabindex: '0',
+      'aria-selected': String(entry.path === state.fileSelectedPath),
+      onclick: () => {
+        state.fileSelectedPath = entry.path;
+        if (entry.kind === 'folder') loadFileDirectory(entry.path, { pushHistory: true, fallback: false });
+        else if (entry.previewable) openFilePreview(entry);
+        else renderFileEntries();
+      },
+      onkeydown: (event) => { if (event.key === 'Enter') event.currentTarget.click(); },
+    }, name,
+    h('span', { class: 'file-row-time', text: formatFileTime(entry.modifiedAt) }),
+    h('span', { class: 'file-row-size', text: entry.kind === 'folder' ? '—' : formatBytes(entry.size) }),
+    menuWrap);
+    wrap.append(row);
+  }
+  $('#file-count').textContent = needle && entries.length !== state.fileEntries.length
+    ? `${entries.length}/${state.fileEntries.length} 项`
+    : `${entries.length} 项`;
+}
+
+function showFilePreview(entry) {
+  if (!entry?.previewable || !state.fileMacId) return;
+  state.fileSelectedPath = entry.path;
+  state.filePreviewPath = entry.path;
+  $('#file-preview-title').textContent = entry.name;
+  $('#file-preview-subtitle').textContent = `${macName(state.fileMacId)} · ${formatBytes(entry.size)}`;
+  $('#file-preview-frame').src = filePreviewRoute(state.fileMacId, entry.path, true);
+  $('#file-preview-open').href = filePreviewRoute(state.fileMacId, entry.path, false);
+  $('#file-preview-panel').hidden = false;
+  $('.file-layout').classList.add('preview-open');
+  renderFileEntries();
+}
+
+function openFilePreview(entry) {
+  if (!entry?.previewable || !state.fileMacId) return;
+  const replace = !!state.filePreviewPath;
+  showFilePreview(entry);
+  const historyState = {
+    mode: 'files',
+    fileMacId: state.fileMacId,
+    filePath: state.filePath,
+    filePreviewPath: entry.path,
+  };
+  if (replace) replaceFleetHistory(historyState);
+  else pushFleetHistory(historyState);
+}
+
+function closeFilePreview() {
+  state.filePreviewPath = '';
+  const panel = $('#file-preview-panel');
+  if (panel) panel.hidden = true;
+  $('.file-layout')?.classList.remove('preview-open');
+  const frame = $('#file-preview-frame');
+  if (frame) frame.src = 'about:blank';
+}
+
+function dismissFilePreview() {
+  const hasPreviewEntry = !!history.state?.fleet && !!history.state.filePreviewPath;
+  closeFilePreview();
+  if (!hasPreviewEntry) return;
+  state.filePreviewDismissing = true;
+  history.back();
+  setTimeout(() => { state.filePreviewDismissing = false; }, 2000);
+}
+
+function openFileNameModal(mode, entry = null) {
+  state.fileNameMode = mode;
+  state.fileTarget = entry;
+  const rename = mode === 'rename';
+  $('#file-name-title').textContent = rename ? '重命名' : '新建文件夹';
+  $('#file-name-submit').textContent = rename ? '保存' : '创建';
+  $('#file-name-input').value = rename ? entry.name : '';
+  openOverlay('file-name-modal');
+  requestAnimationFrame(() => { $('#file-name-input').focus(); $('#file-name-input').select(); });
+}
+
+async function submitFileName(event) {
+  event.preventDefault();
+  const name = $('#file-name-input').value.trim();
+  if (!name || !state.fileMacId) return;
+  const rename = state.fileNameMode === 'rename';
+  const path = rename ? state.fileTarget?.path : state.filePath;
+  if (!path) return;
+  try {
+    await api(state.fileMacId, rename ? 'file/rename' : 'file/mkdir', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ path, name }),
+    });
+    closeOverlay('file-name-modal');
+    if (rename && state.filePreviewPath === path) closeFilePreview();
+    toast(rename ? '已重命名' : '文件夹已创建', 'ok');
+    loadFileDirectory(state.filePath, { fallback: false });
+  } catch (error) {
+    toast((rename ? '重命名失败：' : '创建失败：') + error.message, 'err');
+  }
+}
+
+function confirmFileDelete(entry) {
+  state.fileDeleteTarget = entry;
+  $('#file-delete-copy').textContent = entry.kind === 'folder'
+    ? `删除文件夹“${entry.name}”及其中的全部内容？此操作无法撤销。`
+    : `删除文件“${entry.name}”？此操作无法撤销。`;
+  openOverlay('confirm-file-delete');
+}
+
+async function deleteFileTarget() {
+  const entry = state.fileDeleteTarget;
+  closeOverlay('confirm-file-delete');
+  if (!entry || !state.fileMacId) return;
+  try {
+    await api(state.fileMacId, 'file/delete', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ path: entry.path, recursive: entry.kind === 'folder' }),
+    });
+    if (state.filePreviewPath === entry.path) closeFilePreview();
+    state.fileDeleteTarget = null;
+    toast('已删除', 'ok');
+    loadFileDirectory(state.filePath, { fallback: false });
+  } catch (error) {
+    toast('删除失败：' + error.message, 'err');
+  }
+}
+
+async function uploadFiles(files) {
+  const selected = [...(files || [])];
+  if (!selected.length || !state.fileMacId) return;
+  let uploaded = 0;
+  const failures = [];
+  $('.file-layout')?.classList.add('is-uploading');
+  for (const file of selected) {
+    const body = new FormData();
+    body.append('file', file, file.name);
+    try {
+      await api(state.fileMacId, `file/upload?path=${encodeURIComponent(state.filePath)}`, { method: 'POST', body });
+      uploaded++;
+    } catch (error) {
+      failures.push(`${file.name}：${error.message}`);
+    }
+  }
+  $('.file-layout')?.classList.remove('is-uploading');
+  if (uploaded) toast(`已上传 ${uploaded} 个文件`, 'ok');
+  if (failures.length) toast(failures[0] + (failures.length > 1 ? `，另有 ${failures.length - 1} 个失败` : ''), 'err');
+  loadFileDirectory(state.filePath, { fallback: false });
 }
 
 // ============================================================
@@ -3153,31 +3837,34 @@ async function showProjects() {
 // ============================================================
 //  终止进程（F2：会话保留，二次确认非原生 confirm）
 // ============================================================
-function termSes(sessionId, title) {
+function termSes(sessionId, title, macId = state.macId, assistant = state.assistant) {
   state.killTarget = sessionId;
-  state.killAssistant = state.assistant;
+  state.killAssistant = assistant;
+  state.killMacId = macId;
   $('#ck-name').textContent = title || '该会话';
   openOverlay('confirm-kill');
 }
 async function closeSession() {
   const sid = state.killTarget;
   const assistant = state.killAssistant || state.assistant;
+  const macId = state.killMacId || state.macId;
   closeOverlay('confirm-kill');
-  if (!sid) return;
+  if (!sid || !macId) return;
   try {
-    const r = await api(state.macId, 'close', {
+    const r = await api(macId, 'close', {
       method: 'POST', headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ assistant, sessionId: sid }),
     });
     toast(r.killed ? '已终止该会话进程（会话保留）' : '该会话没有正在运行的控制台进程', r.killed ? 'ok' : 'info');
     // 终止后把该会话从池里移除（进程已结束，留着 iframe 只会停在 [exited]/Press ⏎ to Reconnect）。
-    const ent = poolFind(state.macId, sid, assistant);
+    const ent = poolFind(macId, sid, assistant);
     if (ent) {
       const wasCurrent = ent === state.current;
       poolDrop(ent);
       if (wasCurrent) { $('#app').classList.remove('term-open'); restoreTermOrEmpty(); }
     }
   } catch (e) { toast('终止失败：' + e.message, 'err'); }
+  state.killTarget = state.killAssistant = state.killMacId = null;
   loadSessions();
   refreshHostCounts();
 }
@@ -3339,15 +4026,161 @@ function wireMobileInput() {
 }
 
 // ============================================================
+//  PWA 导航、离线状态、安装与外壳更新
+// ============================================================
+function fleetHistoryState(extra = {}) {
+  return {
+    fleet: true,
+    mode: state.mode,
+    fileMacId: state.fileMacId,
+    filePath: state.filePath,
+    filePreviewPath: state.filePreviewPath,
+    term: $('#app')?.classList.contains('term-open') || false,
+    ...extra,
+  };
+}
+
+function pushFleetHistory(extra = {}) {
+  try { history.pushState(fleetHistoryState(extra), '', location.href); } catch (_) {}
+}
+
+function replaceFleetHistory(extra = {}) {
+  try { history.replaceState(fleetHistoryState(extra), '', location.href); } catch (_) {}
+}
+
+function initFleetHistory() {
+  // 完整刷新不会恢复已打开的预览，因此把当前历史项同步为屏幕上的真实状态，
+  // 避免 WebView 留着旧预览记录导致关闭按钮退回另一个预览。
+  replaceFleetHistory();
+  addEventListener('popstate', async (event) => {
+    let target = event.state;
+    if (!target?.fleet) return;
+    if (state.filePreviewDismissing) {
+      state.filePreviewDismissing = false;
+      if (target.filePreviewPath) {
+        target = { ...target, filePreviewPath: '' };
+        replaceFleetHistory(target);
+      }
+    }
+    if ($('#app').classList.contains('term-open') && !target.term) {
+      backToList();
+      return;
+    }
+    if (target.mode === 'files' && state.mode === 'files') {
+      if (target.fileMacId && target.fileMacId !== state.fileMacId) {
+        state.fileMacId = target.fileMacId;
+        state.macId = target.fileMacId;
+        state.filePath = state.filePaths[target.fileMacId] || '';
+        renderHosts();
+        updateDeviceScopeUI();
+      }
+      if (target.filePath !== undefined && target.filePath !== state.filePath) {
+        await loadFileDirectory(target.filePath || '', { fallback: true });
+      }
+      if (target.filePreviewPath) {
+        const entry = state.fileEntries.find((item) =>
+          item.kind === 'file' && item.previewable && item.path === target.filePreviewPath);
+        if (entry) showFilePreview(entry);
+        else closeFilePreview();
+      } else if (state.filePreviewPath) {
+        closeFilePreview();
+      }
+    }
+  });
+}
+
+function updateNetworkStatus({ refresh = false } = {}) {
+  const online = navigator.onLine;
+  const status = $('#network-status');
+  if (status) status.hidden = online;
+  const app = $('#app');
+  if (app) app.dataset.network = online ? 'online' : 'offline';
+  if (online && refresh) {
+    if (state.mode === 'files') loadFileDirectory(state.filePath, { fallback: true });
+    else loadSessions();
+  }
+}
+
+function syncInstallActions() {
+  const standalone = matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
+  const isiOS = /iPad|iPhone|iPod/.test(navigator.userAgent || '');
+  const available = !standalone && (!!state.deferredInstallPrompt || isiOS);
+  $$('.pwa-install-action').forEach((button) => { button.hidden = !available; });
+}
+
+async function promptPWAInstall() {
+  closeMenus();
+  if (!state.deferredInstallPrompt) {
+    toast('请在 Safari 的分享菜单中选择“添加到主屏幕”');
+    return;
+  }
+  const prompt = state.deferredInstallPrompt;
+  state.deferredInstallPrompt = null;
+  await prompt.prompt();
+  await prompt.userChoice.catch(() => null);
+  syncInstallActions();
+}
+
+function initPWAExperience() {
+  updateNetworkStatus();
+  addEventListener('online', () => { updateNetworkStatus({ refresh: true }); toast('网络已恢复', 'ok'); });
+  addEventListener('offline', () => updateNetworkStatus());
+  addEventListener('beforeinstallprompt', (event) => {
+    event.preventDefault();
+    state.deferredInstallPrompt = event;
+    syncInstallActions();
+  });
+  addEventListener('appinstalled', () => {
+    state.deferredInstallPrompt = null;
+    syncInstallActions();
+    toast('已安装到设备', 'ok');
+  });
+  syncInstallActions();
+}
+
+async function registerServiceWorker() {
+  if (!('serviceWorker' in navigator)) return;
+  try {
+    const hadController = !!navigator.serviceWorker.controller;
+    let reloadForUpdate = hadController;
+    const registration = await navigator.serviceWorker.register(`${BASE}/sw.js`);
+    const offerUpdate = (worker) => {
+      if (!worker || !navigator.serviceWorker.controller) return;
+      const banner = $('#pwa-update');
+      if (banner) banner.hidden = false;
+      const button = $('#pwa-update-now');
+      if (button) button.onclick = () => worker.postMessage({ type: 'SKIP_WAITING' });
+    };
+    if (registration.waiting) offerUpdate(registration.waiting);
+    registration.addEventListener('updatefound', () => {
+      const worker = registration.installing;
+      if (!worker) return;
+      worker.addEventListener('statechange', () => {
+        if (worker.state === 'installed') offerUpdate(worker);
+      });
+    });
+    navigator.serviceWorker.addEventListener('controllerchange', () => {
+      if (reloadForUpdate) location.reload();
+      reloadForUpdate = true;
+    });
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible') registration.update().catch(() => {});
+    });
+  } catch (_) {}
+}
+
+// ============================================================
 //  初始化
 // ============================================================
 function init() {
   initTheme();
   if (window.FleetPreview?.isPreviewRoute()) {
     FleetPreview.initRoute();
-    if ('serviceWorker' in navigator) navigator.serviceWorker.register(`${BASE}/sw.js`).catch(() => {});
+    initPWAExperience();
+    registerServiceWorker();
     return;
   }
+  initUIState();
   initSessionListPreferences();
   initExperimentFlags();
   renderHosts();
@@ -3357,23 +4190,46 @@ function init() {
   setInterval(refreshSessionsSoft, 5000); // 轻量轮询 waiting / Codex 进行中状态（函数自带 mode/macId guard）
   wireMobileInput();
 
-  // 模式 / 助手 / 刷新 / 新建
+  // 模式 / 助手 / 搜索 / 新建
   // 注意 button[data-mode]：#app 本身带 data-mode（CSS 切栅格用），裸 [data-mode] 会把 #app 也选中，
   // 给根容器挂上 onclick → 点页面任意处都冒泡触发 setMode→loadSessions（每次点击闪一下）。
   $$('button[data-mode]').forEach((b) => b.onclick = () => setMode(b.dataset.mode));
   $$('[data-assistant]').forEach((b) => b.onclick = () => setAssistant(b.dataset.assistant));
-  $('#refresh-btn').onclick = () => { loadSessions(); refreshHostCounts(); };
   $('#session-groups').onscroll = maybeLoadMoreSessions;
   $('#session-search').oninput = (event) => {
     clearTimeout(sessionSearchTimer);
     sessionSearchTimer = setTimeout(() => {
       state.sessionSearch = event.target.value.trim();
       state.sessionResults = [];
-      state.sessionsNextCursor = '';
+      state.sessionCursors = {};
       loadSessions({ clear: true });
     }, 180);
   };
-  $('#new-session').onclick = showProjects;
+  $('#session-view-toggle').onclick = () => {
+    state.sessionView = state.sessionView === 'project' ? 'recent' : 'project';
+    updateSessionFilterUI();
+    persistUIState();
+    renderSessionResults();
+  };
+  $('#new-session').onclick = requestNewSession;
+  $('#session-device-button').onclick = () => openDevicePicker('sessions');
+  $('#file-device-button').onclick = () => openDevicePicker('files');
+  $('#device-search').oninput = renderDeviceOptions;
+
+  // 自绘文件浏览器
+  $('#file-search').oninput = (event) => { state.fileSearch = event.target.value.trim(); renderFileEntries(); };
+  $('#file-new-folder').onclick = () => openFileNameModal('mkdir');
+  $('#file-name-form').onsubmit = submitFileName;
+  $('#file-delete-confirm').onclick = deleteFileTarget;
+  $('#file-preview-close').onclick = dismissFilePreview;
+  $('#file-preview-back').onclick = dismissFilePreview;
+  const pickUpload = () => $('#file-upload-input').click();
+  $('#file-upload').onclick = pickUpload;
+  $('#file-upload-side').onclick = pickUpload;
+  $('#file-upload-input').onchange = (event) => {
+    uploadFiles(event.target.files);
+    event.target.value = '';
+  };
 
   // 终端窗口
   $('#win-back').onclick = backToList;
@@ -3460,6 +4316,12 @@ function init() {
   // 用户菜单（主题切换已收进菜单内 data-act="theme"，不再单独占一行）
   $('#user-btn').onclick = (e) => toggleMenu('usermenu', e);
   $('#m-menu-btn').onclick = (e) => toggleMenu('m-menu', e);
+  $$('.mobile-menu-trigger').forEach((button) => {
+    button.onclick = (event) => {
+      $('#m-menu').classList.add('mobile-global-menu');
+      toggleMenu('m-menu', event);
+    };
+  });
   $$('#usermenu button, #m-menu button').forEach((b) => {
     if (!b.dataset.act) return;
     b.onclick = () => {
@@ -3467,6 +4329,7 @@ function init() {
       if (b.dataset.act === 'theme') toggleTheme();
       else if (b.dataset.act === 'settings') openSettings();
       else if (b.dataset.act === 'selfdraw') toggleSelfDraw();
+      else if (b.dataset.act === 'install') promptPWAInstall();
       else if (b.dataset.act === 'logout') doLogout();
     };
   });
@@ -3483,13 +4346,19 @@ function init() {
 
   // 点空白处关菜单
   document.addEventListener('click', (e) => {
-    if (!e.target.closest('.menu') && !e.target.closest('#user-btn') && !e.target.closest('#m-menu-btn')) closeMenus();
+    if (!e.target.closest('.menu') && !e.target.closest('#user-btn') && !e.target.closest('#m-menu-btn') &&
+        !e.target.closest('.mobile-menu-trigger')) closeMenus();
+    if (!e.target.closest('.file-row-menu-wrap')) closeFileMenus();
     if (!e.target.closest('#chat-approval-menu')) closeChatApproval();
     if (!e.target.closest('#chat-options')) closeChatOptions();
     if (!e.target.closest('#chat-skill-menu') && !e.target.closest('#chat-input')) closeChatSkillMenu();
   });
   document.addEventListener('keydown', (e) => {
     if (e.key !== 'Escape') return;
+    if (state.filePreviewPath) {
+      dismissFilePreview();
+      return;
+    }
     if (!$('#chat-approval-popover').hidden) {
       closeChatApproval();
       $('#chat-approval').focus();
@@ -3519,9 +4388,11 @@ function init() {
   }
 
   updateSessionFilterUI();
-  setMode('sessions');
-  restorePoolSnapshot();
-
-  if ('serviceWorker' in navigator) navigator.serviceWorker.register(`${BASE}/sw.js`).catch(() => {});
+  $$('[data-assistant]').forEach((b) => b.setAttribute('aria-selected', String(b.dataset.assistant === state.assistant)));
+  initFleetHistory();
+  setMode(state.mode);
+  if (state.mode === 'sessions') restorePoolSnapshot();
+  initPWAExperience();
+  registerServiceWorker();
 }
 document.addEventListener('DOMContentLoaded', init);

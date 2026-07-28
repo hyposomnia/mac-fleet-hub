@@ -114,7 +114,7 @@ func TestFilePreviewRejectsOutsideRootAndSymlinkEscape(t *testing.T) {
 
 func TestFilePreviewRejectsUnsupportedAndOversizedText(t *testing.T) {
 	root := t.TempDir()
-	unsupported := filepath.Join(root, "secret.txt")
+	unsupported := filepath.Join(root, "secret.bin")
 	if err := os.WriteFile(unsupported, []byte("secret"), 0600); err != nil {
 		t.Fatal(err)
 	}
@@ -148,6 +148,29 @@ func TestFilePreviewRejectsUnsupportedAndOversizedText(t *testing.T) {
 				t.Fatalf("status=%d body=%s", rr.Code, rr.Body.String())
 			}
 		})
+	}
+}
+
+func TestFilePreviewSupportsSourceText(t *testing.T) {
+	root := t.TempDir()
+	source := filepath.Join(root, "config.json")
+	if err := os.WriteFile(source, []byte("{\"enabled\":true}\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	usePreviewRoot(t, root)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/file/preview?path="+urlQueryEscape(source), nil)
+	rr := httptest.NewRecorder()
+	handleFilePreview(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rr.Code, rr.Body.String())
+	}
+	var got filePreviewResponse
+	if err := json.Unmarshal(rr.Body.Bytes(), &got); err != nil {
+		t.Fatal(err)
+	}
+	if got.Kind != "text" || got.MIME != "application/json; charset=utf-8" || got.Content != "{\"enabled\":true}\n" {
+		t.Fatalf("unexpected source preview: %+v", got)
 	}
 }
 
@@ -189,5 +212,17 @@ func TestFileContentStreamsRangeAndForcesTextDownloads(t *testing.T) {
 	}
 	if downloadRR.Header().Get("Content-Type") != "application/octet-stream" || !strings.HasPrefix(downloadRR.Header().Get("Content-Disposition"), "attachment;") {
 		t.Fatalf("download headers=%v", downloadRR.Header())
+	}
+
+	unknown := filepath.Join(root, "archive.bin")
+	if err := os.WriteFile(unknown, []byte("raw"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	unknownReq := httptest.NewRequest(http.MethodGet, "/api/file/content?download=1&path="+urlQueryEscape(unknown), nil)
+	unknownRR := httptest.NewRecorder()
+	handleFileContent(unknownRR, unknownReq)
+	if unknownRR.Code != http.StatusOK || unknownRR.Body.String() != "raw" ||
+		unknownRR.Header().Get("Content-Type") != "application/octet-stream" {
+		t.Fatalf("unknown download status=%d headers=%v body=%q", unknownRR.Code, unknownRR.Header(), unknownRR.Body.String())
 	}
 }
