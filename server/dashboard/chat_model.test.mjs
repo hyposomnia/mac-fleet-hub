@@ -243,6 +243,15 @@ test('session header keeps archive browsing in settings', () => {
   assert.match(styleCSS, /\.sc-head-actions\s*\{/);
 });
 
+test('session pagination loads automatically near the scroll boundary', () => {
+  assert.doesNotMatch(indexHTML, /id="sessions-more"/);
+  assert.doesNotMatch(styleCSS, /\.sessions-more\s*\{/);
+  assert.match(appSrc, /function maybeLoadMoreSessions\(\)/);
+  assert.match(appSrc, /scrollHeight\s*-\s*wrap\.scrollTop\s*-\s*wrap\.clientHeight\s*<=\s*240/);
+  assert.match(appSrc, /\$\('#session-groups'\)\.onscroll\s*=\s*maybeLoadMoreSessions/);
+  assert.match(appSrc, /loadSessions\(\{\s*append:\s*true\s*\}\)/);
+});
+
 test('jump-to-bottom control uses an accessible inline SVG icon', () => {
   assert.match(indexHTML, /<button id="chat-jump"[^>]*aria-label="跳到底部"[^>]*>/);
   assert.match(indexHTML, /<svg class="chat-jump-icon"[^>]*aria-hidden="true">/);

@@ -506,8 +506,9 @@ function updateSessionFilterUI() {
   if (input && input.value !== state.sessionSearch) input.value = state.sessionSearch;
 }
 
-function renderSessionResults() {
+function renderSessionResults(opts = {}) {
   const wrap = $('#session-groups');
+  const previousScrollTop = opts.preserveScroll ? wrap.scrollTop : 0;
   const sessions = state.sessionResults || [];
   const groups = {};
   for (const s of sessions) (groups[s.cwd] ||= []).push(s);
@@ -538,12 +539,15 @@ function renderSessionResults() {
       wrap.append(grp);
     }
   }
-  const more = $('#sessions-more');
-  if (more) {
-    more.hidden = state.assistant !== 'codex' || !state.sessionsNextCursor;
-    more.disabled = state.sessionsLoadingMore;
-    more.textContent = state.sessionsLoadingMore ? '正在加载…' : '加载更多';
-  }
+  if (opts.preserveScroll) wrap.scrollTop = previousScrollTop;
+  requestAnimationFrame(maybeLoadMoreSessions);
+}
+
+function maybeLoadMoreSessions() {
+  const wrap = $('#session-groups');
+  if (!wrap || state.mode !== 'sessions' || state.assistant !== 'codex' || !state.sessionsNextCursor ||
+      state.sessionsLoadingMore || $('#refresh-btn')?.classList.contains('loading')) return;
+  if (wrap.scrollHeight - wrap.scrollTop - wrap.clientHeight <= 240) loadSessions({ append: true });
 }
 
 async function loadSessions(opts = {}) {
@@ -561,6 +565,7 @@ async function loadSessions(opts = {}) {
     state.assistant !== assistant || state.scope !== scope || state.sessionSearch !== search;
   setSessionsLoading(true);
   state.sessionsLoadingMore = append;
+  wrap.classList.toggle('loading-more', append);
   // 切主机/切助手/切范围时立即清空旧列表；普通刷新保留旧内容直到新数据就绪，避免闪。
   if (!append && (opts.clear || !wrap.querySelector('.grp, .empty, .skel-ses'))) renderSessionSkeleton(wrap);
 
@@ -582,11 +587,13 @@ async function loadSessions(opts = {}) {
       toast('加载更多失败：' + e.message, 'err');
     }
     state.sessionsLoadingMore = false;
+    wrap.classList.remove('loading-more');
     setSessionsLoading(false);
     return;
   }
   if (stale()) return;
   state.sessionsLoadingMore = false;
+  wrap.classList.remove('loading-more');
   setSessionsLoading(false);
 
   const incoming = data.sessions || [];
@@ -598,7 +605,7 @@ async function loadSessions(opts = {}) {
   for (const s of sessions) updateCachedChatFromSession(macId, s);
   const activeN = scope === 'active' ? sessions.length : sessions.filter((s) => s.live).length;
   state.counts[macId] = activeN;
-  renderSessionResults();
+  renderSessionResults({ preserveScroll: append });
 }
 
 // 软刷新会话列表：定时静默拉取，只就地更新「易变字段」——waiting、Codex 运行状态、
@@ -3354,7 +3361,7 @@ function init() {
   $$('button[data-mode]').forEach((b) => b.onclick = () => setMode(b.dataset.mode));
   $$('[data-assistant]').forEach((b) => b.onclick = () => setAssistant(b.dataset.assistant));
   $('#refresh-btn').onclick = () => { loadSessions(); refreshHostCounts(); };
-  $('#sessions-more').onclick = () => loadSessions({ append: true });
+  $('#session-groups').onscroll = maybeLoadMoreSessions;
   $('#session-search').oninput = (event) => {
     clearTimeout(sessionSearchTimer);
     sessionSearchTimer = setTimeout(() => {
