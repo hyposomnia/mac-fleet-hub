@@ -827,6 +827,21 @@ test('reasoning and tools render as one ordered Codex Thought trace', () => {
   assert.ok(text.indexOf('npm test') < text.indexOf('/tmp/shot.png'));
 });
 
+test('tool-first traces keep Codex activity summaries instead of becoming Thought', () => {
+  const rows = renderChatActivityRun([
+    {
+      type: 'tool', kind: 'commandExecution', summary: 'sed -n 1,80p server/dashboard/app.js',
+      commandActions: [{ type: 'read', path: 'server/dashboard/app.js' }], status: 'completed',
+    },
+    { type: 'reasoning', summary: '**Checking the result**\n\nInternal transition', status: 'completed' },
+    { type: 'diff', files: [{ path: 'server/dashboard/app.js' }], status: 'inProgress' },
+  ]);
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].className, 'chat-row tool activity-group');
+  assert.match(nodeText(rows[0]), /正在编辑文件/);
+  assert.doesNotMatch(nodeText(rows[0]), /Thought|Internal transition/);
+});
+
 test('context compaction and messages cut Codex activity traces', () => {
   assert.equal(typeof chatRenderUnits, 'function');
   const units = chatRenderUnits([
@@ -894,6 +909,7 @@ test('activity group summary follows Codex part ordering and leading labels', ()
 test('running activity group uses the active item summary', () => {
   assert.deepEqual([...chatActivityActiveSummarySegments({ kind: 'commandExecution', summary: 'bash -lc npm test', status: 'inProgress' })], ['正在运行命令']);
   assert.deepEqual([...chatActivityActiveSummarySegments({ kind: 'mcpToolCall', title: 'Chrome · Read', summary: 'chrome · read', status: 'inProgress' })], ['正在使用 Chrome 集成']);
+  assert.deepEqual([...chatActivityActiveSummarySegments({ type: 'diff', status: 'inProgress' })], ['正在编辑文件']);
 });
 
 test('tool activity labels follow Codex command and MCP wording', () => {
@@ -939,6 +955,7 @@ test('file changes keep paths and count added and deleted diff lines', () => {
     type: 'diff_update',
     itemId: 'diff1',
     data: {
+      status: 'inProgress',
       changes: [{
         path: 'server/dashboard/app.js',
         kind: 'update',
@@ -950,6 +967,7 @@ test('file changes keep paths and count added and deleted diff lines', () => {
     JSON.parse(JSON.stringify(state.items.diff1.files)),
     [{ path: 'server/dashboard/app.js', additions: 2, deletions: 1 }],
   );
+  assert.equal(state.items.diff1.status, 'inProgress');
 });
 
 test('file change normalization accepts explicit line counts', () => {

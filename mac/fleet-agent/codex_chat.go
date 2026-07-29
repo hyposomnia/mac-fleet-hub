@@ -1556,6 +1556,9 @@ func projectCodexToolItem(sessionID, turnID string, raw json.RawMessage, lifecyc
 	if base.Type == "fileChange" {
 		var item map[string]interface{}
 		_ = json.Unmarshal(raw, &item)
+		if status, ok := item["status"].(string); !ok || strings.TrimSpace(status) == "" {
+			item["status"] = lifecycleStatus
+		}
 		return newChatEvent("diff_update", "codex", sessionID, turnID, base.ID, item), true
 	}
 

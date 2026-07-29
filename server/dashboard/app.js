@@ -2070,13 +2070,14 @@ function chatActivityGroupSummaryText(items) {
 function chatActivityActiveItem(items) {
   for (let i = items.length - 1; i >= 0; i -= 1) {
     const item = items[i];
-    if (item.type === 'tool' && chatToolStatus(item.status).key === 'running') return item;
+    if ((item.type === 'tool' || item.type === 'diff') && chatToolStatus(item.status).key === 'running') return item;
   }
   return null;
 }
 
 function chatActivityActiveSummarySegments(item) {
   if (!item) return null;
+  if (item.type === 'diff') return ['正在编辑文件'];
   if (item.kind === 'commandExecution') {
     const semantic = chatCommandSemantic(item);
     if (semantic === 'read') return ['正在读取文件'];
@@ -2165,17 +2166,18 @@ function renderChatActivityTrace(items) {
 }
 
 function renderChatActivityRun(items) {
-  if (items.some((item) => item.type === 'reasoning')) return [renderChatActivityTrace(items)];
+  if (items[0]?.type === 'reasoning') return [renderChatActivityTrace(items)];
+  const visibleItems = items.filter((item) => item.type !== 'reasoning');
   const rows = [];
-  for (let i = 0; i < items.length; i += 1) {
-    const item = items[i];
+  for (let i = 0; i < visibleItems.length; i += 1) {
+    const item = visibleItems[i];
     if (!isChatActivityItem(item)) {
       rows.push(renderChatItem(item, false));
       continue;
     }
     const group = [item];
-    while (i + 1 < items.length && isChatActivityItem(items[i + 1])) {
-      group.push(items[i + 1]);
+    while (i + 1 < visibleItems.length && isChatActivityItem(visibleItems[i + 1])) {
+      group.push(visibleItems[i + 1]);
       i += 1;
     }
     rows.push(group.length > 1 ? renderChatActivityGroup(group) : renderChatItem(item, false));

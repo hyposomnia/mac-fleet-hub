@@ -203,6 +203,17 @@ func TestMapCodexNotificationStartedAndMcpProgress(t *testing.T) {
 		t.Fatalf("web search kind missing: %s", started[0].Data)
 	}
 
+	fileChange := mapCodexNotification(rpcNotification{
+		Method: "item/started",
+		Params: json.RawMessage(`{"threadId":"t1","turnId":"turn1","startedAtMs":1,"item":{"id":"diff1","type":"fileChange","changes":[]}}`),
+	})
+	if len(fileChange) != 1 || fileChange[0].Type != "diff_update" || fileChange[0].ItemID != "diff1" {
+		t.Fatalf("file change start should become a diff update: %+v", fileChange)
+	}
+	if !strings.Contains(string(fileChange[0].Data), `"status":"inProgress"`) {
+		t.Fatalf("file change lifecycle status missing: %s", fileChange[0].Data)
+	}
+
 	progress := mapCodexNotification(rpcNotification{
 		Method: "item/mcpToolCall/progress",
 		Params: json.RawMessage(`{"threadId":"t1","turnId":"turn1","itemId":"mcp1","message":"正在读取页面"}`),

@@ -464,6 +464,7 @@
         item.turnId = firstString(ev && ev.turnId, data.turnId, data.turn_id, item.turnId);
         item.files = normalizeDiffFiles(data);
         item.raw = data;
+        if (data.status) item.status = data.status;
         return next;
       }
       case 'interaction_request':
