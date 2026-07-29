@@ -1572,6 +1572,9 @@ function chatRenderUnits(entries) {
     trace = [];
   };
   for (const entry of entries || []) {
+    // Codex Desktop keeps internal reasoning items out of the transcript. The
+    // user-facing progress text arrives separately as assistant commentary.
+    if (entry?.item?.type === 'reasoning') continue;
     if (isChatTraceItem(entry?.item)) {
       trace.push(entry);
       continue;
@@ -1846,7 +1849,7 @@ function isInternalChatTool(item) {
 }
 
 function isChatTraceItem(item) {
-  return item?.type === 'reasoning' || item?.type === 'tool' || item?.type === 'diff';
+  return item?.type === 'tool' || item?.type === 'diff';
 }
 
 function isChatActivityItem(item) {
@@ -1866,7 +1869,7 @@ function chatMessageMetaVisibility(model) {
   const turns = new Map();
   for (const id of messages) {
     const item = items[id];
-    if (!item || isInternalChatTool(item)) continue;
+    if (!item || item.type === 'reasoning' || isInternalChatTool(item)) continue;
     if (item.type === 'user') {
       if (chatUserMetaText(item)) visible.set(id, item);
     }
@@ -2119,54 +2122,7 @@ function renderChatActivityGroup(items) {
   'tool activity-group');
 }
 
-function chatReasoningBody(summary) {
-  const text = String(summary || '').trimStart();
-  const heading = text.match(/^\*\*([^\n]*?)\*\*/);
-  if (heading) return text.slice(heading[0].length).trimStart();
-  return text.startsWith('**') ? '' : text;
-}
-
-function chatReasoningLabel(item) {
-  const running = chatToolStatus(item?.status).key === 'running';
-  const duration = chatToolDuration(item?.durationMs);
-  return running ? 'Thinking' : (duration ? `Thought for ${duration}` : 'Thought');
-}
-
-function chatThoughtIcon() {
-  return svgIconParts('chat-thought-icon', [
-    { tag: 'path', attrs: { d: 'M17.5 6.1a7 7 0 1 0 0 11.8' } },
-  ]);
-}
-
-function renderChatActivityTrace(items) {
-  const reasoningItems = items.filter((item) => item.type === 'reasoning');
-  const labelItem = [...reasoningItems].reverse().find((item) =>
-    chatToolStatus(item.status).key === 'running') || reasoningItems[reasoningItems.length - 1];
-  const running = reasoningItems.some((item) => chatToolStatus(item.status).key === 'running');
-  const bodyItems = items.map((item) => {
-    if (item.type === 'reasoning') {
-      const body = chatReasoningBody(item.summary);
-      return body ? h('div', { class: 'chat-reasoning-trace-body' },
-        FleetMarkdown.renderMarkdown(body, chatMediaSrc, chatLinkHref)) : null;
-    }
-    if (item.type === 'diff') return renderChatDiffSurface(item, 'grouped trace-item');
-    return renderChatToolSurface(item, 'grouped trace-item');
-  }).filter(Boolean);
-  const header = h('span', { class: 'chat-thought-summary' },
-    chatThoughtIcon(),
-    h('span', { class: 'chat-thought-label', text: chatReasoningLabel(labelItem) }),
-    bodyItems.length ? svgIcon('chat-thought-chevron', 'M6 9l6 6 6-6') : null);
-  const surface = bodyItems.length
-    ? h('details', { class: 'chat-reasoning chat-activity-trace', open: running ? '' : null,
-      dataset: { running: String(running) } },
-      h('summary', {}, header),
-      h('div', { class: 'chat-activity-trace-body' }, bodyItems))
-    : h('div', { class: 'chat-reasoning chat-activity-trace', dataset: { running: String(running) } }, header);
-  return chatRow(surface, 'reasoning activity-trace');
-}
-
 function renderChatActivityRun(items) {
-  if (items[0]?.type === 'reasoning') return [renderChatActivityTrace(items)];
   const visibleItems = items.filter((item) => item.type !== 'reasoning');
   const rows = [];
   for (let i = 0; i < visibleItems.length; i += 1) {
@@ -2439,7 +2395,7 @@ function renderChatItem(item, showMeta = true) {
     'assistant');
   }
   if (item.type === 'reasoning') {
-    return renderChatActivityTrace([item]);
+    return null;
   }
   if (item.type === 'plan') {
     if (!item.text) return null;
@@ -2456,7 +2412,7 @@ function renderChatItem(item, showMeta = true) {
         h('span', { text: step.step || '' })))), 'todo');
   }
   if (item.type === 'context') {
-    return chatRow(h('div', { class: 'chat-context-note', text: 'Conversation compacted' }), 'context');
+    return chatRow(h('div', { class: 'chat-context-note', text: '上下文已自动压缩' }), 'context');
   }
   if (item.type === 'review') return null;
   if (item.type === 'tool') return renderChatTool(item);
