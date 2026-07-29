@@ -54,14 +54,29 @@ const appSandbox = {
   },
   EventSource: { CLOSED: 2 },
   FleetChatModel: sandbox.globalThis.FleetChatModel,
+  FleetMarkdown: {
+    renderMarkdown(text) {
+      const node = testElement('div');
+      node.className = 'chat-markdown';
+      node.textContent = String(text || '');
+      return node;
+    },
+  },
   Date: FixedAppDate,
 };
 vm.createContext(appSandbox);
-vm.runInContext(`${appSrc}\n;globalThis.__chatCacheTest = { chatCacheVictim, isChatConnectionKept, isSessionRunning, updateChatUpdatedAt, formatChatDate, chatAssistantMetaText, chatUserMetaText, chatMessageMetaVisibility, applyChatMetadataDefaults, enqueueChatFollowup, removeChatFollowup, normalizeChatDraft, chatSkillTriggerAt, parseChatSkillInput, chatSkillTokenNames, mergeChatComposerText, mergeChatAttachments, chatImageSrc, chatToolStatus, chatToolDuration, chatToolActivityLabel, chatToolHasExpandableBody, isChatActivityItem, chatActivityGroupSummaryText, chatActivityActiveSummarySegments, chatActivityGroupIconKind, renderChatActivityGroup, filterFileEntries, filePreviewTypeLabel, filePreviewLocation, chatTurnPinText: typeof chatTurnPinText === 'function' ? chatTurnPinText : () => '', isInternalChatTool: typeof isInternalChatTool === 'function' ? isInternalChatTool : () => false, state };`, appSandbox);
-const { chatCacheVictim, isChatConnectionKept, isSessionRunning, updateChatUpdatedAt, formatChatDate, chatAssistantMetaText, chatUserMetaText, chatMessageMetaVisibility, applyChatMetadataDefaults, enqueueChatFollowup, removeChatFollowup, normalizeChatDraft, chatSkillTriggerAt, parseChatSkillInput, chatSkillTokenNames, mergeChatComposerText, mergeChatAttachments, chatImageSrc, chatToolStatus, chatToolDuration, chatToolActivityLabel, chatToolHasExpandableBody, isChatActivityItem, chatActivityGroupSummaryText, chatActivityActiveSummarySegments, chatActivityGroupIconKind, renderChatActivityGroup, filterFileEntries, filePreviewTypeLabel, filePreviewLocation, chatTurnPinText, isInternalChatTool, state: appState } = appSandbox.__chatCacheTest;
+vm.runInContext(`${appSrc}\n;globalThis.__chatCacheTest = { chatCacheVictim, isChatConnectionKept, isSessionRunning, updateChatUpdatedAt, formatChatDate, chatAssistantMetaText, chatUserMetaText, chatMessageMetaVisibility, applyChatMetadataDefaults, enqueueChatFollowup, removeChatFollowup, normalizeChatDraft, chatSkillTriggerAt, parseChatSkillInput, chatSkillTokenNames, mergeChatComposerText, mergeChatAttachments, chatImageSrc, chatToolStatus, chatToolDuration, chatToolActivityLabel, chatToolHasExpandableBody, isChatActivityItem, isChatTraceItem: typeof isChatTraceItem === 'function' ? isChatTraceItem : null, chatRenderUnits: typeof chatRenderUnits === 'function' ? chatRenderUnits : null, chatReasoningBody: typeof chatReasoningBody === 'function' ? chatReasoningBody : null, chatActivityGroupSummaryText, chatActivityActiveSummarySegments, chatActivityGroupIconKind, renderChatActivityGroup, renderChatActivityTrace: typeof renderChatActivityTrace === 'function' ? renderChatActivityTrace : null, renderChatActivityRun: typeof renderChatActivityRun === 'function' ? renderChatActivityRun : null, sessionRow, sessionStatus, filterFileEntries, filePreviewTypeLabel, filePreviewLocation, chatTurnPinText: typeof chatTurnPinText === 'function' ? chatTurnPinText : () => '', isInternalChatTool: typeof isInternalChatTool === 'function' ? isInternalChatTool : () => false, state };`, appSandbox);
+const { chatCacheVictim, isChatConnectionKept, isSessionRunning, updateChatUpdatedAt, formatChatDate, chatAssistantMetaText, chatUserMetaText, chatMessageMetaVisibility, applyChatMetadataDefaults, enqueueChatFollowup, removeChatFollowup, normalizeChatDraft, chatSkillTriggerAt, parseChatSkillInput, chatSkillTokenNames, mergeChatComposerText, mergeChatAttachments, chatImageSrc, chatToolStatus, chatToolDuration, chatToolActivityLabel, chatToolHasExpandableBody, isChatActivityItem, isChatTraceItem, chatRenderUnits, chatReasoningBody, chatActivityGroupSummaryText, chatActivityActiveSummarySegments, chatActivityGroupIconKind, renderChatActivityGroup, renderChatActivityTrace, renderChatActivityRun, sessionRow, sessionStatus, filterFileEntries, filePreviewTypeLabel, filePreviewLocation, chatTurnPinText, isInternalChatTool, state: appState } = appSandbox.__chatCacheTest;
 function toolLabelText(item) {
   const status = chatToolStatus(item.status);
   return chatToolActivityLabel(item, status, chatToolDuration(item.durationMs)).map(nodeText).join('');
+}
+function nodesWithClass(node, className, matches = []) {
+  if (!node) return matches;
+  const classes = node.className || node.attributes?.class || '';
+  if (String(classes).split(/\s+/).includes(className)) matches.push(node);
+  for (const child of node.children || []) nodesWithClass(child, className, matches);
+  return matches;
 }
 const directiveSandbox = { globalThis: {} };
 vm.createContext(directiveSandbox);
@@ -281,6 +296,45 @@ test('session list aggregates online devices while row actions retain their sour
   assert.match(appSrc, /query\.set\('scope',\s*state\.scope === 'all' \? 'all' : 'active'\)/);
 });
 
+test('session rows remove redundant device and idle labels for a selected Mac', () => {
+  const previousMac = appState.sessionMacId;
+  const previousScope = appState.scope;
+  try {
+    appState.scope = 'active';
+    appState.sessionMacId = 'all';
+    const allDevices = sessionRow({
+      sessionId: 'thread-device-label', macId: 'm1', assistant: 'codex',
+      title: 'Audit PWA', cwd: '/repo/mac-fleet-hub', mtime: fixedAppNowMs - 11 * 60e3,
+      status: 'idle',
+    });
+    assert.equal(nodesWithClass(allDevices, 'session-device-name').length, 1);
+
+    appState.sessionMacId = 'm1';
+    const selectedDevice = sessionRow({
+      sessionId: 'thread-selected-device', macId: 'm1', assistant: 'codex',
+      title: 'Audit PWA', cwd: '/repo/mac-fleet-hub', mtime: fixedAppNowMs - 11 * 60e3,
+      status: 'idle',
+    });
+    assert.equal(nodesWithClass(selectedDevice, 'session-device-name').length, 0);
+    assert.equal(nodesWithClass(selectedDevice, 'ses-status')[0]?.textContent, '');
+    assert.equal(sessionStatus({ status: 'idle' }).text, '');
+
+    appState.scope = 'all';
+    assert.equal(sessionStatus({ status: 'idle' }).text, '已归档');
+  } finally {
+    appState.sessionMacId = previousMac;
+    appState.scope = previousScope;
+  }
+});
+
+test('session running dot replaces relative time instead of duplicating it', () => {
+  assert.match(
+    styleCSS,
+    /\.ses\.session-running \.ses-time,\s*\.ses\.conn \.ses-time\s*\{\s*display:\s*none;\s*\}/,
+  );
+  assert.match(styleCSS, /\.ses\.session-running \.session-running-status\s*\{\s*display:\s*grid;\s*\}/);
+});
+
 test('custom file browser stays on one device and shares the protected preview route', () => {
   for (const id of [
     'file-browser', 'file-device-button', 'file-locations', 'file-breadcrumbs',
@@ -349,6 +403,10 @@ test('PWA shell supports install, offline navigation, updates, and native shortc
   assert.match(appSrc, /beforeinstallprompt/);
   assert.match(appSrc, /controllerchange/);
   assert.match(appSrc, /addEventListener\('offline'/);
+  assert.match(
+    styleCSS,
+    /#m-menu\.mobile-global-menu\s*\{[^}]*position:\s*fixed;[^}]*top:\s*calc\(env\(safe-area-inset-top,\s*0px\)\s*\+\s*58px\)/s,
+  );
 });
 
 test('jump-to-bottom control uses an accessible inline SVG icon', () => {
@@ -684,7 +742,7 @@ test('tool activity rows mirror Codex inline summaries', () => {
   assert.doesNotMatch(styleCSS, /\.chat-tool-subtitle\s*\{/);
 });
 
-test('consecutive activity summaries collapse like Codex groups', () => {
+test('tool-only activity summaries keep the existing compatibility fallback', () => {
   const items = [
     { type: 'tool', kind: 'commandExecution', summary: 'sed -n 1,80p server/dashboard/app.js', status: 'completed' },
     { type: 'tool', kind: 'commandExecution', summary: 'npm test', status: 'completed' },
@@ -697,7 +755,18 @@ test('consecutive activity summaries collapse like Codex groups', () => {
   assert.match(nodeText(group), /npm test/);
 });
 
-test('activity grouping keeps native standalone tool boundaries', () => {
+test('Codex traces accept every reasoning, tool, and diff item', () => {
+  assert.equal(typeof isChatTraceItem, 'function');
+  assert.equal(isChatTraceItem({ type: 'reasoning' }), true);
+  assert.equal(isChatTraceItem({ type: 'tool', kind: 'commandExecution' }), true);
+  assert.equal(isChatTraceItem({ type: 'tool', kind: 'imageView' }), true);
+  assert.equal(isChatTraceItem({ type: 'tool', kind: 'computerUse' }), true);
+  assert.equal(isChatTraceItem({ type: 'diff' }), true);
+  assert.equal(isChatTraceItem({ type: 'context' }), false);
+  assert.equal(isChatTraceItem({ type: 'assistant' }), false);
+});
+
+test('tool-only fallback keeps native standalone tool boundaries', () => {
   assert.equal(isChatActivityItem({ type: 'tool', kind: 'commandExecution' }), true);
   assert.equal(isChatActivityItem({ type: 'tool', kind: 'fileRead' }), true);
   assert.equal(isChatActivityItem({ type: 'tool', kind: 'webSearch' }), true);
@@ -710,6 +779,75 @@ test('activity grouping keeps native standalone tool boundaries', () => {
   assert.equal(isChatActivityItem({ type: 'tool', kind: 'imageGeneration' }), false);
   assert.equal(isChatActivityItem({ type: 'tool', kind: 'collabAgentToolCall' }), false);
   assert.equal(isChatActivityItem({ type: 'tool', kind: 'subAgentActivity' }), false);
+});
+
+test('reasoning and tools render as one ordered Codex Thought trace', () => {
+  assert.equal(typeof renderChatActivityTrace, 'function');
+  assert.equal(typeof renderChatActivityRun, 'function');
+  const items = [
+    {
+      type: 'reasoning', summary: '**Inspecting files**\n\nReasoning detail',
+      status: 'completed', durationMs: 0,
+    },
+    { type: 'tool', kind: 'commandExecution', summary: 'npm test', status: 'completed' },
+    {
+      type: 'tool', kind: 'imageView', title: '查看图片', summary: '/tmp/shot.png',
+      mediaPath: '/tmp/shot.png', status: 'completed',
+    },
+  ];
+  const rows = renderChatActivityRun(items);
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].className, 'chat-row reasoning activity-trace');
+  assert.equal(nodesWithClass(rows[0], 'chat-thought-label')[0]?.textContent, 'Thought');
+  assert.equal(nodesWithClass(rows[0], 'chat-thought-icon').length, 1);
+  assert.equal(nodesWithClass(rows[0], 'chat-thought-chevron').length, 1);
+  assert.equal(nodesWithClass(rows[0], 'chat-activity-trace-body').length, 1);
+  const text = nodeText(rows[0]);
+  assert.doesNotMatch(text, /Inspecting files/);
+  assert.ok(text.indexOf('Reasoning detail') < text.indexOf('npm test'));
+  assert.ok(text.indexOf('npm test') < text.indexOf('/tmp/shot.png'));
+});
+
+test('context compaction and messages cut Codex activity traces', () => {
+  assert.equal(typeof chatRenderUnits, 'function');
+  const units = chatRenderUnits([
+    { id: 'reason-1', item: { type: 'reasoning', summary: '**One**' } },
+    { id: 'tool-1', item: { type: 'tool', kind: 'commandExecution' } },
+    { id: 'context-1', item: { type: 'context' } },
+    { id: 'reason-2', item: { type: 'reasoning', summary: '**Two**' } },
+    { id: 'assistant-1', item: { type: 'assistant', text: 'Done' } },
+  ]);
+  assert.deepEqual(
+    JSON.parse(JSON.stringify(units.map((unit) => [unit.kind, unit.entries.map((entry) => entry.id)]))),
+    [
+      ['trace', ['reason-1', 'tool-1']],
+      ['item', ['context-1']],
+      ['trace', ['reason-2']],
+      ['item', ['assistant-1']],
+    ],
+  );
+});
+
+test('tool-only runs preserve image and computer-use standalone rows', () => {
+  assert.equal(typeof renderChatActivityRun, 'function');
+  const rows = renderChatActivityRun([
+    { type: 'tool', kind: 'commandExecution', summary: 'pwd', status: 'completed' },
+    { type: 'tool', kind: 'imageView', summary: '/tmp/shot.png', status: 'completed' },
+    { type: 'tool', kind: 'mcpToolCall', title: 'computer-use · click', status: 'completed' },
+  ]);
+  assert.equal(rows.length, 3);
+  assert.deepEqual([...rows].map((row) => row.className), ['chat-row tool', 'chat-row tool', 'chat-row tool']);
+});
+
+test('reasoning body follows Codex title removal and Thought icon geometry', () => {
+  assert.equal(typeof chatReasoningBody, 'function');
+  assert.equal(chatReasoningBody('  **Inspecting files**\n\nDetails'), 'Details');
+  assert.equal(chatReasoningBody('**Heading only**'), '');
+  assert.equal(chatReasoningBody('Plain reasoning'), 'Plain reasoning');
+  assert.match(appSrc, /function chatThoughtIcon\(\)/);
+  assert.match(appSrc, /d:\s*'M17\.5 6\.1a7 7 0 1 0 0 11\.8'/);
+  assert.match(styleCSS, /\.chat-thought-icon\s*\{[^}]*width:\s*16px;[^}]*height:\s*16px;/s);
+  assert.match(styleCSS, /\.chat-thought-chevron\s*\{[^}]*width:\s*14px;[^}]*height:\s*14px;/s);
 });
 
 test('activity group summary follows Codex part ordering and leading labels', () => {

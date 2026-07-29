@@ -898,7 +898,7 @@ async function refreshSessionsSoft() {
 function sessionStatus(session) {
   if (session.waiting) return { text: '等待回复', className: 'waiting' };
   if (session.pty || FleetChatModel.chatPhase(session.status) === 'running') return { text: '正在进行', className: 'running' };
-  return { text: state.scope === 'all' ? '已归档' : '空闲', className: '' };
+  return { text: state.scope === 'all' ? '已归档' : '', className: '' };
 }
 
 function activateSession(session) {
@@ -938,7 +938,7 @@ function sessionRow(s) {
   );
   const status = sessionStatus(s);
   const meta = h('div', { class: 'ses-meta' },
-    h('span', { class: 'session-device-name', text: macName(macId) }),
+    state.sessionMacId === 'all' ? h('span', { class: 'session-device-name', text: macName(macId) }) : null,
     state.sessionView === 'recent'
       ? h('span', { class: 'session-project-name', text: projName(s.cwd) })
       : h('span', { class: 'session-project-name', text: assistantLabel(assistant) }),
@@ -1563,6 +1563,26 @@ function syncChatTurnPin() {
   pin.hidden = !text;
 }
 
+function chatRenderUnits(entries) {
+  const units = [];
+  let trace = [];
+  const flushTrace = () => {
+    if (!trace.length) return;
+    units.push({ kind: 'trace', entries: trace });
+    trace = [];
+  };
+  for (const entry of entries || []) {
+    if (isChatTraceItem(entry?.item)) {
+      trace.push(entry);
+      continue;
+    }
+    flushTrace();
+    units.push({ kind: 'item', entries: [entry] });
+  }
+  flushTrace();
+  return units;
+}
+
 function renderChat({ preserveScroll = false, forceBottom = false } = {}) {
   const chat = state.chat;
   const sc = $('#chat-scroll');
@@ -1577,30 +1597,19 @@ function renderChat({ preserveScroll = false, forceBottom = false } = {}) {
   if (chat.loading) stack.append(chatRow(h('div', { class: 'chat-card muted', text: '正在连接 Codex app-server…' })));
   const model = chat.model || FleetChatModel.createChatState();
   const metaVisible = chatMessageMetaVisibility(model);
-  for (let i = 0; i < model.messages.length; i += 1) {
-    const id = model.messages[i];
-    const item = model.items[id];
-    if (!item || isInternalChatTool(item)) continue;
-    if (isChatActivityItem(item)) {
-      const group = [{ id, item }];
-      while (i + 1 < model.messages.length) {
-        const nextId = model.messages[i + 1];
-        const nextItem = model.items[nextId];
-        if (!nextItem || isInternalChatTool(nextItem) || !isChatActivityItem(nextItem)) break;
-        group.push({ id: nextId, item: nextItem });
-        i += 1;
-      }
-      const rendered = group.length > 1
-        ? renderChatActivityGroup(group.map((entry) => entry.item))
-        : renderChatItem(item, false);
-      if (rendered) stack.append(rendered);
-      const turnMeta = metaVisible.get(group[group.length - 1].id);
-      if (turnMeta?.type === 'assistant') stack.append(renderChatTurnMeta(turnMeta));
-      continue;
+  const entries = model.messages
+    .map((id) => ({ id, item: model.items[id] }))
+    .filter((entry) => entry.item && !isInternalChatTool(entry.item));
+  for (const unit of chatRenderUnits(entries)) {
+    const rows = unit.kind === 'trace'
+      ? renderChatActivityRun(unit.entries.map((entry) => entry.item))
+      : [renderChatItem(unit.entries[0].item,
+        unit.entries[0].item.type === 'user' && metaVisible.has(unit.entries[0].id))];
+    for (const row of rows) {
+      if (row) stack.append(row);
     }
-    const rendered = renderChatItem(item, item.type === 'user' && metaVisible.has(id));
-    if (rendered) stack.append(rendered);
-    const turnMeta = metaVisible.get(id);
+    const lastId = unit.entries[unit.entries.length - 1].id;
+    const turnMeta = metaVisible.get(lastId);
     if (turnMeta?.type === 'assistant') stack.append(renderChatTurnMeta(turnMeta));
   }
   if (model.error) stack.append(renderChatError(model.error));
@@ -1834,6 +1843,10 @@ function chatAssistantTurnKey(item, fallbackId) {
 
 function isInternalChatTool(item) {
   return Boolean(item?.internal);
+}
+
+function isChatTraceItem(item) {
+  return item?.type === 'reasoning' || item?.type === 'tool' || item?.type === 'diff';
 }
 
 function isChatActivityItem(item) {
@@ -2105,6 +2118,71 @@ function renderChatActivityGroup(items) {
   'tool activity-group');
 }
 
+function chatReasoningBody(summary) {
+  const text = String(summary || '').trimStart();
+  const heading = text.match(/^\*\*([^\n]*?)\*\*/);
+  if (heading) return text.slice(heading[0].length).trimStart();
+  return text.startsWith('**') ? '' : text;
+}
+
+function chatReasoningLabel(item) {
+  const running = chatToolStatus(item?.status).key === 'running';
+  const duration = chatToolDuration(item?.durationMs);
+  return running ? 'Thinking' : (duration ? `Thought for ${duration}` : 'Thought');
+}
+
+function chatThoughtIcon() {
+  return svgIconParts('chat-thought-icon', [
+    { tag: 'path', attrs: { d: 'M17.5 6.1a7 7 0 1 0 0 11.8' } },
+  ]);
+}
+
+function renderChatActivityTrace(items) {
+  const reasoningItems = items.filter((item) => item.type === 'reasoning');
+  const labelItem = [...reasoningItems].reverse().find((item) =>
+    chatToolStatus(item.status).key === 'running') || reasoningItems[reasoningItems.length - 1];
+  const running = reasoningItems.some((item) => chatToolStatus(item.status).key === 'running');
+  const bodyItems = items.map((item) => {
+    if (item.type === 'reasoning') {
+      const body = chatReasoningBody(item.summary);
+      return body ? h('div', { class: 'chat-reasoning-trace-body' },
+        FleetMarkdown.renderMarkdown(body, chatMediaSrc, chatLinkHref)) : null;
+    }
+    if (item.type === 'diff') return renderChatDiffSurface(item, 'grouped trace-item');
+    return renderChatToolSurface(item, 'grouped trace-item');
+  }).filter(Boolean);
+  const header = h('span', { class: 'chat-thought-summary' },
+    chatThoughtIcon(),
+    h('span', { class: 'chat-thought-label', text: chatReasoningLabel(labelItem) }),
+    bodyItems.length ? svgIcon('chat-thought-chevron', 'M6 9l6 6 6-6') : null);
+  const surface = bodyItems.length
+    ? h('details', { class: 'chat-reasoning chat-activity-trace', open: running ? '' : null,
+      dataset: { running: String(running) } },
+      h('summary', {}, header),
+      h('div', { class: 'chat-activity-trace-body' }, bodyItems))
+    : h('div', { class: 'chat-reasoning chat-activity-trace', dataset: { running: String(running) } }, header);
+  return chatRow(surface, 'reasoning activity-trace');
+}
+
+function renderChatActivityRun(items) {
+  if (items.some((item) => item.type === 'reasoning')) return [renderChatActivityTrace(items)];
+  const rows = [];
+  for (let i = 0; i < items.length; i += 1) {
+    const item = items[i];
+    if (!isChatActivityItem(item)) {
+      rows.push(renderChatItem(item, false));
+      continue;
+    }
+    const group = [item];
+    while (i + 1 < items.length && isChatActivityItem(items[i + 1])) {
+      group.push(items[i + 1]);
+      i += 1;
+    }
+    rows.push(group.length > 1 ? renderChatActivityGroup(group) : renderChatItem(item, false));
+  }
+  return rows.filter(Boolean);
+}
+
 function requestActionButton(label, response, primary = false) {
   return h('button', {
     type: 'button',
@@ -2359,16 +2437,7 @@ function renderChatItem(item, showMeta = true) {
     'assistant');
   }
   if (item.type === 'reasoning') {
-    const running = chatToolStatus(item.status).key === 'running';
-    const duration = chatToolDuration(item.durationMs);
-    const label = running ? 'Thinking' : (duration ? `Thought for ${duration}` : 'Thought');
-    const summary = item.summary || '';
-    if (!summary && !running) return null;
-    return chatRow(h('details', { class: 'chat-reasoning', open: running ? '' : null },
-      h('summary', {}, h('span', { class: 'chat-reasoning-spinner', 'aria-hidden': 'true' }),
-        h('span', { text: label }), svgIcon('chat-tool-chevron', 'M6 9l6 6 6-6')),
-      summary ? h('div', { class: 'chat-reasoning-body' }, FleetMarkdown.renderMarkdown(summary, chatMediaSrc, chatLinkHref)) : null),
-    'reasoning');
+    return renderChatActivityTrace([item]);
   }
   if (item.type === 'plan') {
     if (!item.text) return null;
