@@ -1050,6 +1050,7 @@ textarea.chat-request-input { resize: vertical; }
 .recent-session-list .ses { border-bottom-color: var(--border); border-radius: 0; }
 .recent-session-list .ses:hover, .recent-session-list .ses.sel { border-radius: 7px; }
 .ses-meta { display: flex; align-items: center; gap: 5px; min-width: 0; margin: 2px 34px 0 17px; color: var(--text-2); font-size: var(--t-caption); }
+.ses-meta:not(:has(.session-device-name, .session-project-name, .ses-status:not(:empty))) { display: none; }
 .ses-meta span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ses-meta .session-device-name { flex: none; max-width: 48%; color: var(--text-1); }
 .ses-meta .session-project-name { flex: 1; }

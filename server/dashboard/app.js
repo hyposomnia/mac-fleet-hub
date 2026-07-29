@@ -941,7 +941,7 @@ function sessionRow(s) {
     state.sessionMacId === 'all' ? h('span', { class: 'session-device-name', text: macName(macId) }) : null,
     state.sessionView === 'recent'
       ? h('span', { class: 'session-project-name', text: projName(s.cwd) })
-      : h('span', { class: 'session-project-name', text: assistantLabel(assistant) }),
+      : null,
     h('span', { class: `ses-status${status.className ? ' ' + status.className : ''}`, text: status.text }),
   );
   // 池内 / 有进程的会话点行即直接进入，不需按钮；仅冷会话才展开三种权限模式。

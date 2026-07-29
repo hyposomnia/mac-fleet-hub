@@ -296,11 +296,13 @@ test('session list aggregates online devices while row actions retain their sour
   assert.match(appSrc, /query\.set\('scope',\s*state\.scope === 'all' \? 'all' : 'active'\)/);
 });
 
-test('session rows remove redundant device and idle labels for a selected Mac', () => {
+test('session rows remove redundant device, assistant, and idle labels', () => {
   const previousMac = appState.sessionMacId;
   const previousScope = appState.scope;
+  const previousView = appState.sessionView;
   try {
     appState.scope = 'active';
+    appState.sessionView = 'project';
     appState.sessionMacId = 'all';
     const allDevices = sessionRow({
       sessionId: 'thread-device-label', macId: 'm1', assistant: 'codex',
@@ -308,6 +310,8 @@ test('session rows remove redundant device and idle labels for a selected Mac', 
       status: 'idle',
     });
     assert.equal(nodesWithClass(allDevices, 'session-device-name').length, 1);
+    assert.equal(nodesWithClass(allDevices, 'session-project-name').length, 0);
+    assert.doesNotMatch(nodeText(allDevices), /Codex/);
 
     appState.sessionMacId = 'm1';
     const selectedDevice = sessionRow({
@@ -316,14 +320,29 @@ test('session rows remove redundant device and idle labels for a selected Mac', 
       status: 'idle',
     });
     assert.equal(nodesWithClass(selectedDevice, 'session-device-name').length, 0);
+    assert.equal(nodesWithClass(selectedDevice, 'session-project-name').length, 0);
     assert.equal(nodesWithClass(selectedDevice, 'ses-status')[0]?.textContent, '');
     assert.equal(sessionStatus({ status: 'idle' }).text, '');
+    assert.doesNotMatch(nodeText(selectedDevice), /Codex/);
+    assert.match(
+      styleCSS,
+      /\.ses-meta:not\(:has\(\.session-device-name,\s*\.session-project-name,\s*\.ses-status:not\(:empty\)\)\)\s*\{\s*display:\s*none;\s*\}/,
+    );
+
+    appState.sessionView = 'recent';
+    const recent = sessionRow({
+      sessionId: 'thread-recent-project', macId: 'm1', assistant: 'codex',
+      title: 'Audit PWA', cwd: '/repo/mac-fleet-hub', mtime: fixedAppNowMs - 11 * 60e3,
+      status: 'idle',
+    });
+    assert.equal(nodesWithClass(recent, 'session-project-name')[0]?.textContent, 'mac-fleet-hub');
 
     appState.scope = 'all';
     assert.equal(sessionStatus({ status: 'idle' }).text, '已归档');
   } finally {
     appState.sessionMacId = previousMac;
     appState.scope = previousScope;
+    appState.sessionView = previousView;
   }
 });
 

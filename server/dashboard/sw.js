@@ -1,9 +1,9 @@
 // PWA 外壳缓存。终端、API 与用户文件必须实时，明确不进入 Cache Storage。
-const CACHE = 'fleet-shell-v52';
+const CACHE = 'fleet-shell-v53';
 const SHELL = [
-  '/', '/index.html', '/style.css?v=52',
+  '/', '/index.html', '/style.css?v=53',
   '/vendor/purify.min.js?v=3.2.6', '/vendor/marked.min.js?v=15.0.12',
-  '/markdown.js?v=52', '/preview.js?v=52', '/chat_model.js?v=52', '/app.js?v=52',
+  '/markdown.js?v=53', '/preview.js?v=53', '/chat_model.js?v=53', '/app.js?v=53',
   '/manifest.webmanifest', '/icons/icon.svg', '/icons/icon-180.png', '/icons/icon-192.png',
   '/icons/icon-512.png', '/icons/icon-maskable-512.png',
 ];
