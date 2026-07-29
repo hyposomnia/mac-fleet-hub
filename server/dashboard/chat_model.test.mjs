@@ -403,6 +403,9 @@ test('file browser hides dotfiles by default and can reveal them without changin
   assert.equal(filterFileEntries(entries, true, 'notes').map((entry) => entry.name).join(','), 'notes.md,.notes-cache');
   assert.match(appSrc, /fileShowHidden:\s*false/);
   assert.match(appSrc, /fileShowHidden:\s*state\.fileShowHidden/);
+  assert.match(appSrc, /class:\s*`file-row\$\{entry\.hidden \? ' is-hidden' : ''\}`/);
+  assert.match(styleCSS, /\.file-row\.is-hidden \.file-name-cell strong,[\s\S]*?color:\s*var\(--text-3\)/);
+  assert.match(styleCSS, /\.file-row\.is-hidden \.file-glyph\s*\{[^}]*background:\s*var\(--surface-2\);[^}]*color:\s*var\(--text-3\)/);
 });
 
 test('PWA shell supports install, offline navigation, updates, and native shortcuts', () => {

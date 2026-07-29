@@ -1105,6 +1105,10 @@ textarea.chat-request-input { resize: vertical; }
 }
 .file-row:hover { background: var(--surface-hover); }
 .file-row[aria-selected="true"] { border-bottom-color: transparent; border-radius: 7px; background: var(--accent-soft); color: var(--text); }
+.file-row.is-hidden .file-name-cell strong,
+.file-row.is-hidden .file-row-time,
+.file-row.is-hidden .file-row-size { color: var(--text-3); }
+.file-row.is-hidden .file-glyph { background: var(--surface-2); color: var(--text-3); }
 .file-name-cell { display: flex; align-items: center; gap: 10px; min-width: 0; }
 .file-name-cell strong { min-width: 0; overflow: hidden; color: var(--text); font-size: var(--t-body); font-weight: 500; text-overflow: ellipsis; white-space: nowrap; }
 .file-glyph {

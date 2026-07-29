@@ -3717,7 +3717,7 @@ function renderFileEntries() {
     );
     menuWrap.append(trigger, menu);
     const row = h('div', {
-      class: 'file-row', role: 'button', tabindex: '0',
+      class: `file-row${entry.hidden ? ' is-hidden' : ''}`, role: 'button', tabindex: '0',
       'aria-selected': String(entry.path === state.fileSelectedPath),
       onclick: () => {
         state.fileSelectedPath = entry.path;
