@@ -65,8 +65,8 @@ const appSandbox = {
   Date: FixedAppDate,
 };
 vm.createContext(appSandbox);
-vm.runInContext(`${appSrc}\n;globalThis.__chatCacheTest = { chatCacheVictim, isChatConnectionKept, isSessionRunning, updateChatUpdatedAt, formatChatDate, chatAssistantMetaText, chatUserMetaText, chatMessageMetaVisibility, applyChatMetadataDefaults, enqueueChatFollowup, removeChatFollowup, normalizeChatDraft, chatSkillTriggerAt, parseChatSkillInput, chatSkillTokenNames, mergeChatComposerText, mergeChatAttachments, chatImageSrc, chatToolStatus, chatToolDuration, chatToolActivityLabel, chatToolHasExpandableBody, isChatActivityItem, isChatTraceItem: typeof isChatTraceItem === 'function' ? isChatTraceItem : null, chatRenderUnits: typeof chatRenderUnits === 'function' ? chatRenderUnits : null, chatActivityGroupSummaryText, chatActivityActiveSummarySegments, chatActivityGroupIconKind, renderChatActivityGroup, renderChatActivityRun: typeof renderChatActivityRun === 'function' ? renderChatActivityRun : null, sessionRow, sessionStatus, filterFileEntries, filePreviewTypeLabel, filePreviewLocation, chatTurnPinText: typeof chatTurnPinText === 'function' ? chatTurnPinText : () => '', isInternalChatTool: typeof isInternalChatTool === 'function' ? isInternalChatTool : () => false, state };`, appSandbox);
-const { chatCacheVictim, isChatConnectionKept, isSessionRunning, updateChatUpdatedAt, formatChatDate, chatAssistantMetaText, chatUserMetaText, chatMessageMetaVisibility, applyChatMetadataDefaults, enqueueChatFollowup, removeChatFollowup, normalizeChatDraft, chatSkillTriggerAt, parseChatSkillInput, chatSkillTokenNames, mergeChatComposerText, mergeChatAttachments, chatImageSrc, chatToolStatus, chatToolDuration, chatToolActivityLabel, chatToolHasExpandableBody, isChatActivityItem, isChatTraceItem, chatRenderUnits, chatActivityGroupSummaryText, chatActivityActiveSummarySegments, chatActivityGroupIconKind, renderChatActivityGroup, renderChatActivityRun, sessionRow, sessionStatus, filterFileEntries, filePreviewTypeLabel, filePreviewLocation, chatTurnPinText, isInternalChatTool, state: appState } = appSandbox.__chatCacheTest;
+vm.runInContext(`${appSrc}\n;globalThis.__chatCacheTest = { chatCacheVictim, isChatConnectionKept, isSessionRunning, updateChatUpdatedAt, formatChatDate, chatAssistantMetaText, chatUserMetaText, chatMessageMetaVisibility, applyChatMetadataDefaults, enqueueChatFollowup, removeChatFollowup, normalizeChatDraft, chatSkillTriggerAt, parseChatSkillInput, chatSkillTokenNames, mergeChatComposerText, mergeChatAttachments, chatImageSrc, chatToolStatus, chatToolDuration, chatToolActivityLabel, chatToolHasExpandableBody, isChatActivityItem, isChatTraceItem: typeof isChatTraceItem === 'function' ? isChatTraceItem : null, chatRenderUnits: typeof chatRenderUnits === 'function' ? chatRenderUnits : null, chatActivityGroupSummaryText, chatActivityActiveSummarySegments, chatActivityGroupIconKind, renderChatActivityGroup, renderChatActivityRun: typeof renderChatActivityRun === 'function' ? renderChatActivityRun : null, sessionRow, sessionStatus, filterFileEntries, normalizeFileView: typeof normalizeFileView === 'function' ? normalizeFileView : null, truncateFileColumns: typeof truncateFileColumns === 'function' ? truncateFileColumns : null, fileColumnRequestCurrent: typeof fileColumnRequestCurrent === 'function' ? fileColumnRequestCurrent : null, filePreviewTypeLabel, filePreviewLocation, chatTurnPinText: typeof chatTurnPinText === 'function' ? chatTurnPinText : () => '', isInternalChatTool: typeof isInternalChatTool === 'function' ? isInternalChatTool : () => false, state };`, appSandbox);
+const { chatCacheVictim, isChatConnectionKept, isSessionRunning, updateChatUpdatedAt, formatChatDate, chatAssistantMetaText, chatUserMetaText, chatMessageMetaVisibility, applyChatMetadataDefaults, enqueueChatFollowup, removeChatFollowup, normalizeChatDraft, chatSkillTriggerAt, parseChatSkillInput, chatSkillTokenNames, mergeChatComposerText, mergeChatAttachments, chatImageSrc, chatToolStatus, chatToolDuration, chatToolActivityLabel, chatToolHasExpandableBody, isChatActivityItem, isChatTraceItem, chatRenderUnits, chatActivityGroupSummaryText, chatActivityActiveSummarySegments, chatActivityGroupIconKind, renderChatActivityGroup, renderChatActivityRun, sessionRow, sessionStatus, filterFileEntries, normalizeFileView, truncateFileColumns, fileColumnRequestCurrent, filePreviewTypeLabel, filePreviewLocation, chatTurnPinText, isInternalChatTool, state: appState } = appSandbox.__chatCacheTest;
 function toolLabelText(item) {
   const status = chatToolStatus(item.status);
   return chatToolActivityLabel(item, status, chatToolDuration(item.durationMs)).map(nodeText).join('');
@@ -406,6 +406,63 @@ test('file browser hides dotfiles by default and can reveal them without changin
   assert.match(appSrc, /class:\s*`file-row\$\{entry\.hidden \? ' is-hidden' : ''\}`/);
   assert.match(styleCSS, /\.file-row\.is-hidden \.file-name-cell strong,[\s\S]*?color:\s*var\(--text-3\)/);
   assert.match(styleCSS, /\.file-row\.is-hidden \.file-glyph\s*\{[^}]*background:\s*var\(--surface-2\);[^}]*color:\s*var\(--text-3\)/);
+});
+
+test('file browser supports persistent icon, list, and column views', () => {
+  assert.equal(normalizeFileView('icons'), 'icons');
+  assert.equal(normalizeFileView('list'), 'list');
+  assert.equal(normalizeFileView('columns'), 'columns');
+  assert.equal(normalizeFileView('tiles'), 'list');
+  assert.match(indexHTML, /id="file-view-switch"[^>]*role="group"[^>]*aria-label="查看方式"/);
+  for (const view of ['icons', 'list', 'columns']) {
+    assert.match(indexHTML, new RegExp(`data-file-view="${view}"`));
+  }
+  assert.match(indexHTML, /data-file-view="list"[^>]*aria-pressed="true"/);
+  assert.match(appSrc, /state\.fileView\s*=\s*normalizeFileView\(saved\.fileView\)/);
+  assert.match(appSrc, /fileView:\s*state\.fileView/);
+});
+
+test('column view truncates stale descendants and rejects stale async responses', () => {
+  const original = [
+    { path: '/Users/demo', selectedPath: '/Users/demo/Documents' },
+    { path: '/Users/demo/Documents', selectedPath: '/Users/demo/Documents/work' },
+    { path: '/Users/demo/Documents/work', selectedPath: '' },
+  ];
+  const truncated = truncateFileColumns(original, 0, '/Users/demo/Downloads');
+  assert.equal(truncated.length, 1);
+  assert.equal(truncated[0].selectedPath, '/Users/demo/Downloads');
+  assert.notEqual(truncated[0], original[0]);
+
+  const previous = {
+    mode: appState.mode,
+    fileMacId: appState.fileMacId,
+    fileView: appState.fileView,
+    fileColumns: appState.fileColumns,
+  };
+  try {
+    appState.mode = 'files';
+    appState.fileMacId = 'm1';
+    appState.fileView = 'columns';
+    appState.fileColumns = [{ path: '/Users/demo', selectedPath: '/Users/demo/Documents' }];
+    const request = {
+      seq: 0,
+      macId: 'm1',
+      columnIndex: 0,
+      path: '/Users/demo/Documents',
+    };
+    assert.equal(fileColumnRequestCurrent(request), true);
+    appState.fileColumns[0].selectedPath = '/Users/demo/Downloads';
+    assert.equal(fileColumnRequestCurrent(request), false);
+  } finally {
+    Object.assign(appState, previous);
+  }
+});
+
+test('hidden files stay muted in icon and column views', () => {
+  assert.match(appSrc, /class:\s*`file-icon-item\$\{entry\.hidden \? ' is-hidden' : ''\}`/);
+  assert.match(appSrc, /class:\s*`file-column-row\$\{entry\.hidden \? ' is-hidden' : ''\}`/);
+  assert.match(styleCSS, /\.file-icon-item\.is-hidden[\s\S]*?color:\s*var\(--text-3\)/);
+  assert.match(styleCSS, /\.file-column-row\.is-hidden[\s\S]*?color:\s*var\(--text-3\)/);
 });
 
 test('PWA shell supports install, offline navigation, updates, and native shortcuts', () => {

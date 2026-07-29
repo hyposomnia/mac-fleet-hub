@@ -10,6 +10,7 @@ let MACS = [];          // [{id:'m1'}, ...]，按序号排
 let macNames = {};      // id -> 自定义显示名
 let sessionLoadSeq = 0; // 会话列表请求序号：切主机/切筛选时丢弃旧响应，避免慢请求回写旧列表
 let fileLoadSeq = 0;    // 文件目录请求序号：切设备/目录时丢弃旧响应
+let fileColumnLoadSeq = 0; // 分栏子目录请求序号：切列/视图时丢弃旧响应
 let sessionSearchTimer = null;
 
 // ============================================================
@@ -123,6 +124,8 @@ const state = {
   filePaths: {},
   fileSearch: '',
   fileShowHidden: false,
+  fileView: 'list',     // icons | list | columns
+  fileColumns: [],
   fileSelectedPath: '',
   filePreviewPath: '',
   filePreviewDismissing: false,
@@ -181,6 +184,10 @@ const UI_STATE_KEY = 'fleet-ui-state-v1';
 let chatIMEComposing = false;
 let mobileIMEComposing = false;
 
+function normalizeFileView(view) {
+  return ['icons', 'list', 'columns'].includes(view) ? view : 'list';
+}
+
 function initUIState() {
   let saved = {};
   try { saved = JSON.parse(localStorage.getItem(UI_STATE_KEY) || '{}') || {}; } catch (_) {}
@@ -196,6 +203,7 @@ function initUIState() {
   state.sessionView = saved.sessionView === 'recent' ? 'recent' : 'project';
   state.filePaths = saved.filePaths && typeof saved.filePaths === 'object' ? saved.filePaths : {};
   state.fileShowHidden = saved.fileShowHidden === true;
+  state.fileView = normalizeFileView(saved.fileView);
 }
 
 function persistUIState() {
@@ -208,6 +216,7 @@ function persistUIState() {
       sessionView: state.sessionView,
       filePaths: state.filePaths,
       fileShowHidden: state.fileShowHidden,
+      fileView: state.fileView,
     }));
   } catch (_) {}
 }
@@ -381,7 +390,11 @@ function setFileDevice(id) {
   state.macId = id;
   state.filePath = state.filePaths[id] || '';
   state.fileSelectedPath = '';
-  if (changed) closeFilePreview();
+  if (changed) {
+    fileColumnLoadSeq++;
+    state.fileColumns = [];
+    closeFilePreview();
+  }
   renderHosts();
   updateDeviceScopeUI();
   persistUIState();
@@ -3524,6 +3537,59 @@ function filePreviewLocation(path, root) {
   return parent;
 }
 
+function fileColumnFromData(data) {
+  return {
+    path: data.path || data.root || '',
+    parent: data.parent || '',
+    entries: data.entries || [],
+    selectedPath: '',
+    loading: false,
+    error: '',
+  };
+}
+
+function truncateFileColumns(columns, columnIndex, selectedPath) {
+  return (columns || []).slice(0, columnIndex + 1).map((column, index) =>
+    index === columnIndex ? { ...column, selectedPath } : column);
+}
+
+function fileColumnRequestCurrent(request) {
+  const column = state.fileColumns[request.columnIndex];
+  return request.seq === fileColumnLoadSeq &&
+    state.mode === 'files' &&
+    state.fileView === 'columns' &&
+    state.fileMacId === request.macId &&
+    column?.selectedPath === request.path;
+}
+
+async function fetchFileDirectory(macId, path = '') {
+  const query = new URLSearchParams();
+  if (path) query.set('path', path);
+  const queryString = query.toString();
+  return api(macId, `file/list${queryString ? '?' + queryString : ''}`);
+}
+
+function applyFileDirectoryData(data, macId, { resetColumns = true, selectedPath = '' } = {}) {
+  state.fileRoot = data.root || state.fileRoot || '';
+  state.filePath = data.path || data.root || '';
+  state.fileParent = data.parent || '';
+  state.fileEntries = data.entries || [];
+  state.fileLocations = data.locations || [];
+  state.filePaths[macId] = state.filePath;
+  state.fileSelectedPath = selectedPath;
+  if (resetColumns) state.fileColumns = [fileColumnFromData(data)];
+}
+
+function syncFileStateFromColumn(column, selectedPath = '') {
+  if (!column) return;
+  state.filePath = column.path;
+  state.fileParent = column.parent || '';
+  state.fileEntries = column.entries || [];
+  state.filePaths[state.fileMacId] = state.filePath;
+  state.fileSelectedPath = selectedPath;
+  persistUIState();
+}
+
 function loadFiles(opts = {}) {
   if (!state.fileMacId) {
     state.fileMacId = MACS.find((m) => state.nodes[m.id])?.id || MACS[0]?.id || null;
@@ -3554,26 +3620,19 @@ function loadFiles(opts = {}) {
 async function loadFileDirectory(path = '', opts = {}) {
   if (!state.fileMacId) return;
   const req = ++fileLoadSeq;
+  fileColumnLoadSeq++;
   const macId = state.fileMacId;
   const replacePreviewHistory = opts.pushHistory && !!history.state?.fleet && !!history.state.filePreviewPath;
   if (replacePreviewHistory) closeFilePreview();
   state.fileLoading = true;
   const list = $('#file-list');
+  syncFileViewUI();
   clear(list);
   list.append(h('div', { class: 'file-loading', text: '正在载入文件…' }));
   try {
-    const query = new URLSearchParams();
-    if (path) query.set('path', path);
-    const queryString = query.toString();
-    const data = await api(macId, `file/list${queryString ? '?' + queryString : ''}`);
+    const data = await fetchFileDirectory(macId, path);
     if (req !== fileLoadSeq || state.fileMacId !== macId || state.mode !== 'files') return;
-    state.fileRoot = data.root || '';
-    state.filePath = data.path || data.root || '';
-    state.fileParent = data.parent || '';
-    state.fileEntries = data.entries || [];
-    state.fileLocations = data.locations || [];
-    state.filePaths[macId] = state.filePath;
-    state.fileSelectedPath = '';
+    applyFileDirectoryData(data, macId);
     state.fileLoading = false;
     persistUIState();
     renderFileBrowser();
@@ -3659,7 +3718,10 @@ function fileGlyph(entry) {
 }
 
 function closeFileMenus() {
-  $$('.file-row-menu').forEach((menu) => { menu.hidden = true; });
+  $$('.file-row-menu').forEach((menu) => {
+    menu.hidden = true;
+    $('.file-row-menu-trigger', menu.parentElement)?.setAttribute('aria-expanded', 'false');
+  });
 }
 
 function filterFileEntries(entries, showHidden, query) {
@@ -3669,72 +3731,338 @@ function filterFileEntries(entries, showHidden, query) {
     (!needle || entry.name.toLocaleLowerCase().includes(needle)));
 }
 
-function renderFileEntries() {
+function syncFileViewUI() {
+  const view = normalizeFileView(state.fileView);
+  state.fileView = view;
+  const main = $('.file-main');
+  if (main) main.dataset.fileView = view;
+  const head = $('.file-table-head');
+  if (head) head.hidden = view !== 'list';
   const wrap = $('#file-list');
-  clear(wrap);
-  const visibleEntries = filterFileEntries(state.fileEntries, state.fileShowHidden, '');
-  const entries = filterFileEntries(state.fileEntries, state.fileShowHidden, state.fileSearch);
-  if (!entries.length) {
-    const emptyCopy = state.fileSearch
-      ? '没有匹配的文件'
-      : (state.fileEntries.length && !state.fileShowHidden ? '这个文件夹没有可见项目' : '这个文件夹是空的');
-    wrap.append(h('div', { class: 'file-empty', text: emptyCopy }));
+  if (wrap) {
+    wrap.className = `file-list file-list-${view}`;
+    wrap.setAttribute('role', 'listbox');
+    wrap.setAttribute('aria-label', view === 'icons' ? '图标视图' : (view === 'columns' ? '分栏视图' : '列表视图'));
   }
-  for (const entry of entries) {
-    const meta = entry.kind === 'folder' ? '文件夹' : `${formatBytes(entry.size)} · ${formatFileTime(entry.modifiedAt)}`;
-    const name = h('div', { class: 'file-name-cell', dataset: { mobileMeta: meta } },
-      fileGlyph(entry),
-      h('strong', { text: entry.name }),
-    );
-    const menuWrap = h('div', { class: 'file-row-menu-wrap' });
-    const trigger = h('button', {
-      type: 'button', class: 'iconbtn bare file-row-menu-trigger', title: '文件操作', 'aria-label': `${entry.name} 操作`,
+  $$('[data-file-view]').forEach((button) => {
+    button.setAttribute('aria-pressed', String(button.dataset.fileView === view));
+  });
+}
+
+function ensureFileColumns() {
+  if (state.fileColumns.length || !state.filePath) return;
+  state.fileColumns = [{
+    path: state.filePath,
+    parent: state.fileParent,
+    entries: state.fileEntries,
+    selectedPath: '',
+    loading: false,
+    error: '',
+  }];
+}
+
+function scrollFileColumnsToEnd() {
+  const wrap = $('#file-list');
+  if (!wrap || state.fileView !== 'columns') return;
+  requestAnimationFrame(() => {
+    wrap.scrollTo({ left: wrap.scrollWidth, behavior: isMobile() ? 'smooth' : 'auto' });
+  });
+}
+
+function setFileView(view) {
+  const next = normalizeFileView(view);
+  if (next === state.fileView) {
+    syncFileViewUI();
+    return;
+  }
+  fileColumnLoadSeq++;
+  while (state.fileColumns[state.fileColumns.length - 1]?.loading) state.fileColumns.pop();
+  state.fileView = next;
+  if (next === 'columns') {
+    const last = state.fileColumns[state.fileColumns.length - 1];
+    if (!last || last.path !== state.filePath) state.fileColumns = [];
+    ensureFileColumns();
+  }
+  closeFileMenus();
+  persistUIState();
+  renderFileEntries();
+  if (next === 'columns') scrollFileColumnsToEnd();
+}
+
+function fileEntryMenu(entry, columnIndex = null) {
+  const selectColumn = () => {
+    if (!Number.isInteger(columnIndex)) return;
+    state.fileColumns = truncateFileColumns(state.fileColumns, columnIndex, entry.path);
+    syncFileStateFromColumn(state.fileColumns[columnIndex], entry.path);
+    renderFileBrowser();
+  };
+  const menuWrap = h('div', { class: 'file-row-menu-wrap' });
+  const trigger = h('button', {
+    type: 'button',
+    class: 'iconbtn bare file-row-menu-trigger',
+    title: '文件操作',
+    'aria-label': `${entry.name} 操作`,
+    'aria-haspopup': 'menu',
+    'aria-expanded': 'false',
+    onclick: (event) => {
+      event.stopPropagation();
+      const panel = $('.file-row-menu', menuWrap);
+      const opening = panel.hidden;
+      closeFileMenus();
+      panel.hidden = !opening;
+      trigger.setAttribute('aria-expanded', String(opening));
+    },
+  }, svgIconParts('ic', [
+    { tag: 'circle', attrs: { cx: '5', cy: '12', r: '1', fill: 'currentColor', stroke: 'none' } },
+    { tag: 'circle', attrs: { cx: '12', cy: '12', r: '1', fill: 'currentColor', stroke: 'none' } },
+    { tag: 'circle', attrs: { cx: '19', cy: '12', r: '1', fill: 'currentColor', stroke: 'none' } },
+  ]));
+  const menu = h('div', { class: 'file-row-menu', role: 'menu', hidden: '' });
+  if (entry.previewable) {
+    menu.append(h('button', {
+      type: 'button',
+      role: 'menuitem',
       onclick: (event) => {
         event.stopPropagation();
-        const panel = $('.file-row-menu', menuWrap);
-        const opening = panel.hidden;
         closeFileMenus();
-        panel.hidden = !opening;
+        if (Number.isInteger(columnIndex)) activateFileEntry(entry, columnIndex);
+        else openFilePreview(entry);
       },
-    }, svgIconParts('ic', [
-      { tag: 'circle', attrs: { cx: '5', cy: '12', r: '1', fill: 'currentColor', stroke: 'none' } },
-      { tag: 'circle', attrs: { cx: '12', cy: '12', r: '1', fill: 'currentColor', stroke: 'none' } },
-      { tag: 'circle', attrs: { cx: '19', cy: '12', r: '1', fill: 'currentColor', stroke: 'none' } },
-    ]));
-    const menu = h('div', { class: 'file-row-menu', hidden: '' });
-    if (entry.previewable) {
-      menu.append(h('button', { type: 'button', onclick: (event) => { event.stopPropagation(); closeFileMenus(); openFilePreview(entry); } }, '预览'));
-    }
-    if (entry.kind === 'file') {
-      menu.append(h('a', {
-        href: fileDownloadURL(state.fileMacId, entry.path), download: entry.name,
-        onclick: (event) => event.stopPropagation(),
-      }, '下载'));
-    }
-    menu.append(
-      h('button', { type: 'button', onclick: (event) => { event.stopPropagation(); closeFileMenus(); openFileNameModal('rename', entry); } }, '重命名'),
-      h('button', { type: 'button', class: 'danger', onclick: (event) => { event.stopPropagation(); closeFileMenus(); confirmFileDelete(entry); } }, '删除'),
-    );
-    menuWrap.append(trigger, menu);
-    const row = h('div', {
-      class: `file-row${entry.hidden ? ' is-hidden' : ''}`, role: 'button', tabindex: '0',
-      'aria-selected': String(entry.path === state.fileSelectedPath),
-      onclick: () => {
-        state.fileSelectedPath = entry.path;
-        if (entry.kind === 'folder') loadFileDirectory(entry.path, { pushHistory: true, fallback: false });
-        else if (entry.previewable) openFilePreview(entry);
-        else renderFileEntries();
-      },
-      onkeydown: (event) => { if (event.key === 'Enter') event.currentTarget.click(); },
-    }, name,
-    h('span', { class: 'file-row-time', text: formatFileTime(entry.modifiedAt) }),
-    h('span', { class: 'file-row-size', text: entry.kind === 'folder' ? '—' : formatBytes(entry.size) }),
-    menuWrap);
-    wrap.append(row);
+    }, '预览'));
   }
+  if (entry.kind === 'file') {
+    menu.append(h('a', {
+      href: fileDownloadURL(state.fileMacId, entry.path),
+      download: entry.name,
+      role: 'menuitem',
+      onclick: (event) => event.stopPropagation(),
+    }, '下载'));
+  }
+  menu.append(
+    h('button', {
+      type: 'button',
+      role: 'menuitem',
+      onclick: (event) => {
+        event.stopPropagation();
+        closeFileMenus();
+        selectColumn();
+        openFileNameModal('rename', entry);
+      },
+    }, '重命名'),
+    h('button', {
+      type: 'button',
+      role: 'menuitem',
+      class: 'danger',
+      onclick: (event) => {
+        event.stopPropagation();
+        closeFileMenus();
+        selectColumn();
+        confirmFileDelete(entry);
+      },
+    }, '删除'),
+  );
+  menuWrap.append(trigger, menu);
+  return menuWrap;
+}
+
+function fileEntryMeta(entry) {
+  return entry.kind === 'folder' ? '文件夹' : `${formatBytes(entry.size)} · ${formatFileTime(entry.modifiedAt)}`;
+}
+
+function fileEntryKeydown(event) {
+  if (event.key !== 'Enter' && event.key !== ' ') return;
+  event.preventDefault();
+  event.currentTarget.click();
+}
+
+function fileEmptyCopy(sourceEntries, query) {
+  if (query) return '没有匹配的文件';
+  return sourceEntries.length && !state.fileShowHidden ? '这个文件夹没有可见项目' : '这个文件夹是空的';
+}
+
+function updateFileCount(entries, visibleEntries) {
   $('#file-count').textContent = state.fileSearch && entries.length !== visibleEntries.length
     ? `${entries.length}/${visibleEntries.length} 项`
     : `${entries.length} 项`;
+}
+
+function activateFileEntry(entry, columnIndex = null) {
+  if (Number.isInteger(columnIndex)) {
+    if (entry.kind === 'folder') {
+      openFileColumn(entry, columnIndex);
+      return;
+    }
+    state.fileColumns = truncateFileColumns(state.fileColumns, columnIndex, entry.path);
+    syncFileStateFromColumn(state.fileColumns[columnIndex], entry.path);
+    renderFileBrowser();
+  } else {
+    state.fileSelectedPath = entry.path;
+  }
+  if (entry.kind === 'folder') loadFileDirectory(entry.path, { pushHistory: true, fallback: false });
+  else if (entry.previewable) openFilePreview(entry);
+  else renderFileEntries();
+}
+
+function renderFileList(wrap, entries) {
+  for (const entry of entries) {
+    const name = h('div', { class: 'file-name-cell', dataset: { mobileMeta: fileEntryMeta(entry) } },
+      fileGlyph(entry),
+      h('strong', { text: entry.name }),
+    );
+    const row = h('div', {
+      class: `file-row${entry.hidden ? ' is-hidden' : ''}`,
+      role: 'option',
+      tabindex: '0',
+      'aria-selected': String(entry.path === state.fileSelectedPath),
+      onclick: () => activateFileEntry(entry),
+      onkeydown: fileEntryKeydown,
+    }, name,
+    h('span', { class: 'file-row-time', text: formatFileTime(entry.modifiedAt) }),
+    h('span', { class: 'file-row-size', text: entry.kind === 'folder' ? '—' : formatBytes(entry.size) }),
+    fileEntryMenu(entry));
+    wrap.append(row);
+  }
+}
+
+function renderFileIcons(wrap, entries) {
+  for (const entry of entries) {
+    const item = h('div', {
+      class: `file-icon-item${entry.hidden ? ' is-hidden' : ''}`,
+      role: 'option',
+      tabindex: '0',
+      'aria-selected': String(entry.path === state.fileSelectedPath),
+      onclick: () => activateFileEntry(entry),
+      onkeydown: fileEntryKeydown,
+    },
+    fileGlyph(entry),
+    h('strong', { text: entry.name }),
+    h('span', { class: 'file-icon-meta', text: entry.kind === 'folder' ? '文件夹' : formatBytes(entry.size) }),
+    fileEntryMenu(entry));
+    wrap.append(item);
+  }
+}
+
+function renderFileColumns(wrap) {
+  ensureFileColumns();
+  const columns = state.fileColumns;
+  if (!columns.length) {
+    wrap.append(h('div', { class: 'file-empty', text: '这个文件夹是空的' }));
+    updateFileCount([], []);
+    return;
+  }
+  columns.forEach((column, columnIndex) => {
+    const last = columnIndex === columns.length - 1;
+    const query = last ? state.fileSearch : '';
+    const visibleEntries = filterFileEntries(column.entries, state.fileShowHidden, '');
+    const entries = filterFileEntries(column.entries, state.fileShowHidden, query);
+    const body = h('div', { class: 'file-column-body' });
+    if (column.loading) {
+      body.append(h('div', { class: 'file-column-message', text: '正在载入…' }));
+    } else if (column.error) {
+      body.append(h('div', { class: 'file-column-message' },
+        '无法读取文件',
+        h('small', { text: column.error }),
+      ));
+    } else if (!entries.length) {
+      body.append(h('div', { class: 'file-column-message', text: fileEmptyCopy(column.entries, query) }));
+    }
+    for (const entry of entries) {
+      const menu = fileEntryMenu(entry, columnIndex);
+      const tail = h('div', { class: 'file-column-tail' },
+        entry.kind === 'folder' ? svgIcon('file-column-chevron', 'm9 18 6-6-6-6') : null,
+        menu,
+      );
+      const row = h('div', {
+        class: `file-column-row${entry.hidden ? ' is-hidden' : ''}`,
+        role: 'option',
+        tabindex: '0',
+        'aria-selected': String(entry.path === column.selectedPath),
+        onclick: () => activateFileEntry(entry, columnIndex),
+        onkeydown: fileEntryKeydown,
+      },
+      fileGlyph(entry),
+      h('strong', { text: entry.name }),
+      tail);
+      body.append(row);
+    }
+    const label = column.path === state.fileRoot ? '主目录' : fileBaseName(column.path);
+    const section = h('section', {
+      class: 'file-column',
+      'aria-label': label,
+    },
+    h('header', { class: 'file-column-head' },
+      h('strong', { text: label }),
+      h('span', { text: column.loading ? '' : `${entries.length} 项` }),
+    ),
+    body);
+    wrap.append(section);
+    if (last) updateFileCount(entries, visibleEntries);
+  });
+}
+
+async function openFileColumn(entry, columnIndex) {
+  if (!state.fileMacId || entry.kind !== 'folder') return;
+  const current = state.fileColumns[columnIndex];
+  const existing = state.fileColumns[columnIndex + 1];
+  if (current?.selectedPath === entry.path && existing?.path === entry.path && !existing.loading && !existing.error) return;
+
+  const macId = state.fileMacId;
+  const seq = ++fileColumnLoadSeq;
+  const request = { seq, macId, columnIndex, path: entry.path };
+  const replacePreviewHistory = !!history.state?.fleet && !!history.state.filePreviewPath;
+  if (replacePreviewHistory) closeFilePreview();
+  state.fileColumns = truncateFileColumns(state.fileColumns, columnIndex, entry.path);
+  syncFileStateFromColumn(state.fileColumns[columnIndex], entry.path);
+  state.fileColumns.push({
+    path: entry.path,
+    parent: state.fileColumns[columnIndex]?.path || '',
+    entries: [],
+    selectedPath: '',
+    loading: true,
+    error: '',
+  });
+  renderFileBrowser();
+  scrollFileColumnsToEnd();
+
+  try {
+    const data = await fetchFileDirectory(macId, entry.path);
+    if (!fileColumnRequestCurrent(request)) return;
+    state.fileColumns = [
+      ...state.fileColumns.slice(0, columnIndex + 1),
+      fileColumnFromData(data),
+    ];
+    applyFileDirectoryData(data, macId, { resetColumns: false, selectedPath: entry.path });
+    persistUIState();
+    renderFileBrowser();
+    const historyState = { mode: 'files', fileMacId: macId, filePath: state.filePath, filePreviewPath: '' };
+    if (replacePreviewHistory) replaceFleetHistory(historyState);
+    else pushFleetHistory(historyState);
+    scrollFileColumnsToEnd();
+  } catch (error) {
+    if (!fileColumnRequestCurrent(request)) return;
+    state.fileColumns[columnIndex + 1] = {
+      ...state.fileColumns[columnIndex + 1],
+      loading: false,
+      error: error.message,
+    };
+    renderFileEntries();
+  }
+}
+
+function renderFileEntries() {
+  const wrap = $('#file-list');
+  syncFileViewUI();
+  clear(wrap);
+  if (state.fileView === 'columns') {
+    renderFileColumns(wrap);
+    return;
+  }
+  const visibleEntries = filterFileEntries(state.fileEntries, state.fileShowHidden, '');
+  const entries = filterFileEntries(state.fileEntries, state.fileShowHidden, state.fileSearch);
+  if (!entries.length) wrap.append(h('div', { class: 'file-empty', text: fileEmptyCopy(state.fileEntries, state.fileSearch) }));
+  if (state.fileView === 'icons') renderFileIcons(wrap, entries);
+  else renderFileList(wrap, entries);
+  updateFileCount(entries, visibleEntries);
 }
 
 let fileSettingsTrigger = null;
@@ -4355,6 +4683,9 @@ function init() {
 
   // 自绘文件浏览器
   $('#file-search').oninput = (event) => { state.fileSearch = event.target.value.trim(); renderFileEntries(); };
+  $$('[data-file-view]').forEach((button) => {
+    button.onclick = () => setFileView(button.dataset.fileView);
+  });
   $('#file-new-folder').onclick = () => openFileNameModal('mkdir');
   $('#file-name-form').onsubmit = submitFileName;
   $('#file-delete-confirm').onclick = deleteFileTarget;
@@ -4524,6 +4855,7 @@ function init() {
   addEventListener('resize', () => {
     if (state.mode === 'sessions' && state.termSid) $('#mobile-input').hidden = !isMobile();
     if (!$('#file-settings-menu').hidden) positionFileSettings(fileSettingsTrigger);
+    if (state.mode === 'files' && state.fileView === 'columns') scrollFileColumnsToEnd();
     syncChatTurnPin();
   });
   // 移动端软键盘弹起时把输入坞顶到键盘之上。iOS 键盘不缩布局视口（100dvh/fixed 不变），
