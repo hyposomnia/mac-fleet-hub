@@ -17,7 +17,7 @@
   <!-- 主题：默认跟随系统 prefers-color-scheme，用户切换后写 localStorage 覆盖（与 app.js initTheme 一致）。
        内联以避免首屏闪烁。 -->
   <script>document.documentElement.dataset.theme = (function () { try { var t = localStorage.getItem('fleet-theme'); if (t) return t; } catch (e) {} return matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark'; })();</script>
-  <link rel="stylesheet" href="style.css?v=50" />
+  <link rel="stylesheet" href="style.css?v=51" />
 </head>
 <body>
   <div id="network-status" class="network-status" role="status" hidden>
@@ -196,7 +196,19 @@
               <a id="file-preview-open" class="iconbtn" href="#" target="_blank" rel="noopener" title="完整预览" aria-label="完整预览"><svg class="ic" viewBox="0 0 24 24"><path d="M14 3h7v7M10 14 21 3M21 14v5a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5"/></svg></a>
               <button id="file-preview-close" class="iconbtn bare" title="关闭预览" aria-label="关闭预览"><svg class="ic" viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
             </header>
-            <iframe id="file-preview-frame" title="文件预览"></iframe>
+            <div class="file-preview-stage">
+              <iframe id="file-preview-frame" title="文件预览"></iframe>
+            </div>
+            <section class="file-preview-info" aria-labelledby="file-preview-info-title">
+              <h2 id="file-preview-info-title">文件信息</h2>
+              <dl>
+                <div><dt>类型</dt><dd id="file-preview-type">—</dd></div>
+                <div><dt>大小</dt><dd id="file-preview-size">—</dd></div>
+                <div><dt>修改时间</dt><dd id="file-preview-modified">—</dd></div>
+                <div><dt>位置</dt><dd id="file-preview-location">—</dd></div>
+                <div><dt>设备</dt><dd id="file-preview-device">—</dd></div>
+              </dl>
+            </section>
           </aside>
         </div>
         <input id="file-upload-input" type="file" multiple hidden>
@@ -466,9 +478,9 @@
   </div>
   <script src="vendor/purify.min.js?v=3.2.6"></script>
   <script src="vendor/marked.min.js?v=15.0.12"></script>
-  <script src="markdown.js?v=50"></script>
-  <script src="preview.js?v=50"></script>
-  <script src="chat_model.js?v=50"></script>
-  <script src="app.js?v=50"></script>
+  <script src="markdown.js?v=51"></script>
+  <script src="preview.js?v=51"></script>
+  <script src="chat_model.js?v=51"></script>
+  <script src="app.js?v=51"></script>
 </body>
 </html>

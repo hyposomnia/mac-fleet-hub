@@ -3461,6 +3461,42 @@ function formatFileTime(ms) {
   }).format(date);
 }
 
+function formatFileInfoTime(ms) {
+  const value = Number(ms);
+  if (!value) return '—';
+  return new Intl.DateTimeFormat('zh-CN', {
+    year: 'numeric', month: 'long', day: 'numeric',
+    hour: '2-digit', minute: '2-digit', hour12: false,
+  }).format(new Date(value));
+}
+
+function filePreviewTypeLabel(entry) {
+  const name = String(entry?.name || '');
+  const nameExtension = name.includes('.') ? name.slice(name.lastIndexOf('.')) : '';
+  const extension = String(entry?.extension || nameExtension).replace(/^\./, '').toUpperCase();
+  const mime = String(entry?.mime || '').toLowerCase();
+  let kind = '文件';
+  if (mime.startsWith('image/')) kind = '图像';
+  else if (mime.startsWith('audio/')) kind = '音频';
+  else if (mime.startsWith('video/')) kind = '视频';
+  else if (mime === 'application/pdf') kind = '文档';
+  else if (mime.startsWith('text/') || ['application/json', 'application/xml'].includes(mime)) kind = '文本文档';
+  return extension ? `${extension} ${kind}` : kind;
+}
+
+function filePreviewLocation(path, root) {
+  const normalizedPath = String(path || '').replace(/\/+$/, '');
+  const slash = normalizedPath.lastIndexOf('/');
+  const parent = slash > 0 ? normalizedPath.slice(0, slash) : (slash === 0 ? '/' : '');
+  const normalizedRoot = String(root || '').replace(/\/+$/, '') || '/';
+  if (!parent) return '—';
+  if (parent === normalizedRoot) return '~';
+  if (normalizedRoot !== '/' && parent.startsWith(`${normalizedRoot}/`)) {
+    return `~${parent.slice(normalizedRoot.length)}`;
+  }
+  return parent;
+}
+
 function loadFiles(opts = {}) {
   if (!state.fileMacId) {
     state.fileMacId = MACS.find((m) => state.nodes[m.id])?.id || MACS[0]?.id || null;
@@ -3728,10 +3764,16 @@ function toggleFileSettings(trigger, event) {
 
 function showFilePreview(entry) {
   if (!entry?.previewable || !state.fileMacId) return;
+  const deviceName = macName(state.fileMacId);
   state.fileSelectedPath = entry.path;
   state.filePreviewPath = entry.path;
   $('#file-preview-title').textContent = entry.name;
-  $('#file-preview-subtitle').textContent = `${macName(state.fileMacId)} · ${formatBytes(entry.size)}`;
+  $('#file-preview-subtitle').textContent = deviceName;
+  $('#file-preview-type').textContent = filePreviewTypeLabel(entry);
+  $('#file-preview-size').textContent = formatBytes(entry.size);
+  $('#file-preview-modified').textContent = formatFileInfoTime(entry.modifiedAt);
+  $('#file-preview-location').textContent = filePreviewLocation(entry.path, state.fileRoot);
+  $('#file-preview-device').textContent = deviceName;
   $('#file-preview-frame').src = filePreviewRoute(state.fileMacId, entry.path, true);
   $('#file-preview-open').href = filePreviewRoute(state.fileMacId, entry.path, false);
   $('#file-preview-panel').hidden = false;

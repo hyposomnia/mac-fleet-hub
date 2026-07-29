@@ -57,8 +57,8 @@ const appSandbox = {
   Date: FixedAppDate,
 };
 vm.createContext(appSandbox);
-vm.runInContext(`${appSrc}\n;globalThis.__chatCacheTest = { chatCacheVictim, isChatConnectionKept, isSessionRunning, updateChatUpdatedAt, formatChatDate, chatAssistantMetaText, chatUserMetaText, chatMessageMetaVisibility, applyChatMetadataDefaults, enqueueChatFollowup, removeChatFollowup, normalizeChatDraft, chatSkillTriggerAt, parseChatSkillInput, chatSkillTokenNames, mergeChatComposerText, mergeChatAttachments, chatImageSrc, chatToolStatus, chatToolDuration, chatToolActivityLabel, chatToolHasExpandableBody, isChatActivityItem, chatActivityGroupSummaryText, chatActivityActiveSummarySegments, chatActivityGroupIconKind, renderChatActivityGroup, filterFileEntries, chatTurnPinText: typeof chatTurnPinText === 'function' ? chatTurnPinText : () => '', isInternalChatTool: typeof isInternalChatTool === 'function' ? isInternalChatTool : () => false, state };`, appSandbox);
-const { chatCacheVictim, isChatConnectionKept, isSessionRunning, updateChatUpdatedAt, formatChatDate, chatAssistantMetaText, chatUserMetaText, chatMessageMetaVisibility, applyChatMetadataDefaults, enqueueChatFollowup, removeChatFollowup, normalizeChatDraft, chatSkillTriggerAt, parseChatSkillInput, chatSkillTokenNames, mergeChatComposerText, mergeChatAttachments, chatImageSrc, chatToolStatus, chatToolDuration, chatToolActivityLabel, chatToolHasExpandableBody, isChatActivityItem, chatActivityGroupSummaryText, chatActivityActiveSummarySegments, chatActivityGroupIconKind, renderChatActivityGroup, filterFileEntries, chatTurnPinText, isInternalChatTool, state: appState } = appSandbox.__chatCacheTest;
+vm.runInContext(`${appSrc}\n;globalThis.__chatCacheTest = { chatCacheVictim, isChatConnectionKept, isSessionRunning, updateChatUpdatedAt, formatChatDate, chatAssistantMetaText, chatUserMetaText, chatMessageMetaVisibility, applyChatMetadataDefaults, enqueueChatFollowup, removeChatFollowup, normalizeChatDraft, chatSkillTriggerAt, parseChatSkillInput, chatSkillTokenNames, mergeChatComposerText, mergeChatAttachments, chatImageSrc, chatToolStatus, chatToolDuration, chatToolActivityLabel, chatToolHasExpandableBody, isChatActivityItem, chatActivityGroupSummaryText, chatActivityActiveSummarySegments, chatActivityGroupIconKind, renderChatActivityGroup, filterFileEntries, filePreviewTypeLabel, filePreviewLocation, chatTurnPinText: typeof chatTurnPinText === 'function' ? chatTurnPinText : () => '', isInternalChatTool: typeof isInternalChatTool === 'function' ? isInternalChatTool : () => false, state };`, appSandbox);
+const { chatCacheVictim, isChatConnectionKept, isSessionRunning, updateChatUpdatedAt, formatChatDate, chatAssistantMetaText, chatUserMetaText, chatMessageMetaVisibility, applyChatMetadataDefaults, enqueueChatFollowup, removeChatFollowup, normalizeChatDraft, chatSkillTriggerAt, parseChatSkillInput, chatSkillTokenNames, mergeChatComposerText, mergeChatAttachments, chatImageSrc, chatToolStatus, chatToolDuration, chatToolActivityLabel, chatToolHasExpandableBody, isChatActivityItem, chatActivityGroupSummaryText, chatActivityActiveSummarySegments, chatActivityGroupIconKind, renderChatActivityGroup, filterFileEntries, filePreviewTypeLabel, filePreviewLocation, chatTurnPinText, isInternalChatTool, state: appState } = appSandbox.__chatCacheTest;
 function toolLabelText(item) {
   const status = chatToolStatus(item.status);
   return chatToolActivityLabel(item, status, chatToolDuration(item.durationMs)).map(nodeText).join('');
@@ -286,6 +286,8 @@ test('custom file browser stays on one device and shares the protected preview r
     'file-browser', 'file-device-button', 'file-locations', 'file-breadcrumbs',
     'file-list', 'file-preview-frame', 'file-upload-input', 'file-settings',
     'file-settings-mobile', 'file-settings-menu', 'file-show-hidden',
+    'file-preview-type', 'file-preview-size', 'file-preview-modified',
+    'file-preview-location', 'file-preview-device',
   ]) {
     assert.match(indexHTML, new RegExp(`id="${id}"`));
   }
@@ -299,6 +301,22 @@ test('custom file browser stays on one device and shares the protected preview r
   assert.match(appSrc, /function dismissFilePreview\(\)[\s\S]*?closeFilePreview\(\)[\s\S]*?history\.back\(\)/);
   assert.match(appSrc, /filePreviewDismissing[\s\S]*?replaceFleetHistory\(target\)/);
   assert.doesNotMatch(appSrc, /`\$\{apiBase\(state\.macId\)\}\/files\/`/);
+});
+
+test('file preview presents native-style type and home-relative location details', () => {
+  assert.equal(
+    filePreviewTypeLabel({ name: '录音.MP3', extension: '.mp3', mime: 'audio/mpeg' }),
+    'MP3 音频',
+  );
+  assert.equal(
+    filePreviewTypeLabel({ name: 'design.png', extension: '.png', mime: 'image/png' }),
+    'PNG 图像',
+  );
+  assert.equal(filePreviewLocation('/Users/demo/Downloads/design.png', '/Users/demo'), '~/Downloads');
+  assert.equal(filePreviewLocation('/Users/demo/design.png', '/Users/demo'), '~');
+  assert.match(styleCSS, /\.file-preview-stage\s*\{[^}]*flex:\s*1 1 auto/);
+  assert.match(styleCSS, /\.file-preview-info\s*\{[^}]*border-top:/);
+  assert.match(styleCSS, /\.file-preview-head \.iconbtn\s*\{\s*width:\s*44px;\s*height:\s*44px/);
 });
 
 test('file browser hides dotfiles by default and can reveal them without changing search', () => {
