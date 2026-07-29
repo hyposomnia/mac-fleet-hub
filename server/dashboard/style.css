@@ -15,6 +15,7 @@
   --t-secondary: 12px;
   --t-body: 13px;
   --t-title: 15px;
+  --t-control: 16px;
   --t-display: 17px;
   --t-page: 28px;
 
@@ -939,7 +940,8 @@ textarea.chat-request-input { resize: vertical; }
   #chat-scroll { padding: 18px 14px 12px; }
   #chat-turn-pin { padding: 7px 14px; }
   .chat-turn-pin-card { max-width: 88%; }
-  .chat-row.user .chat-card, .chat-tool, .chat-approval, .chat-error, .chat-diff { max-width: 88%; }
+  .chat-user-wrap { max-width: 88%; }
+  .chat-tool, .chat-approval, .chat-error, .chat-diff { max-width: 88%; }
   .chat-diff-files { min-width: min(68vw, 560px); }
   /* The iOS fullscreen shell already insets #win above its bottom system area. */
   #chat-composer { padding: 8px 10px 10px; }
@@ -1349,9 +1351,9 @@ textarea.chat-request-input { resize: vertical; }
   .sc-body { padding: 8px; padding-bottom: max(18px, env(safe-area-inset-bottom, 0px)); }
   .grp { margin-bottom: 5px; }
   .grp-h { min-height: 42px; padding: 9px 8px; }
-  .ses { min-height: 68px; padding: 9px 8px 8px; }
+  .ses { min-height: 44px; padding: 4px 8px; }
   .ses-top .t { font-size: var(--t-title); }
-  .ses-meta { margin-top: 3px; font-size: var(--t-secondary); }
+  .ses-meta { margin-top: 1px; font-size: var(--t-secondary); }
   .ses-time, .ses-status { font-size: var(--t-secondary); }
 
   #app[data-mode="files"] #win { display: flex; flex: 1; min-height: 0; }
@@ -1417,4 +1419,6 @@ textarea.chat-request-input { resize: vertical; }
     padding: 15px 16px max(16px, env(safe-area-inset-bottom, 0px));
   }
   .device-picker-modal .modal-body { padding-top: 10px; }
+  /* iOS Safari zooms the viewport when a focused text control renders below 16px. */
+  input:not([type="checkbox"]):not([type="radio"]):not([type="file"]), textarea, select { font-size: var(--t-control); }
 }

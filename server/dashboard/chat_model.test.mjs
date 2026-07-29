@@ -183,6 +183,7 @@ test('dashboard typography uses one UI scale and reserves monospace for technica
     secondary: '12px',
     body: '13px',
     title: '15px',
+    control: '16px',
     display: '17px',
     page: '28px',
   });
@@ -192,6 +193,7 @@ test('dashboard typography uses one UI scale and reserves monospace for technica
     [
       'var(--t-body)',
       'var(--t-caption)',
+      'var(--t-control)',
       'var(--t-display)',
       'var(--t-page)',
       'var(--t-secondary)',
@@ -755,6 +757,19 @@ test('self-drawn user message time renders outside the bubble', () => {
   assert.match(appSrc, /class:\s*'chat-user-wrap'/);
   assert.match(styleCSS, /\.chat-user-wrap\s*\{\s*display:\s*flex;\s*flex-direction:\s*column;\s*align-items:\s*flex-end/);
   assert.match(styleCSS, /\.chat-row\.user \.chat-card\s*\{[^}]*max-width:\s*100%/s);
+  assert.match(styleCSS, /\.chat-user-wrap\s*\{\s*max-width:\s*88%;\s*\}/);
+  assert.doesNotMatch(styleCSS, /\.chat-row\.user \.chat-card,\s*\.chat-tool/);
+});
+
+test('mobile session rows keep a compact touch target', () => {
+  assert.match(styleCSS, /@media \(max-width: 860px\)[\s\S]*?\.ses\s*\{\s*min-height:\s*44px;\s*padding:\s*4px 8px;\s*\}/);
+  assert.doesNotMatch(styleCSS, /@media \(max-width: 860px\)[\s\S]*?\.ses\s*\{\s*min-height:\s*68px;/);
+});
+
+test('mobile text controls prevent iOS focus zoom without disabling pinch zoom', () => {
+  assert.match(styleCSS, /--t-control:\s*16px;/);
+  assert.match(styleCSS, /input:not\(\[type="checkbox"\]\):not\(\[type="radio"\]\):not\(\[type="file"\]\), textarea, select\s*\{\s*font-size:\s*var\(--t-control\);\s*\}/);
+  assert.doesNotMatch(indexHTML, /maximum-scale|user-scalable\s*=\s*no/i);
 });
 
 test('self-drawn assistant messages fill the conversation column', () => {
