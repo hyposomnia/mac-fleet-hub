@@ -2469,6 +2469,11 @@ function resizeChatInput() {
   input.style.overflowY = input.scrollHeight > 180 ? 'auto' : 'hidden';
 }
 
+function chatComposerAction(chat, hasContent) {
+  if (!isChatRunning(chat)) return 'send';
+  return hasContent ? 'queue' : 'interrupt';
+}
+
 function updateChatComposerState() {
   const input = $('#chat-input');
   const send = $('#chat-send');
@@ -2476,10 +2481,14 @@ function updateChatComposerState() {
   const attachments = state.chat?.attachments || [];
   const blocked = attachments.some((att) => att.uploading || att.error || !att.id);
   const hasContent = Boolean(input?.value.trim()) || attachments.length > 0;
-  const running = isChatRunning(state.chat);
-  send.dataset.action = running ? 'interrupt' : 'send';
-  send.disabled = !state.chat || (running ? !!state.chat.interrupting : (!hasContent || blocked));
-  send.title = running ? '停止生成' : (blocked ? '等待图片上传完成' : '发送');
+  const action = chatComposerAction(state.chat, hasContent);
+  send.dataset.action = action;
+  send.disabled = !state.chat || (action === 'interrupt'
+    ? !!state.chat.interrupting
+    : (!hasContent || blocked));
+  send.title = action === 'interrupt'
+    ? '停止生成'
+    : (blocked ? '等待图片上传完成' : (action === 'queue' ? '加入队列' : '发送'));
   send.setAttribute('aria-label', send.title);
 }
 
@@ -4716,8 +4725,9 @@ function init() {
   $('#fullscreen-btn').onclick = () => $('.win-body').requestFullscreen?.();
   $('#chat-composer').onsubmit = (e) => {
     e.preventDefault();
-    if ($('#chat-send').dataset.action === 'interrupt') interruptChat();
-    else submitChatInput();
+    const action = $('#chat-send').dataset.action;
+    if (action === 'interrupt') interruptChat();
+    else submitChatInput({ forceQueue: action === 'queue' });
   };
   $('#chat-attach').onclick = () => $('#chat-file').click();
   $('#chat-file').addEventListener('change', (e) => { addChatFiles(e.target.files); e.target.value = ''; });
@@ -4755,7 +4765,7 @@ function init() {
         submitChatInput({ forceQueue: true });
       } else if (!e.shiftKey) {
         e.preventDefault();
-        submitChatInput();
+        submitChatInput({ forceQueue: $('#chat-send').dataset.action === 'queue' });
       }
     }
   });
