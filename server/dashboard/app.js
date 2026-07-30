@@ -125,6 +125,8 @@ const state = {
   fileSearch: '',
   fileShowHidden: false,
   fileView: 'list',     // icons | list | columns
+  fileSortKey: 'name',  // name | modifiedAt | size
+  fileSortDirection: 'asc', // asc | desc
   fileColumns: [],
   fileSelectedPath: '',
   filePreviewPath: '',
@@ -188,6 +190,14 @@ function normalizeFileView(view) {
   return ['icons', 'list', 'columns'].includes(view) ? view : 'list';
 }
 
+function normalizeFileSortKey(key) {
+  return ['name', 'modifiedAt', 'size'].includes(key) ? key : 'name';
+}
+
+function normalizeFileSortDirection(direction) {
+  return direction === 'desc' ? 'desc' : 'asc';
+}
+
 function initUIState() {
   let saved = {};
   try { saved = JSON.parse(localStorage.getItem(UI_STATE_KEY) || '{}') || {}; } catch (_) {}
@@ -204,6 +214,8 @@ function initUIState() {
   state.filePaths = saved.filePaths && typeof saved.filePaths === 'object' ? saved.filePaths : {};
   state.fileShowHidden = saved.fileShowHidden === true;
   state.fileView = normalizeFileView(saved.fileView);
+  state.fileSortKey = normalizeFileSortKey(saved.fileSortKey);
+  state.fileSortDirection = normalizeFileSortDirection(saved.fileSortDirection);
 }
 
 function persistUIState() {
@@ -217,6 +229,8 @@ function persistUIState() {
       filePaths: state.filePaths,
       fileShowHidden: state.fileShowHidden,
       fileView: state.fileView,
+      fileSortKey: state.fileSortKey,
+      fileSortDirection: state.fileSortDirection,
     }));
   } catch (_) {}
 }
@@ -3740,6 +3754,59 @@ function filterFileEntries(entries, showHidden, query) {
     (!needle || entry.name.toLocaleLowerCase().includes(needle)));
 }
 
+function sortFileEntries(entries, key = 'name', direction = 'asc') {
+  const sortKey = normalizeFileSortKey(key);
+  const multiplier = normalizeFileSortDirection(direction) === 'desc' ? -1 : 1;
+  const compareNames = (left, right) => String(left?.name || '').localeCompare(
+    String(right?.name || ''), undefined, { numeric: true, sensitivity: 'base' },
+  );
+  const numericValue = (entry) => {
+    const value = Number(entry?.[sortKey]);
+    return Number.isFinite(value) ? value : 0;
+  };
+
+  return [...(entries || [])].sort((left, right) => {
+    const leftFolder = left?.kind === 'folder';
+    const rightFolder = right?.kind === 'folder';
+    if (leftFolder !== rightFolder) return leftFolder ? -1 : 1;
+
+    const primary = sortKey === 'name'
+      ? compareNames(left, right)
+      : numericValue(left) - numericValue(right);
+    if (primary) return (primary < 0 ? -1 : 1) * multiplier;
+    return compareNames(left, right);
+  });
+}
+
+function syncFileSortUI() {
+  const labels = { name: '名称', modifiedAt: '修改时间', size: '大小' };
+  $$('[data-file-sort]').forEach((button) => {
+    const key = normalizeFileSortKey(button.dataset.fileSort);
+    const active = key === state.fileSortKey;
+    const current = state.fileSortDirection === 'desc' ? '降序' : '升序';
+    const next = state.fileSortDirection === 'desc' ? '升序' : '降序';
+    button.parentElement?.setAttribute('aria-sort', active
+      ? (state.fileSortDirection === 'desc' ? 'descending' : 'ascending')
+      : 'none');
+    button.setAttribute('aria-label', active
+      ? `${labels[key]}，当前${current}，点击切换为${next}`
+      : `按${labels[key]}排序`);
+  });
+}
+
+function setFileSort(key) {
+  const next = normalizeFileSortKey(key);
+  if (next === state.fileSortKey) {
+    state.fileSortDirection = state.fileSortDirection === 'asc' ? 'desc' : 'asc';
+  } else {
+    state.fileSortKey = next;
+    state.fileSortDirection = next === 'name' ? 'asc' : 'desc';
+  }
+  closeFileMenus();
+  persistUIState();
+  renderFileEntries();
+}
+
 function syncFileViewUI() {
   const view = normalizeFileView(state.fileView);
   state.fileView = view;
@@ -3756,6 +3823,7 @@ function syncFileViewUI() {
   $$('[data-file-view]').forEach((button) => {
     button.setAttribute('aria-pressed', String(button.dataset.fileView === view));
   });
+  syncFileSortUI();
 }
 
 function ensureFileColumns() {
@@ -3963,7 +4031,11 @@ function renderFileColumns(wrap) {
     const last = columnIndex === columns.length - 1;
     const query = last ? state.fileSearch : '';
     const visibleEntries = filterFileEntries(column.entries, state.fileShowHidden, '');
-    const entries = filterFileEntries(column.entries, state.fileShowHidden, query);
+    const entries = sortFileEntries(
+      filterFileEntries(column.entries, state.fileShowHidden, query),
+      state.fileSortKey,
+      state.fileSortDirection,
+    );
     const body = h('div', { class: 'file-column-body' });
     if (column.loading) {
       body.append(h('div', { class: 'file-column-message', text: '正在载入…' }));
@@ -4067,7 +4139,11 @@ function renderFileEntries() {
     return;
   }
   const visibleEntries = filterFileEntries(state.fileEntries, state.fileShowHidden, '');
-  const entries = filterFileEntries(state.fileEntries, state.fileShowHidden, state.fileSearch);
+  const entries = sortFileEntries(
+    filterFileEntries(state.fileEntries, state.fileShowHidden, state.fileSearch),
+    state.fileSortKey,
+    state.fileSortDirection,
+  );
   if (!entries.length) wrap.append(h('div', { class: 'file-empty', text: fileEmptyCopy(state.fileEntries, state.fileSearch) }));
   if (state.fileView === 'icons') renderFileIcons(wrap, entries);
   else renderFileList(wrap, entries);
@@ -4694,6 +4770,9 @@ function init() {
   $('#file-search').oninput = (event) => { state.fileSearch = event.target.value.trim(); renderFileEntries(); };
   $$('[data-file-view]').forEach((button) => {
     button.onclick = () => setFileView(button.dataset.fileView);
+  });
+  $$('[data-file-sort]').forEach((button) => {
+    button.onclick = () => setFileSort(button.dataset.fileSort);
   });
   $('#file-new-folder').onclick = () => openFileNameModal('mkdir');
   $('#file-name-form').onsubmit = submitFileName;

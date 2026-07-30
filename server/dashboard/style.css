@@ -1112,6 +1112,19 @@ textarea.chat-request-input { resize: vertical; }
   display: grid; grid-template-columns: minmax(220px, 1fr) 142px 82px 34px; align-items: center; gap: 10px;
 }
 .file-table-head { min-height: 38px; padding: 0 16px; border-bottom: 1px solid var(--border); color: var(--text-2); font-size: var(--t-caption); }
+.file-sort-button {
+  display: inline-flex; align-items: center; gap: 3px; min-width: 0; padding: 6px 0;
+  border: 0; background: transparent; color: inherit; font: inherit; letter-spacing: 0; cursor: pointer;
+}
+.file-sort-button:hover { color: var(--text-1); }
+.file-sort-button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 3px; }
+.file-sort-indicator {
+  width: 12px; height: 12px; flex: none; opacity: 0; fill: none; stroke: currentColor;
+  stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; transition: transform .14s ease, opacity .14s ease;
+}
+.file-table-head [aria-sort="ascending"] .file-sort-indicator,
+.file-table-head [aria-sort="descending"] .file-sort-indicator { opacity: 1; }
+.file-table-head [aria-sort="descending"] .file-sort-indicator { transform: rotate(180deg); }
 .file-list { flex: 1; min-height: 0; overflow-y: auto; padding: 3px 8px 16px; overscroll-behavior: contain; }
 .file-row {
   position: relative; width: 100%; min-height: 54px; padding: 0 8px; border-bottom: 1px solid var(--border);
