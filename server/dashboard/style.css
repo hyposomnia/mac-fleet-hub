@@ -1329,8 +1329,11 @@ textarea.chat-request-input { resize: vertical; }
     position: fixed; top: calc(env(safe-area-inset-top, 0px) + 58px); right: 12px; left: auto; z-index: 55;
   }
   .mobile-title-switch { display: flex; align-items: baseline; gap: 20px; min-width: 0; }
-  .mobile-title-switch button { padding: 0; color: var(--accent-text); font-size: var(--t-page); line-height: 1.15; font-weight: 500; }
-  .mobile-title-switch button[aria-selected="true"] { color: var(--text); font-weight: 700; }
+  .mobile-title-switch button {
+    padding: 0 0 5px; border-bottom: 3px solid transparent; color: var(--text);
+    font-size: var(--t-page); line-height: 1.15; font-weight: 500;
+  }
+  .mobile-title-switch button[aria-selected="true"] { border-bottom-color: var(--accent); color: var(--accent); font-weight: 700; }
   .mobile-menu-trigger { display: grid; }
   .sc-head {
     flex: none; padding: max(14px, env(safe-area-inset-top, 0px)) 14px 10px;
