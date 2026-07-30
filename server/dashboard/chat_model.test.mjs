@@ -844,6 +844,11 @@ test('mobile session rows keep a compact touch target', () => {
   assert.doesNotMatch(styleCSS, /@media \(max-width: 860px\)[\s\S]*?\.ses\s*\{\s*min-height:\s*68px;/);
 });
 
+test('mobile title switch emphasizes only the selected mode', () => {
+  assert.match(styleCSS, /\.mobile-title-switch button\s*\{[^}]*border-bottom:\s*3px solid transparent;[^}]*color:\s*var\(--text\);[^}]*font-weight:\s*500;/s);
+  assert.match(styleCSS, /\.mobile-title-switch button\[aria-selected="true"\]\s*\{[^}]*border-bottom-color:\s*var\(--accent\);[^}]*color:\s*var\(--accent\);[^}]*font-weight:\s*700;/s);
+});
+
 test('mobile text controls prevent iOS focus zoom without disabling pinch zoom', () => {
   assert.match(styleCSS, /--t-control:\s*16px;/);
   assert.match(styleCSS, /input:not\(\[type="checkbox"\]\):not\(\[type="radio"\]\):not\(\[type="file"\]\), textarea, select\s*\{\s*font-size:\s*var\(--t-control\);\s*\}/);

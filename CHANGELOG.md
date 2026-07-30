@@ -4,6 +4,9 @@ mac-fleet-hub 变更记录（日期为本地时间）。
 
 ## 2026-07-30
 
+### 强化移动端顶部当前页标识
+- **选中项更明确**：顶部“会话 / 文件”当前项改为蓝色粗体并增加蓝色下划线，未选中项保持普通文字色；预留透明边线避免切换时产生高度跳动。
+
 ### 恢复 Codex Desktop 历史工具调用
 - **修复真实缺口**：旧版 app-server 不支持 `thread/items/list` 时，`thread/turns/list(itemsView=full)` 会保留消息、reasoning 和 diff，却省略 Desktop Code Mode 的命令与图片查看；Fleet 现在从对应 rollout 按 `turn_id` 补回这些活动。
 - **顺序与去重**：从 `custom_tool_call` 中恢复单命令、并行命令、图片查看及其它工具摘要，按 assistant commentary 边界插回原顺序；若 app-server 已返回同一原生工具 item，则不会重复显示。
