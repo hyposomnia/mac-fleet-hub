@@ -79,6 +79,7 @@ type codexChatBackend struct {
 	cleanup       func()
 	subs          map[string]map[chan ChatEvent]struct{}
 	lastTurn      map[string]string
+	approvalModes map[string]string
 	pending       map[string]pendingCodexRequest
 	resuming      map[string]bool
 	backlog       map[string][]ChatEvent
@@ -104,6 +105,7 @@ func newCodexChatBackend(connect codexConnector) *codexChatBackend {
 		restart:       scheduleFleetAgentRestart,
 		subs:          map[string]map[chan ChatEvent]struct{}{},
 		lastTurn:      map[string]string{},
+		approvalModes: map[string]string{},
 		pending:       map[string]pendingCodexRequest{},
 		resuming:      map[string]bool{},
 		backlog:       map[string][]ChatEvent{},
@@ -158,7 +160,7 @@ func (b *codexChatBackend) ensure(ctx context.Context) (codexRPCConn, error) {
 	b.rpc = rpc
 	b.cleanup = cleanup
 	b.mu.Unlock()
-	go b.dispatch(rpc.notifications())
+	go b.dispatch(rpc, rpc.notifications())
 	return rpc, nil
 }
 
@@ -292,13 +294,15 @@ func (b *codexChatBackend) Start(ctx context.Context, assistant, cwd, mode strin
 	if res.Cwd == "" {
 		res.Cwd = cwd
 	}
+	approvalMode := codexApprovalMode(res.ApprovalPolicy, res.Sandbox)
 	b.mu.Lock()
 	b.freshThreads[sessionID] = true
+	b.approvalModes[sessionID] = approvalMode
 	b.mu.Unlock()
 	return ChatStartResult{
 		SessionID: sessionID, Cwd: res.Cwd,
 		Model: res.Model, Effort: res.ReasoningEffort, ServiceTier: res.ServiceTier,
-		ApprovalMode: codexApprovalMode(res.ApprovalPolicy, res.Sandbox),
+		ApprovalMode: approvalMode,
 		Models:       b.modelOptions(ctx, rpc),
 	}, nil
 }
@@ -380,6 +384,7 @@ func (b *codexChatBackend) Resume(ctx context.Context, assistant, sessionID, mod
 	if rolloutMode := codexApprovalModeFromRollout(jsonlPathFor("codex", sessionID)); rolloutMode != "" {
 		approvalMode = rolloutMode
 	}
+	b.applyApprovalMode(rpc, sessionID, approvalMode)
 	return ChatResumeResult{
 		SessionID: sessionID, ThreadID: threadID, Status: status, ActiveTurnID: activeTurnID,
 		History: history, Model: res.Model, Effort: res.ReasoningEffort, ServiceTier: res.ServiceTier,
@@ -1546,6 +1551,11 @@ func (b *codexChatBackend) Input(ctx context.Context, assistant, sessionID, text
 	}
 	input := codexUserInput(text, images, skills)
 	params := codexTurnStartParams(sessionID, input, opts)
+	if opts.ApprovalMode != "" {
+		b.mu.Lock()
+		b.approvalModes[sessionID] = opts.ApprovalMode
+		b.mu.Unlock()
+	}
 	raw, err := rpc.call(ctx, "turn/start", params)
 	if err != nil {
 		if !codexThreadNotFound(err) {
@@ -1701,8 +1711,77 @@ func (b *codexChatBackend) Settings(ctx context.Context, assistant, sessionID, a
 	for key, value := range codexApprovalSettingsParams(approvalMode) {
 		params[key] = value
 	}
-	_, err = rpc.call(ctx, "thread/settings/update", params)
-	return err
+	if _, err = rpc.call(ctx, "thread/settings/update", params); err != nil {
+		return err
+	}
+	b.applyApprovalMode(rpc, sessionID, approvalMode)
+	return nil
+}
+
+func codexAutomaticApprovalResponse(method string, paramsRaw json.RawMessage) (interface{}, bool) {
+	switch method {
+	case "item/commandExecution/requestApproval", "item/fileChange/requestApproval":
+		return map[string]interface{}{"decision": "accept"}, true
+	case "item/permissions/requestApproval":
+		var params struct {
+			Permissions map[string]interface{} `json:"permissions"`
+		}
+		if json.Unmarshal(paramsRaw, &params) != nil || params.Permissions == nil {
+			return nil, false
+		}
+		return map[string]interface{}{"permissions": params.Permissions, "scope": "session"}, true
+	default:
+		return nil, false
+	}
+}
+
+func (b *codexChatBackend) applyApprovalMode(rpc codexRPCConn, sessionID, approvalMode string) {
+	b.mu.Lock()
+	b.approvalModes[sessionID] = approvalMode
+	if approvalMode != "full-access" {
+		b.mu.Unlock()
+		return
+	}
+	pending := make(map[string]pendingCodexRequest)
+	for key, request := range b.pending {
+		if request.sessionID != sessionID {
+			continue
+		}
+		if _, ok := codexAutomaticApprovalResponse(request.method, request.params); !ok {
+			continue
+		}
+		pending[key] = request
+		delete(b.pending, key)
+	}
+	b.mu.Unlock()
+
+	for key, request := range pending {
+		result, _ := codexAutomaticApprovalResponse(request.method, request.params)
+		if err := rpc.respond(request.id, result); err != nil {
+			b.mu.Lock()
+			b.pending[key] = request
+			b.mu.Unlock()
+			continue
+		}
+		b.publish(newChatEvent("interaction_resolved", "codex", sessionID, "", "", map[string]interface{}{
+			"requestId": key, "requestMethod": request.method, "response": result,
+		}))
+	}
+}
+
+func (b *codexChatBackend) autoApprove(rpc codexRPCConn, n rpcNotification) bool {
+	sessionID := codexRequestSessionID(n.Params)
+	b.mu.Lock()
+	fullAccess := b.approvalModes[sessionID] == "full-access"
+	b.mu.Unlock()
+	if !fullAccess {
+		return false
+	}
+	result, ok := codexAutomaticApprovalResponse(n.Method, n.Params)
+	if !ok {
+		return false
+	}
+	return rpc.respond(n.ID, result) == nil
 }
 
 func codexApprovalMode(policyRaw, sandboxRaw json.RawMessage) string {
@@ -2514,8 +2593,11 @@ func (b *codexChatBackend) Respond(ctx context.Context, assistant, sessionID, re
 	return nil
 }
 
-func (b *codexChatBackend) dispatch(notes <-chan rpcNotification) {
+func (b *codexChatBackend) dispatch(rpc codexRPCConn, notes <-chan rpcNotification) {
 	for n := range notes {
+		if len(n.ID) > 0 && b.autoApprove(rpc, n) {
+			continue
+		}
 		if len(n.ID) > 0 && codexServerRequestSupported(n.Method) {
 			if key := rpcIDKey(n.ID); key != "" {
 				sessionID := codexRequestSessionID(n.Params)

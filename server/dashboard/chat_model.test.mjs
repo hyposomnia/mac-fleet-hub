@@ -828,6 +828,7 @@ test('self-drawn approval menu mirrors Codex three presets', () => {
   assert.match(appSrc, /trigger\.dataset\.value\s*=\s*selected\.value/);
   assert.match(appSrc, /api\(chat\.macId,\s*'chat\/settings'/);
   assert.match(appSrc, /if\s*\(chat\.approvalMode\)\s*turnOptions\.approvalMode\s*=\s*chat\.approvalMode/);
+  assert.match(appSrc, /已开启完全访问，当前任务后续审批将自动允许。/);
   assert.match(appSrc, /https:\/\/developers\.openai\.com\/codex\/concepts\/sandboxing#how-you-control-it/);
   assert.match(styleCSS, /\.chat-approval-choice\.full-access\s*\{\s*color:\s*#f04b14/);
   assert.match(styleCSS, /\.chat-approval-trigger\[data-value="full-access"\][^{]*\{[^}]*color:\s*#f04b14/s);
