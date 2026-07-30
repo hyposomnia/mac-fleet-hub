@@ -4,6 +4,11 @@ mac-fleet-hub 变更记录（日期为本地时间）。
 
 ## 2026-07-30
 
+### 恢复 Codex Desktop 历史工具调用
+- **修复真实缺口**：旧版 app-server 不支持 `thread/items/list` 时，`thread/turns/list(itemsView=full)` 会保留消息、reasoning 和 diff，却省略 Desktop Code Mode 的命令与图片查看；Fleet 现在从对应 rollout 按 `turn_id` 补回这些活动。
+- **顺序与去重**：从 `custom_tool_call` 中恢复单命令、并行命令、图片查看及其它工具摘要，按 assistant commentary 边界插回原顺序；若 app-server 已返回同一原生工具 item，则不会重复显示。
+- **长会话增量读取**：首次索引后只解析 rollout 新增字节，不反复扫描完整历史，也不缓存工具输出中的图片 base64；真实 42 MB 会话恢复后可返回 `commandExecution` 与 `imageView`。
+
 ### 文件类型使用专属图标
 - **按类型识别**：文件浏览器按文件名、扩展名与 MIME 识别常见编程语言、媒体、文档、表格、演示、压缩包、数据库、字体与配置文件，三种查看方式共用同一映射。
 - **开源本地资源**：采用 Material Icon Theme 5.37.0 的 SVG 图标并随 dashboard 本地发布，保留 MIT 许可，不依赖 CDN 或图标字体。

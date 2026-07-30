@@ -432,6 +432,159 @@ func TestCodexChatBackendHistoryFallsBackToItemPagingWithinTurns(t *testing.T) {
 	}
 }
 
+func TestCodexCodeModeToolItemsRecoverNestedCommandsAndImageViews(t *testing.T) {
+	input := `const results = await Promise.all([
+	tools.exec_command({
+		cmd: "sed -n '1,80p' docs/brand.md",
+		workdir: "/Users/test/repo",
+		yield_time_ms: 10000
+	}),
+	tools.exec_command({
+		cmd: "sips -g pixelWidth /tmp/avatar.png",
+		workdir: "/Users/test/repo"
+	}),
+	tools.view_image({path:"/tmp/avatar.png",detail:"original"}),
+	tools.apply_patch("*** Begin Patch\n*** End Patch")
+]);`
+
+	items := codexCodeModeToolItems("ctc-1", input, "completed")
+	if len(items) != 3 {
+		t.Fatalf("recovered items got %d, want 3: %s", len(items), items)
+	}
+	var first struct {
+		ID      string `json:"id"`
+		Type    string `json:"type"`
+		Command string `json:"command"`
+		Cwd     string `json:"cwd"`
+		Status  string `json:"status"`
+	}
+	if err := json.Unmarshal(items[0], &first); err != nil {
+		t.Fatal(err)
+	}
+	if first.ID != "ctc-1:exec_command:1" || first.Type != "commandExecution" ||
+		first.Command != "sed -n '1,80p' docs/brand.md" || first.Cwd != "/Users/test/repo" || first.Status != "completed" {
+		t.Fatalf("first command got %+v", first)
+	}
+	var image struct {
+		ID   string `json:"id"`
+		Type string `json:"type"`
+		Path string `json:"path"`
+	}
+	if err := json.Unmarshal(items[2], &image); err != nil {
+		t.Fatal(err)
+	}
+	if image.ID != "ctc-1:view_image:3" || image.Type != "imageView" || image.Path != "/tmp/avatar.png" {
+		t.Fatalf("image view got %+v", image)
+	}
+}
+
+func TestMergeCodexRolloutToolsKeepsCommentaryBoundaries(t *testing.T) {
+	items := []json.RawMessage{
+		json.RawMessage(`{"id":"u1","type":"userMessage","content":[{"type":"text","text":"request"}]}`),
+		json.RawMessage(`{"id":"r1","type":"reasoning","summary":["before"]}`),
+		json.RawMessage(`{"id":"a1","type":"agentMessage","text":"first commentary"}`),
+		json.RawMessage(`{"id":"r2","type":"reasoning","summary":["between"]}`),
+		json.RawMessage(`{"id":"d1","type":"fileChange","changes":[]}`),
+		json.RawMessage(`{"id":"a2","type":"agentMessage","text":"second commentary"}`),
+	}
+	markers := []codexRolloutTurnMarker{
+		{AssistantText: "first commentary"},
+		{Item: json.RawMessage(`{"id":"cmd1","type":"commandExecution","command":"pwd"}`)},
+		{Item: json.RawMessage(`{"id":"img1","type":"imageView","path":"/tmp/shot.png"}`)},
+		{AssistantText: "second commentary"},
+	}
+
+	merged := mergeCodexRolloutTools(items, markers)
+	got := make([]string, 0, len(merged))
+	for _, raw := range merged {
+		var item struct {
+			Type string `json:"type"`
+		}
+		if err := json.Unmarshal(raw, &item); err != nil {
+			t.Fatal(err)
+		}
+		got = append(got, item.Type)
+	}
+	want := []string{"userMessage", "reasoning", "agentMessage", "commandExecution", "imageView", "reasoning", "fileChange", "agentMessage"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("merged types got %#v want %#v", got, want)
+	}
+}
+
+func TestCodexRolloutToolCacheExtendsWithoutDuplicatingHistory(t *testing.T) {
+	previousHome := cfg.CodexHome
+	t.Cleanup(func() { cfg.CodexHome = previousHome })
+	cfg.CodexHome = t.TempDir()
+	sessionID := "019fb126-9cb0-7f70-8d3f-0248b4bb97c5"
+	turnID := "turn-1"
+	dir := filepath.Join(cfg.CodexHome, "sessions", "2026", "07", "30")
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(dir, "rollout-2026-07-30T03-52-05-"+sessionID+".jsonl")
+	first := strings.Join([]string{
+		`{"type":"response_item","payload":{"type":"message","id":"m1","role":"assistant","phase":"commentary","internal_chat_message_metadata_passthrough":{"turn_id":"turn-1"},"content":[{"type":"output_text","text":"first commentary"}]}}`,
+		`{"type":"response_item","payload":{"type":"custom_tool_call","id":"ctc-1","name":"exec","status":"completed","input":"const r = await tools.exec_command({cmd: \"pwd\", workdir: \"/repo\"});","internal_chat_message_metadata_passthrough":{"turn_id":"turn-1"}}}`,
+	}, "\n") + "\n"
+	if err := os.WriteFile(path, []byte(first), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	page := codexTurnsPage{Data: []codexHistoryTurn{{ID: turnID, Items: []json.RawMessage{
+		json.RawMessage(`{"id":"u1","type":"userMessage","content":[{"type":"text","text":"request"}]}`),
+		json.RawMessage(`{"id":"a1","type":"agentMessage","text":"first commentary"}`),
+		json.RawMessage(`{"id":"r1","type":"reasoning","summary":["between"]}`),
+		json.RawMessage(`{"id":"a2","type":"agentMessage","text":"second commentary"}`),
+	}}}}
+	b := newCodexChatBackend(nil)
+	firstPage := b.enrichCodexTurnsPage(sessionID, page)
+	if got := codexTurnItemTypes(t, firstPage.Data[0].Items); !reflect.DeepEqual(got,
+		[]string{"userMessage", "agentMessage", "commandExecution", "reasoning", "agentMessage"}) {
+		t.Fatalf("first enriched page got %#v", got)
+	}
+	firstOffset := b.rolloutTools[sessionID].offset
+
+	appendBody := strings.Join([]string{
+		`{"type":"response_item","payload":{"type":"custom_tool_call","id":"ctc-2","name":"exec","status":"completed","input":"const r = await tools.view_image({path: \"/tmp/shot.png\", detail: \"original\"});","internal_chat_message_metadata_passthrough":{"turn_id":"turn-1"}}}`,
+		`{"type":"response_item","payload":{"type":"message","id":"m2","role":"assistant","phase":"commentary","internal_chat_message_metadata_passthrough":{"turn_id":"turn-1"},"content":[{"type":"output_text","text":"second commentary"}]}}`,
+	}, "\n") + "\n"
+	f, err := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0644)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.WriteString(appendBody); err != nil {
+		_ = f.Close()
+		t.Fatal(err)
+	}
+	if err := f.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	secondPage := b.enrichCodexTurnsPage(sessionID, page)
+	if got := codexTurnItemTypes(t, secondPage.Data[0].Items); !reflect.DeepEqual(got,
+		[]string{"userMessage", "agentMessage", "commandExecution", "imageView", "reasoning", "agentMessage"}) {
+		t.Fatalf("incremental enriched page got %#v", got)
+	}
+	if b.rolloutTools[sessionID].offset <= firstOffset {
+		t.Fatalf("rollout offset did not advance: first=%d second=%d", firstOffset, b.rolloutTools[sessionID].offset)
+	}
+}
+
+func codexTurnItemTypes(t *testing.T, items []json.RawMessage) []string {
+	t.Helper()
+	types := make([]string, 0, len(items))
+	for _, raw := range items {
+		var item struct {
+			Type string `json:"type"`
+		}
+		if err := json.Unmarshal(raw, &item); err != nil {
+			t.Fatal(err)
+		}
+		types = append(types, item.Type)
+	}
+	return types
+}
+
 func TestProjectCodexHistoryIncludesNonFileTools(t *testing.T) {
 	cases := []struct {
 		name string

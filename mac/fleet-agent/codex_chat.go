@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/base64"
@@ -13,6 +14,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -55,6 +57,17 @@ type codexRolloutTaskState struct {
 	terminal bool
 }
 
+type codexRolloutTurnMarker struct {
+	AssistantText string
+	Item          json.RawMessage
+}
+
+type codexRolloutToolsCache struct {
+	path    string
+	offset  int64
+	markers map[string][]codexRolloutTurnMarker
+}
+
 type codexChatBackend struct {
 	connect codexConnector
 	restart func(error)
@@ -81,6 +94,8 @@ type codexChatBackend struct {
 	historyPages     map[string]codexTurnsPage
 	historyPageOrder []string
 	historyUsage     map[string]codexTurnUsageCache
+	rolloutToolsMu   sync.Mutex
+	rolloutTools     map[string]*codexRolloutToolsCache
 }
 
 func newCodexChatBackend(connect codexConnector) *codexChatBackend {
@@ -101,6 +116,7 @@ func newCodexChatBackend(connect codexConnector) *codexChatBackend {
 		rolloutStamp:  codexSessionRolloutStamp,
 		historyPages:  map[string]codexTurnsPage{},
 		historyUsage:  map[string]codexTurnUsageCache{},
+		rolloutTools:  map[string]*codexRolloutToolsCache{},
 	}
 }
 
@@ -492,6 +508,7 @@ func (b *codexChatBackend) listHistoryByTurns(ctx context.Context, rpc codexRPCC
 		if err != nil {
 			return ChatHistoryPage{}, err
 		}
+		page = b.enrichCodexTurnsPage(sessionID, page)
 		entries := descendingCodexTurnItems(page)
 		if state.Offset < 0 || state.Offset > len(entries) {
 			return ChatHistoryPage{}, fmt.Errorf("invalid Codex history cursor offset")
@@ -899,6 +916,474 @@ func codexTurnUsageFromRollout(path string) map[string]codexTokenUsage {
 		}
 	}
 	return out
+}
+
+func (b *codexChatBackend) enrichCodexTurnsPage(sessionID string, page codexTurnsPage) codexTurnsPage {
+	markersByTurn := b.codexRolloutToolMarkers(sessionID, page)
+	if len(markersByTurn) == 0 {
+		return page
+	}
+	out := page
+	out.Data = append([]codexHistoryTurn(nil), page.Data...)
+	for i, turn := range out.Data {
+		markers := markersByTurn[turn.ID]
+		if len(markers) == 0 {
+			continue
+		}
+		out.Data[i].Items = mergeCodexRolloutTools(turn.Items, markers)
+	}
+	return out
+}
+
+func (b *codexChatBackend) codexRolloutToolMarkers(sessionID string, page codexTurnsPage) map[string][]codexRolloutTurnMarker {
+	path := jsonlPathFor("codex", sessionID)
+	if path == "" {
+		return nil
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		return nil
+	}
+
+	b.rolloutToolsMu.Lock()
+	defer b.rolloutToolsMu.Unlock()
+	cache := b.rolloutTools[sessionID]
+	if cache == nil || cache.path != path || info.Size() < cache.offset {
+		cache = &codexRolloutToolsCache{path: path, markers: map[string][]codexRolloutTurnMarker{}}
+		b.rolloutTools[sessionID] = cache
+	}
+	if info.Size() > cache.offset {
+		b.extendCodexRolloutToolCache(cache)
+	}
+
+	out := map[string][]codexRolloutTurnMarker{}
+	for _, turn := range page.Data {
+		if markers := cache.markers[turn.ID]; len(markers) > 0 {
+			out[turn.ID] = append([]codexRolloutTurnMarker(nil), markers...)
+		}
+	}
+	return out
+}
+
+func (b *codexChatBackend) extendCodexRolloutToolCache(cache *codexRolloutToolsCache) {
+	f, err := os.Open(cache.path)
+	if err != nil {
+		return
+	}
+	defer f.Close()
+	if _, err := f.Seek(cache.offset, io.SeekStart); err != nil {
+		return
+	}
+
+	reader := bufio.NewReaderSize(f, 64*1024)
+	offset := cache.offset
+	for {
+		line, readErr := reader.ReadBytes('\n')
+		if len(line) > 0 {
+			complete := line[len(line)-1] == '\n' || json.Valid(line)
+			if complete {
+				offset += int64(len(line))
+				cache.offset = offset
+				if bytes.Contains(line, []byte(`"type":"custom_tool_call"`)) ||
+					bytes.Contains(line, []byte(`"role":"assistant"`)) {
+					codexAppendRolloutToolMarkers(cache.markers, line)
+				}
+			}
+		}
+		if readErr != nil {
+			return
+		}
+	}
+}
+
+func codexAppendRolloutToolMarkers(markers map[string][]codexRolloutTurnMarker, line []byte) {
+	var row struct {
+		Type    string `json:"type"`
+		Payload struct {
+			Type     string `json:"type"`
+			ID       string `json:"id"`
+			Role     string `json:"role"`
+			Name     string `json:"name"`
+			Input    string `json:"input"`
+			Status   string `json:"status"`
+			Internal struct {
+				TurnID      string `json:"turn_id"`
+				TurnIDCamel string `json:"turnId"`
+			} `json:"internal_chat_message_metadata_passthrough"`
+			Content []struct {
+				Type string `json:"type"`
+				Text string `json:"text"`
+			} `json:"content"`
+		} `json:"payload"`
+	}
+	if json.Unmarshal(line, &row) != nil || row.Type != "response_item" {
+		return
+	}
+	turnID := firstNonEmpty(row.Payload.Internal.TurnID, row.Payload.Internal.TurnIDCamel)
+	if turnID == "" {
+		return
+	}
+	switch row.Payload.Type {
+	case "message":
+		if row.Payload.Role != "assistant" {
+			return
+		}
+		var text strings.Builder
+		for _, part := range row.Payload.Content {
+			if part.Type == "output_text" || part.Type == "text" {
+				text.WriteString(part.Text)
+			}
+		}
+		if text.Len() > 0 {
+			markers[turnID] = append(markers[turnID], codexRolloutTurnMarker{AssistantText: text.String()})
+		}
+	case "custom_tool_call":
+		if row.Payload.Name != "exec" {
+			return
+		}
+		for _, item := range codexCodeModeToolItems(row.Payload.ID, row.Payload.Input, row.Payload.Status) {
+			markers[turnID] = append(markers[turnID], codexRolloutTurnMarker{Item: item})
+		}
+	}
+}
+
+type codexNestedToolCall struct {
+	name string
+	args string
+}
+
+func codexCodeModeToolItems(callID, input, status string) []json.RawMessage {
+	if strings.TrimSpace(status) == "" {
+		status = "completed"
+	}
+	calls := codexNestedToolCalls(input)
+	items := make([]json.RawMessage, 0, len(calls))
+	for index, call := range calls {
+		id := fmt.Sprintf("%s:%s:%d", callID, call.name, index+1)
+		var item interface{}
+		switch call.name {
+		case "exec_command":
+			command, _ := codexJSStringField(call.args, "cmd")
+			cwd, _ := codexJSStringField(call.args, "workdir")
+			item = map[string]interface{}{
+				"id": id, "type": "commandExecution", "command": command, "cwd": cwd, "status": status,
+			}
+		case "view_image":
+			path, _ := codexJSStringField(call.args, "path")
+			item = map[string]interface{}{"id": id, "type": "imageView", "path": path, "status": status}
+		case "image_gen__imagegen":
+			prompt, _ := codexJSStringField(call.args, "prompt")
+			item = map[string]interface{}{
+				"id": id, "type": "imageGeneration", "revisedPrompt": prompt, "status": status,
+			}
+		case "apply_patch", "wait", "write_stdin":
+			continue
+		default:
+			item = map[string]interface{}{
+				"id": id, "type": "dynamicToolCall", "namespace": "code_mode", "tool": call.name,
+				"status": status, "success": status != "failed",
+			}
+		}
+		raw, err := json.Marshal(item)
+		if err == nil {
+			items = append(items, raw)
+		}
+	}
+	return items
+}
+
+func codexNestedToolCalls(input string) []codexNestedToolCall {
+	calls := []codexNestedToolCall{}
+	for i := 0; i < len(input); {
+		if next, ok := codexSkipJSQuotedOrComment(input, i); ok {
+			i = next
+			continue
+		}
+		if !strings.HasPrefix(input[i:], "tools.") || (i > 0 && codexJSIdentifierByte(input[i-1])) {
+			i++
+			continue
+		}
+		nameStart := i + len("tools.")
+		nameEnd := nameStart
+		for nameEnd < len(input) && codexJSIdentifierByte(input[nameEnd]) {
+			nameEnd++
+		}
+		if nameEnd == nameStart {
+			i++
+			continue
+		}
+		open := nameEnd
+		for open < len(input) && (input[open] == ' ' || input[open] == '\t' || input[open] == '\r' || input[open] == '\n') {
+			open++
+		}
+		if open >= len(input) || input[open] != '(' {
+			i = nameEnd
+			continue
+		}
+		close := codexJSCallEnd(input, open)
+		if close < 0 {
+			break
+		}
+		calls = append(calls, codexNestedToolCall{name: input[nameStart:nameEnd], args: input[open+1 : close]})
+		i = close + 1
+	}
+	return calls
+}
+
+func codexJSIdentifierByte(ch byte) bool {
+	return ch == '_' || ch == '$' || ch >= 'a' && ch <= 'z' || ch >= 'A' && ch <= 'Z' || ch >= '0' && ch <= '9'
+}
+
+func codexSkipJSQuotedOrComment(input string, start int) (int, bool) {
+	if start >= len(input) {
+		return start, false
+	}
+	if input[start] == '"' || input[start] == '\'' || input[start] == '`' {
+		end := codexJSQuotedEnd(input, start)
+		if end < 0 {
+			return len(input), true
+		}
+		return end + 1, true
+	}
+	if input[start] != '/' || start+1 >= len(input) {
+		return start, false
+	}
+	switch input[start+1] {
+	case '/':
+		if end := strings.IndexByte(input[start+2:], '\n'); end >= 0 {
+			return start + 2 + end + 1, true
+		}
+		return len(input), true
+	case '*':
+		if end := strings.Index(input[start+2:], "*/"); end >= 0 {
+			return start + 2 + end + 2, true
+		}
+		return len(input), true
+	default:
+		return start, false
+	}
+}
+
+func codexJSCallEnd(input string, open int) int {
+	depth := 1
+	for i := open + 1; i < len(input); {
+		if next, ok := codexSkipJSQuotedOrComment(input, i); ok {
+			i = next
+			continue
+		}
+		switch input[i] {
+		case '(':
+			depth++
+		case ')':
+			depth--
+			if depth == 0 {
+				return i
+			}
+		}
+		i++
+	}
+	return -1
+}
+
+func codexJSQuotedEnd(input string, start int) int {
+	quote := input[start]
+	for i := start + 1; i < len(input); i++ {
+		if input[i] == '\\' {
+			i++
+			continue
+		}
+		if input[i] == quote {
+			return i
+		}
+	}
+	return -1
+}
+
+func codexJSStringField(input, field string) (string, bool) {
+	depth := 0
+	for i := 0; i < len(input); {
+		if next, ok := codexSkipJSQuotedOrComment(input, i); ok {
+			i = next
+			continue
+		}
+		switch input[i] {
+		case '{':
+			depth++
+			i++
+			continue
+		case '}':
+			depth--
+			i++
+			continue
+		}
+		if depth != 1 || !codexJSIdentifierByte(input[i]) {
+			i++
+			continue
+		}
+		start := i
+		for i < len(input) && codexJSIdentifierByte(input[i]) {
+			i++
+		}
+		if input[start:i] != field {
+			continue
+		}
+		for i < len(input) && (input[i] == ' ' || input[i] == '\t' || input[i] == '\r' || input[i] == '\n') {
+			i++
+		}
+		if i >= len(input) || input[i] != ':' {
+			continue
+		}
+		i++
+		for i < len(input) && (input[i] == ' ' || input[i] == '\t' || input[i] == '\r' || input[i] == '\n') {
+			i++
+		}
+		if i >= len(input) || input[i] != '"' && input[i] != '\'' && input[i] != '`' {
+			continue
+		}
+		end := codexJSQuotedEnd(input, i)
+		if end < 0 {
+			return "", false
+		}
+		return codexDecodeJSString(input[i : end+1])
+	}
+	return "", false
+}
+
+func codexDecodeJSString(literal string) (string, bool) {
+	if len(literal) < 2 {
+		return "", false
+	}
+	if literal[0] == '"' {
+		var value string
+		if json.Unmarshal([]byte(literal), &value) == nil {
+			return value, true
+		}
+		return "", false
+	}
+	body := literal[1 : len(literal)-1]
+	var out strings.Builder
+	for i := 0; i < len(body); i++ {
+		if body[i] != '\\' || i+1 >= len(body) {
+			out.WriteByte(body[i])
+			continue
+		}
+		i++
+		switch body[i] {
+		case 'n':
+			out.WriteByte('\n')
+		case 'r':
+			out.WriteByte('\r')
+		case 't':
+			out.WriteByte('\t')
+		case 'b':
+			out.WriteByte('\b')
+		case 'f':
+			out.WriteByte('\f')
+		case 'x':
+			if i+2 < len(body) {
+				if value, err := strconv.ParseUint(body[i+1:i+3], 16, 8); err == nil {
+					out.WriteByte(byte(value))
+					i += 2
+					continue
+				}
+			}
+			out.WriteByte('x')
+		default:
+			out.WriteByte(body[i])
+		}
+	}
+	return out.String(), true
+}
+
+func mergeCodexRolloutTools(items []json.RawMessage, markers []codexRolloutTurnMarker) []json.RawMessage {
+	assistantTexts := make([]string, 0)
+	existing := map[string]int{}
+	for _, raw := range items {
+		var item struct {
+			Type string `json:"type"`
+			Text string `json:"text"`
+		}
+		if json.Unmarshal(raw, &item) == nil {
+			if item.Type == "agentMessage" {
+				assistantTexts = append(assistantTexts, item.Text)
+			}
+			if key := codexToolItemKey(raw); key != "" {
+				existing[key]++
+			}
+		}
+	}
+	slots := make([][]json.RawMessage, len(assistantTexts)+1)
+	anchor := 0
+	for _, marker := range markers {
+		if marker.AssistantText != "" {
+			if anchor < len(assistantTexts) && strings.TrimSpace(marker.AssistantText) == strings.TrimSpace(assistantTexts[anchor]) {
+				anchor++
+			}
+			continue
+		}
+		if len(marker.Item) == 0 {
+			continue
+		}
+		if key := codexToolItemKey(marker.Item); key != "" && existing[key] > 0 {
+			existing[key]--
+			continue
+		}
+		slots[anchor] = append(slots[anchor], marker.Item)
+	}
+
+	toolCount := 0
+	for _, slot := range slots {
+		toolCount += len(slot)
+	}
+	if toolCount == 0 {
+		return items
+	}
+	out := make([]json.RawMessage, 0, len(items)+toolCount)
+	assistantIndex := 0
+	for _, raw := range items {
+		var item struct {
+			Type string `json:"type"`
+		}
+		_ = json.Unmarshal(raw, &item)
+		if item.Type == "agentMessage" && assistantIndex == 0 {
+			out = append(out, slots[0]...)
+		}
+		out = append(out, raw)
+		if item.Type == "agentMessage" {
+			assistantIndex++
+			if assistantIndex < len(slots) {
+				out = append(out, slots[assistantIndex]...)
+			}
+		}
+	}
+	if assistantIndex == 0 {
+		out = append(out, slots[0]...)
+	}
+	return out
+}
+
+func codexToolItemKey(raw json.RawMessage) string {
+	var item struct {
+		Type      string `json:"type"`
+		Command   string `json:"command"`
+		Cwd       string `json:"cwd"`
+		Path      string `json:"path"`
+		Namespace string `json:"namespace"`
+		Tool      string `json:"tool"`
+	}
+	if json.Unmarshal(raw, &item) != nil {
+		return ""
+	}
+	switch item.Type {
+	case "commandExecution":
+		return item.Type + "\x00" + item.Command + "\x00" + item.Cwd
+	case "imageView":
+		return item.Type + "\x00" + item.Path
+	case "dynamicToolCall":
+		return item.Type + "\x00" + item.Namespace + "\x00" + item.Tool
+	default:
+		return ""
+	}
 }
 
 func firstPositiveInt64(values ...int64) int64 {
