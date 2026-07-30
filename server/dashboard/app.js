@@ -924,7 +924,7 @@ async function refreshSessionsSoft() {
 // 开了 pty 的会话另显「终止 ⏹」（与是否在池无关）。
 function sessionStatus(session) {
   if (session.waiting) return { text: '等待回复', className: 'waiting' };
-  if (session.pty || FleetChatModel.chatPhase(session.status) === 'running') return { text: '正在进行', className: 'running' };
+  if (session.pty || FleetChatModel.chatPhase(session.status) === 'running') return { text: '', className: 'running' };
   return { text: state.scope === 'all' ? '已归档' : '', className: '' };
 }
 
@@ -5077,16 +5077,24 @@ function init() {
     if (state.mode === 'files' && state.fileView === 'columns') scrollFileColumnsToEnd();
     syncChatTurnPin();
   });
-  // 移动端软键盘弹起时把输入坞顶到键盘之上。iOS 键盘不缩布局视口（100dvh/fixed 不变），
-  // 用 VisualViewport 算键盘高度 → CSS 变量 --kb，输入坞据此上移（见 style.css #mobile-input transform）。
+  // iOS 键盘不缩布局视口（100dvh/fixed 不变），用 VisualViewport 算出键盘高度。
+  // --kb 同时收缩自绘聊天面板、上移终端输入坞；聚焦后再校正一次，覆盖首次弹键盘漏报 resize。
   if (window.visualViewport) {
     const vv = window.visualViewport;
     const syncKb = () => {
       const kb = Math.max(0, window.innerHeight - vv.height - vv.offsetTop);
       document.documentElement.style.setProperty('--kb', kb + 'px');
     };
+    const syncKbAfterFocus = (event) => {
+      if (!event.target?.matches?.('#chat-input, #cmd-input')) return;
+      syncKb();
+      requestAnimationFrame(syncKb);
+      setTimeout(syncKb, 350);
+    };
     vv.addEventListener('resize', syncKb);
     vv.addEventListener('scroll', syncKb);
+    document.addEventListener('focusin', syncKbAfterFocus);
+    document.addEventListener('focusout', syncKbAfterFocus);
     syncKb();
   }
 

@@ -937,6 +937,7 @@ textarea.chat-request-input { resize: vertical; }
   #app.term-open .win-head { display: flex; }
   #app.term-open .win-back { display: inline-flex; }
   .win-head .tt { font-size: var(--t-body); }
+  #chat-pane { bottom: var(--kb, 0px); }
   #chat-scroll { padding: 18px 14px 12px; }
   #chat-turn-pin { padding: 7px 14px; }
   .chat-turn-pin-card { max-width: 88%; }
@@ -1079,19 +1080,19 @@ textarea.chat-request-input { resize: vertical; }
 .file-toolbar { flex: none; padding: 20px 20px 12px; border-bottom: 1px solid var(--border); background: var(--bg); }
 .file-title-row { display: flex; align-items: center; gap: 12px; }
 .file-title-row h1 { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.file-actions { display: flex; gap: 7px; margin-left: auto; }
 .file-view-switch {
-  display: flex; flex: none; gap: 2px; margin-left: auto; padding: 2px;
+  display: flex; min-width: 0; gap: 2px; padding: 2px;
   border: 1px solid var(--border); border-radius: 7px; background: var(--surface-1);
 }
 .file-view-switch button {
-  display: grid; place-items: center; width: 34px; height: 32px; border-radius: 5px;
+  display: grid; place-items: center; flex: 1; min-width: 0; height: 32px; border-radius: 5px;
   color: var(--text-2); transition: background var(--dur-1) var(--ease), color var(--dur-1) var(--ease);
 }
 .file-view-switch button:hover { background: var(--surface-hover); color: var(--text); }
 .file-view-switch button[aria-pressed="true"] { background: var(--surface-2); color: var(--accent-text); box-shadow: var(--e1); }
 .file-view-switch button:focus-visible { outline: 0; box-shadow: var(--ring); }
 .file-view-switch .ic { width: 17px; height: 17px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
-.file-actions { display: flex; gap: 7px; }
 .file-breadcrumbs {
   display: flex; align-items: center; gap: 3px; min-width: 0; margin-top: 9px;
   overflow-x: auto; color: var(--text-2); font-size: var(--t-secondary); scrollbar-width: none;
@@ -1252,8 +1253,12 @@ textarea.chat-request-input { resize: vertical; }
 .file-layout.is-uploading { cursor: progress; }
 .file-layout.is-uploading .file-actions, .file-layout.is-uploading .file-sources-head .iconbtn { opacity: .55; pointer-events: none; }
 .file-settings-menu {
-  position: fixed; z-index: 75; width: min(230px, calc(100vw - 16px)); padding: 6px;
+  position: fixed; z-index: 75; width: min(270px, calc(100vw - 16px)); padding: 6px;
   border: 1px solid var(--border); border-radius: 7px; background: var(--surface); box-shadow: var(--e2);
+}
+.file-setting-view {
+  display: grid; grid-template-columns: minmax(0, 1fr) 126px; align-items: center; gap: 12px;
+  min-height: 46px; padding: 7px 9px; color: var(--text); font-size: var(--t-body);
 }
 .file-setting-option {
   display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 14px;
@@ -1372,10 +1377,11 @@ textarea.chat-request-input { resize: vertical; }
   .sc-body { padding: 8px; padding-bottom: max(18px, env(safe-area-inset-bottom, 0px)); }
   .grp { margin-bottom: 5px; }
   .grp-h { min-height: 42px; padding: 9px 8px; }
-  .ses { min-height: 44px; padding: 4px 8px; }
-  .ses-top .t { font-size: var(--t-title); }
+  .ses { min-height: 40px; padding: 2px 8px; }
+  .ses-top .t { font-size: var(--t-title); line-height: 1.25; }
   .ses-meta { margin-top: 1px; font-size: var(--t-secondary); }
   .ses-time, .ses-status { font-size: var(--t-secondary); }
+  .ses-status.running { display: none; }
 
   #app[data-mode="files"] #win { display: flex; flex: 1; min-height: 0; }
   #file-browser { width: 100%; }
@@ -1389,13 +1395,8 @@ textarea.chat-request-input { resize: vertical; }
   .file-sources { display: none; }
   .file-main { position: absolute; inset: 0; }
   .file-toolbar { padding: 10px 14px 9px; }
-  .file-title-row { flex-wrap: wrap; }
   .file-title-row h1 { font-size: var(--t-title); }
   .file-title-row .iconbtn { width: 44px; height: 44px; }
-  .file-view-switch { order: 3; width: 100%; margin-left: 0; }
-  .file-view-switch button { flex: 1; width: auto; height: 44px; }
-  .file-view-switch .ic { width: 18px; height: 18px; }
-  .file-actions { margin-left: auto; }
   .file-actions .file-settings-mobile { display: grid; }
   .file-breadcrumbs { margin-top: 7px; }
   .file-searchbar { min-height: 44px; margin-top: 9px; }
