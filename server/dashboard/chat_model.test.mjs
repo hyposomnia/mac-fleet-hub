@@ -328,7 +328,7 @@ test('session rows remove redundant device, assistant, and idle labels', () => {
     assert.doesNotMatch(nodeText(selectedDevice), /Codex/);
     assert.match(
       styleCSS,
-      /\.ses-meta:not\(:has\(\.session-device-name,\s*\.session-project-name,\s*\.ses-status:not\(:empty\)\)\)\s*\{\s*display:\s*none;\s*\}/,
+      /\.ses-meta:not\(:has\(\.session-device-name,\s*\.session-project-name\)\)\s*\{\s*display:\s*none;\s*\}/,
     );
 
     appState.sessionView = 'recent';
@@ -348,12 +348,24 @@ test('session rows remove redundant device, assistant, and idle labels', () => {
   }
 });
 
-test('session running dot replaces relative time instead of duplicating it', () => {
+test('session state uses one right-side text label without leading or running dots', () => {
+  const waiting = sessionRow({
+    sessionId: 'thread-waiting', macId: 'm1', assistant: 'codex',
+    title: 'Waiting for input', mtime: fixedAppNowMs, status: 'active', waiting: true,
+  });
+  const running = sessionRow({
+    sessionId: 'thread-running', macId: 'm1', assistant: 'codex',
+    title: 'Working', mtime: fixedAppNowMs, status: 'active',
+  });
+  assert.equal(nodesWithClass(waiting, 'dot').length, 0);
+  assert.equal(nodesWithClass(waiting, 'session-running-status').length, 0);
+  assert.equal(nodesWithClass(nodesWithClass(waiting, 'ses-top')[0], 'ses-status')[0]?.textContent, '等待回复');
+  assert.equal(nodesWithClass(nodesWithClass(running, 'ses-top')[0], 'ses-status')[0]?.textContent, '正在进行');
   assert.match(
     styleCSS,
-    /\.ses\.session-running \.ses-time,\s*\.ses\.conn \.ses-time\s*\{\s*display:\s*none;\s*\}/,
+    /\.ses\.session-running \.ses-time,\s*\.ses\.conn \.ses-time,\s*\.ses\.session-waiting \.ses-time\s*\{\s*display:\s*none;\s*\}/,
   );
-  assert.match(styleCSS, /\.ses\.session-running \.session-running-status\s*\{\s*display:\s*grid;\s*\}/);
+  assert.doesNotMatch(styleCSS, /session-running-status/);
 });
 
 test('custom file browser stays on one device and shares the protected preview route', () => {

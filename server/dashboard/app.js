@@ -900,11 +900,7 @@ async function refreshSessionsSoft() {
   for (const el of rows) {
     const session = freshByKey.get(`${el.dataset.mac}\n${el.dataset.assistant}\n${el.dataset.sid}`);
     if (!session) continue;
-    const dot = el.querySelector('.dot');
-    if (dot) {
-      dot.classList.toggle('wait', !!session.waiting);
-      dot.title = session.waiting ? '等待你的回复 / 选择' : '';
-    }
+    el.classList.toggle('session-waiting', !!session.waiting);
     const tEl = el.querySelector('.ses-time');
     if (tEl) tEl.textContent = relTime(session.mtime);
     const status = el.querySelector('.ses-status');
@@ -918,13 +914,13 @@ async function refreshSessionsSoft() {
 }
 
 // 会话行：
-// 已在池中 / 有运行中进程（行尾绿点）的会话：点行即直接进入——池内 poolShow 瞬时切换，
+// 已在池中 / 有运行中进程（行尾文字状态）的会话：点行即直接进入——池内 poolShow 瞬时切换，
 //   仅有进程未在池时 api open 重新 attach（tmux 复用，权限模式启动时已固定，不再让选）。
 // 仅「冷会话」（无进程且未在池）点行才展开「连接 / Bypass / Auto」——那才是真正新起 Claude。
 // 开了 pty 的会话另显「终止 ⏹」（与是否在池无关）。
-function sessionStatus(session) {
-  if (session.waiting) return { text: '等待回复', className: 'waiting' };
-  if (session.pty || FleetChatModel.chatPhase(session.status) === 'running') return { text: '正在进行', className: 'running' };
+function sessionStatus(session, running = !!session?.pty || FleetChatModel.chatPhase(session?.status) === 'running') {
+  if (session?.waiting) return { text: '等待回复', className: 'waiting' };
+  if (running) return { text: '正在进行', className: 'running' };
   return { text: state.scope === 'all' ? '已归档' : '', className: '' };
 }
 
@@ -944,32 +940,29 @@ function sessionRow(s) {
   const inPool = !!poolFind(macId, sid, assistant);
   const chatConnected = assistant === 'codex' && isChatConnectionKept(macId, sid);
   const sessionRunning = assistant === 'codex' && isSessionRunning(s, macId);
-  const live = !!s.pty; // 有运行中进程（行尾绿点）：再连只是重新 attach，不需选权限模式
+  const live = !!s.pty; // 有运行中进程（行尾文字状态）：再连只是重新 attach，不需选权限模式
   const stop = s.pty && h('span', { class: 'stopbtn', title: '终止进程（会话保留）',
     onclick: (e) => { e.stopPropagation(); termSes(sid, s.title, macId, assistant); } }, svgStop());
   const pin = assistant === 'codex' && s.pinned
     ? h('span', { class: 'ses-pin', title: '已置顶' }, svgIcon('ic', 'M12 17v5M5 3h14l-3 6v4l2 2H6l2-2V9Z'))
     : null;
   const menu = assistant === 'codex' ? renderCodexSessionMenu(s) : null;
+  const status = sessionStatus(s, sessionRunning || live || FleetChatModel.chatPhase(s.status) === 'running');
   const top = h('div', { class: 'ses-top' },
-    // 行首点位恒定留出（标题统一对齐）：默认透明占位，仅「等待你回复/选择」(s.waiting) 显棕色点
-    h('span', { class: 'dot' + (s.waiting ? ' wait' : ''), title: s.waiting ? '等待你的回复 / 选择' : null }),
     h('span', { class: 't', text: s.title || '(无标题)' }),
     // 紧凑化：不再单起一行显示分支/路径，仅在同行标题后跟相对时间
     h('span', { class: 'ses-time', text: relTime(s.mtime) }),
-    h('span', { class: 'session-running-status', title: '正在进行', 'aria-label': '正在进行' }),
+    h('span', { class: `ses-status${status.className ? ' ' + status.className : ''}`, text: status.text }),
     h('span', { class: 'chat-cache-status', title: '自绘会话保持连接', 'aria-label': '自绘会话保持连接' }),
     pin,
     stop,
     menu,
   );
-  const status = sessionStatus(s);
   const meta = h('div', { class: 'ses-meta' },
     state.sessionMacId === 'all' ? h('span', { class: 'session-device-name', text: macName(macId) }) : null,
     state.sessionView === 'recent'
       ? h('span', { class: 'session-project-name', text: projName(s.cwd) })
       : null,
-    h('span', { class: `ses-status${status.className ? ' ' + status.className : ''}`, text: status.text }),
   );
   // 池内 / 有进程的会话点行即直接进入，不需按钮；仅冷会话才展开三种权限模式。
   const acts = (selfDraw || inPool || live) ? null : h('div', { class: 'ses-acts' },
@@ -984,7 +977,7 @@ function sessionRow(s) {
     assistant === (state.selectedSessionAssistant || state.assistant);
   const row = h('div', {
     class: 'ses' + (s.pty ? ' conn' : '') + (sessionRunning ? ' session-running' : '') +
-      (chatConnected ? ' chat-connected' : '') + (selected ? ' sel' : ''),
+      (s.waiting ? ' session-waiting' : '') + (chatConnected ? ' chat-connected' : '') + (selected ? ' sel' : ''),
     dataset: { sid, mac: macId, assistant },
   }, top, meta, acts);
   // 池内 → poolShow 瞬时切换；有进程未在池 → 直接重新 attach；冷会话 → 仅高亮 + 展开三按钮。
@@ -1520,8 +1513,17 @@ function syncSessionRuntimeIndicators() {
   const sessions = new Map(state.sessionResults.map((session) => [sessionKey(session), session]));
   $$('#session-groups .ses').forEach((row) => {
     const key = `${row.dataset.mac}\n${row.dataset.assistant}\n${row.dataset.sid}`;
+    const session = sessions.get(key);
+    const running = isSessionRunning(session, row.dataset.mac);
     row.classList.toggle('chat-connected', isChatConnectionKept(row.dataset.mac, row.dataset.sid));
-    row.classList.toggle('session-running', isSessionRunning(sessions.get(key), row.dataset.mac));
+    row.classList.toggle('session-running', running);
+    row.classList.toggle('session-waiting', !!session?.waiting);
+    const status = row.querySelector('.ses-status');
+    if (status) {
+      const value = sessionStatus(session, running || !!session?.pty);
+      status.textContent = value.text;
+      status.className = `ses-status${value.className ? ' ' + value.className : ''}`;
+    }
   });
 }
 
