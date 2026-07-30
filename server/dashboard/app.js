@@ -2901,7 +2901,7 @@ async function selectChatApprovalMode(value) {
     closeChatApproval();
     return;
   }
-  const appliesNextTurn = isChatRunning(chat);
+  const updatesRunningTurn = isChatRunning(chat);
   chat.approvalMode = approvalMode;
   renderChatApprovalMenu(chat);
   closeChatApproval();
@@ -2918,7 +2918,11 @@ async function selectChatApprovalMode(value) {
     if (chat.approvalUpdateChain === update) {
       chat.approvalMode = chat.approvalConfirmedMode;
       if (state.chat === chat) renderChatApprovalMenu(chat);
-      if (appliesNextTurn && state.chat === chat) toast('权限已更新，将从下一轮任务生效。');
+      if (updatesRunningTurn && state.chat === chat) {
+        toast(approvalMode === 'full-access'
+          ? '已开启完全访问，当前任务后续审批将自动允许。'
+          : '权限已更新，将从下一轮任务生效。');
+      }
     }
   } catch (e) {
     if (chat.approvalUpdateChain === update) {
