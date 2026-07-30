@@ -842,7 +842,7 @@ textarea.chat-request-input { resize: vertical; }
 #cmd-input { flex: 1; min-height: 46px; max-height: 120px; padding: 12px 14px; border-radius: 14px; background: var(--surface-2); border: 1px solid var(--border); resize: none; outline: none; line-height: 1.4; }
 #cmd-input:focus { border-color: var(--accent); box-shadow: var(--ring); }
 .send-btn { width: 46px; height: 46px; border-radius: 14px; background: var(--accent); color: #fff; font-size: var(--t-display); display: grid; place-items: center; flex: none; }
-.chat-send { width: 40px; height: 40px; border-radius: 50%; background: var(--chat-text); color: var(--chat-bg); box-shadow: var(--e1); }
+.chat-send { width: 36px; height: 36px; border-radius: 50%; background: var(--chat-text); color: var(--chat-bg); box-shadow: var(--e1); }
 .chat-send .chat-stop-icon { display: none; }
 .chat-send[data-action="interrupt"] { background: #111; color: #fff; }
 .chat-send[data-action="interrupt"] .chat-send-icon { display: none; }
@@ -936,7 +936,7 @@ textarea.chat-request-input { resize: vertical; }
   .chat-composer-float { top: -60px; left: 10px; right: 10px; }
   .chat-composer-inner { min-height: 108px; padding: 6px; border-radius: 20px; }
   .chat-attach { width: 36px; height: 36px; }
-  .chat-send { width: 40px; height: 40px; }
+  .chat-send { width: 36px; height: 36px; }
   #chat-input { min-height: 52px; padding: 9px 10px 5px; }
   .chat-composer-toolbar { gap: 4px; padding: 0; }
   .chat-tools-left, .chat-tools-right { gap: 2px; }

@@ -817,6 +817,7 @@ test('self-drawn composer contains native stop control and follow-up queue', () 
   assert.match(indexHTML, /data-action="send"/);
   assert.match(styleCSS, /\.chat-send \.chat-stop-icon\s*\{\s*display:\s*none/);
   assert.match(styleCSS, /chat-send\[data-action="interrupt"\]/);
+  assert.equal((styleCSS.match(/\.chat-send\s*\{\s*width:\s*36px;\s*height:\s*36px;/g) || []).length, 2);
   assert.match(styleCSS, /#chat-composer\s*\{\s*padding:\s*8px 10px 10px/);
   assert.doesNotMatch(styleCSS, /#chat-composer\s*\{\s*padding:\s*8px 10px [^;}]*safe-area-inset-bottom/);
 });
