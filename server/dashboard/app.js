@@ -4739,6 +4739,11 @@ function init() {
     if (['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(e.key)) updateChatSkillMenu();
   });
   $('#chat-input').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && (e.metaKey || e.ctrlKey) && !isIMEComposing(e, chatIMEComposing)) {
+      e.preventDefault();
+      submitChatInput({ forceQueue: e.shiftKey });
+      return;
+    }
     const menu = state.chat?.skillMenu;
     if (menu && !$('#chat-skill-menu').hidden && !isIMEComposing(e, chatIMEComposing)) {
       if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
@@ -4760,10 +4765,7 @@ function init() {
       }
     }
     if (e.key === 'Enter' && !isIMEComposing(e, chatIMEComposing)) {
-      if ((e.metaKey || e.ctrlKey) && e.shiftKey) {
-        e.preventDefault();
-        submitChatInput({ forceQueue: true });
-      } else if (!e.shiftKey) {
+      if (!e.shiftKey) {
         e.preventDefault();
         submitChatInput({ forceQueue: $('#chat-send').dataset.action === 'queue' });
       }

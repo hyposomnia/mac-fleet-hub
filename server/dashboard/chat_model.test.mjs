@@ -619,6 +619,15 @@ test('composer sends running input to the follow-up queue and only stops when em
   assert.match(appSrc, /submitChatInput\(\{ forceQueue: action === 'queue' \}\)/);
 });
 
+test('command enter steers the running turn before the skill menu handles enter', () => {
+  const commandEnter = appSrc.indexOf("if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)");
+  const skillMenu = appSrc.indexOf('const menu = state.chat?.skillMenu;', commandEnter);
+
+  assert.notEqual(commandEnter, -1);
+  assert.ok(commandEnter < skillMenu);
+  assert.match(appSrc.slice(commandEnter, skillMenu), /submitChatInput\(\{ forceQueue: e\.shiftKey \}\);\s*return;/);
+});
+
 test('chat skill trigger recognizes dollar and slash only at token start', () => {
   assert.deepEqual(
     { ...chatSkillTriggerAt('$de', 3) },
