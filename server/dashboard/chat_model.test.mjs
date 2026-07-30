@@ -265,7 +265,8 @@ test('session header keeps archive browsing in settings', () => {
   assert.ok(header);
   assert.match(header, /class="sc-head-actions"[\s\S]*id="new-session"/);
   assert.match(header, /id="session-device-button"[\s\S]*id="session-device-label">全部设备/);
-  assert.match(header, /id="session-search"[\s\S]*id="session-view-toggle"/);
+  assert.match(header, /id="session-search"[\s\S]*id="session-view-toggle"[\s\S]*id="new-session-mobile"/);
+  assert.doesNotMatch(header, /session-summary|session-count|session-view-label|个未归档|按项目分组/);
   assert.doesNotMatch(header, /id="refresh-btn"/);
   assert.doesNotMatch(indexHTML, /data-scope=/);
   assert.match(indexHTML, /data-settings-tab="sessions"/);
@@ -274,6 +275,15 @@ test('session header keeps archive browsing in settings', () => {
   assert.match(appSrc, /SESSION_ARCHIVE_KEY\s*=\s*'fleet-show-archived-sessions'/);
   assert.match(appSrc, /localStorage\.setItem\(SESSION_ARCHIVE_KEY/);
   assert.match(styleCSS, /\.sc-head-actions\s*\{/);
+});
+
+test('session grouping omits aggregate badges and the view toggle has a visible pressed state', () => {
+  const source = appSrc.match(/function renderSessionResults[\s\S]*?\n}\n\nasync function loadSessions/)?.[0] || '';
+  assert.ok(source);
+  assert.doesNotMatch(source, /class:\s*'gc badge'/);
+  assert.doesNotMatch(styleCSS, /\.grp-h \.gc/);
+  assert.match(styleCSS, /#session-view-toggle\[aria-pressed="true"\]\s*\{[^}]*background:\s*var\(--accent-soft\)/s);
+  assert.match(styleCSS, /@media \(max-width:\s*860px\)[\s\S]*?\.session-search-row\s*\{\s*grid-template-columns:\s*minmax\(0,\s*1fr\)\s*46px\s*46px/s);
 });
 
 test('session pagination loads automatically near the scroll boundary', () => {
@@ -373,12 +383,16 @@ test('custom file browser stays on one device and shares the protected preview r
   for (const id of [
     'file-browser', 'file-device-button', 'file-locations', 'file-breadcrumbs',
     'file-list', 'file-preview-frame', 'file-upload-input', 'file-settings',
-    'file-settings-mobile', 'file-settings-menu', 'file-show-hidden',
+    'file-settings-menu', 'file-show-hidden',
     'file-preview-type', 'file-preview-size', 'file-preview-modified',
     'file-preview-location', 'file-preview-device',
   ]) {
     assert.match(indexHTML, new RegExp(`id="${id}"`));
   }
+  const fileSources = indexHTML.match(/<aside class="file-sources">[\s\S]*?<\/aside>/)?.[0] || '';
+  const fileToolbar = indexHTML.match(/<header class="file-toolbar">[\s\S]*?<\/header>/)?.[0] || '';
+  assert.doesNotMatch(fileSources, /file-settings-trigger/);
+  assert.match(fileToolbar, /id="file-upload"[\s\S]*id="file-new-folder"[\s\S]*id="file-settings"/);
   assert.doesNotMatch(indexHTML, /id="file-upload-side"/);
   for (const endpoint of ['file/list', 'file/mkdir', 'file/upload', 'file/rename', 'file/delete']) {
     assert.match(appSrc, new RegExp(endpoint.replace('/', '\\/')));

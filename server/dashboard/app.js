@@ -655,8 +655,6 @@ function updateSessionFilterUI() {
     toggle.title = recent ? '按项目分组' : '按最近更新排序';
     toggle.setAttribute('aria-label', toggle.title);
   }
-  const label = $('#session-view-label');
-  if (label) label.textContent = recent ? '按最近更新' : '按项目分组';
 }
 
 function sessionKey(session) {
@@ -713,12 +711,6 @@ function renderSessionResults(opts = {}) {
   const previousScrollTop = opts.preserveScroll ? wrap.scrollTop : 0;
   const sessions = [...(state.sessionResults || [])].sort((a, b) =>
     (Number(b.pinned) - Number(a.pinned)) || (Number(b.mtime) - Number(a.mtime)));
-  const count = $('#session-count');
-  if (count) {
-    const noun = state.scope === 'all' ? '个已归档' : '个未归档';
-    count.textContent = `${sessions.length} ${noun}`;
-  }
-
   clear(wrap);
   if (!sessions.length) {
     let message = state.sessionSearch ? '没有匹配的会话' : (state.scope === 'all' ? '没有已归档会话' : '没有未归档会话');
@@ -740,7 +732,6 @@ function renderSessionResults(opts = {}) {
         svgIcon('chev', 'M6 9l6 6 6-6'),
         h('span', { class: 'gn', text: projName(g.cwd) }),
         h('span', { class: 'gpath badge', dataset: { path: projFull(g.cwd) } }, '/'),
-        h('span', { class: 'gc badge', text: String(g.arr.length) }),
       );
       const items = h('div', { class: 'grp-items' }, ...g.arr.map(sessionRow));
       const grp = h('div', { class: 'grp' + (collapsed ? ' collapsed' : '') }, head, items);
@@ -4895,7 +4886,9 @@ function init() {
     persistUIState();
     renderSessionResults();
   };
-  $('#new-session').onclick = requestNewSession;
+  $$('#new-session, #new-session-mobile').forEach((button) => {
+    button.onclick = requestNewSession;
+  });
   $('#session-device-button').onclick = () => openDevicePicker('sessions');
   $('#file-device-button').onclick = () => openDevicePicker('files');
   $('#device-search').oninput = renderDeviceOptions;
