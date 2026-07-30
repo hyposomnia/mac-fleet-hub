@@ -366,6 +366,7 @@ test('session state uses one right-side text label without leading or running do
     /\.ses\.session-running \.ses-time,\s*\.ses\.conn \.ses-time,\s*\.ses\.session-waiting \.ses-time\s*\{\s*display:\s*none;\s*\}/,
   );
   assert.doesNotMatch(styleCSS, /session-running-status/);
+  assert.doesNotMatch(styleCSS, /\.ses-status\.running\s*\{\s*display:\s*none;\s*\}/);
 });
 
 test('custom file browser stays on one device and shares the protected preview route', () => {
@@ -485,6 +486,9 @@ test('file browser supports persistent icon, list, and column views', () => {
   assert.equal(normalizeFileView('list'), 'list');
   assert.equal(normalizeFileView('columns'), 'columns');
   assert.equal(normalizeFileView('tiles'), 'list');
+  const fileToolbar = indexHTML.match(/<header class="file-toolbar">[\s\S]*?<\/header>/)?.[0] || '';
+  assert.doesNotMatch(fileToolbar, /id="file-view-switch"/);
+  assert.match(indexHTML, /id="file-settings-menu"[\s\S]*?id="file-view-switch"/);
   assert.match(indexHTML, /id="file-view-switch"[^>]*role="group"[^>]*aria-label="查看方式"/);
   for (const view of ['icons', 'list', 'columns']) {
     assert.match(indexHTML, new RegExp(`data-file-view="${view}"`));
@@ -492,6 +496,7 @@ test('file browser supports persistent icon, list, and column views', () => {
   assert.match(indexHTML, /data-file-view="list"[^>]*aria-pressed="true"/);
   assert.match(appSrc, /state\.fileView\s*=\s*normalizeFileView\(saved\.fileView\)/);
   assert.match(appSrc, /fileView:\s*state\.fileView/);
+  assert.doesNotMatch(styleCSS, /\.file-view-switch\s*\{[^}]*order:\s*3/);
 });
 
 test('column view truncates stale descendants and rejects stale async responses', () => {
@@ -816,6 +821,14 @@ test('self-drawn composer contains native stop control and follow-up queue', () 
   assert.doesNotMatch(styleCSS, /#chat-composer\s*\{\s*padding:\s*8px 10px [^;}]*safe-area-inset-bottom/);
 });
 
+test('mobile chat composer follows the visual viewport on first keyboard focus', () => {
+  assert.match(styleCSS, /#chat-pane\s*\{\s*bottom:\s*var\(--kb,\s*0px\);\s*\}/);
+  assert.match(appSrc, /const syncKbAfterFocus\s*=\s*\(event\)\s*=>/);
+  assert.match(appSrc, /event\.target\?\.matches\?\.\('#chat-input, #cmd-input'\)/);
+  assert.match(appSrc, /document\.addEventListener\('focusin',\s*syncKbAfterFocus\)/);
+  assert.match(appSrc, /setTimeout\(syncKb,\s*350\)/);
+});
+
 test('self-drawn approval menu mirrors Codex three presets', () => {
   assert.match(indexHTML, /id="chat-approval-popover"/);
   assert.doesNotMatch(indexHTML, /<option value="never">/);
@@ -852,8 +865,13 @@ test('self-drawn user message time renders outside the bubble', () => {
 });
 
 test('mobile session rows keep a compact touch target', () => {
-  assert.match(styleCSS, /@media \(max-width: 860px\)[\s\S]*?\.ses\s*\{\s*min-height:\s*44px;\s*padding:\s*4px 8px;\s*\}/);
+  assert.match(styleCSS, /@media \(max-width: 860px\)[\s\S]*?\.ses\s*\{\s*min-height:\s*40px;\s*padding:\s*2px 8px;\s*\}/);
   assert.doesNotMatch(styleCSS, /@media \(max-width: 860px\)[\s\S]*?\.ses\s*\{\s*min-height:\s*68px;/);
+});
+
+test('mobile title switch emphasizes only the selected mode', () => {
+  assert.match(styleCSS, /\.mobile-title-switch button\s*\{[^}]*border-bottom:\s*3px solid transparent;[^}]*color:\s*var\(--text\);[^}]*font-weight:\s*500;/s);
+  assert.match(styleCSS, /\.mobile-title-switch button\[aria-selected="true"\]\s*\{[^}]*border-bottom-color:\s*var\(--accent\);[^}]*color:\s*var\(--accent\);[^}]*font-weight:\s*700;/s);
 });
 
 test('mobile text controls prevent iOS focus zoom without disabling pinch zoom', () => {
