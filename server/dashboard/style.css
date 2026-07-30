@@ -1143,8 +1143,11 @@ textarea.chat-request-input { resize: vertical; }
   border-radius: 6px; background: var(--surface-1); color: var(--text-2);
 }
 .file-glyph.folder { color: var(--accent-text); }
-.file-glyph.previewable { color: var(--online); }
 .file-glyph .ic { width: 17px; height: 17px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.file-glyph .file-type-icon { display: block; width: 21px; height: 21px; object-fit: contain; pointer-events: none; }
+.file-row.is-hidden .file-type-icon,
+.file-icon-item.is-hidden .file-type-icon,
+.file-column-row.is-hidden .file-type-icon { filter: grayscale(1); opacity: .46; }
 .file-row-time, .file-row-size { color: var(--text-2); font-size: var(--t-secondary); font-variant-numeric: tabular-nums; white-space: nowrap; }
 .file-row-menu-wrap { position: relative; }
 .file-row-menu-trigger { width: 30px; height: 30px; opacity: 0; }
@@ -1178,6 +1181,7 @@ textarea.chat-request-input { resize: vertical; }
 .file-icon-item[aria-selected="true"] { background: var(--accent-soft); color: var(--text); }
 .file-icon-item > .file-glyph { width: 56px; height: 56px; margin-bottom: 8px; border-radius: 7px; }
 .file-icon-item > .file-glyph .ic { width: 29px; height: 29px; stroke-width: 1.6; }
+.file-icon-item > .file-glyph .file-type-icon { width: 37px; height: 37px; }
 .file-icon-item > strong {
   display: -webkit-box; width: 100%; min-width: 0; overflow: hidden; color: var(--text);
   font-size: var(--t-body); font-weight: 500; line-height: 1.35; overflow-wrap: anywhere;
@@ -1218,6 +1222,7 @@ textarea.chat-request-input { resize: vertical; }
 .file-column-row[aria-selected="true"] { background: var(--accent-soft); color: var(--text); }
 .file-column-row > .file-glyph { width: 28px; height: 28px; border-radius: 5px; }
 .file-column-row > .file-glyph .ic { width: 15px; height: 15px; }
+.file-column-row > .file-glyph .file-type-icon { width: 18px; height: 18px; }
 .file-column-row > strong { min-width: 0; overflow: hidden; color: var(--text); font-size: var(--t-body); font-weight: 500; text-overflow: ellipsis; white-space: nowrap; }
 .file-column-tail { display: grid; place-items: center; width: 30px; height: 30px; }
 .file-column-tail > * { grid-area: 1 / 1; }

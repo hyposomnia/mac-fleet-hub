@@ -3533,6 +3533,133 @@ function formatFileInfoTime(ms) {
   }).format(new Date(value));
 }
 
+const FILE_ICON_EXTENSION_GROUPS = Object.freeze({
+  audio: 'aac aif aiff alac flac m4a mp3 ogg opus wav wma',
+  c: 'c h',
+  console: 'bash bat cmd command fish pl pm sh tcl zsh',
+  cpp: 'cc cpp cxx hpp hxx',
+  csharp: 'cs csx',
+  css: 'css',
+  dart: 'dart',
+  database: 'db db3 sql sqlite sqlite3',
+  document: 'adoc org tex text txt',
+  exe: 'appimage bin deb dll dylib exe msi pkg rpm so',
+  font: 'eot otf ttf woff woff2',
+  go: 'go',
+  html: 'htm html xhtml',
+  image: 'avif bmp gif heic heif ico jpeg jpg png psd raw svg tif tiff webp',
+  java: 'java',
+  javascript: 'cjs js mjs',
+  json: 'geojson json json5 jsonl',
+  kotlin: 'kt kts',
+  lock: 'lock',
+  log: 'log',
+  lua: 'lua',
+  markdown: 'markdown md mdx',
+  pdf: 'pdf',
+  php: 'phar php phtml',
+  powerpoint: 'key odp ppt pptx',
+  powershell: 'ps1 psd1 psm1',
+  python: 'ipynb py pyi pyw pyx',
+  r: 'r rmd',
+  react: 'jsx tsx',
+  ruby: 'erb gemspec rb',
+  rust: 'rs',
+  sass: 'less sass scss',
+  settings: 'cfg conf config env ini properties',
+  svelte: 'svelte',
+  swift: 'swift',
+  table: 'csv numbers ods tsv xls xlsm xlsx',
+  toml: 'toml',
+  typescript: 'cts mts ts',
+  video: '3gp avi flv m4v mkv mov mp4 mpeg mpg webm wmv',
+  vue: 'vue',
+  word: 'doc docx odt pages rtf',
+  xml: 'plist xml xsl xslt',
+  yaml: 'yaml yml',
+  zip: '7z bz2 dmg gz iso rar tar tgz xz zip zst',
+});
+
+const FILE_ICON_BY_EXTENSION = Object.freeze(Object.fromEntries(
+  Object.entries(FILE_ICON_EXTENSION_GROUPS).flatMap(([icon, extensions]) =>
+    extensions.split(' ').map((extension) => [extension, icon])),
+));
+
+const FILE_ICON_BY_NAME = Object.freeze({
+  '.dockerignore': 'docker',
+  '.editorconfig': 'settings',
+  '.env': 'settings',
+  '.gitattributes': 'git',
+  '.gitignore': 'git',
+  '.gitmodules': 'git',
+  '.npmrc': 'npm',
+  'cargo.lock': 'rust',
+  'cargo.toml': 'rust',
+  'cmakelists.txt': 'console',
+  'compose.yaml': 'docker',
+  'compose.yml': 'docker',
+  'containerfile': 'docker',
+  'docker-compose.yaml': 'docker',
+  'docker-compose.yml': 'docker',
+  'dockerfile': 'docker',
+  'gemfile': 'ruby',
+  'go.mod': 'go',
+  'go.sum': 'go',
+  'go.work': 'go',
+  'jsconfig.json': 'javascript',
+  'makefile': 'console',
+  'npm-shrinkwrap.json': 'npm',
+  'package-lock.json': 'npm',
+  'package.json': 'npm',
+  'pipfile': 'python',
+  'pnpm-lock.yaml': 'npm',
+  'poetry.lock': 'python',
+  'pyproject.toml': 'python',
+  'rakefile': 'ruby',
+  'requirements.txt': 'python',
+  'tsconfig.json': 'typescript',
+  'uv.lock': 'python',
+  'yarn.lock': 'npm',
+});
+
+function fileIconName(entry) {
+  if (entry?.kind === 'folder') return 'folder';
+  const name = String(entry?.name || '').trim().toLocaleLowerCase();
+  if (FILE_ICON_BY_NAME[name]) return FILE_ICON_BY_NAME[name];
+
+  const declaredExtension = String(entry?.extension || '').trim().toLocaleLowerCase().replace(/^\./, '');
+  const dot = name.lastIndexOf('.');
+  const extension = declaredExtension || (dot > 0 ? name.slice(dot + 1) : '');
+  if (FILE_ICON_BY_EXTENSION[extension]) return FILE_ICON_BY_EXTENSION[extension];
+
+  const mime = String(entry?.mime || '').toLocaleLowerCase();
+  if (mime.startsWith('image/')) return 'image';
+  if (mime.startsWith('audio/')) return 'audio';
+  if (mime.startsWith('video/')) return 'video';
+  if (mime === 'application/pdf') return 'pdf';
+  if (mime.includes('python')) return 'python';
+  if (mime.includes('javascript')) return 'javascript';
+  if (mime.includes('shell')) return 'console';
+  if (mime.includes('json')) return 'json';
+  if (mime.includes('xml')) return 'xml';
+  if (mime.includes('zip') || mime.includes('compressed') || mime.includes('archive')) return 'zip';
+  if (mime.includes('spreadsheet') || mime.includes('excel') || mime === 'text/csv') return 'table';
+  if (mime.includes('presentation') || mime.includes('powerpoint')) return 'powerpoint';
+  if (mime.includes('wordprocessing') || mime.includes('msword')) return 'word';
+  if (mime.includes('font')) return 'font';
+  return 'document';
+}
+
+function fileTypeIcon(name) {
+  return h('img', {
+    class: 'file-type-icon',
+    src: `${BASE}/icons/file-types/${name}.svg`,
+    alt: '',
+    draggable: 'false',
+    'aria-hidden': 'true',
+  });
+}
+
 function filePreviewTypeLabel(entry) {
   const name = String(entry?.name || '');
   const nameExtension = name.includes('.') ? name.slice(name.lastIndexOf('.')) : '';
@@ -3734,10 +3861,11 @@ function renderFileBreadcrumbs() {
 
 function fileGlyph(entry) {
   const folder = entry.kind === 'folder';
-  return h('span', { class: `file-glyph${folder ? ' folder' : (entry.previewable ? ' previewable' : '')}` },
+  const icon = fileIconName(entry);
+  return h('span', { class: `file-glyph${folder ? ' folder' : ` file-type file-type-${icon}`}` },
     folder
       ? svgIcon('ic', 'M3 6.5A2.5 2.5 0 0 1 5.5 4H9l2 2h7.5A2.5 2.5 0 0 1 21 8.5v8a2.5 2.5 0 0 1-2.5 2.5h-13A2.5 2.5 0 0 1 3 16.5z')
-      : svgIcon('ic', 'M6 2h8l4 4v16H6zM14 2v5h5'));
+      : fileTypeIcon(icon));
 }
 
 function closeFileMenus() {

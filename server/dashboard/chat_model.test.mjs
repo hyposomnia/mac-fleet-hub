@@ -65,8 +65,8 @@ const appSandbox = {
   Date: FixedAppDate,
 };
 vm.createContext(appSandbox);
-vm.runInContext(`${appSrc}\n;globalThis.__chatCacheTest = { chatCacheVictim, isChatConnectionKept, isSessionRunning, updateChatUpdatedAt, formatChatDate, chatAssistantMetaText, chatUserMetaText, chatMessageMetaVisibility, applyChatMetadataDefaults, enqueueChatFollowup, removeChatFollowup, normalizeChatDraft, chatSkillTriggerAt, parseChatSkillInput, chatSkillTokenNames, mergeChatComposerText, mergeChatAttachments, chatComposerAction: typeof chatComposerAction === 'function' ? chatComposerAction : null, chatImageSrc, chatToolStatus, chatToolDuration, chatToolActivityLabel, chatToolHasExpandableBody, isChatActivityItem, isChatTraceItem: typeof isChatTraceItem === 'function' ? isChatTraceItem : null, chatRenderUnits: typeof chatRenderUnits === 'function' ? chatRenderUnits : null, chatActivityGroupSummaryText, chatActivityActiveSummarySegments, chatActivityGroupIconKind, renderChatActivityGroup, renderChatActivityRun: typeof renderChatActivityRun === 'function' ? renderChatActivityRun : null, sessionRow, sessionStatus, filterFileEntries, sortFileEntries: typeof sortFileEntries === 'function' ? sortFileEntries : null, normalizeFileView: typeof normalizeFileView === 'function' ? normalizeFileView : null, truncateFileColumns: typeof truncateFileColumns === 'function' ? truncateFileColumns : null, fileColumnRequestCurrent: typeof fileColumnRequestCurrent === 'function' ? fileColumnRequestCurrent : null, filePreviewTypeLabel, filePreviewLocation, chatTurnPinText: typeof chatTurnPinText === 'function' ? chatTurnPinText : () => '', isInternalChatTool: typeof isInternalChatTool === 'function' ? isInternalChatTool : () => false, state };`, appSandbox);
-const { chatCacheVictim, isChatConnectionKept, isSessionRunning, updateChatUpdatedAt, formatChatDate, chatAssistantMetaText, chatUserMetaText, chatMessageMetaVisibility, applyChatMetadataDefaults, enqueueChatFollowup, removeChatFollowup, normalizeChatDraft, chatSkillTriggerAt, parseChatSkillInput, chatSkillTokenNames, mergeChatComposerText, mergeChatAttachments, chatComposerAction, chatImageSrc, chatToolStatus, chatToolDuration, chatToolActivityLabel, chatToolHasExpandableBody, isChatActivityItem, isChatTraceItem, chatRenderUnits, chatActivityGroupSummaryText, chatActivityActiveSummarySegments, chatActivityGroupIconKind, renderChatActivityGroup, renderChatActivityRun, sessionRow, sessionStatus, filterFileEntries, sortFileEntries, normalizeFileView, truncateFileColumns, fileColumnRequestCurrent, filePreviewTypeLabel, filePreviewLocation, chatTurnPinText, isInternalChatTool, state: appState } = appSandbox.__chatCacheTest;
+vm.runInContext(`${appSrc}\n;globalThis.__chatCacheTest = { chatCacheVictim, isChatConnectionKept, isSessionRunning, updateChatUpdatedAt, formatChatDate, chatAssistantMetaText, chatUserMetaText, chatMessageMetaVisibility, applyChatMetadataDefaults, enqueueChatFollowup, removeChatFollowup, normalizeChatDraft, chatSkillTriggerAt, parseChatSkillInput, chatSkillTokenNames, mergeChatComposerText, mergeChatAttachments, chatComposerAction: typeof chatComposerAction === 'function' ? chatComposerAction : null, chatImageSrc, chatToolStatus, chatToolDuration, chatToolActivityLabel, chatToolHasExpandableBody, isChatActivityItem, isChatTraceItem: typeof isChatTraceItem === 'function' ? isChatTraceItem : null, chatRenderUnits: typeof chatRenderUnits === 'function' ? chatRenderUnits : null, chatActivityGroupSummaryText, chatActivityActiveSummarySegments, chatActivityGroupIconKind, renderChatActivityGroup, renderChatActivityRun: typeof renderChatActivityRun === 'function' ? renderChatActivityRun : null, sessionRow, sessionStatus, filterFileEntries, sortFileEntries: typeof sortFileEntries === 'function' ? sortFileEntries : null, normalizeFileView: typeof normalizeFileView === 'function' ? normalizeFileView : null, truncateFileColumns: typeof truncateFileColumns === 'function' ? truncateFileColumns : null, fileColumnRequestCurrent: typeof fileColumnRequestCurrent === 'function' ? fileColumnRequestCurrent : null, fileIconName: typeof fileIconName === 'function' ? fileIconName : null, filePreviewTypeLabel, filePreviewLocation, chatTurnPinText: typeof chatTurnPinText === 'function' ? chatTurnPinText : () => '', isInternalChatTool: typeof isInternalChatTool === 'function' ? isInternalChatTool : () => false, state };`, appSandbox);
+const { chatCacheVictim, isChatConnectionKept, isSessionRunning, updateChatUpdatedAt, formatChatDate, chatAssistantMetaText, chatUserMetaText, chatMessageMetaVisibility, applyChatMetadataDefaults, enqueueChatFollowup, removeChatFollowup, normalizeChatDraft, chatSkillTriggerAt, parseChatSkillInput, chatSkillTokenNames, mergeChatComposerText, mergeChatAttachments, chatComposerAction, chatImageSrc, chatToolStatus, chatToolDuration, chatToolActivityLabel, chatToolHasExpandableBody, isChatActivityItem, isChatTraceItem, chatRenderUnits, chatActivityGroupSummaryText, chatActivityActiveSummarySegments, chatActivityGroupIconKind, renderChatActivityGroup, renderChatActivityRun, sessionRow, sessionStatus, filterFileEntries, sortFileEntries, normalizeFileView, truncateFileColumns, fileColumnRequestCurrent, fileIconName, filePreviewTypeLabel, filePreviewLocation, chatTurnPinText, isInternalChatTool, state: appState } = appSandbox.__chatCacheTest;
 function toolLabelText(item) {
   const status = chatToolStatus(item.status);
   return chatToolActivityLabel(item, status, chatToolDuration(item.durationMs)).map(nodeText).join('');
@@ -392,6 +392,38 @@ test('file preview presents native-style type and home-relative location details
   assert.match(styleCSS, /\.file-preview-stage\s*\{[^}]*flex:\s*1 1 auto/);
   assert.match(styleCSS, /\.file-preview-info\s*\{[^}]*border-top:/);
   assert.match(styleCSS, /\.file-preview-head \.iconbtn\s*\{\s*width:\s*44px;\s*height:\s*44px/);
+});
+
+test('file browser selects local SVG icons by filename, extension, and MIME', async () => {
+  const cases = [
+    [{ name: 'src', kind: 'folder' }, 'folder'],
+    [{ name: 'video-single.py', extension: '.py', kind: 'file' }, 'python'],
+    [{ name: 'COMPONENT.TSX', kind: 'file' }, 'react'],
+    [{ name: 'package.json', extension: '.json', kind: 'file' }, 'npm'],
+    [{ name: 'pyproject.toml', extension: '.toml', kind: 'file' }, 'python'],
+    [{ name: 'recording', mime: 'audio/mpeg', kind: 'file' }, 'audio'],
+    [{ name: 'photo.unknown', mime: 'image/heic', kind: 'file' }, 'image'],
+    [{ name: 'archive.unknown', mime: 'application/x-7z-compressed', kind: 'file' }, 'zip'],
+    [{ name: 'README', mime: 'text/plain', kind: 'file' }, 'document'],
+  ];
+  for (const [entry, expected] of cases) assert.equal(fileIconName(entry), expected);
+
+  const icons = [
+    'audio', 'c', 'console', 'cpp', 'csharp', 'css', 'dart', 'database', 'docker',
+    'document', 'exe', 'font', 'git', 'go', 'html', 'image', 'java', 'javascript',
+    'json', 'kotlin', 'lock', 'log', 'lua', 'markdown', 'npm', 'pdf', 'php',
+    'powerpoint', 'powershell', 'python', 'r', 'react', 'ruby', 'rust', 'sass',
+    'settings', 'svelte', 'swift', 'table', 'toml', 'typescript', 'video', 'vue',
+    'word', 'xml', 'yaml', 'zip',
+  ];
+  await Promise.all(icons.map(async (icon) => {
+    const svg = await readFile(new URL(`./icons/file-types/${icon}.svg`, import.meta.url), 'utf8');
+    assert.match(svg, /^<svg\b/);
+    assert.ok(serviceWorker.includes(`'${icon}'`), `${icon} is not precached`);
+  }));
+  assert.match(serviceWorker, /`\/icons\/file-types\/\$\{name\}\.svg`/);
+  assert.match(styleCSS, /\.file-glyph \.file-type-icon\s*\{[^}]*object-fit:\s*contain/);
+  assert.match(styleCSS, /\.file-row\.is-hidden \.file-type-icon,[\s\S]*?filter:\s*grayscale\(1\)/);
 });
 
 test('file browser hides dotfiles by default and can reveal them without changing search', () => {

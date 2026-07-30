@@ -1,11 +1,20 @@
 // PWA 外壳缓存。终端、API 与用户文件必须实时，明确不进入 Cache Storage。
-const CACHE = 'fleet-shell-v59';
+const CACHE = 'fleet-shell-v60';
+const FILE_TYPE_ICONS = [
+  'audio', 'c', 'console', 'cpp', 'csharp', 'css', 'dart', 'database', 'docker',
+  'document', 'exe', 'font', 'git', 'go', 'html', 'image', 'java', 'javascript',
+  'json', 'kotlin', 'lock', 'log', 'lua', 'markdown', 'npm', 'pdf', 'php',
+  'powerpoint', 'powershell', 'python', 'r', 'react', 'ruby', 'rust', 'sass',
+  'settings', 'svelte', 'swift', 'table', 'toml', 'typescript', 'video', 'vue',
+  'word', 'xml', 'yaml', 'zip',
+].map((name) => `/icons/file-types/${name}.svg`);
 const SHELL = [
-  '/', '/index.html', '/style.css?v=59',
+  '/', '/index.html', '/style.css?v=60',
   '/vendor/purify.min.js?v=3.2.6', '/vendor/marked.min.js?v=15.0.12',
-  '/markdown.js?v=59', '/preview.js?v=59', '/chat_model.js?v=59', '/app.js?v=59',
+  '/markdown.js?v=60', '/preview.js?v=60', '/chat_model.js?v=60', '/app.js?v=60',
   '/manifest.webmanifest', '/icons/icon.svg', '/icons/icon-180.png', '/icons/icon-192.png',
   '/icons/icon-512.png', '/icons/icon-maskable-512.png',
+  ...FILE_TYPE_ICONS,
 ];
 const SHELL_KEYS = new Set(SHELL);
 
