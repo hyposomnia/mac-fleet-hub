@@ -1101,6 +1101,16 @@ function hookTerm(entry, retries = 30) {
   try { term.options.scrollback = poolScrollback(); } catch (_) {}
   if (!term.__fleetHooked) {
     term.__fleetHooked = true;
+    const originalFocus = term.focus.bind(term);
+    term.focus = (...args) => {
+      const active = document.activeElement;
+      const dashboardOwnsFocus = active &&
+        active !== document.body &&
+        active !== document.documentElement &&
+        active !== entry.iframe;
+      if (!entry.iframe.classList.contains('show') || dashboardOwnsFocus) return;
+      return originalFocus(...args);
+    };
     const orig = term.write.bind(term);
     term.write = (...a) => { entry.lastOutput = Date.now(); return orig(...a); };
   }

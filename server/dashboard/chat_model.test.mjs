@@ -248,6 +248,17 @@ test('custom chat header omits redundant badge and metadata', () => {
   assert.match(source, /\$\('#win-meta'\)\.textContent = '';/);
 });
 
+test('background ttyd frames cannot steal focus from dashboard controls', () => {
+  const source = appSrc.match(/function hookTerm[\s\S]*?\n}\n\n\/\/ 关掉一个池条目/)?.[0] || '';
+  assert.ok(source);
+  assert.match(source, /const originalFocus = term\.focus\.bind\(term\)/);
+  assert.match(source, /term\.focus = \(\.\.\.args\) =>/);
+  assert.match(source, /entry\.iframe\.classList\.contains\('show'\)/);
+  assert.match(source, /document\.activeElement/);
+  assert.match(source, /active !== entry\.iframe/);
+  assert.match(source, /return originalFocus\(\.\.\.args\)/);
+});
+
 test('Codex is the first and default session assistant', () => {
   const tabs = [...indexHTML.matchAll(/<button data-assistant="([^"]+)" role="tab" aria-selected="([^"]+)">/g)]
     .map((match) => ({ assistant: match[1], selected: match[2] }));
