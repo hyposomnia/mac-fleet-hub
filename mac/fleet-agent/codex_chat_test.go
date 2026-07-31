@@ -21,6 +21,7 @@ type recordedCall struct {
 type fakeRPCConn struct {
 	calls                 []recordedCall
 	notes                 chan rpcNotification
+	responses             chan recordedCall
 	reply                 map[string]json.RawMessage
 	errs                  map[string][]error
 	block                 map[string]bool
@@ -29,10 +30,11 @@ type fakeRPCConn struct {
 
 func newFakeRPCConn() *fakeRPCConn {
 	return &fakeRPCConn{
-		notes: make(chan rpcNotification, 8),
-		reply: map[string]json.RawMessage{},
-		errs:  map[string][]error{},
-		block: map[string]bool{},
+		notes:     make(chan rpcNotification, 8),
+		responses: make(chan recordedCall, 128),
+		reply:     map[string]json.RawMessage{},
+		errs:      map[string][]error{},
+		block:     map[string]bool{},
 	}
 }
 
@@ -55,7 +57,9 @@ func (f *fakeRPCConn) call(ctx context.Context, method string, params interface{
 
 func (f *fakeRPCConn) notify(method string, params interface{}) error { return nil }
 func (f *fakeRPCConn) respond(id json.RawMessage, result interface{}) error {
-	f.calls = append(f.calls, recordedCall{method: "response:" + string(id), params: result})
+	call := recordedCall{method: "response:" + string(id), params: result}
+	f.calls = append(f.calls, call)
+	f.responses <- call
 	return nil
 }
 func (f *fakeRPCConn) notifications() <-chan rpcNotification { return f.notes }
@@ -815,6 +819,140 @@ func TestCodexChatBackendSettingsUpdatesApprovalImmediately(t *testing.T) {
 	sandbox, ok := params["sandboxPolicy"].(map[string]interface{})
 	if !ok || sandbox["type"] != "dangerFullAccess" {
 		t.Fatalf("sandbox params: %#v", params["sandboxPolicy"])
+	}
+}
+
+func TestCodexChatBackendFullAccessAutoApprovesCurrentTurnRequests(t *testing.T) {
+	rpc := newFakeRPCConn()
+	rpc.reply["thread/settings/update"] = json.RawMessage(`{}`)
+	b := newCodexChatBackend(func(ctx context.Context) (codexRPCConn, func(), error) {
+		return rpc, func() {}, nil
+	})
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	events, err := b.Events(ctx, "codex", "thread-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := b.Settings(context.Background(), "codex", "thread-1", "full-access"); err != nil {
+		t.Fatal(err)
+	}
+
+	rpc.notes <- rpcNotification{
+		ID:     json.RawMessage(`42`),
+		Method: "item/commandExecution/requestApproval",
+		Params: json.RawMessage(`{"threadId":"thread-1","turnId":"turn-1","itemId":"cmd1","command":"git push"}`),
+	}
+	select {
+	case call := <-rpc.responses:
+		if call.method != "response:42" ||
+			!reflect.DeepEqual(call.params, map[string]interface{}{"decision": "accept"}) {
+			t.Fatalf("response got %#v", call)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("auto-approval response timeout")
+	}
+	select {
+	case ev := <-events:
+		t.Fatalf("full access request leaked to UI: %+v", ev)
+	case <-time.After(20 * time.Millisecond):
+	}
+	b.mu.Lock()
+	_, pending := b.pending["42"]
+	b.mu.Unlock()
+	if pending {
+		t.Fatal("auto-approved request remained pending")
+	}
+}
+
+func TestCodexChatBackendLeavingFullAccessStopsAutoApproval(t *testing.T) {
+	rpc := newFakeRPCConn()
+	rpc.reply["thread/settings/update"] = json.RawMessage(`{}`)
+	b := newCodexChatBackend(func(ctx context.Context) (codexRPCConn, func(), error) {
+		return rpc, func() {}, nil
+	})
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	events, err := b.Events(ctx, "codex", "thread-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := b.Settings(context.Background(), "codex", "thread-1", "full-access"); err != nil {
+		t.Fatal(err)
+	}
+	if err := b.Settings(context.Background(), "codex", "thread-1", "on-request"); err != nil {
+		t.Fatal(err)
+	}
+
+	rpc.notes <- rpcNotification{
+		ID:     json.RawMessage(`44`),
+		Method: "item/fileChange/requestApproval",
+		Params: json.RawMessage(`{"threadId":"thread-1","turnId":"turn-1","itemId":"patch1"}`),
+	}
+	select {
+	case ev := <-events:
+		if ev.Type != "interaction_request" {
+			t.Fatalf("event got %+v", ev)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("approval event timeout")
+	}
+	select {
+	case call := <-rpc.responses:
+		t.Fatalf("on-request mode unexpectedly auto-approved: %#v", call)
+	default:
+	}
+}
+
+func TestCodexChatBackendFullAccessResolvesAlreadyPendingRequest(t *testing.T) {
+	rpc := newFakeRPCConn()
+	rpc.reply["thread/settings/update"] = json.RawMessage(`{}`)
+	b := newCodexChatBackend(func(ctx context.Context) (codexRPCConn, func(), error) {
+		return rpc, func() {}, nil
+	})
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	events, err := b.Events(ctx, "codex", "thread-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	rpc.notes <- rpcNotification{
+		ID:     json.RawMessage(`43`),
+		Method: "item/permissions/requestApproval",
+		Params: json.RawMessage(`{"threadId":"thread-1","turnId":"turn-1","itemId":"permission-1","permissions":{"network":{"enabled":true}}}`),
+	}
+	select {
+	case ev := <-events:
+		if ev.Type != "interaction_request" {
+			t.Fatalf("event got %+v", ev)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("pending approval event timeout")
+	}
+
+	if err := b.Settings(context.Background(), "codex", "thread-1", "full-access"); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case ev := <-events:
+		if ev.Type != "interaction_resolved" {
+			t.Fatalf("event got %+v", ev)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("auto-resolved approval event timeout")
+	}
+	want := map[string]interface{}{
+		"permissions": map[string]interface{}{"network": map[string]interface{}{"enabled": true}},
+		"scope":       "session",
+	}
+	if len(rpc.calls) != 2 || rpc.calls[1].method != "response:43" || !reflect.DeepEqual(rpc.calls[1].params, want) {
+		t.Fatalf("calls got %#v", rpc.calls)
+	}
+	b.mu.Lock()
+	_, pending := b.pending["43"]
+	b.mu.Unlock()
+	if pending {
+		t.Fatal("resolved request remained pending")
 	}
 }
 
