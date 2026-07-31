@@ -1364,7 +1364,7 @@ textarea.chat-request-input { resize: vertical; }
   .session-search-row .session-searchbar, .session-search-row .iconbtn { min-height: 46px; height: 46px; }
   .session-searchbar input { font-size: var(--t-title); }
   #sescol { flex: 1; min-height: 0; border-right: 0; }
-  .sc-body { padding: 8px; padding-bottom: max(18px, env(safe-area-inset-bottom, 0px)); }
+  .sc-body { padding: 8px; padding-bottom: env(safe-area-inset-bottom, 0px); }
   .grp { margin-bottom: 5px; }
   .grp-h { min-height: 42px; padding: 9px 8px; }
   .ses { min-height: 40px; padding: 2px 8px; }

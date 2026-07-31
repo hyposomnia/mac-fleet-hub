@@ -306,6 +306,13 @@ test('session pagination loads automatically near the scroll boundary', () => {
   assert.match(appSrc, /loadSessions\(\{\s*append:\s*true\s*\}\)/);
 });
 
+test('mobile session list reserves only the device safe area at the bottom', () => {
+  const mobileRules = styleCSS.match(/@media \(max-width:\s*860px\)[\s\S]*$/)?.[0] || '';
+  assert.ok(mobileRules);
+  assert.match(mobileRules, /\.sc-body\s*\{[^}]*padding-bottom:\s*env\(safe-area-inset-bottom,\s*0px\)/s);
+  assert.doesNotMatch(mobileRules, /\.sc-body\s*\{[^}]*padding-bottom:\s*max\(/s);
+});
+
 test('session list aggregates online devices while row actions retain their source Mac', () => {
   assert.match(appSrc, /sessionMacId:\s*'all'/);
   assert.match(appSrc, /sessionCursors:\s*\{\}/);
