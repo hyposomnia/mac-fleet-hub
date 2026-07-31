@@ -535,6 +535,7 @@ svg.ic.fill { fill: currentColor; stroke: none; }
    窗口（终端 / 文件）
    ============================================================ */
 #win { display: flex; flex-direction: column; min-width: 0; background: var(--bg); }
+#session-back-gesture { display: none; }
 .win-head { display: flex; align-items: center; gap: 11px; padding: 11px 16px; border-bottom: 1px solid var(--border); min-height: 54px; background: var(--surface-1); }
 .win-back { display: none; }
 .win-head .info { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1; }
@@ -916,6 +917,12 @@ textarea.chat-request-input { resize: vertical; }
   #app.term-open #win {
     display: flex; position: fixed; inset: 0; z-index: 45;
     padding-top: env(safe-area-inset-top, 0px);
+  }
+  #app.term-open #session-back-gesture {
+    display: block; position: fixed; z-index: 6;
+    inset: env(safe-area-inset-top, 0px) auto 0 0;
+    width: calc(28px + env(safe-area-inset-left, 0px));
+    touch-action: pan-y; overscroll-behavior-x: contain;
   }
   /* 移动端：文件内联模式不显示窗口头（chips+分段已是上下文）；仅终端 push 时显示头（含返回键） */
   .win-head { display: none; padding: 8px 12px 10px; min-height: 0; }
