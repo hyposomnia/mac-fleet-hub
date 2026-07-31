@@ -3831,12 +3831,26 @@ function fileLocationIcon(id) {
   return svgIcon('ic', 'M3 11l9-8 9 8v10h-6v-6H9v6H3z');
 }
 
+function activeFileLocationID(filePath, locations) {
+  const currentPath = String(filePath || '').replace(/\/+$/, '') || '/';
+  let best = null;
+  for (const location of locations || []) {
+    const locationPath = String(location?.path || '').replace(/\/+$/, '') || '/';
+    const matches = currentPath === locationPath ||
+      (locationPath === '/' ? currentPath.startsWith('/') : currentPath.startsWith(locationPath + '/'));
+    if (matches && (!best || locationPath.length > best.path.length)) {
+      best = { id: location.id || '', path: locationPath };
+    }
+  }
+  return best?.id || '';
+}
+
 function renderFileLocations() {
   const wrap = $('#file-locations');
   clear(wrap);
+  const activeID = activeFileLocationID(state.filePath, state.fileLocations);
   for (const location of state.fileLocations) {
-    const current = state.filePath === location.path || state.filePath.startsWith(location.path + '/');
-    const button = h('button', { class: 'file-location', 'aria-current': String(current) },
+    const button = h('button', { class: 'file-location', 'aria-current': String(location.id === activeID) },
       fileLocationIcon(location.id),
       h('span', { text: location.name }),
     );
