@@ -1092,6 +1092,16 @@ function hookTerm(entry, retries = 30) {
   try { term.options.scrollback = poolScrollback(); } catch (_) {}
   if (!term.__fleetHooked) {
     term.__fleetHooked = true;
+    const originalFocus = term.focus.bind(term);
+    term.focus = (...args) => {
+      const active = document.activeElement;
+      const dashboardOwnsFocus = active &&
+        active !== document.body &&
+        active !== document.documentElement &&
+        active !== entry.iframe;
+      if (!entry.iframe.classList.contains('show') || dashboardOwnsFocus) return;
+      return originalFocus(...args);
+    };
     const orig = term.write.bind(term);
     term.write = (...a) => { entry.lastOutput = Date.now(); return orig(...a); };
   }
@@ -3392,8 +3402,48 @@ async function restorePoolSnapshot() {
   if (cur) poolShow(cur); else restoreTermOrEmpty();
 }
 
-// 移动端从终端「返回」：仅收起 push，不结束进程（tmux 持久）
+// 移动端从终端「返回」：仅收起 push，不结束进程（tmux 持久）。
 function backToList() { $('#app').classList.remove('term-open'); }
+
+function returnToSessionList() {
+  if (!$('#app').classList.contains('term-open')) return;
+  if (history.state?.fleet && history.state.term) history.back();
+  else backToList();
+}
+
+function isSessionBackSwipe(start, end) {
+  if (!start?.edge || !end) return false;
+  const dx = end.x - start.x;
+  const dy = Math.abs(end.y - start.y);
+  return dx >= 72 && dy <= dx * 0.6;
+}
+
+let sessionBackTouch = null;
+function wireSessionBackGesture() {
+  const gesture = $('#session-back-gesture');
+  gesture.addEventListener('touchstart', (event) => {
+    const touch = event.touches.length === 1 ? event.touches[0] : null;
+    sessionBackTouch = touch ? { x: touch.clientX, y: touch.clientY, edge: true } : null;
+  }, { passive: true });
+  gesture.addEventListener('touchmove', (event) => {
+    const touch = sessionBackTouch && event.touches.length === 1 ? event.touches[0] : null;
+    if (!touch) return;
+    const dx = touch.clientX - sessionBackTouch.x;
+    const dy = Math.abs(touch.clientY - sessionBackTouch.y);
+    if (dx > 8 && dx > dy) event.preventDefault();
+  }, { passive: false });
+  gesture.addEventListener('touchend', (event) => {
+    const touch = event.changedTouches[0];
+    const end = touch ? { x: touch.clientX, y: touch.clientY } : null;
+    if (isSessionBackSwipe(sessionBackTouch, end)) {
+      sessionBackTouch = null;
+      returnToSessionList();
+      return;
+    }
+    sessionBackTouch = null;
+  }, { passive: true });
+  gesture.addEventListener('touchcancel', () => { sessionBackTouch = null; }, { passive: true });
+}
 
 // ============================================================
 //  文件浏览器
@@ -3821,12 +3871,26 @@ function fileLocationIcon(id) {
   return svgIcon('ic', 'M3 11l9-8 9 8v10h-6v-6H9v6H3z');
 }
 
+function activeFileLocationID(filePath, locations) {
+  const currentPath = String(filePath || '').replace(/\/+$/, '') || '/';
+  let best = null;
+  for (const location of locations || []) {
+    const locationPath = String(location?.path || '').replace(/\/+$/, '') || '/';
+    const matches = currentPath === locationPath ||
+      (locationPath === '/' ? currentPath.startsWith('/') : currentPath.startsWith(locationPath + '/'));
+    if (matches && (!best || locationPath.length > best.path.length)) {
+      best = { id: location.id || '', path: locationPath };
+    }
+  }
+  return best?.id || '';
+}
+
 function renderFileLocations() {
   const wrap = $('#file-locations');
   clear(wrap);
+  const activeID = activeFileLocationID(state.filePath, state.fileLocations);
   for (const location of state.fileLocations) {
-    const current = state.filePath === location.path || state.filePath.startsWith(location.path + '/');
-    const button = h('button', { class: 'file-location', 'aria-current': String(current) },
+    const button = h('button', { class: 'file-location', 'aria-current': String(location.id === activeID) },
       fileLocationIcon(location.id),
       h('span', { text: location.name }),
     );
@@ -4924,7 +4988,8 @@ function init() {
   };
 
   // 终端窗口
-  $('#win-back').onclick = backToList;
+  $('#win-back').onclick = returnToSessionList;
+  wireSessionBackGesture();
   $('#reload-btn').onclick = doReload;
   $('#reload-dismiss').onclick = hideBanner;
   $('#reconnect-btn').onclick = () => { const f = curFrame(); try { f.contentWindow.location.reload(); } catch (_) { f.src = f.src; } };

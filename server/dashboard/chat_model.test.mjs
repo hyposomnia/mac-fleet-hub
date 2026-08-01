@@ -65,8 +65,8 @@ const appSandbox = {
   Date: FixedAppDate,
 };
 vm.createContext(appSandbox);
-vm.runInContext(`${appSrc}\n;globalThis.__chatCacheTest = { chatCacheVictim, isChatConnectionKept, isSessionRunning, updateChatUpdatedAt, formatChatDate, chatAssistantMetaText, chatUserMetaText, chatMessageMetaVisibility, applyChatMetadataDefaults, enqueueChatFollowup, removeChatFollowup, normalizeChatDraft, chatSkillTriggerAt, parseChatSkillInput, chatSkillTokenNames, mergeChatComposerText, mergeChatAttachments, chatComposerAction: typeof chatComposerAction === 'function' ? chatComposerAction : null, chatImageSrc, chatToolStatus, chatToolDuration, chatToolActivityLabel, chatToolHasExpandableBody, isChatActivityItem, isChatTraceItem: typeof isChatTraceItem === 'function' ? isChatTraceItem : null, chatRenderUnits: typeof chatRenderUnits === 'function' ? chatRenderUnits : null, chatActivityGroupSummaryText, chatActivityActiveSummarySegments, chatActivityGroupIconKind, renderChatActivityGroup, renderChatActivityRun: typeof renderChatActivityRun === 'function' ? renderChatActivityRun : null, sessionRow, sessionStatus, filterFileEntries, sortFileEntries: typeof sortFileEntries === 'function' ? sortFileEntries : null, normalizeFileView: typeof normalizeFileView === 'function' ? normalizeFileView : null, truncateFileColumns: typeof truncateFileColumns === 'function' ? truncateFileColumns : null, fileColumnRequestCurrent: typeof fileColumnRequestCurrent === 'function' ? fileColumnRequestCurrent : null, fileIconName: typeof fileIconName === 'function' ? fileIconName : null, filePreviewTypeLabel, filePreviewLocation, chatTurnPinText: typeof chatTurnPinText === 'function' ? chatTurnPinText : () => '', isInternalChatTool: typeof isInternalChatTool === 'function' ? isInternalChatTool : () => false, state };`, appSandbox);
-const { chatCacheVictim, isChatConnectionKept, isSessionRunning, updateChatUpdatedAt, formatChatDate, chatAssistantMetaText, chatUserMetaText, chatMessageMetaVisibility, applyChatMetadataDefaults, enqueueChatFollowup, removeChatFollowup, normalizeChatDraft, chatSkillTriggerAt, parseChatSkillInput, chatSkillTokenNames, mergeChatComposerText, mergeChatAttachments, chatComposerAction, chatImageSrc, chatToolStatus, chatToolDuration, chatToolActivityLabel, chatToolHasExpandableBody, isChatActivityItem, isChatTraceItem, chatRenderUnits, chatActivityGroupSummaryText, chatActivityActiveSummarySegments, chatActivityGroupIconKind, renderChatActivityGroup, renderChatActivityRun, sessionRow, sessionStatus, filterFileEntries, sortFileEntries, normalizeFileView, truncateFileColumns, fileColumnRequestCurrent, fileIconName, filePreviewTypeLabel, filePreviewLocation, chatTurnPinText, isInternalChatTool, state: appState } = appSandbox.__chatCacheTest;
+vm.runInContext(`${appSrc}\n;globalThis.__chatCacheTest = { chatCacheVictim, isChatConnectionKept, isSessionRunning, updateChatUpdatedAt, formatChatDate, chatAssistantMetaText, chatUserMetaText, chatMessageMetaVisibility, applyChatMetadataDefaults, enqueueChatFollowup, removeChatFollowup, normalizeChatDraft, chatSkillTriggerAt, parseChatSkillInput, chatSkillTokenNames, mergeChatComposerText, mergeChatAttachments, chatComposerAction: typeof chatComposerAction === 'function' ? chatComposerAction : null, chatImageSrc, chatToolStatus, chatToolDuration, chatToolActivityLabel, chatToolHasExpandableBody, isChatActivityItem, isChatTraceItem: typeof isChatTraceItem === 'function' ? isChatTraceItem : null, chatRenderUnits: typeof chatRenderUnits === 'function' ? chatRenderUnits : null, chatActivityGroupSummaryText, chatActivityActiveSummarySegments, chatActivityGroupIconKind, renderChatActivityGroup, renderChatActivityRun: typeof renderChatActivityRun === 'function' ? renderChatActivityRun : null, sessionRow, sessionStatus, filterFileEntries, sortFileEntries: typeof sortFileEntries === 'function' ? sortFileEntries : null, normalizeFileView: typeof normalizeFileView === 'function' ? normalizeFileView : null, truncateFileColumns: typeof truncateFileColumns === 'function' ? truncateFileColumns : null, fileColumnRequestCurrent: typeof fileColumnRequestCurrent === 'function' ? fileColumnRequestCurrent : null, fileIconName: typeof fileIconName === 'function' ? fileIconName : null, activeFileLocationID: typeof activeFileLocationID === 'function' ? activeFileLocationID : null, isSessionBackSwipe: typeof isSessionBackSwipe === 'function' ? isSessionBackSwipe : null, filePreviewTypeLabel, filePreviewLocation, chatTurnPinText: typeof chatTurnPinText === 'function' ? chatTurnPinText : () => '', isInternalChatTool: typeof isInternalChatTool === 'function' ? isInternalChatTool : () => false, state };`, appSandbox);
+const { chatCacheVictim, isChatConnectionKept, isSessionRunning, updateChatUpdatedAt, formatChatDate, chatAssistantMetaText, chatUserMetaText, chatMessageMetaVisibility, applyChatMetadataDefaults, enqueueChatFollowup, removeChatFollowup, normalizeChatDraft, chatSkillTriggerAt, parseChatSkillInput, chatSkillTokenNames, mergeChatComposerText, mergeChatAttachments, chatComposerAction, chatImageSrc, chatToolStatus, chatToolDuration, chatToolActivityLabel, chatToolHasExpandableBody, isChatActivityItem, isChatTraceItem, chatRenderUnits, chatActivityGroupSummaryText, chatActivityActiveSummarySegments, chatActivityGroupIconKind, renderChatActivityGroup, renderChatActivityRun, sessionRow, sessionStatus, filterFileEntries, sortFileEntries, normalizeFileView, truncateFileColumns, fileColumnRequestCurrent, fileIconName, activeFileLocationID, isSessionBackSwipe, filePreviewTypeLabel, filePreviewLocation, chatTurnPinText, isInternalChatTool, state: appState } = appSandbox.__chatCacheTest;
 function toolLabelText(item) {
   const status = chatToolStatus(item.status);
   return chatToolActivityLabel(item, status, chatToolDuration(item.durationMs)).map(nodeText).join('');
@@ -248,6 +248,17 @@ test('custom chat header omits redundant badge and metadata', () => {
   assert.match(source, /\$\('#win-meta'\)\.textContent = '';/);
 });
 
+test('background ttyd frames cannot steal focus from dashboard controls', () => {
+  const source = appSrc.match(/function hookTerm[\s\S]*?\n}\n\n\/\/ 关掉一个池条目/)?.[0] || '';
+  assert.ok(source);
+  assert.match(source, /const originalFocus = term\.focus\.bind\(term\)/);
+  assert.match(source, /term\.focus = \(\.\.\.args\) =>/);
+  assert.match(source, /entry\.iframe\.classList\.contains\('show'\)/);
+  assert.match(source, /document\.activeElement/);
+  assert.match(source, /active !== entry\.iframe/);
+  assert.match(source, /return originalFocus\(\.\.\.args\)/);
+});
+
 test('Codex is the first and default session assistant', () => {
   const tabs = [...indexHTML.matchAll(/<button data-assistant="([^"]+)" role="tab" aria-selected="([^"]+)">/g)]
     .map((match) => ({ assistant: match[1], selected: match[2] }));
@@ -293,6 +304,13 @@ test('session pagination loads automatically near the scroll boundary', () => {
   assert.match(appSrc, /scrollHeight\s*-\s*wrap\.scrollTop\s*-\s*wrap\.clientHeight\s*<=\s*240/);
   assert.match(appSrc, /\$\('#session-groups'\)\.onscroll\s*=\s*maybeLoadMoreSessions/);
   assert.match(appSrc, /loadSessions\(\{\s*append:\s*true\s*\}\)/);
+});
+
+test('mobile session list reserves only the device safe area at the bottom', () => {
+  const mobileRules = styleCSS.match(/@media \(max-width:\s*860px\)[\s\S]*$/)?.[0] || '';
+  assert.ok(mobileRules);
+  assert.match(mobileRules, /\.sc-body\s*\{[^}]*padding-bottom:\s*env\(safe-area-inset-bottom,\s*0px\)/s);
+  assert.doesNotMatch(mobileRules, /\.sc-body\s*\{[^}]*padding-bottom:\s*max\(/s);
 });
 
 test('session list aggregates online devices while row actions retain their source Mac', () => {
@@ -511,6 +529,19 @@ test('file browser supports persistent icon, list, and column views', () => {
   assert.match(appSrc, /state\.fileView\s*=\s*normalizeFileView\(saved\.fileView\)/);
   assert.match(appSrc, /fileView:\s*state\.fileView/);
   assert.doesNotMatch(styleCSS, /\.file-view-switch\s*\{[^}]*order:\s*3/);
+});
+
+test('file browser highlights only the most specific matching location', () => {
+  const locations = [
+    { id: 'home', path: '/Users/demo' },
+    { id: 'desktop', path: '/Users/demo/Desktop' },
+    { id: 'projects', path: '/Users/demo/Git_Repositories' },
+  ];
+  assert.equal(activeFileLocationID('/Users/demo/Desktop', locations), 'desktop');
+  assert.equal(activeFileLocationID('/Users/demo/Desktop/work', locations), 'desktop');
+  assert.equal(activeFileLocationID('/Users/demo/Git_Repositories/app', locations), 'projects');
+  assert.equal(activeFileLocationID('/Users/demo/Movies', locations), 'home');
+  assert.equal(activeFileLocationID('/tmp', locations), '');
 });
 
 test('column view truncates stale descendants and rejects stale async responses', () => {
@@ -898,6 +929,18 @@ test('mobile device picker sits compactly in each title row', () => {
   assert.match(styleCSS, /\.mobile-device-scope\s*\{[^}]*flex:\s*0 1 176px;[^}]*width:\s*auto;[^}]*min-width:\s*0;[^}]*min-height:\s*38px;/s);
   assert.match(styleCSS, /\.mobile-device-scope > span:not\(\.file-device-avatar\)\s*\{\s*display:\s*none;\s*\}/);
   assert.match(styleCSS, /\.mobile-title-switch\s*\{[^}]*flex:\s*none;[^}]*white-space:\s*nowrap;/s);
+});
+
+test('mobile session detail supports a deliberate edge swipe back', () => {
+  assert.equal(isSessionBackSwipe({ x: 8, y: 300, edge: true }, { x: 110, y: 310 }), true);
+  assert.equal(isSessionBackSwipe({ x: 8, y: 300, edge: true }, { x: 60, y: 305 }), false);
+  assert.equal(isSessionBackSwipe({ x: 8, y: 300, edge: true }, { x: 120, y: 410 }), false);
+  assert.equal(isSessionBackSwipe({ x: 48, y: 300, edge: false }, { x: 160, y: 305 }), false);
+  assert.equal(isSessionBackSwipe({ x: 8, y: 300, edge: true }, { x: -100, y: 305 }), false);
+  assert.match(indexHTML, /id="session-back-gesture"[^>]*aria-hidden="true"/);
+  assert.match(styleCSS, /#app\.term-open #session-back-gesture\s*\{[^}]*display:\s*block;/s);
+  assert.match(appSrc, /addEventListener\('touchstart',[\s\S]*addEventListener\('touchend'/);
+  assert.match(appSrc, /if \(isSessionBackSwipe\(sessionBackTouch, end\)\)\s*\{[\s\S]*?returnToSessionList\(\)/);
 });
 
 test('mobile text controls prevent iOS focus zoom without disabling pinch zoom', () => {
