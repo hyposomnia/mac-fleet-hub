@@ -243,7 +243,7 @@ test('dashboard typography uses one UI scale and reserves monospace for technica
 
   assert.match(styleCSS, /\.chat-markdown code\s*\{[^}]*font-family:\s*var\(--mono\)/s);
   assert.match(styleCSS, /\.chat-tool pre\s*\{[^}]*font-family:\s*var\(--mono\)/s);
-  assert.match(styleCSS, /\.grp-h \.gpath\s*\{[^}]*font-family:\s*var\(--mono\)/s);
+  assert.match(styleCSS, /\.grp-h \.gpath::after\s*\{[^}]*font-family:\s*var\(--mono\)/s);
   assert.match(indexHTML, /class="v"><span id="hm-ip" class="mono">/);
 });
 
@@ -310,6 +310,7 @@ test('new session controls distinguish unscoped and project sessions', () => {
   assert.match(indexHTML, /id="new-session-mobile"[^>]*title="新建无项目会话"/);
   assert.match(appSrc, /function requestNewSession\(\)[\s\S]*?newSessionIn\('',\s*\{\s*unscoped:\s*true\s*\}\);/s);
   assert.match(appSrc, /class:\s*'gpath badge project-new-session'[\s\S]*?newSessionIn\(g\.cwd,\s*\{\s*macId:\s*projectMacId\s*\}\)/s);
+  assert.match(appSrc, /class:\s*'gpath badge project-new-session'[\s\S]*?svgIcon\('ic',\s*'M12 5v14M5 12h14'\)/s);
   assert.doesNotMatch(indexHTML, /id="projects-modal"|id="project-list"/);
   assert.doesNotMatch(appSrc, /function showProjects\(/);
 });

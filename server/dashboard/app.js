@@ -740,7 +740,7 @@ function renderSessionResults(opts = {}) {
           activateConcreteMac(projectMacId);
           newSessionIn(g.cwd, { macId: projectMacId });
         },
-      }, '/');
+      }, svgIcon('ic', 'M12 5v14M5 12h14'));
       const head = h('div', { class: 'grp-h' }, toggle, create);
       const items = h('div', { class: 'grp-items' }, ...g.arr.map(sessionRow));
       const grp = h('div', { class: 'grp' + (collapsed ? ' collapsed' : '') }, head, items);

@@ -472,11 +472,12 @@ svg.ic.fill { fill: currentColor; stroke: none; }
 .grp.collapsed .chev { transform: rotate(-90deg); }
 /* 目录名优先全展示：可换行（含长 token 强制断行），不省略 */
 .grp-h .gn { font-weight: 600; font-size: var(--t-body); color: var(--text); flex: 1 1 auto; min-width: 0; white-space: normal; overflow-wrap: anywhere; word-break: break-word; }
-/* 项目内新建：保留路径「/」标识，变为独立方形按钮；hover 展示完整路径。 */
+/* 项目内新建：独立方形加号按钮；hover 展示完整路径。 */
 .grp-h .gpath {
   position: relative; display: grid; place-items: center; width: 30px; height: 30px; flex: none; padding: 0;
-  border-radius: 7px; font-family: var(--mono); cursor: pointer;
+  border-radius: 7px; cursor: pointer;
 }
+.grp-h .gpath .ic { width: 16px; height: 16px; }
 .grp-h .gpath:hover { border-color: var(--accent-line); background: var(--accent-soft); color: var(--accent-text); }
 .grp-h .gpath::after {
   content: attr(data-path); position: absolute; top: calc(100% + 6px); right: 0; z-index: 50;
