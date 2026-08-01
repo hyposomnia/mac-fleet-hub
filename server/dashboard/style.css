@@ -589,6 +589,13 @@ svg.ic.fill { fill: currentColor; stroke: none; }
 .chat-row.user .chat-card { background: var(--chat-user-bg); border: 1px solid var(--chat-border-light); border-radius: 14px; padding: 10px 12px; width: fit-content; max-width: 100%; white-space: pre-wrap; }
 .chat-row.assistant .chat-card { width: 100%; max-width: none; }
 .chat-card.muted { color: var(--chat-text-2); }
+.chat-row.thinking { min-height: 24px; margin: -3px 0; align-items: center; }
+.chat-thinking { display: inline-flex; align-items: center; gap: 8px; color: var(--chat-text-2); font-size: var(--t-secondary); line-height: 1.4; }
+.chat-thinking-dots { display: inline-flex; align-items: center; justify-content: center; gap: 3px; width: 19px; height: 12px; flex: none; }
+.chat-thinking-dots span { width: 4px; height: 4px; border-radius: 50%; background: currentColor; animation: thinking-dot 1.2s var(--ease) infinite; }
+.chat-thinking-dots span:nth-child(2) { animation-delay: .16s; }
+.chat-thinking-dots span:nth-child(3) { animation-delay: .32s; }
+@keyframes thinking-dot { 0%, 60%, 100% { opacity: .3; transform: translateY(0); } 30% { opacity: 1; transform: translateY(-2px); } }
 .chat-msg-meta { margin-top: 8px; color: var(--chat-text-3); font-size: var(--t-caption); line-height: 1.35; font-variant-numeric: tabular-nums; white-space: normal; }
 .chat-row.user .chat-msg-meta { text-align: right; }
 .chat-row.turn-meta { margin-top: -8px; }

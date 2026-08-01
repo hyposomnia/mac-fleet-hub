@@ -72,8 +72,8 @@ const appSandbox = {
   Date: FixedAppDate,
 };
 vm.createContext(appSandbox);
-vm.runInContext(`${appSrc}\n;globalThis.__chatCacheTest = { chatCacheVictim, isChatConnectionKept, isSessionRunning, updateChatUpdatedAt, formatChatDate, chatAssistantMetaText, chatUserMetaText, chatMessageMetaVisibility, applyChatMetadataDefaults, enqueueChatFollowup, removeChatFollowup, normalizeChatDraft, chatSkillTriggerAt, parseChatSkillInput, chatSkillTokenNames, mergeChatComposerText, mergeChatAttachments, chatComposerAction: typeof chatComposerAction === 'function' ? chatComposerAction : null, chatImageSrc, chatToolStatus, chatToolDuration, chatToolActivityLabel, chatToolHasExpandableBody, isChatActivityItem, isChatTraceItem: typeof isChatTraceItem === 'function' ? isChatTraceItem : null, chatRenderUnits: typeof chatRenderUnits === 'function' ? chatRenderUnits : null, chatActivityGroupSummaryText, chatActivityActiveSummarySegments, chatActivityGroupIconKind, renderChatActivityGroup, renderChatActivityRun: typeof renderChatActivityRun === 'function' ? renderChatActivityRun : null, sessionRow, sessionStatus, filterFileEntries, sortFileEntries: typeof sortFileEntries === 'function' ? sortFileEntries : null, normalizeFileView: typeof normalizeFileView === 'function' ? normalizeFileView : null, truncateFileColumns: typeof truncateFileColumns === 'function' ? truncateFileColumns : null, fileColumnRequestCurrent: typeof fileColumnRequestCurrent === 'function' ? fileColumnRequestCurrent : null, fileIconName: typeof fileIconName === 'function' ? fileIconName : null, activeFileLocationID: typeof activeFileLocationID === 'function' ? activeFileLocationID : null, isSessionBackSwipe: typeof isSessionBackSwipe === 'function' ? isSessionBackSwipe : null, ensurePendingChatStarted: typeof ensurePendingChatStarted === 'function' ? ensurePendingChatStarted : null, filePreviewTypeLabel, filePreviewLocation, chatTurnPinText: typeof chatTurnPinText === 'function' ? chatTurnPinText : () => '', isInternalChatTool: typeof isInternalChatTool === 'function' ? isInternalChatTool : () => false, state };`, appSandbox);
-const { chatCacheVictim, isChatConnectionKept, isSessionRunning, updateChatUpdatedAt, formatChatDate, chatAssistantMetaText, chatUserMetaText, chatMessageMetaVisibility, applyChatMetadataDefaults, enqueueChatFollowup, removeChatFollowup, normalizeChatDraft, chatSkillTriggerAt, parseChatSkillInput, chatSkillTokenNames, mergeChatComposerText, mergeChatAttachments, chatComposerAction, chatImageSrc, chatToolStatus, chatToolDuration, chatToolActivityLabel, chatToolHasExpandableBody, isChatActivityItem, isChatTraceItem, chatRenderUnits, chatActivityGroupSummaryText, chatActivityActiveSummarySegments, chatActivityGroupIconKind, renderChatActivityGroup, renderChatActivityRun, sessionRow, sessionStatus, filterFileEntries, sortFileEntries, normalizeFileView, truncateFileColumns, fileColumnRequestCurrent, fileIconName, activeFileLocationID, isSessionBackSwipe, ensurePendingChatStarted, filePreviewTypeLabel, filePreviewLocation, chatTurnPinText, isInternalChatTool, state: appState } = appSandbox.__chatCacheTest;
+vm.runInContext(`${appSrc}\n;globalThis.__chatCacheTest = { chatCacheVictim, isChatConnectionKept, isSessionRunning, updateChatUpdatedAt, formatChatDate, chatAssistantMetaText, chatUserMetaText, chatMessageMetaVisibility, applyChatMetadataDefaults, enqueueChatFollowup, removeChatFollowup, normalizeChatDraft, chatSkillTriggerAt, parseChatSkillInput, chatSkillTokenNames, mergeChatComposerText, mergeChatAttachments, chatComposerAction: typeof chatComposerAction === 'function' ? chatComposerAction : null, chatImageSrc, chatToolStatus, chatToolDuration, chatToolActivityLabel, chatToolHasExpandableBody, isChatActivityItem, isChatTraceItem: typeof isChatTraceItem === 'function' ? isChatTraceItem : null, chatReasoningVisible: typeof chatReasoningVisible === 'function' ? chatReasoningVisible : null, chatRenderUnits: typeof chatRenderUnits === 'function' ? chatRenderUnits : null, renderChatItem: typeof renderChatItem === 'function' ? renderChatItem : null, chatActivityGroupSummaryText, chatActivityActiveSummarySegments, chatActivityGroupIconKind, renderChatActivityGroup, renderChatActivityRun: typeof renderChatActivityRun === 'function' ? renderChatActivityRun : null, sessionRow, sessionStatus, filterFileEntries, sortFileEntries: typeof sortFileEntries === 'function' ? sortFileEntries : null, normalizeFileView: typeof normalizeFileView === 'function' ? normalizeFileView : null, truncateFileColumns: typeof truncateFileColumns === 'function' ? truncateFileColumns : null, fileColumnRequestCurrent: typeof fileColumnRequestCurrent === 'function' ? fileColumnRequestCurrent : null, fileIconName: typeof fileIconName === 'function' ? fileIconName : null, activeFileLocationID: typeof activeFileLocationID === 'function' ? activeFileLocationID : null, isSessionBackSwipe: typeof isSessionBackSwipe === 'function' ? isSessionBackSwipe : null, ensurePendingChatStarted: typeof ensurePendingChatStarted === 'function' ? ensurePendingChatStarted : null, filePreviewTypeLabel, filePreviewLocation, chatTurnPinText: typeof chatTurnPinText === 'function' ? chatTurnPinText : () => '', isInternalChatTool: typeof isInternalChatTool === 'function' ? isInternalChatTool : () => false, state };`, appSandbox);
+const { chatCacheVictim, isChatConnectionKept, isSessionRunning, updateChatUpdatedAt, formatChatDate, chatAssistantMetaText, chatUserMetaText, chatMessageMetaVisibility, applyChatMetadataDefaults, enqueueChatFollowup, removeChatFollowup, normalizeChatDraft, chatSkillTriggerAt, parseChatSkillInput, chatSkillTokenNames, mergeChatComposerText, mergeChatAttachments, chatComposerAction, chatImageSrc, chatToolStatus, chatToolDuration, chatToolActivityLabel, chatToolHasExpandableBody, isChatActivityItem, isChatTraceItem, chatReasoningVisible, chatRenderUnits, renderChatItem, chatActivityGroupSummaryText, chatActivityActiveSummarySegments, chatActivityGroupIconKind, renderChatActivityGroup, renderChatActivityRun, sessionRow, sessionStatus, filterFileEntries, sortFileEntries, normalizeFileView, truncateFileColumns, fileColumnRequestCurrent, fileIconName, activeFileLocationID, isSessionBackSwipe, ensurePendingChatStarted, filePreviewTypeLabel, filePreviewLocation, chatTurnPinText, isInternalChatTool, state: appState } = appSandbox.__chatCacheTest;
 function toolLabelText(item) {
   const status = chatToolStatus(item.status);
   return chatToolActivityLabel(item, status, chatToolDuration(item.durationMs)).map(nodeText).join('');
@@ -1144,6 +1144,35 @@ test('tool-only fallback keeps native standalone tool boundaries', () => {
   assert.equal(isChatActivityItem({ type: 'tool', kind: 'subAgentActivity' }), false);
 });
 
+test('active reasoning appears immediately as a private thinking status', () => {
+  const reasoning = {
+    id: 'reason-1', type: 'reasoning', turnId: 'turn-1', status: 'inProgress',
+    summary: '**Private reasoning**\n\nNever render this text',
+  };
+  const entries = [{ id: reasoning.id, item: reasoning }];
+  assert.equal(chatReasoningVisible(entries, 0, 'running'), true);
+  assert.deepEqual(
+    JSON.parse(JSON.stringify(chatRenderUnits(entries, 'running').map((unit) => [unit.kind, unit.entries[0].id]))),
+    [['item', 'reason-1']],
+  );
+
+  const row = renderChatItem(reasoning, false);
+  assert.equal(row.className, 'chat-row assistant thinking');
+  assert.match(nodeText(row), /正在思考/);
+  assert.doesNotMatch(nodeText(row), /Private reasoning|Never render/);
+
+  const completed = [{ id: 'reason-1', item: { ...reasoning, status: 'completed' } }];
+  assert.equal(chatRenderUnits(completed, 'running').length, 1);
+  assert.equal(chatRenderUnits(completed, 'idle').length, 0);
+
+  const withOutput = [
+    ...entries,
+    { id: 'assistant-1', item: { id: 'assistant-1', type: 'assistant', turnId: 'turn-1', text: 'Visible answer' } },
+  ];
+  const units = chatRenderUnits(withOutput, 'running');
+  assert.deepEqual(JSON.parse(JSON.stringify(units.map((unit) => unit.entries[0].id))), ['assistant-1']);
+});
+
 test('reasoning stays hidden while native tool rows remain visible', () => {
   assert.equal(typeof renderChatActivityRun, 'function');
   const items = [
@@ -1211,11 +1240,12 @@ test('tool-only runs preserve image and computer-use standalone rows', () => {
   assert.deepEqual([...rows].map((row) => row.className), ['chat-row tool', 'chat-row tool', 'chat-row tool']);
 });
 
-test('Codex transcript contains no Thought presentation', () => {
+test('Codex transcript exposes thinking state without reasoning content', () => {
   assert.doesNotMatch(appSrc, /chatThoughtIcon|chat-thought|Thought for|['"]Thought['"]/);
   assert.doesNotMatch(styleCSS, /chat-reasoning|chat-thought|chat-activity-trace/);
-  assert.match(appSrc, /if \(entry\?\.item\?\.type === 'reasoning'\) continue;/);
-  assert.match(appSrc, /if \(item\.type === 'reasoning'\) \{\s*return null;/);
+  assert.match(appSrc, /class: 'chat-thinking'/);
+  assert.match(appSrc, /text: '正在思考'/);
+  assert.match(styleCSS, /\.chat-thinking-dots span/);
   assert.match(appSrc, /上下文已自动压缩/);
 });
 
