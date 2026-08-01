@@ -463,16 +463,21 @@ svg.ic.fill { fill: currentColor; stroke: none; }
 }
 
 .grp { margin-bottom: var(--s2); }
-.grp-h { display: flex; align-items: center; gap: 9px; width: 100%; text-align: left; padding: 10px 10px; border-radius: 9px; transition: background var(--dur-1) var(--ease); }
+.grp-h { display: flex; align-items: center; gap: 2px; width: 100%; padding: 0 6px 0 0; border-radius: 9px; transition: background var(--dur-1) var(--ease); }
 .grp-h:hover { background: var(--surface-1); }
+.grp-toggle { display: flex; align-items: center; gap: 9px; flex: 1; min-width: 0; padding: 10px; text-align: left; }
 /* 折叠箭头：内联 SVG chevron（替代过淡的 Unicode ▾）。stroke=currentColor，靠 color 上色 */
 .grp-h .chev { width: 16px; height: 16px; color: var(--text-1); flex: none; transition: transform var(--dur-1) var(--ease); }
 .grp-h:hover .chev { color: var(--text); }
 .grp.collapsed .chev { transform: rotate(-90deg); }
 /* 目录名优先全展示：可换行（含长 token 强制断行），不省略 */
 .grp-h .gn { font-weight: 600; font-size: var(--t-body); color: var(--text); flex: 1 1 auto; min-width: 0; white-space: normal; overflow-wrap: anywhere; word-break: break-word; }
-/* 路径 chip：软底「/」，靠右；hover 即时弹完整路径（自定义 tooltip，无原生 title 的延迟） */
-.grp-h .gpath { position: relative; margin-left: auto; flex: none; font-family: var(--mono); cursor: help; }
+/* 项目内新建：保留路径「/」标识，变为独立方形按钮；hover 展示完整路径。 */
+.grp-h .gpath {
+  position: relative; display: grid; place-items: center; width: 30px; height: 30px; flex: none; padding: 0;
+  border-radius: 7px; font-family: var(--mono); cursor: pointer;
+}
+.grp-h .gpath:hover { border-color: var(--accent-line); background: var(--accent-soft); color: var(--accent-text); }
 .grp-h .gpath::after {
   content: attr(data-path); position: absolute; top: calc(100% + 6px); right: 0; z-index: 50;
   width: max-content; max-width: 280px;
@@ -864,15 +869,6 @@ textarea.chat-request-input { resize: vertical; }
 .chat-todo-mark { font-variant-numeric: tabular-nums; text-align: center; }
 .chat-context-note { color: var(--chat-text-3); font-size: var(--t-caption); }
 
-/* 项目目录选择列表 */
-.project-list { padding: 10px; max-height: 60dvh; overflow-y: auto; }
-.proj { display: flex; align-items: center; gap: 10px; width: 100%; padding: 11px; border-radius: 11px; border: 1px solid transparent; text-align: left; transition: all var(--dur-1) var(--ease); }
-.proj:hover { background: var(--surface-2); border-color: var(--border); }
-.proj .body { flex: 1; min-width: 0; }
-.proj .pn { font-weight: 500; font-size: var(--t-body); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.proj .pm { color: var(--text-2); font-size: var(--t-secondary); margin-top: 3px; font-family: var(--mono); }
-.proj .add { color: var(--text-2); font-size: var(--t-title); flex: none; }
-
 /* ============================================================
    响应式：≤860px 切移动端布局（头部 + 主机条 + 分段 + push 终端）
    ============================================================ */
@@ -1017,9 +1013,9 @@ textarea.chat-request-input { resize: vertical; }
   border: 1px solid var(--border-strong); border-radius: 7px; background: var(--surface-2); color: var(--accent-text); font-weight: 600;
 }
 
-.session-search-row { display: grid; grid-template-columns: minmax(0, 1fr) 36px; gap: 7px; margin-top: 9px; }
+.session-search-row { display: grid; grid-template-columns: 36px minmax(0, 1fr); gap: 7px; margin-top: 9px; }
 .session-search-row .session-searchbar { min-height: 36px; margin: 0; }
-.session-search-row .iconbtn { width: 36px; height: 36px; border-radius: 7px; }
+.session-search-row .iconbtn { width: 36px; height: 36px; min-width: 36px; max-width: 36px; padding: 0; border-radius: 7px; }
 .session-search-row #session-view-toggle[aria-pressed="true"] {
   border-color: var(--accent-line); background: var(--accent-soft); color: var(--accent-text);
   box-shadow: inset 0 0 0 1px var(--accent-line);
@@ -1367,14 +1363,17 @@ textarea.chat-request-input { resize: vertical; }
   .mobile-assistant-seg { display: flex; width: 100%; margin-top: 10px; }
   .mobile-assistant-seg button { flex: 1; min-height: 38px; text-align: center; }
   .sc-head-actions #new-session { display: none; }
-  .session-search-row { grid-template-columns: minmax(0, 1fr) 46px 46px; margin-top: 10px; }
+  .session-search-row { grid-template-columns: 46px minmax(0, 1fr) 46px; margin-top: 10px; }
   .session-search-row .mobile-new-session { display: grid; }
-  .session-search-row .session-searchbar, .session-search-row .iconbtn { min-height: 46px; height: 46px; }
+  .session-search-row .session-searchbar { min-height: 46px; height: 46px; }
+  .session-search-row .iconbtn { width: 46px; height: 46px; min-width: 46px; max-width: 46px; padding: 0; }
   .session-searchbar input { font-size: var(--t-title); }
   #sescol { flex: 1; min-height: 0; border-right: 0; }
   .sc-body { padding: 8px; padding-bottom: env(safe-area-inset-bottom, 0px); }
   .grp { margin-bottom: 5px; }
-  .grp-h { min-height: 42px; padding: 9px 8px; }
+  .grp-h { min-height: 42px; padding: 0 4px 0 0; }
+  .grp-toggle { min-height: 42px; padding: 9px 4px 9px 8px; }
+  .grp-h .gpath { width: 34px; height: 34px; }
   .ses { min-height: 40px; padding: 2px 8px; justify-content: center; }
   .ses-top .t { font-size: var(--t-title); line-height: 1.25; }
   .ses-meta { margin-top: 1px; font-size: var(--t-secondary); }

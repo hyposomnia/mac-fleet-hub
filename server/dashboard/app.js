@@ -157,7 +157,6 @@ function relTime(ms) {
   return Math.round(d / 86400e3) + ' 天前';
 }
 function projName(cwd) { return cwd ? cwd.split('/').filter(Boolean).pop() : '(未知项目)'; }
-function projDir(cwd) { const p = (cwd || '').split('/'); return p.slice(0, -1).join('/').replace(/^\/Users\/[^/]+/, '~'); }
 function projFull(cwd) { return (cwd || '(未知路径)').replace(/^\/Users\/[^/]+/, '~'); }
 function macName(id) { return macNames[id] || ('Mac ' + id.slice(1)); }
 function assistantLabel(a = state.assistant) { return a === 'codex' ? 'Codex' : 'Claude'; }
@@ -728,17 +727,28 @@ function renderSessionResults(opts = {}) {
 
     for (const g of ordered) {
       const collapsed = state.collapsed.has(g.cwd);
-      const head = h('button', { class: 'grp-h' },
+      const toggle = h('button', { type: 'button', class: 'grp-toggle', 'aria-expanded': String(!collapsed) },
         svgIcon('chev', 'M6 9l6 6 6-6'),
         h('span', { class: 'gn', text: projName(g.cwd) }),
-        h('span', { class: 'gpath badge', dataset: { path: projFull(g.cwd) } }, '/'),
       );
+      const projectMacId = state.sessionMacId === 'all' ? (g.arr[0]?.macId || state.macId) : state.sessionMacId;
+      const create = h('button', {
+        type: 'button', class: 'gpath badge project-new-session', dataset: { path: projFull(g.cwd) },
+        title: `在 ${projName(g.cwd)} 中新建会话`, 'aria-label': `在 ${projName(g.cwd)} 中新建会话`,
+        onclick: (event) => {
+          event.stopPropagation();
+          activateConcreteMac(projectMacId);
+          newSessionIn(g.cwd, { macId: projectMacId });
+        },
+      }, '/');
+      const head = h('div', { class: 'grp-h' }, toggle, create);
       const items = h('div', { class: 'grp-items' }, ...g.arr.map(sessionRow));
       const grp = h('div', { class: 'grp' + (collapsed ? ' collapsed' : '') }, head, items);
-      head.onclick = () => {
+      toggle.onclick = () => {
         grp.classList.toggle('collapsed');
         if (grp.classList.contains('collapsed')) state.collapsed.add(g.cwd);
         else state.collapsed.delete(g.cwd);
+        toggle.setAttribute('aria-expanded', String(!grp.classList.contains('collapsed')));
       };
       wrap.append(grp);
     }
@@ -1211,33 +1221,41 @@ async function connect(sessionId, title, cwd, mode, macId = state.macId, assista
   } catch (e) { toast('连接失败：' + e.message, 'err'); }
 }
 
-function newSessionIn(cwd) {
-  closeOverlay('projects-modal');
+function openPendingChatSession(cwd, { macId = state.macId, unscoped = false } = {}) {
+  const draftId = `draft-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  openChatSession({
+    assistant: 'codex', macId, sessionId: draftId, cwd,
+    title: unscoped ? '新Codex会话 · 无项目' : `新Codex会话 · ${projName(cwd)}`,
+    mtime: Date.now(), pendingStart: true, unscoped,
+  });
+}
+
+async function newSessionIn(cwd, { macId = state.macId, unscoped = false } = {}) {
+  if (!macId) return;
+  activateConcreteMac(macId);
   if (canSelfDrawChat()) {
-    api(state.macId, 'chat/start', {
-      method: 'POST', headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ assistant: 'codex', cwd, mode: 'default' }),
-    }).then((r) => {
-      openChatSession({
-        assistant: 'codex',
-        macId: state.macId,
-        sessionId: r.sessionId,
-        cwd: r.cwd || cwd,
-        title: '新Codex会话 · ' + projName(r.cwd || cwd),
-        mtime: Date.now(),
-        fresh: true,
-        startOptions: r,
-      });
-    }).catch((e) => toast('新建失败：' + e.message, 'err'));
+    openPendingChatSession(cwd, { macId, unscoped });
     return;
   }
-  api(state.macId, 'new', {
-    method: 'POST', headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ assistant: state.assistant, cwd, mode: 'default' }),
-  }).then((r) => {
+  const assistant = state.assistant;
+  try {
+    let targetCwd = cwd;
+    if (unscoped) {
+      const info = await api(macId, 'info');
+      targetCwd = String(info.fileRoot || '').trim();
+      if (!targetCwd) throw new Error('无法获取设备主目录');
+    }
+    const r = await api(macId, 'new', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ assistant, cwd: targetCwd, mode: 'default' }),
+    });
     state.selectedSid = null;
-    poolAdd(state.macId, state.assistant, null, r.sid, r.url, '新' + assistantLabel() + '会话 · ' + projName(cwd), cwd, r.mode || 'default');
-  }).catch((e) => toast('新建失败：' + e.message, 'err'));
+    poolAdd(macId, assistant, null, r.sid, r.url,
+      unscoped ? `新${assistantLabel(assistant)}会话 · 无项目` : `新${assistantLabel(assistant)}会话 · ${projName(targetCwd)}`,
+      targetCwd, r.mode || 'default');
+  } catch (e) {
+    toast('新建失败：' + e.message, 'err');
+  }
 }
 
 // 终端头：状态点 + 标题（bypass/auto 追加权限徽标）+ 权限模式 meta
@@ -1374,6 +1392,7 @@ function updateChatSkillMenu() {
   const chat = state.chat;
   const input = $('#chat-input');
   if (!chat || !input) return;
+  if (chat.pendingStart) { closeChatSkillMenu(); return; }
   const trigger = chatSkillTriggerAt(input.value, input.selectionStart);
   if (!trigger) { closeChatSkillMenu(); return; }
   if (!chat.skillsLoaded) {
@@ -1543,7 +1562,7 @@ function closeChatPane({ dispose = false } = {}) {
   closeChatOptions();
 }
 
-function showChatPane(title, cwd) {
+function showChatPane(title, cwd, { connected = true } = {}) {
   state.current = null;
   state.termSid = state.termUrl = null;
   for (const e of state.pool) e.iframe.classList.remove('show');
@@ -1554,7 +1573,8 @@ function showChatPane(title, cwd) {
   $('#fullscreen-btn').hidden = false;
   $('#chat-pane').hidden = false;
   const tt = $('#win-title'); clear(tt);
-  tt.append(h('span', { class: 'dot live' }), h('span', { class: 'ttl', text: title || 'Codex 会话' }));
+  if (connected) tt.append(h('span', { class: 'dot live' }));
+  tt.append(h('span', { class: 'ttl', text: title || 'Codex 会话' }));
   $('#win-meta').textContent = '';
   if (isMobile()) {
     if (!$('#app').classList.contains('term-open')) pushFleetHistory({ mode: 'sessions', term: true });
@@ -2496,11 +2516,11 @@ function updateChatComposerState() {
   const send = $('#chat-send');
   if (!send) return;
   const attachments = state.chat?.attachments || [];
-  const blocked = attachments.some((att) => att.uploading || att.error || !att.id);
+  const blocked = attachments.some((att) => att.uploading || att.error || (!att.id && !att.pendingUpload));
   const hasContent = Boolean(input?.value.trim()) || attachments.length > 0;
   const action = chatComposerAction(state.chat, hasContent);
   send.dataset.action = action;
-  send.disabled = !state.chat || (action === 'interrupt'
+  send.disabled = !state.chat || !!state.chat.starting || (action === 'interrupt'
     ? !!state.chat.interrupting
     : (!hasContent || blocked));
   send.title = action === 'interrupt'
@@ -2622,10 +2642,15 @@ async function addChatFiles(files) {
     }
     const previewUrl = URL.createObjectURL(file);
     chat.objectUrls.push(previewUrl);
-    const att = { localId: 'local-' + Date.now() + '-' + Math.random().toString(16).slice(2), name: file.name, size: file.size, mime: file.type, previewUrl, uploading: true };
+    const pendingUpload = !!chat.pendingStart;
+    const att = {
+      localId: 'local-' + Date.now() + '-' + Math.random().toString(16).slice(2),
+      name: file.name, size: file.size, mime: file.type, previewUrl,
+      uploading: !pendingUpload, pendingUpload, file: pendingUpload ? file : null,
+    };
     chat.attachments.push(att);
     renderChatAttachments();
-    uploadChatFile(chat, att, file);
+    if (!pendingUpload) uploadChatFile(chat, att, file);
   }
 }
 
@@ -2643,9 +2668,10 @@ async function uploadChatFile(chat, att, file) {
     }
     const saved = await r.json();
     if (state.chatCache.get(chat.cacheKey) !== chat) return;
-    Object.assign(att, saved, { uploading: false, error: '' });
+    Object.assign(att, saved, { uploading: false, pendingUpload: false, file: null, error: '' });
   } catch (e) {
     att.uploading = false;
+    att.pendingUpload = false;
     att.error = e.message || '上传失败';
     toast('图片上传失败：' + att.error, 'err');
   } finally {
@@ -2681,6 +2707,7 @@ async function openChatSession(s) {
       cacheKey: key, macId,
       sessionId: s.sessionId, title: s.title || 'Codex 会话', cwd: s.cwd || '',
       model: FleetChatModel.createChatState(), loading: true, events: null, resumePromise: null,
+      pendingStart: !!s.pendingStart, unscoped: !!s.unscoped, startPromise: null,
       attachments: [], objectUrls: [], draft: '', updatedAt: Number(s.mtime) || Date.now(),
       followups: [], sendingFollowup: false, interrupting: false,
       skills: [], skillsLoaded: false, skillsPromise: null, skillsError: '',
@@ -2697,22 +2724,30 @@ async function openChatSession(s) {
   if (!Array.isArray(chat.skills)) chat.skills = [];
   if (typeof chat.skillsLoaded !== 'boolean') chat.skillsLoaded = false;
   if (!chat.skillPreferences || typeof chat.skillPreferences !== 'object') chat.skillPreferences = {};
-  if (s.fresh) {
+  if (s.pendingStart) {
+    chat.pendingStart = true;
+    chat.unscoped = !!s.unscoped;
+    chat.historyReady = true;
+    chat.loading = false;
+  } else if (s.fresh) {
     chat.historyReady = true;
     chat.loading = false;
     configureChatOptions(chat, s.startOptions || {});
   }
   updateChatUpdatedAt(chat, s.mtime);
   evictChatCache();
-  showChatPane(chat.title, chat.cwd);
+  showChatPane(chat.title, chat.cwd, { connected: !chat.pendingStart });
   chat.draft = normalizeChatDraft(chat.draft);
   $('#chat-input').value = chat.draft;
   resizeChatInput();
   renderChatAttachments();
   renderChatFollowups();
   closeChatSkillMenu();
-  loadChatSkills(chat).catch(() => {});
-  if (chat.historyReady) {
+  if (!chat.pendingStart) loadChatSkills(chat).catch(() => {});
+  if (chat.pendingStart) {
+    setChatApprovalEnabled(chat, true);
+    $('#chat-options').hidden = true;
+  } else if (chat.historyReady) {
     setChatApprovalEnabled(chat, true);
     renderChatOptions(chat);
   } else {
@@ -2723,6 +2758,7 @@ async function openChatSession(s) {
   }
   renderChat({ forceBottom: true });
   updateChatComposerState();
+  if (chat.pendingStart) return;
   if (chat.historyReady) {
     startChatEvents(chat);
     return;
@@ -2907,6 +2943,10 @@ async function selectChatApprovalMode(value) {
   renderChatApprovalMenu(chat);
   closeChatApproval();
   $('#chat-approval')?.focus();
+  if (chat.pendingStart) {
+    chat.approvalConfirmedMode = approvalMode;
+    return;
+  }
   const previousUpdate = chat.approvalUpdateChain || Promise.resolve();
   const update = previousUpdate.catch(() => {}).then(() => api(chat.macId, 'chat/settings', {
     method: 'POST', headers: { 'content-type': 'application/json' },
@@ -3135,11 +3175,93 @@ function startChatEvents(chat = state.chat) {
   };
 }
 
+async function ensurePendingChatStarted(chat) {
+  if (!chat?.pendingStart) return chat;
+  if (chat.startPromise) return chat.startPromise;
+  const task = (async () => {
+    chat.starting = true;
+    chat.loading = true;
+    if (state.chat === chat) {
+      renderChat();
+      updateChatComposerState();
+    }
+    let cwd = chat.cwd;
+    if (chat.unscoped) {
+      const info = await api(chat.macId, 'info');
+      cwd = String(info.fileRoot || '').trim();
+      if (!cwd) throw new Error('无法获取设备主目录');
+    }
+    const started = await api(chat.macId, 'chat/start', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ assistant: 'codex', cwd, mode: 'default' }),
+    });
+    const sessionId = String(started.sessionId || '').trim();
+    if (!sessionId) throw new Error('Codex 未返回有效的会话 ID');
+
+    const oldKey = chat.cacheKey;
+    const newKey = chatCacheKey(chat.macId, sessionId);
+    const preferredApproval = chat.approvalMode;
+    state.chatCache.delete(oldKey);
+    chat.cacheKey = newKey;
+    chat.sessionId = sessionId;
+    chat.cwd = started.cwd || cwd;
+    chat.skillsCwd = chat.cwd;
+    chat.pendingStart = false;
+    chat.unscoped = false;
+    chat.historyReady = true;
+    chat.loading = false;
+    configureChatOptions(chat, started);
+    chat.approvalMode = preferredApproval;
+    chat.approvalConfirmedMode = preferredApproval;
+    state.chatCache.set(newKey, chat);
+    state.selectedSid = sessionId;
+    state.selectedSessionMacId = chat.macId;
+    state.selectedSessionAssistant = 'codex';
+    startChatEvents(chat);
+    if (state.chat === chat) {
+      showChatPane(chat.title, chat.cwd, { connected: true });
+      renderChat({ forceBottom: true });
+      renderChatApprovalMenu(chat);
+      renderChatOptions(chat);
+    }
+    return chat;
+  })();
+  chat.startPromise = task;
+  try {
+    return await task;
+  } finally {
+    if (chat.startPromise === task) chat.startPromise = null;
+    chat.starting = false;
+    if (chat.pendingStart) chat.loading = false;
+    if (state.chat === chat) {
+      renderChat();
+      updateChatComposerState();
+    }
+  }
+}
+
 async function submitChatInput({ forceQueue = false } = {}) {
   const chat = state.chat;
   const input = $('#chat-input');
   let raw = typeof input.value === 'string' ? input.value : '';
   if (!chat) return;
+  if (chat.pendingStart) {
+    try {
+      await ensurePendingChatStarted(chat);
+    } catch (e) {
+      if (state.chat === chat) toast('新建失败：' + e.message, 'err');
+      return;
+    }
+    if (state.chat !== chat) return;
+    raw = typeof input.value === 'string' ? input.value : '';
+  }
+  const deferredUploads = (chat.attachments || []).filter((att) => att.pendingUpload && att.file);
+  if (deferredUploads.length) {
+    for (const att of deferredUploads) att.uploading = true;
+    renderChatAttachments();
+    await Promise.all(deferredUploads.map((att) => uploadChatFile(chat, att, att.file)));
+    if (state.chat !== chat) return;
+  }
   if (!chat.skillsLoaded && chatSkillTokenNames(raw).length) {
     try {
       await loadChatSkills(chat);
@@ -3227,6 +3349,7 @@ async function sendChatTurn(chat, item, { restoreOnFailure = true } = {}) {
       throw new Error('Codex 未返回有效的任务 ID，消息未发送。');
     }
     chat.model = FleetChatModel.reduceChatEvent(chat.model, { type: 'turn_started', turnId: started.turnId, data: { turnId: started.turnId } });
+    loadSessions();
     return true;
   } catch (e) {
     chat.model = FleetChatModel.removeMessage(chat.model, optimisticId);
@@ -3495,7 +3618,7 @@ function renderDeviceOptions() {
       else {
         activateConcreteMac(id);
         closeOverlay('device-modal');
-        showProjects();
+        newSessionIn('', { unscoped: true });
       }
     };
     const main = h('button', { type: 'button', class: 'device-option-main', onclick: choose },
@@ -3537,7 +3660,7 @@ function requestNewSession() {
     return;
   }
   activateConcreteMac(state.sessionMacId);
-  showProjects();
+  newSessionIn('', { unscoped: true });
 }
 
 function filePreviewRoute(macId, path, embed = false) {
@@ -4541,31 +4664,6 @@ async function doReload() {
   hideBanner();
   const f = curFrame();
   try { f.contentWindow.location.reload(); } catch (_) { f.src = f.src; }
-}
-
-// ============================================================
-//  新建会话：项目目录
-// ============================================================
-async function showProjects() {
-  if (!state.macId) return;
-  openOverlay('projects-modal');
-  const list = $('#project-list'); clear(list); list.append(h('div', { class: 'empty', text: '加载中…' }));
-  try {
-    const data = await api(state.macId, `projects?assistant=${state.assistant}`);
-    const ps = data.projects || [];
-    clear(list);
-    if (!ps.length) { list.append(h('div', { class: 'empty', text: '没有已知项目目录' })); return; }
-    for (const p of ps) {
-      const el = h('button', { class: 'proj' },
-        h('div', { class: 'body' },
-          h('div', { class: 'pn', text: projName(p.cwd) }),
-          h('div', { class: 'pm', text: projDir(p.cwd) + ' · ' + p.count + ' 个会话' }),
-        ),
-      );
-      el.onclick = () => newSessionIn(p.cwd);
-      list.append(el);
-    }
-  } catch (e) { clear(list); list.append(h('div', { class: 'empty', text: '加载失败：' + e.message })); }
 }
 
 // ============================================================

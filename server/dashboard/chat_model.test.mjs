@@ -41,6 +41,11 @@ function testElement(tag) {
 function testTextNode(text) {
   return { nodeType: 3, textContent: String(text), children: [] };
 }
+class TestEventSource {
+  static CLOSED = 2;
+  constructor(url) { this.url = url; this.readyState = 1; }
+  close() { this.readyState = TestEventSource.CLOSED; }
+}
 function nodeText(node) {
   if (!node) return '';
   return String(node.textContent || '') + (node.children || []).map(nodeText).join('');
@@ -51,8 +56,10 @@ const appSandbox = {
     createElement: testElement,
     createElementNS: (_ns, tag) => testElement(tag),
     createTextNode: testTextNode,
+    querySelector() { return null; },
+    querySelectorAll() { return []; },
   },
-  EventSource: { CLOSED: 2 },
+  EventSource: TestEventSource,
   FleetChatModel: sandbox.globalThis.FleetChatModel,
   FleetMarkdown: {
     renderMarkdown(text) {
@@ -65,8 +72,8 @@ const appSandbox = {
   Date: FixedAppDate,
 };
 vm.createContext(appSandbox);
-vm.runInContext(`${appSrc}\n;globalThis.__chatCacheTest = { chatCacheVictim, isChatConnectionKept, isSessionRunning, updateChatUpdatedAt, formatChatDate, chatAssistantMetaText, chatUserMetaText, chatMessageMetaVisibility, applyChatMetadataDefaults, enqueueChatFollowup, removeChatFollowup, normalizeChatDraft, chatSkillTriggerAt, parseChatSkillInput, chatSkillTokenNames, mergeChatComposerText, mergeChatAttachments, chatComposerAction: typeof chatComposerAction === 'function' ? chatComposerAction : null, chatImageSrc, chatToolStatus, chatToolDuration, chatToolActivityLabel, chatToolHasExpandableBody, isChatActivityItem, isChatTraceItem: typeof isChatTraceItem === 'function' ? isChatTraceItem : null, chatRenderUnits: typeof chatRenderUnits === 'function' ? chatRenderUnits : null, chatActivityGroupSummaryText, chatActivityActiveSummarySegments, chatActivityGroupIconKind, renderChatActivityGroup, renderChatActivityRun: typeof renderChatActivityRun === 'function' ? renderChatActivityRun : null, sessionRow, sessionStatus, filterFileEntries, sortFileEntries: typeof sortFileEntries === 'function' ? sortFileEntries : null, normalizeFileView: typeof normalizeFileView === 'function' ? normalizeFileView : null, truncateFileColumns: typeof truncateFileColumns === 'function' ? truncateFileColumns : null, fileColumnRequestCurrent: typeof fileColumnRequestCurrent === 'function' ? fileColumnRequestCurrent : null, fileIconName: typeof fileIconName === 'function' ? fileIconName : null, activeFileLocationID: typeof activeFileLocationID === 'function' ? activeFileLocationID : null, isSessionBackSwipe: typeof isSessionBackSwipe === 'function' ? isSessionBackSwipe : null, filePreviewTypeLabel, filePreviewLocation, chatTurnPinText: typeof chatTurnPinText === 'function' ? chatTurnPinText : () => '', isInternalChatTool: typeof isInternalChatTool === 'function' ? isInternalChatTool : () => false, state };`, appSandbox);
-const { chatCacheVictim, isChatConnectionKept, isSessionRunning, updateChatUpdatedAt, formatChatDate, chatAssistantMetaText, chatUserMetaText, chatMessageMetaVisibility, applyChatMetadataDefaults, enqueueChatFollowup, removeChatFollowup, normalizeChatDraft, chatSkillTriggerAt, parseChatSkillInput, chatSkillTokenNames, mergeChatComposerText, mergeChatAttachments, chatComposerAction, chatImageSrc, chatToolStatus, chatToolDuration, chatToolActivityLabel, chatToolHasExpandableBody, isChatActivityItem, isChatTraceItem, chatRenderUnits, chatActivityGroupSummaryText, chatActivityActiveSummarySegments, chatActivityGroupIconKind, renderChatActivityGroup, renderChatActivityRun, sessionRow, sessionStatus, filterFileEntries, sortFileEntries, normalizeFileView, truncateFileColumns, fileColumnRequestCurrent, fileIconName, activeFileLocationID, isSessionBackSwipe, filePreviewTypeLabel, filePreviewLocation, chatTurnPinText, isInternalChatTool, state: appState } = appSandbox.__chatCacheTest;
+vm.runInContext(`${appSrc}\n;globalThis.__chatCacheTest = { chatCacheVictim, isChatConnectionKept, isSessionRunning, updateChatUpdatedAt, formatChatDate, chatAssistantMetaText, chatUserMetaText, chatMessageMetaVisibility, applyChatMetadataDefaults, enqueueChatFollowup, removeChatFollowup, normalizeChatDraft, chatSkillTriggerAt, parseChatSkillInput, chatSkillTokenNames, mergeChatComposerText, mergeChatAttachments, chatComposerAction: typeof chatComposerAction === 'function' ? chatComposerAction : null, chatImageSrc, chatToolStatus, chatToolDuration, chatToolActivityLabel, chatToolHasExpandableBody, isChatActivityItem, isChatTraceItem: typeof isChatTraceItem === 'function' ? isChatTraceItem : null, chatRenderUnits: typeof chatRenderUnits === 'function' ? chatRenderUnits : null, chatActivityGroupSummaryText, chatActivityActiveSummarySegments, chatActivityGroupIconKind, renderChatActivityGroup, renderChatActivityRun: typeof renderChatActivityRun === 'function' ? renderChatActivityRun : null, sessionRow, sessionStatus, filterFileEntries, sortFileEntries: typeof sortFileEntries === 'function' ? sortFileEntries : null, normalizeFileView: typeof normalizeFileView === 'function' ? normalizeFileView : null, truncateFileColumns: typeof truncateFileColumns === 'function' ? truncateFileColumns : null, fileColumnRequestCurrent: typeof fileColumnRequestCurrent === 'function' ? fileColumnRequestCurrent : null, fileIconName: typeof fileIconName === 'function' ? fileIconName : null, activeFileLocationID: typeof activeFileLocationID === 'function' ? activeFileLocationID : null, isSessionBackSwipe: typeof isSessionBackSwipe === 'function' ? isSessionBackSwipe : null, ensurePendingChatStarted: typeof ensurePendingChatStarted === 'function' ? ensurePendingChatStarted : null, filePreviewTypeLabel, filePreviewLocation, chatTurnPinText: typeof chatTurnPinText === 'function' ? chatTurnPinText : () => '', isInternalChatTool: typeof isInternalChatTool === 'function' ? isInternalChatTool : () => false, state };`, appSandbox);
+const { chatCacheVictim, isChatConnectionKept, isSessionRunning, updateChatUpdatedAt, formatChatDate, chatAssistantMetaText, chatUserMetaText, chatMessageMetaVisibility, applyChatMetadataDefaults, enqueueChatFollowup, removeChatFollowup, normalizeChatDraft, chatSkillTriggerAt, parseChatSkillInput, chatSkillTokenNames, mergeChatComposerText, mergeChatAttachments, chatComposerAction, chatImageSrc, chatToolStatus, chatToolDuration, chatToolActivityLabel, chatToolHasExpandableBody, isChatActivityItem, isChatTraceItem, chatRenderUnits, chatActivityGroupSummaryText, chatActivityActiveSummarySegments, chatActivityGroupIconKind, renderChatActivityGroup, renderChatActivityRun, sessionRow, sessionStatus, filterFileEntries, sortFileEntries, normalizeFileView, truncateFileColumns, fileColumnRequestCurrent, fileIconName, activeFileLocationID, isSessionBackSwipe, ensurePendingChatStarted, filePreviewTypeLabel, filePreviewLocation, chatTurnPinText, isInternalChatTool, state: appState } = appSandbox.__chatCacheTest;
 function toolLabelText(item) {
   const status = chatToolStatus(item.status);
   return chatToolActivityLabel(item, status, chatToolDuration(item.durationMs)).map(nodeText).join('');
@@ -276,7 +283,7 @@ test('session header keeps archive browsing in settings', () => {
   assert.ok(header);
   assert.match(header, /class="sc-head-actions"[\s\S]*id="new-session"/);
   assert.match(header, /id="session-device-button"[\s\S]*id="session-device-label">全部设备/);
-  assert.match(header, /id="session-search"[\s\S]*id="session-view-toggle"[\s\S]*id="new-session-mobile"/);
+  assert.match(header, /id="session-view-toggle"[\s\S]*id="session-search"[\s\S]*id="new-session-mobile"/);
   assert.doesNotMatch(header, /session-summary|session-count|session-view-label|个未归档|按项目分组/);
   assert.doesNotMatch(header, /id="refresh-btn"/);
   assert.doesNotMatch(indexHTML, /data-scope=/);
@@ -288,13 +295,84 @@ test('session header keeps archive browsing in settings', () => {
   assert.match(styleCSS, /\.sc-head-actions\s*\{/);
 });
 
+test('mobile session toolbar keeps square actions on both sides of search', () => {
+  assert.match(
+    styleCSS,
+    /@media \(max-width: 860px\)[\s\S]*?\.session-search-row\s*\{[^}]*grid-template-columns:\s*46px minmax\(0, 1fr\) 46px;/s,
+  );
+  assert.match(
+    styleCSS,
+    /@media \(max-width: 860px\)[\s\S]*?\.session-search-row \.iconbtn\s*\{[^}]*width:\s*46px;[^}]*height:\s*46px;/s,
+  );
+});
+
+test('new session controls distinguish unscoped and project sessions', () => {
+  assert.match(indexHTML, /id="new-session-mobile"[^>]*title="新建无项目会话"/);
+  assert.match(appSrc, /function requestNewSession\(\)[\s\S]*?newSessionIn\('',\s*\{\s*unscoped:\s*true\s*\}\);/s);
+  assert.match(appSrc, /class:\s*'gpath badge project-new-session'[\s\S]*?newSessionIn\(g\.cwd,\s*\{\s*macId:\s*projectMacId\s*\}\)/s);
+  assert.doesNotMatch(indexHTML, /id="projects-modal"|id="project-list"/);
+  assert.doesNotMatch(appSrc, /function showProjects\(/);
+});
+
+test('fresh Codex detail starts locally and creates its thread on first submit', () => {
+  const draftStart = appSrc.slice(appSrc.indexOf('function newSessionIn('), appSrc.indexOf('// 终端头：'));
+  const deferredStart = appSrc.slice(appSrc.indexOf('async function ensurePendingChatStarted('), appSrc.indexOf('async function submitChatInput('));
+  const submit = appSrc.slice(appSrc.indexOf('async function submitChatInput('), appSrc.indexOf('function chatTurnOptions('));
+  assert.match(draftStart, /openPendingChatSession\(/);
+  assert.doesNotMatch(draftStart, /'chat\/start'/);
+  assert.match(deferredStart, /'chat\/start'/);
+  assert.match(submit, /await ensurePendingChatStarted\(chat\)[\s\S]*?raw = typeof input\.value === 'string' \? input\.value : '';/s);
+});
+
+test('pending Codex chat resolves the home directory once and migrates to the real thread', async () => {
+  const previousFetch = appSandbox.fetch;
+  const previousCache = appState.chatCache;
+  const previousChat = appState.chat;
+  const calls = [];
+  appSandbox.fetch = async (url, options = {}) => {
+    calls.push({ url, options });
+    const data = url.endsWith('/api/info')
+      ? { fileRoot: '/Users/test' }
+      : {
+          sessionId: 'thread-real', cwd: '/Users/test', approvalMode: 'on-request',
+          models: [], model: '', effort: '', serviceTier: '',
+        };
+    return { ok: true, status: 200, async json() { return data; } };
+  };
+  const chat = {
+    cacheKey: 'm1\ndraft-local', macId: 'm1', sessionId: 'draft-local', cwd: '',
+    title: '新Codex会话 · 无项目', pendingStart: true, unscoped: true,
+    startPromise: null, starting: false, loading: false, events: null,
+    approvalMode: 'full-access', approvalConfirmedMode: 'full-access',
+    models: [], efforts: [], serviceTiers: [], selectedModel: '', selectedEffort: '', selectedServiceTier: '',
+  };
+  appState.chat = null;
+  appState.chatCache = new Map([[chat.cacheKey, chat]]);
+  try {
+    await Promise.all([ensurePendingChatStarted(chat), ensurePendingChatStarted(chat)]);
+    assert.deepEqual(calls.map((call) => call.url), ['/m1/api/info', '/m1/api/chat/start']);
+    assert.equal(JSON.parse(calls[1].options.body).cwd, '/Users/test');
+    assert.equal(chat.sessionId, 'thread-real');
+    assert.equal(chat.cacheKey, 'm1\nthread-real');
+    assert.equal(chat.pendingStart, false);
+    assert.equal(chat.approvalMode, 'full-access');
+    assert.equal(appState.chatCache.has('m1\ndraft-local'), false);
+    assert.equal(appState.chatCache.get('m1\nthread-real'), chat);
+  } finally {
+    chat.events?.close();
+    appSandbox.fetch = previousFetch;
+    appState.chatCache = previousCache;
+    appState.chat = previousChat;
+  }
+});
+
 test('session grouping omits aggregate badges and the view toggle has a visible pressed state', () => {
   const source = appSrc.match(/function renderSessionResults[\s\S]*?\n}\n\nasync function loadSessions/)?.[0] || '';
   assert.ok(source);
   assert.doesNotMatch(source, /class:\s*'gc badge'/);
   assert.doesNotMatch(styleCSS, /\.grp-h \.gc/);
   assert.match(styleCSS, /#session-view-toggle\[aria-pressed="true"\]\s*\{[^}]*background:\s*var\(--accent-soft\)/s);
-  assert.match(styleCSS, /@media \(max-width:\s*860px\)[\s\S]*?\.session-search-row\s*\{\s*grid-template-columns:\s*minmax\(0,\s*1fr\)\s*46px\s*46px/s);
+  assert.match(styleCSS, /@media \(max-width:\s*860px\)[\s\S]*?\.session-search-row\s*\{\s*grid-template-columns:\s*46px\s*minmax\(0,\s*1fr\)\s*46px/s);
 });
 
 test('session pagination loads automatically near the scroll boundary', () => {
@@ -1545,13 +1623,15 @@ test('send and stop source contracts reject stale active state', () => {
   assert.match(appSrc, /type: 'thread_status', data: \{ status: 'idle' \}/);
 });
 
-test('new Codex sessions use the self-drawn start path when enabled', () => {
-  const source = appSrc.match(/function newSessionIn\(cwd\) \{[\s\S]*?\n\}/)?.[0] || '';
+test('new Codex sessions open a local self-drawn draft before starting', () => {
+  const source = appSrc.slice(appSrc.indexOf('async function newSessionIn('), appSrc.indexOf('// 终端头：'));
+  const starter = appSrc.slice(appSrc.indexOf('async function ensurePendingChatStarted('), appSrc.indexOf('async function submitChatInput('));
   assert.match(source, /canSelfDrawChat\(\)/);
-  assert.match(source, /'chat\/start'/);
-  assert.match(source, /openChatSession\(\{[\s\S]*?fresh:\s*true/);
-  assert.match(source, /startOptions:\s*r/);
-  assert.match(source, /api\(state\.macId,\s*'new'/);
+  assert.match(source, /openPendingChatSession\(/);
+  assert.doesNotMatch(source, /'chat\/start'/);
+  assert.match(source, /api\(macId,\s*'new'/);
+  assert.match(starter, /'chat\/start'/);
+  assert.match(starter, /state\.chatCache\.set\(newKey, chat\)/);
 });
 
 test('fresh Codex sessions initialize model options without calling resume', () => {

@@ -17,7 +17,7 @@
   <!-- 主题：默认跟随系统 prefers-color-scheme，用户切换后写 localStorage 覆盖（与 app.js initTheme 一致）。
        内联以避免首屏闪烁。 -->
   <script>document.documentElement.dataset.theme = (function () { try { var t = localStorage.getItem('fleet-theme'); if (t) return t; } catch (e) {} return matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark'; })();</script>
-  <link rel="stylesheet" href="style.css?v=73" />
+  <link rel="stylesheet" href="style.css?v=74" />
 </head>
 <body>
   <div id="network-status" class="network-status" role="status" hidden>
@@ -128,7 +128,7 @@
           </button>
           <div class="sc-head-actions">
             <button class="iconbtn bare mobile-menu-trigger" title="菜单" aria-label="菜单" aria-haspopup="true"><svg class="ic" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.87l.04.04-2.87 2.87-.04-.04A1.7 1.7 0 0 0 15 19.4a1.7 1.7 0 0 0-1 1.55V21h-4v-.05A1.7 1.7 0 0 0 9 19.4a1.7 1.7 0 0 0-1.87.34l-.04.04-2.87-2.87.04-.04A1.7 1.7 0 0 0 4.6 15a1.7 1.7 0 0 0-1.55-1H3v-4h.05A1.7 1.7 0 0 0 4.6 9a1.7 1.7 0 0 0-.34-1.87l-.04-.04 2.87-2.87.04.04A1.7 1.7 0 0 0 9 4.6a1.7 1.7 0 0 0 1-1.55V3h4v.05A1.7 1.7 0 0 0 15 4.6a1.7 1.7 0 0 0 1.87-.34l.04-.04 2.87 2.87-.04.04A1.7 1.7 0 0 0 19.4 9a1.7 1.7 0 0 0 1.55 1H21v4h-.05a1.7 1.7 0 0 0-1.55 1Z"/></svg></button>
-            <button id="new-session" class="iconbtn primary-action" title="新建会话" aria-label="新建会话"><svg class="ic" viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg></button>
+            <button id="new-session" class="iconbtn primary-action" title="新建无项目会话" aria-label="新建无项目会话"><svg class="ic" viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg></button>
           </div>
         </div>
         <div class="seg mobile-assistant-seg" role="tablist">
@@ -136,12 +136,12 @@
           <button data-assistant="claude" role="tab" aria-selected="false">Claude</button>
         </div>
         <div class="session-search-row">
+          <button id="session-view-toggle" class="iconbtn" title="按最近更新排序" aria-label="按最近更新排序" aria-pressed="false"><svg class="ic" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg></button>
           <div id="session-searchbar" class="session-searchbar">
             <svg class="ic" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><line x1="16.5" y1="16.5" x2="21" y2="21"/></svg>
             <input id="session-search" type="search" placeholder="搜索全部未归档会话" autocomplete="off" aria-label="搜索会话">
           </div>
-          <button id="session-view-toggle" class="iconbtn" title="按最近更新排序" aria-label="按最近更新排序" aria-pressed="false"><svg class="ic" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg></button>
-          <button id="new-session-mobile" class="iconbtn primary-action mobile-new-session" title="新建会话" aria-label="新建会话"><svg class="ic" viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg></button>
+          <button id="new-session-mobile" class="iconbtn primary-action mobile-new-session" title="新建无项目会话" aria-label="新建无项目会话"><svg class="ic" viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg></button>
         </div>
       </header>
       <div id="session-groups" class="sc-body"></div>
@@ -467,14 +467,6 @@
       </div>
     </div>
 
-    <!-- ───────── 项目目录选择（新建会话） ───────── -->
-    <div id="projects-modal" class="overlay" hidden>
-      <div class="modal">
-        <div class="modal-head"><span>选择项目目录</span><button class="iconbtn bare x" data-close="projects-modal"><svg class="ic" viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button></div>
-        <div id="project-list" class="project-list"></div>
-      </div>
-    </div>
-
     <!-- ───────── 终止进程二次确认（样式化，非原生 confirm；移动端为底部抽屉） ───────── -->
     <div id="confirm-kill" class="overlay" hidden>
       <div class="modal" style="max-width:380px">
@@ -497,9 +489,9 @@
   </div>
   <script src="vendor/purify.min.js?v=3.2.6"></script>
   <script src="vendor/marked.min.js?v=15.0.12"></script>
-  <script src="markdown.js?v=73"></script>
-  <script src="preview.js?v=73"></script>
-  <script src="chat_model.js?v=73"></script>
-  <script src="app.js?v=73"></script>
+  <script src="markdown.js?v=74"></script>
+  <script src="preview.js?v=74"></script>
+  <script src="chat_model.js?v=74"></script>
+  <script src="app.js?v=74"></script>
 </body>
 </html>
