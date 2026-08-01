@@ -17,7 +17,7 @@
   <!-- 主题：默认跟随系统 prefers-color-scheme，用户切换后写 localStorage 覆盖（与 app.js initTheme 一致）。
        内联以避免首屏闪烁。 -->
   <script>document.documentElement.dataset.theme = (function () { try { var t = localStorage.getItem('fleet-theme'); if (t) return t; } catch (e) {} return matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark'; })();</script>
-  <link rel="stylesheet" href="style.css?v=72" />
+  <link rel="stylesheet" href="style.css?v=73" />
 </head>
 <body>
   <div id="network-status" class="network-status" role="status" hidden>
@@ -442,7 +442,6 @@
         <div class="modal-head"><span id="device-modal-title">选择设备</span><button class="iconbtn bare x" data-close="device-modal" aria-label="关闭"><svg class="ic" viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button></div>
         <div class="modal-body">
           <p id="device-modal-subtitle" class="hint device-picker-hint">选择内容所在的 Mac</p>
-          <div class="device-searchbar"><svg class="ic" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><line x1="16.5" y1="16.5" x2="21" y2="21"/></svg><input id="device-search" type="search" placeholder="搜索设备" autocomplete="off" /></div>
           <div id="device-options" class="device-options"></div>
         </div>
       </div>
@@ -498,9 +497,9 @@
   </div>
   <script src="vendor/purify.min.js?v=3.2.6"></script>
   <script src="vendor/marked.min.js?v=15.0.12"></script>
-  <script src="markdown.js?v=72"></script>
-  <script src="preview.js?v=72"></script>
-  <script src="chat_model.js?v=72"></script>
-  <script src="app.js?v=72"></script>
+  <script src="markdown.js?v=73"></script>
+  <script src="preview.js?v=73"></script>
+  <script src="chat_model.js?v=73"></script>
+  <script src="app.js?v=73"></script>
 </body>
 </html>

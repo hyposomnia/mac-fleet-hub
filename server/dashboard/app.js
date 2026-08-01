@@ -3478,21 +3478,17 @@ function openDevicePicker(context = 'sessions') {
     : (context === 'files' ? '文件操作一次只作用于一台 Mac' : '新会话需要在一台具体的 Mac 上运行');
   $('#device-modal-title').textContent = title;
   $('#device-modal-subtitle').textContent = subtitle;
-  $('#device-search').value = '';
   renderDeviceOptions();
   openOverlay('device-modal');
-  requestAnimationFrame(() => $('#device-search').focus());
 }
 
 function renderDeviceOptions() {
   const wrap = $('#device-options');
   if (!wrap) return;
   clear(wrap);
-  const query = ($('#device-search')?.value || '').trim().toLocaleLowerCase();
   const context = state.devicePickerContext;
   const selected = context === 'sessions' ? state.sessionMacId : state.fileMacId;
   const addOption = ({ id, name, detail, online, all = false }) => {
-    if (query && !`${name}\n${detail}`.toLocaleLowerCase().includes(query)) return;
     const choose = () => {
       if (context === 'sessions') setSessionDevice(id);
       else if (context === 'files') setFileDevice(id);
@@ -3532,7 +3528,7 @@ function renderDeviceOptions() {
       online: !!state.nodes[mac.id],
     });
   }
-  if (!wrap.children.length) wrap.append(h('div', { class: 'empty', text: '没有匹配的设备' }));
+  if (!wrap.children.length) wrap.append(h('div', { class: 'empty', text: '暂无可用设备' }));
 }
 
 function requestNewSession() {
@@ -4955,7 +4951,6 @@ function init() {
   });
   $('#session-device-button').onclick = () => openDevicePicker('sessions');
   $('#file-device-button').onclick = () => openDevicePicker('files');
-  $('#device-search').oninput = renderDeviceOptions;
 
   // 自绘文件浏览器
   $('#file-search').oninput = (event) => { state.fileSearch = event.target.value.trim(); renderFileEntries(); };

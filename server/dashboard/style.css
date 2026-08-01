@@ -1090,14 +1090,14 @@ textarea.chat-request-input { resize: vertical; }
 .file-crumb { display: inline-flex; align-items: center; min-height: 28px; padding: 2px 4px; color: var(--text-2); white-space: nowrap; }
 .file-crumb:hover { color: var(--text); }
 .file-crumb-separator { color: var(--text-3); }
-.file-searchbar, .device-searchbar {
+.file-searchbar {
   display: flex; align-items: center; gap: 8px; min-height: 38px; padding: 0 10px;
   border: 1px solid var(--border); border-radius: 7px; background: var(--surface-1); color: var(--text-2);
 }
 .file-searchbar { margin-top: 12px; }
-.file-searchbar:focus-within, .device-searchbar:focus-within { border-color: var(--accent); box-shadow: var(--ring); color: var(--text-1); }
-.file-searchbar .ic, .device-searchbar .ic { width: 16px; height: 16px; flex: none; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; }
-.file-searchbar input, .device-searchbar input { width: 100%; min-width: 0; border: 0; outline: 0; background: transparent; color: var(--text); font-size: var(--t-body); }
+.file-searchbar:focus-within { border-color: var(--accent); box-shadow: var(--ring); color: var(--text-1); }
+.file-searchbar .ic { width: 16px; height: 16px; flex: none; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; }
+.file-searchbar input { width: 100%; min-width: 0; border: 0; outline: 0; background: transparent; color: var(--text); font-size: var(--t-body); }
 .file-table-head, .file-row {
   display: grid; grid-template-columns: minmax(220px, 1fr) 142px 82px 34px; align-items: center; gap: 10px;
 }
@@ -1288,7 +1288,7 @@ textarea.chat-request-input { resize: vertical; }
 .file-preview-info dd { min-width: 0; margin: 0; overflow-wrap: anywhere; color: var(--text-1); user-select: text; }
 
 .device-picker-hint { margin: 0 0 12px; }
-.device-options { max-height: min(420px, 58dvh); margin-top: 10px; overflow-y: auto; }
+.device-options { max-height: min(420px, 58dvh); overflow-y: auto; }
 .device-option {
   display: grid; grid-template-columns: minmax(0, 1fr) 30px; align-items: center; gap: 4px;
   width: 100%; min-height: 62px; padding: 5px 4px; border-bottom: 1px solid var(--border); color: var(--text);
@@ -1375,7 +1375,7 @@ textarea.chat-request-input { resize: vertical; }
   .sc-body { padding: 8px; padding-bottom: env(safe-area-inset-bottom, 0px); }
   .grp { margin-bottom: 5px; }
   .grp-h { min-height: 42px; padding: 9px 8px; }
-  .ses { min-height: 40px; padding: 2px 8px; }
+  .ses { min-height: 40px; padding: 2px 8px; justify-content: center; }
   .ses-top .t { font-size: var(--t-title); line-height: 1.25; }
   .ses-meta { margin-top: 1px; font-size: var(--t-secondary); }
   .ses-time, .ses-status { font-size: var(--t-secondary); }

@@ -912,8 +912,15 @@ test('self-drawn user message time renders outside the bubble', () => {
 });
 
 test('mobile session rows keep a compact touch target', () => {
-  assert.match(styleCSS, /@media \(max-width: 860px\)[\s\S]*?\.ses\s*\{\s*min-height:\s*40px;\s*padding:\s*2px 8px;\s*\}/);
+  assert.match(styleCSS, /@media \(max-width: 860px\)[\s\S]*?\.ses\s*\{[^}]*min-height:\s*40px;[^}]*padding:\s*2px 8px;/s);
   assert.doesNotMatch(styleCSS, /@media \(max-width: 860px\)[\s\S]*?\.ses\s*\{\s*min-height:\s*68px;/);
+});
+
+test('mobile session rows center single-line content vertically', () => {
+  assert.match(
+    styleCSS,
+    /@media \(max-width: 860px\)[\s\S]*?\.ses\s*\{[^}]*min-height:\s*40px;[^}]*justify-content:\s*center;/s,
+  );
 });
 
 test('mobile title switch emphasizes only the selected mode', () => {
@@ -929,6 +936,12 @@ test('mobile device picker sits compactly in each title row', () => {
   assert.match(styleCSS, /\.mobile-device-scope\s*\{[^}]*flex:\s*0 1 176px;[^}]*width:\s*auto;[^}]*min-width:\s*0;[^}]*min-height:\s*38px;/s);
   assert.match(styleCSS, /\.mobile-device-scope > span:not\(\.file-device-avatar\)\s*\{\s*display:\s*none;\s*\}/);
   assert.match(styleCSS, /\.mobile-title-switch\s*\{[^}]*flex:\s*none;[^}]*white-space:\s*nowrap;/s);
+});
+
+test('device picker lists the small fleet without a search field', () => {
+  assert.doesNotMatch(indexHTML, /id="device-search"|class="device-searchbar"|placeholder="搜索设备"/);
+  assert.doesNotMatch(appSrc, /device-search|const query = .*toLocaleLowerCase/);
+  assert.doesNotMatch(styleCSS, /\.device-searchbar/);
 });
 
 test('mobile session detail supports a deliberate edge swipe back', () => {
