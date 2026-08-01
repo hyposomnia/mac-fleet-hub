@@ -890,6 +890,16 @@ test('mobile title switch emphasizes only the selected mode', () => {
   assert.match(styleCSS, /\.mobile-title-switch button\[aria-selected="true"\]\s*\{[^}]*border-bottom-color:\s*var\(--accent\);[^}]*color:\s*var\(--accent\);[^}]*font-weight:\s*700;/s);
 });
 
+test('mobile device picker sits compactly in each title row', () => {
+  const sessionTitle = indexHTML.match(/<div class="sc-title-row">[\s\S]*?<\/div>\s*<div class="session-search-row">/)?.[0] || '';
+  const fileTitle = indexHTML.match(/<header class="file-mobile-head">[\s\S]*?<\/header>/)?.[0] || '';
+  assert.match(sessionTitle, /class="mobile-title-switch"[\s\S]*id="session-device-button"[\s\S]*class="sc-head-actions"/);
+  assert.match(fileTitle, /class="mobile-title-switch"[\s\S]*id="file-device-button"[\s\S]*class="iconbtn bare mobile-menu-trigger"/);
+  assert.match(styleCSS, /\.mobile-device-scope\s*\{[^}]*flex:\s*0 1 176px;[^}]*width:\s*auto;[^}]*min-width:\s*0;[^}]*min-height:\s*38px;/s);
+  assert.match(styleCSS, /\.mobile-device-scope > span:not\(\.file-device-avatar\)\s*\{\s*display:\s*none;\s*\}/);
+  assert.match(styleCSS, /\.mobile-title-switch\s*\{[^}]*flex:\s*none;[^}]*white-space:\s*nowrap;/s);
+});
+
 test('mobile text controls prevent iOS focus zoom without disabling pinch zoom', () => {
   assert.match(styleCSS, /--t-control:\s*16px;/);
   assert.match(styleCSS, /input:not\(\[type="checkbox"\]\):not\(\[type="radio"\]\):not\(\[type="file"\]\), textarea, select\s*\{\s*font-size:\s*var\(--t-control\);\s*\}/);

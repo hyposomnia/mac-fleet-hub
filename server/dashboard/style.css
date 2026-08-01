@@ -1333,7 +1333,7 @@ textarea.chat-request-input { resize: vertical; }
   #m-menu.mobile-global-menu {
     position: fixed; top: calc(env(safe-area-inset-top, 0px) + 58px); right: 12px; left: auto; z-index: 55;
   }
-  .mobile-title-switch { display: flex; align-items: baseline; gap: 20px; min-width: 0; }
+  .mobile-title-switch { display: flex; align-items: baseline; flex: none; gap: 20px; min-width: 0; white-space: nowrap; }
   .mobile-title-switch button {
     padding: 0 0 5px; border-bottom: 3px solid transparent; color: var(--text);
     font-size: var(--t-page); line-height: 1.15; font-weight: 500;
@@ -1344,11 +1344,19 @@ textarea.chat-request-input { resize: vertical; }
     flex: none; padding: max(14px, env(safe-area-inset-top, 0px)) 14px 10px;
     border-bottom: 1px solid var(--border); background: var(--bg);
   }
-  .sc-title-row { min-height: 42px; }
+  .sc-title-row { min-height: 42px; gap: 8px; }
   .sc-title-row .assistant-seg { display: none; }
-  .sc-head-actions { gap: 6px; }
+  .scope-button.mobile-device-scope {
+    display: flex; flex: 0 1 176px; width: auto; min-width: 0; min-height: 38px;
+    margin: 0 0 0 auto; padding: 0 8px; gap: 6px; border-radius: 7px;
+  }
+  .mobile-device-scope > span:not(.file-device-avatar) { display: none; }
+  .mobile-device-scope strong { flex: 1; font-size: var(--t-secondary); }
+  .mobile-device-scope > .ic:not(.scope-chevron) { width: 16px; height: 16px; }
+  .mobile-device-scope .scope-chevron { width: 13px; height: 13px; }
+  .mobile-device-scope .file-device-avatar { width: 24px; height: 24px; border-radius: 6px; font-size: var(--t-caption); }
+  .sc-head-actions { gap: 6px; margin-left: 0; }
   .sc-head-actions .iconbtn { width: 42px; height: 42px; }
-  .scope-button.mobile-device-scope { display: flex; margin-top: 13px; min-height: 48px; }
   .mobile-assistant-seg { display: flex; width: 100%; margin-top: 10px; }
   .mobile-assistant-seg button { flex: 1; min-height: 38px; text-align: center; }
   .sc-head-actions #new-session { display: none; }
@@ -1367,11 +1375,10 @@ textarea.chat-request-input { resize: vertical; }
   #app[data-mode="files"] #win { display: flex; flex: 1; min-height: 0; }
   #file-browser { width: 100%; }
   .file-mobile-head {
-    display: flex; align-items: center; justify-content: space-between; gap: 12px;
+    display: flex; align-items: center; gap: 8px;
     min-height: 56px; padding: max(14px, env(safe-area-inset-top, 0px)) 14px 8px; background: var(--bg);
   }
   .file-mobile-head .iconbtn { width: 42px; height: 42px; }
-  #file-browser > .mobile-device-scope { margin: 5px 14px 9px; width: calc(100% - 28px); }
   .file-layout, .file-layout.preview-open { display: block; position: relative; flex: 1; min-height: 0; }
   .file-sources { display: none; }
   .file-main { position: absolute; inset: 0; }
