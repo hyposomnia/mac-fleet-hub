@@ -15,7 +15,7 @@ const markedSrc = await readFile(new URL('./vendor/marked.min.js', import.meta.u
 const sandbox = { globalThis: {} };
 vm.createContext(sandbox);
 vm.runInContext(src, sandbox);
-const { createChatState, appendUserMessage, appendSteeringMessage, removeMessage, prependHistory, reduceChatEvent, normalizeDiffFiles, chatPhase, followupAckId, uuidV7TimeMs } = sandbox.globalThis.FleetChatModel;
+const { createChatState, appendUserMessage, appendSteeringMessage, removeMessage, prependHistory, reduceChatEvent, normalizeDiffFiles, chatPhase, chatTurnProgress, followupAckId, uuidV7TimeMs } = sandbox.globalThis.FleetChatModel;
 
 const fixedAppNowMs = new Date(2026, 6, 23, 23, 0, 0).getTime();
 class FixedAppDate extends Date {
@@ -72,8 +72,8 @@ const appSandbox = {
   Date: FixedAppDate,
 };
 vm.createContext(appSandbox);
-vm.runInContext(`${appSrc}\n;globalThis.__chatCacheTest = { chatCacheVictim, isChatConnectionKept, isSessionRunning, updateChatUpdatedAt, formatChatDate, chatAssistantMetaText, chatUserMetaText, chatMessageMetaVisibility, applyChatMetadataDefaults, enqueueChatFollowup, removeChatFollowup, normalizeChatDraft, chatSkillTriggerAt, parseChatSkillInput, chatSkillTokenNames, mergeChatComposerText, mergeChatAttachments, chatComposerAction: typeof chatComposerAction === 'function' ? chatComposerAction : null, chatImageSrc, chatToolStatus, chatToolDuration, chatToolActivityLabel, chatToolHasExpandableBody, isChatActivityItem, isChatTraceItem: typeof isChatTraceItem === 'function' ? isChatTraceItem : null, chatReasoningVisible: typeof chatReasoningVisible === 'function' ? chatReasoningVisible : null, chatRenderUnits: typeof chatRenderUnits === 'function' ? chatRenderUnits : null, renderChatItem: typeof renderChatItem === 'function' ? renderChatItem : null, chatActivityGroupSummaryText, chatActivityActiveSummarySegments, chatActivityGroupIconKind, renderChatActivityGroup, renderChatActivityRun: typeof renderChatActivityRun === 'function' ? renderChatActivityRun : null, sessionRow, sessionStatus, filterFileEntries, sortFileEntries: typeof sortFileEntries === 'function' ? sortFileEntries : null, normalizeFileView: typeof normalizeFileView === 'function' ? normalizeFileView : null, truncateFileColumns: typeof truncateFileColumns === 'function' ? truncateFileColumns : null, fileColumnRequestCurrent: typeof fileColumnRequestCurrent === 'function' ? fileColumnRequestCurrent : null, fileIconName: typeof fileIconName === 'function' ? fileIconName : null, activeFileLocationID: typeof activeFileLocationID === 'function' ? activeFileLocationID : null, isSessionBackSwipe: typeof isSessionBackSwipe === 'function' ? isSessionBackSwipe : null, ensurePendingChatStarted: typeof ensurePendingChatStarted === 'function' ? ensurePendingChatStarted : null, filePreviewTypeLabel, filePreviewLocation, chatTurnPinText: typeof chatTurnPinText === 'function' ? chatTurnPinText : () => '', isInternalChatTool: typeof isInternalChatTool === 'function' ? isInternalChatTool : () => false, state };`, appSandbox);
-const { chatCacheVictim, isChatConnectionKept, isSessionRunning, updateChatUpdatedAt, formatChatDate, chatAssistantMetaText, chatUserMetaText, chatMessageMetaVisibility, applyChatMetadataDefaults, enqueueChatFollowup, removeChatFollowup, normalizeChatDraft, chatSkillTriggerAt, parseChatSkillInput, chatSkillTokenNames, mergeChatComposerText, mergeChatAttachments, chatComposerAction, chatImageSrc, chatToolStatus, chatToolDuration, chatToolActivityLabel, chatToolHasExpandableBody, isChatActivityItem, isChatTraceItem, chatReasoningVisible, chatRenderUnits, renderChatItem, chatActivityGroupSummaryText, chatActivityActiveSummarySegments, chatActivityGroupIconKind, renderChatActivityGroup, renderChatActivityRun, sessionRow, sessionStatus, filterFileEntries, sortFileEntries, normalizeFileView, truncateFileColumns, fileColumnRequestCurrent, fileIconName, activeFileLocationID, isSessionBackSwipe, ensurePendingChatStarted, filePreviewTypeLabel, filePreviewLocation, chatTurnPinText, isInternalChatTool, state: appState } = appSandbox.__chatCacheTest;
+vm.runInContext(`${appSrc}\n;globalThis.__chatCacheTest = { chatCacheVictim, isChatConnectionKept, isSessionRunning, updateChatUpdatedAt, formatChatDate, chatAssistantMetaText, chatUserMetaText, chatMessageMetaVisibility, applyChatMetadataDefaults, enqueueChatFollowup, removeChatFollowup, normalizeChatDraft, chatSkillTriggerAt, parseChatSkillInput, chatSkillTokenNames, mergeChatComposerText, mergeChatAttachments, chatComposerAction: typeof chatComposerAction === 'function' ? chatComposerAction : null, chatImageSrc, chatToolStatus, chatToolDuration, chatToolActivityLabel, chatToolHasExpandableBody, isChatActivityItem, isChatTraceItem: typeof isChatTraceItem === 'function' ? isChatTraceItem : null, chatRenderUnits: typeof chatRenderUnits === 'function' ? chatRenderUnits : null, renderChatTurnProgress: typeof renderChatTurnProgress === 'function' ? renderChatTurnProgress : null, chatActivityGroupSummaryText, chatActivityActiveSummarySegments, chatActivityGroupIconKind, renderChatActivityGroup, renderChatActivityRun: typeof renderChatActivityRun === 'function' ? renderChatActivityRun : null, sessionRow, sessionStatus, filterFileEntries, sortFileEntries: typeof sortFileEntries === 'function' ? sortFileEntries : null, normalizeFileView: typeof normalizeFileView === 'function' ? normalizeFileView : null, truncateFileColumns: typeof truncateFileColumns === 'function' ? truncateFileColumns : null, fileColumnRequestCurrent: typeof fileColumnRequestCurrent === 'function' ? fileColumnRequestCurrent : null, fileIconName: typeof fileIconName === 'function' ? fileIconName : null, activeFileLocationID: typeof activeFileLocationID === 'function' ? activeFileLocationID : null, isSessionBackSwipe: typeof isSessionBackSwipe === 'function' ? isSessionBackSwipe : null, ensurePendingChatStarted: typeof ensurePendingChatStarted === 'function' ? ensurePendingChatStarted : null, filePreviewTypeLabel, filePreviewLocation, chatTurnPinText: typeof chatTurnPinText === 'function' ? chatTurnPinText : () => '', isInternalChatTool: typeof isInternalChatTool === 'function' ? isInternalChatTool : () => false, state };`, appSandbox);
+const { chatCacheVictim, isChatConnectionKept, isSessionRunning, updateChatUpdatedAt, formatChatDate, chatAssistantMetaText, chatUserMetaText, chatMessageMetaVisibility, applyChatMetadataDefaults, enqueueChatFollowup, removeChatFollowup, normalizeChatDraft, chatSkillTriggerAt, parseChatSkillInput, chatSkillTokenNames, mergeChatComposerText, mergeChatAttachments, chatComposerAction, chatImageSrc, chatToolStatus, chatToolDuration, chatToolActivityLabel, chatToolHasExpandableBody, isChatActivityItem, isChatTraceItem, chatRenderUnits, renderChatTurnProgress, chatActivityGroupSummaryText, chatActivityActiveSummarySegments, chatActivityGroupIconKind, renderChatActivityGroup, renderChatActivityRun, sessionRow, sessionStatus, filterFileEntries, sortFileEntries, normalizeFileView, truncateFileColumns, fileColumnRequestCurrent, fileIconName, activeFileLocationID, isSessionBackSwipe, ensurePendingChatStarted, filePreviewTypeLabel, filePreviewLocation, chatTurnPinText, isInternalChatTool, state: appState } = appSandbox.__chatCacheTest;
 function toolLabelText(item) {
   const status = chatToolStatus(item.status);
   return chatToolActivityLabel(item, status, chatToolDuration(item.durationMs)).map(nodeText).join('');
@@ -1145,32 +1145,88 @@ test('tool-only fallback keeps native standalone tool boundaries', () => {
 });
 
 test('active reasoning appears immediately as a private thinking status', () => {
-  const reasoning = {
-    id: 'reason-1', type: 'reasoning', turnId: 'turn-1', status: 'inProgress',
-    summary: '**Private reasoning**\n\nNever render this text',
-  };
-  const entries = [{ id: reasoning.id, item: reasoning }];
-  assert.equal(chatReasoningVisible(entries, 0, 'running'), true);
-  assert.deepEqual(
-    JSON.parse(JSON.stringify(chatRenderUnits(entries, 'running').map((unit) => [unit.kind, unit.entries[0].id]))),
-    [['item', 'reason-1']],
-  );
+  let model = reduceChatEvent(createChatState(), {
+    type: 'turn_started', turnId: 'turn-1', data: {},
+  });
+  model = reduceChatEvent(model, {
+    type: 'reasoning_update', itemId: 'reason-1', turnId: 'turn-1',
+    data: { status: 'inProgress', summary: '**Private reasoning**\n\nNever render this text' },
+  });
+  assert.equal(chatTurnProgress(model), 'thinking');
+  assert.equal(chatRenderUnits(model.messages.map((id) => ({ id, item: model.items[id] }))).length, 0);
 
-  const row = renderChatItem(reasoning, false);
+  const row = renderChatTurnProgress(chatTurnProgress(model));
   assert.equal(row.className, 'chat-row assistant thinking');
   assert.match(nodeText(row), /正在思考/);
   assert.doesNotMatch(nodeText(row), /Private reasoning|Never render/);
 
-  const completed = [{ id: 'reason-1', item: { ...reasoning, status: 'completed' } }];
-  assert.equal(chatRenderUnits(completed, 'running').length, 1);
-  assert.equal(chatRenderUnits(completed, 'idle').length, 0);
+  model = reduceChatEvent(model, {
+    type: 'reasoning_update', itemId: 'reason-2', turnId: 'turn-1',
+    data: { status: 'completed', summary: 'Another private segment' },
+  });
+  assert.equal(chatTurnProgress(model), 'thinking');
+  assert.equal(renderChatTurnProgress(chatTurnProgress(model)).className, 'chat-row assistant thinking');
+  assert.equal(chatRenderUnits(model.messages.map((id) => ({ id, item: model.items[id] }))).length, 0);
 
-  const withOutput = [
-    ...entries,
-    { id: 'assistant-1', item: { id: 'assistant-1', type: 'assistant', turnId: 'turn-1', text: 'Visible answer' } },
-  ];
-  const units = chatRenderUnits(withOutput, 'running');
-  assert.deepEqual(JSON.parse(JSON.stringify(units.map((unit) => unit.entries[0].id))), ['assistant-1']);
+  const idle = reduceChatEvent(model, {
+    type: 'turn_done', turnId: 'turn-1', data: { status: 'completed' },
+  });
+  assert.equal(chatTurnProgress(idle), '');
+  assert.equal(renderChatTurnProgress(chatTurnProgress(idle)), null);
+});
+
+test('turn progress follows event order instead of item insertion order', () => {
+  let model = reduceChatEvent(createChatState(), {
+    type: 'turn_started', turnId: 'turn-1', data: {},
+  });
+  model = reduceChatEvent(model, {
+    type: 'reasoning_update', itemId: 'reason-1', turnId: 'turn-1',
+    data: { status: 'inProgress', summary: 'First pass' },
+  });
+  model = reduceChatEvent(model, {
+    type: 'tool_update', itemId: 'tool-1', turnId: 'turn-1',
+    data: { kind: 'commandExecution', summary: 'pwd', status: 'inProgress' },
+  });
+  assert.equal(chatTurnProgress(model), '');
+
+  model = reduceChatEvent(model, {
+    type: 'reasoning_update', itemId: 'reason-1', turnId: 'turn-1',
+    data: { status: 'inProgress', summary: 'Second pass' },
+  });
+  assert.deepEqual(Array.from(model.messages), ['reason-1', 'tool-1']);
+  assert.equal(chatTurnProgress(model), 'thinking');
+
+  model = reduceChatEvent(model, {
+    type: 'plan_update', itemId: 'plan-1', turnId: 'turn-1',
+    data: { status: 'inProgress', text: 'Visible plan' },
+  });
+  assert.equal(chatTurnProgress(model), '');
+
+  model = reduceChatEvent(model, {
+    type: 'reasoning_update', itemId: 'reason-2', turnId: 'turn-1',
+    data: { status: 'completed', summary: 'Final pass' },
+  });
+  assert.equal(chatTurnProgress(model), 'thinking');
+
+  model = reduceChatEvent(model, {
+    type: 'assistant_delta', itemId: 'assistant-1', turnId: 'turn-1', data: { delta: 'Visible answer' },
+  });
+  assert.equal(chatTurnProgress(model), '');
+});
+
+test('late events from an old turn cannot overwrite active turn progress', () => {
+  let model = reduceChatEvent(createChatState(), {
+    type: 'turn_started', turnId: 'turn-2', data: {},
+  });
+  model = reduceChatEvent(model, {
+    type: 'reasoning_update', itemId: 'reason-2', turnId: 'turn-2',
+    data: { status: 'inProgress', summary: 'Current turn' },
+  });
+  model = reduceChatEvent(model, {
+    type: 'tool_done', itemId: 'old-tool', turnId: 'turn-1',
+    data: { kind: 'commandExecution', summary: 'old output', status: 'completed' },
+  });
+  assert.equal(chatTurnProgress(model), 'thinking');
 });
 
 test('reasoning stays hidden while native tool rows remain visible', () => {
@@ -1243,6 +1299,9 @@ test('tool-only runs preserve image and computer-use standalone rows', () => {
 test('Codex transcript exposes thinking state without reasoning content', () => {
   assert.doesNotMatch(appSrc, /chatThoughtIcon|chat-thought|Thought for|['"]Thought['"]/);
   assert.doesNotMatch(styleCSS, /chat-reasoning|chat-thought|chat-activity-trace/);
+  assert.match(appSrc, /if \(entry\?\.item\?\.type === 'reasoning'\) continue;/);
+  assert.match(appSrc, /if \(item\.type === 'reasoning'\) \{\s*return null;/);
+  assert.match(appSrc, /renderChatTurnProgress\(FleetChatModel\.chatTurnProgress\(model\)\)/);
   assert.match(appSrc, /class: 'chat-thinking'/);
   assert.match(appSrc, /text: '正在思考'/);
   assert.match(styleCSS, /\.chat-thinking-dots span/);

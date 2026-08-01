@@ -1613,16 +1613,7 @@ function syncChatTurnPin() {
   pin.hidden = !text;
 }
 
-function chatReasoningVisible(entries, index, phase = '') {
-  const item = entries?.[index]?.item;
-  if (item?.type !== 'reasoning') return false;
-  const status = chatToolStatus(item.status).key;
-  const turnRunning = FleetChatModel.chatPhase(phase) === 'running';
-  if (status !== 'running' && !(status === 'completed' && turnRunning)) return false;
-  return !entries.slice(index + 1).some((entry) => entry?.item?.type !== 'reasoning');
-}
-
-function chatRenderUnits(entries, phase = '') {
+function chatRenderUnits(entries) {
   const units = [];
   let trace = [];
   const flushTrace = () => {
@@ -1630,17 +1621,9 @@ function chatRenderUnits(entries, phase = '') {
     units.push({ kind: 'trace', entries: trace });
     trace = [];
   };
-  for (let index = 0; index < (entries || []).length; index += 1) {
-    const entry = entries[index];
-    // Reasoning content remains private. Only the newest active reasoning item
-    // becomes a transient progress row until visible output takes its place.
-    if (entry?.item?.type === 'reasoning') {
-      if (chatReasoningVisible(entries, index, phase)) {
-        flushTrace();
-        units.push({ kind: 'item', entries: [entry] });
-      }
-      continue;
-    }
+  for (const entry of entries || []) {
+    // Reasoning items are event-model details, never one-to-one transcript rows.
+    if (entry?.item?.type === 'reasoning') continue;
     if (isChatTraceItem(entry?.item)) {
       trace.push(entry);
       continue;
@@ -1669,7 +1652,7 @@ function renderChat({ preserveScroll = false, forceBottom = false } = {}) {
   const entries = model.messages
     .map((id) => ({ id, item: model.items[id] }))
     .filter((entry) => entry.item && !isInternalChatTool(entry.item));
-  for (const unit of chatRenderUnits(entries, model.phase)) {
+  for (const unit of chatRenderUnits(entries)) {
     const rows = unit.kind === 'trace'
       ? renderChatActivityRun(unit.entries.map((entry) => entry.item))
       : [renderChatItem(unit.entries[0].item,
@@ -1681,6 +1664,8 @@ function renderChat({ preserveScroll = false, forceBottom = false } = {}) {
     const turnMeta = metaVisible.get(lastId);
     if (turnMeta?.type === 'assistant') stack.append(renderChatTurnMeta(turnMeta));
   }
+  const progress = renderChatTurnProgress(FleetChatModel.chatTurnProgress(model));
+  if (progress) stack.append(progress);
   if (model.error) stack.append(renderChatError(model.error));
   clear(sc); sc.append(stack);
   if (preserveScroll) sc.scrollTop = oldTop + (sc.scrollHeight - oldHeight);
@@ -1691,6 +1676,16 @@ function renderChat({ preserveScroll = false, forceBottom = false } = {}) {
 
 function chatRow(body, cls = '') {
   return h('div', { class: 'chat-row ' + cls }, body);
+}
+
+function renderChatTurnProgress(progress) {
+  if (progress !== 'thinking') return null;
+  return chatRow(h('div', {
+    class: 'chat-thinking', role: 'status', 'aria-live': 'polite', 'aria-atomic': 'true',
+  },
+  h('span', { class: 'chat-thinking-dots', 'aria-hidden': 'true' },
+    h('span'), h('span'), h('span')),
+  h('span', { text: '正在思考' })), 'assistant thinking');
 }
 
 function chatToolStatus(status) {
@@ -2461,12 +2456,7 @@ function renderChatItem(item, showMeta = true) {
     'assistant');
   }
   if (item.type === 'reasoning') {
-    return chatRow(h('div', {
-      class: 'chat-thinking', role: 'status', 'aria-live': 'polite', 'aria-atomic': 'true',
-    },
-    h('span', { class: 'chat-thinking-dots', 'aria-hidden': 'true' },
-      h('span'), h('span'), h('span')),
-    h('span', { text: '正在思考' })), 'assistant thinking');
+    return null;
   }
   if (item.type === 'plan') {
     if (!item.text) return null;

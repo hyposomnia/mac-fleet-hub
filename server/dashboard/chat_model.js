@@ -2,13 +2,17 @@
   'use strict';
 
   function createChatState() {
-    return { phase: 'idle', activeTurnId: '', messages: [], items: {}, requests: {}, approvals: {}, turnUsage: {}, error: null };
+    return {
+      phase: 'idle', activeTurnId: '', turnProgress: '', messages: [], items: {},
+      requests: {}, approvals: {}, turnUsage: {}, error: null,
+    };
   }
 
   function cloneState(state) {
     return {
       phase: state.phase || 'idle',
       activeTurnId: state.activeTurnId || '',
+      turnProgress: state.turnProgress || '',
       messages: (state.messages || []).slice(),
       items: { ...(state.items || {}) },
       requests: { ...(state.requests || {}) },
@@ -44,6 +48,28 @@
     if (['systemerror', 'system_error', 'error', 'failed'].includes(phase)) return 'error';
     if (['idle', 'notloaded', 'not_loaded', 'completed', 'interrupted', 'cancelled'].includes(phase)) return 'idle';
     return phase || 'idle';
+  }
+
+  function chatTurnProgress(state) {
+    return chatPhase(state && state.phase) === 'running' ? String(state.turnProgress || '') : '';
+  }
+
+  function eventTurnId(ev, data) {
+    return firstString(ev && ev.turnId, data.turnId, data.turn_id, asObject(data.turn).id);
+  }
+
+  function transitionTurnProgress(next, ev, data, progress) {
+    if (data.__history || chatPhase(next.phase) !== 'running') return;
+    const turnId = eventTurnId(ev, data);
+    if (turnId && next.activeTurnId && turnId !== next.activeTurnId) return;
+    next.turnProgress = progress;
+  }
+
+  function reasoningTurnProgress(status) {
+    const value = String(status || '').trim().toLowerCase();
+    return ['interrupted', 'cancelled', 'canceled', 'stopped', 'failed', 'errored', 'error'].includes(value)
+      ? ''
+      : 'thinking';
   }
 
   function followupAckId(ev) {
@@ -308,10 +334,12 @@
     const itemId = ev && ev.itemId ? ev.itemId : (data.itemId || data.requestId || ('event-' + next.messages.length));
 
     switch (ev && ev.type) {
-      case 'thread_status':
+      case 'thread_status': {
+        const previousTurnId = next.activeTurnId;
         next.phase = chatPhase(data.status || data.state || next.phase);
         if (next.phase === 'running') {
           next.activeTurnId = firstString(data.activeTurnId, data.active_turn_id, next.activeTurnId);
+          if (next.activeTurnId && next.activeTurnId !== previousTurnId) next.turnProgress = '';
           if (next.activeTurnId) {
             for (const item of Object.values(next.items)) {
               if (item?.type === 'assistant' && item.turnId === next.activeTurnId) item.turnComplete = false;
@@ -319,12 +347,17 @@
           }
         } else {
           next.activeTurnId = '';
+          next.turnProgress = '';
         }
         return next;
-      case 'turn_started':
+      }
+      case 'turn_started': {
+        const previousTurnId = next.activeTurnId;
         next.phase = 'running';
         next.activeTurnId = firstString(ev && ev.turnId, data.turnId, data.turn_id, asObject(data.turn).id, next.activeTurnId);
+        if (next.activeTurnId !== previousTurnId) next.turnProgress = '';
         return next;
+      }
       case 'assistant_delta': {
         next.phase = 'running';
         next.activeTurnId = firstString(ev && ev.turnId, data.turnId, data.turn_id, next.activeTurnId);
@@ -334,6 +367,7 @@
         mergePendingTurnUsage(next, item);
         if (!item.startedAtMs) item.startedAtMs = uuidV7TimeMs(item.turnId) || Date.now();
         item.text = (item.text || '') + (data.delta || '');
+        transitionTurnProgress(next, ev, data, '');
         return next;
       }
       case 'assistant_done': {
@@ -348,6 +382,7 @@
         if (item.startedAtMs && item.completedAtMs && item.completedAtMs >= item.startedAtMs) item.durationMs = item.completedAtMs - item.startedAtMs;
         item.done = true;
         if (data.__history) item.turnComplete = historyTurnComplete;
+        transitionTurnProgress(next, ev, data, '');
         return next;
       }
       case 'reasoning_delta': {
@@ -357,6 +392,7 @@
         item.turnId = firstString(ev && ev.turnId, data.turnId, data.turn_id, item.turnId);
         item.summary = (item.summary || '') + (data.delta || '');
         item.status = 'inProgress';
+        transitionTurnProgress(next, ev, data, 'thinking');
         return next;
       }
       case 'reasoning_update': {
@@ -368,6 +404,7 @@
         item.status = data.status || item.status;
         if (data.durationMs !== undefined) item.durationMs = Number(data.durationMs) || 0;
         if (item.status === 'completed' && !item.completedAtMs) item.completedAtMs = Date.now();
+        transitionTurnProgress(next, ev, data, reasoningTurnProgress(item.status));
         return next;
       }
       case 'plan_delta': {
@@ -375,6 +412,7 @@
         item.turnId = firstString(ev && ev.turnId, data.turnId, data.turn_id, item.turnId);
         item.text = (item.text || '') + (data.delta || '');
         item.status = 'inProgress';
+        if (item.text) transitionTurnProgress(next, ev, data, '');
         return next;
       }
       case 'plan_update': {
@@ -382,6 +420,7 @@
         item.turnId = firstString(ev && ev.turnId, data.turnId, data.turn_id, item.turnId);
         if (data.text !== undefined) item.text = data.text || item.text || '';
         item.status = data.status || item.status;
+        if (item.text) transitionTurnProgress(next, ev, data, '');
         return next;
       }
       case 'todo_update': {
@@ -389,12 +428,14 @@
         item.turnId = firstString(ev && ev.turnId, data.turnId, data.turn_id, item.turnId);
         item.steps = Array.isArray(data.plan) ? data.plan.map((step) => ({ ...step })) : item.steps;
         item.explanation = data.explanation || '';
+        if (item.steps.length || item.explanation) transitionTurnProgress(next, ev, data, '');
         return next;
       }
       case 'context_compaction': {
         const item = upsertItem(next, itemId, () => ({ id: itemId, type: 'context', status: 'completed' }));
         item.turnId = firstString(ev && ev.turnId, data.turnId, data.turn_id, item.turnId);
         item.status = data.status || item.status;
+        transitionTurnProgress(next, ev, data, '');
         return next;
       }
       case 'review_status': {
@@ -450,6 +491,7 @@
         if (data.delta) item.output = (item.output || '') + data.delta;
         if (data.message) item.progress = data.message;
         item.stream = data.stream || item.stream;
+        transitionTurnProgress(next, ev, data, '');
         return next;
       }
       case 'tool_update':
@@ -457,6 +499,7 @@
         const item = upsertItem(next, itemId, () => ({ id: itemId, type: 'tool', title: '', summary: '', meta: '', detail: '', output: '', progress: '', stream: 'stdout' }));
         item.turnId = firstString(ev && ev.turnId, data.turnId, data.turn_id, item.turnId);
         applyToolData(item, data);
+        transitionTurnProgress(next, ev, data, '');
         return next;
       }
       case 'diff_update': {
@@ -465,6 +508,7 @@
         item.files = normalizeDiffFiles(data);
         item.raw = data;
         if (data.status) item.status = data.status;
+        if (item.files.length) transitionTurnProgress(next, ev, data, '');
         return next;
       }
       case 'interaction_request':
@@ -500,6 +544,7 @@
         item.raw = data;
         next.requests[requestId] = item;
         if (type === 'approval') next.approvals[requestId] = item;
+        transitionTurnProgress(next, ev, data, '');
         return next;
       }
       case 'interaction_resolved':
@@ -521,6 +566,7 @@
       case 'turn_done': {
         next.phase = 'idle';
         next.activeTurnId = '';
+        next.turnProgress = '';
         mergeTurnMetadata(next, data, ev, true);
         const turnId = firstString(ev && ev.turnId, data.turnId, data.turn_id, asObject(data.turn).id);
         if (turnId) delete next.turnUsage[turnId];
@@ -529,6 +575,7 @@
       case 'error':
         next.error = data.message || data.error || '自绘会话出错';
         next.phase = 'error';
+        next.turnProgress = '';
         return next;
       default:
         return next;
@@ -537,7 +584,7 @@
 
   const api = {
     createChatState, appendUserMessage, appendSteeringMessage, removeMessage, prependHistory,
-    reduceChatEvent, normalizeDiffFiles, chatPhase, followupAckId, uuidV7TimeMs,
+    reduceChatEvent, normalizeDiffFiles, chatPhase, chatTurnProgress, followupAckId, uuidV7TimeMs,
   };
   root.FleetChatModel = api;
   if (typeof module !== 'undefined') module.exports = api;
