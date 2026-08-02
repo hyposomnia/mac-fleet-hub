@@ -548,7 +548,7 @@ svg.ic.fill { fill: currentColor; stroke: none; }
    窗口（终端 / 文件）
    ============================================================ */
 #win { display: flex; flex-direction: column; min-width: 0; background: var(--bg); }
-#session-back-gesture { display: none; }
+#session-back-gesture, #file-back-gesture { display: none; }
 .win-head { display: flex; align-items: center; gap: 11px; padding: 11px 16px; border-bottom: 1px solid var(--border); min-height: 54px; background: var(--surface-1); }
 .win-back { display: none; }
 .win-head .info { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1; }
@@ -1430,6 +1430,23 @@ textarea.chat-request-input { resize: vertical; }
   }
   .file-mobile-head .iconbtn { width: 42px; height: 42px; }
   .file-layout, .file-layout.preview-open { display: block; position: relative; flex: 1; min-height: 0; }
+  #app[data-mode="files"].file-back-dragging .file-layout {
+    transform: translate3d(var(--file-back-x), 0, 0);
+    box-shadow: -14px 0 32px rgba(0, 0, 0, .2);
+    will-change: transform;
+  }
+  #app[data-mode="files"].file-back-settling .file-layout {
+    transform: translate3d(var(--file-back-x), 0, 0);
+    box-shadow: -14px 0 32px rgba(0, 0, 0, .2);
+    transition: transform 220ms var(--ease);
+    will-change: transform;
+  }
+  #app[data-mode="files"] #file-back-gesture {
+    display: block; position: absolute; z-index: 6;
+    inset: 0 auto 0 0;
+    width: calc(28px + env(safe-area-inset-left, 0px));
+    touch-action: pan-y; overscroll-behavior-x: contain;
+  }
   .file-sources { display: none; }
   .file-main { position: absolute; inset: 0; }
   .file-toolbar { padding: 10px 14px 9px; }

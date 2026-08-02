@@ -1105,6 +1105,19 @@ test('mobile session detail supports a deliberate edge swipe back', () => {
   assert.equal((appSrc.match(/\$\('#app'\)\.classList\.remove\('term-open'\)/g) || []).length, 1);
 });
 
+test('mobile file back gesture moves only the browsing region', () => {
+  const fileLayout = indexHTML.match(/<div class="file-layout">[\s\S]*?<aside class="file-sources">/)?.[0] || '';
+  assert.match(fileLayout, /id="file-back-gesture"[^>]*aria-hidden="true"[^>]*hidden/);
+  assert.match(styleCSS, /#app\[data-mode="files"\]\.file-back-dragging \.file-layout\s*\{[^}]*transform:\s*translate3d\(var\(--file-back-x\), 0, 0\)/s);
+  assert.match(styleCSS, /#app\[data-mode="files"\]\.file-back-settling \.file-layout\s*\{[^}]*transition:\s*transform/s);
+  assert.match(styleCSS, /#app\[data-mode="files"\] #file-back-gesture\s*\{[^}]*position:\s*absolute;[^}]*inset:\s*0 auto 0 0;/s);
+  assert.doesNotMatch(styleCSS, /file-back-(?:dragging|settling)[^{]*#(?:app|file-browser)\s*\{/);
+  assert.match(appSrc, /function wireFileBackGesture\(\)[\s\S]*?sessionBackDragOffset\(fileBackTouch, point, window\.innerWidth\)/);
+  assert.match(appSrc, /settleFileBackGesture\(isSessionBackSwipe\(fileBackTouch, end\)\)/);
+  assert.match(appSrc, /fileBackAwaitingHistory = true;[\s\S]*?history\.back\(\)/);
+  assert.match(appSrc, /finally\s*\{\s*if \(fromFileBackGesture\) resetFileBackGesture\(\);\s*\}/);
+});
+
 test('root viewport stays fixed and uses the active app background', () => {
   assert.match(styleCSS, /html\s*\{[^}]*background:\s*var\(--bg\);[^}]*overscroll-behavior:\s*none;[^}]*-webkit-text-size-adjust:\s*100%;[^}]*text-size-adjust:\s*100%;/s);
   assert.match(styleCSS, /body\s*\{[^}]*overflow:\s*hidden;/s);

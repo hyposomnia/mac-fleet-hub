@@ -614,6 +614,7 @@ function setMode(mode) {
   mode = state.mode;
   $('#app').dataset.mode = mode;
   if (mode !== 'sessions') backToList(); // 离开会话模式收起终端 push
+  if (mode !== 'files') resetFileBackGesture();
   $$('button[data-mode]').forEach((b) => b.setAttribute('aria-selected', String(b.dataset.mode === mode)));
   renderHosts();
   updateDeviceScopeUI();
@@ -3691,6 +3692,103 @@ function wireSessionBackGesture() {
   }, { passive: true });
 }
 
+let fileBackTouch = null;
+let fileBackSettleTimer = null;
+let fileBackAwaitingHistory = false;
+
+function fileBackGestureAvailable() {
+  return isMobile() &&
+    state.mode === 'files' &&
+    !state.fileLoading &&
+    !!state.fileParent &&
+    !state.filePreviewPath &&
+    !$('#app').classList.contains('file-back-settling');
+}
+
+function syncFileBackGestureAvailability() {
+  const gesture = $('#file-back-gesture');
+  if (gesture) gesture.hidden = !fileBackGestureAvailable();
+}
+
+function setFileBackOffset(offset) {
+  $('.file-layout')?.style.setProperty('--file-back-x', `${Math.max(0, offset)}px`);
+}
+
+function resetFileBackGesture() {
+  const app = $('#app');
+  const layout = $('.file-layout');
+  fileBackTouch = null;
+  fileBackAwaitingHistory = false;
+  if (fileBackSettleTimer !== null) {
+    window.clearTimeout(fileBackSettleTimer);
+    fileBackSettleTimer = null;
+  }
+  app.classList.remove('file-back-dragging', 'file-back-settling');
+  layout?.style.removeProperty('--file-back-x');
+  syncFileBackGestureAvailability();
+}
+
+function settleFileBackGesture(accepted) {
+  const app = $('#app');
+  if (!fileBackGestureAvailable()) {
+    resetFileBackGesture();
+    return;
+  }
+  fileBackTouch = null;
+  app.classList.remove('file-back-dragging');
+  app.classList.add('file-back-settling');
+  setFileBackOffset(accepted ? window.innerWidth : 0);
+  syncFileBackGestureAvailability();
+  const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  fileBackSettleTimer = window.setTimeout(() => {
+    fileBackSettleTimer = null;
+    if (!accepted) {
+      resetFileBackGesture();
+      return;
+    }
+    fileBackAwaitingHistory = true;
+    fileBackSettleTimer = window.setTimeout(resetFileBackGesture, 1500);
+    history.back();
+  }, reducedMotion ? 0 : 220);
+}
+
+function wireFileBackGesture() {
+  const gesture = $('#file-back-gesture');
+  const app = $('#app');
+  gesture.addEventListener('touchstart', (event) => {
+    if (!fileBackGestureAvailable()) return;
+    const touch = event.touches.length === 1 ? event.touches[0] : null;
+    resetFileBackGesture();
+    fileBackTouch = touch ? { x: touch.clientX, y: touch.clientY, edge: true, axis: null } : null;
+  }, { passive: true });
+  gesture.addEventListener('touchmove', (event) => {
+    const touch = fileBackTouch && event.touches.length === 1 ? event.touches[0] : null;
+    if (!touch) return;
+    const dx = touch.clientX - fileBackTouch.x;
+    const dy = Math.abs(touch.clientY - fileBackTouch.y);
+    if (!fileBackTouch.axis && Math.max(Math.abs(dx), dy) >= 8) {
+      fileBackTouch.axis = dx > 0 && dx > dy ? 'x' : 'y';
+    }
+    if (fileBackTouch.axis !== 'x') return;
+    event.preventDefault();
+    const point = { x: touch.clientX, y: touch.clientY };
+    const offset = sessionBackDragOffset(fileBackTouch, point, window.innerWidth);
+    app.classList.add('file-back-dragging');
+    setFileBackOffset(offset);
+  }, { passive: false });
+  gesture.addEventListener('touchend', (event) => {
+    const touch = event.changedTouches[0];
+    const end = touch ? { x: touch.clientX, y: touch.clientY } : null;
+    if (fileBackTouch?.axis === 'x') settleFileBackGesture(isSessionBackSwipe(fileBackTouch, end));
+    else resetFileBackGesture();
+  }, { passive: true });
+  gesture.addEventListener('touchcancel', () => {
+    if (fileBackTouch?.axis === 'x') settleFileBackGesture(false);
+    else resetFileBackGesture();
+  }, { passive: true });
+  syncFileBackGestureAvailability();
+}
+
 // ============================================================
 //  文件浏览器
 // ============================================================
@@ -4058,12 +4156,14 @@ function loadFiles(opts = {}) {
 
 async function loadFileDirectory(path = '', opts = {}) {
   if (!state.fileMacId) return;
+  if (!fileBackAwaitingHistory) resetFileBackGesture();
   const req = ++fileLoadSeq;
   fileColumnLoadSeq++;
   const macId = state.fileMacId;
   const replacePreviewHistory = opts.pushHistory && !!history.state?.fleet && !!history.state.filePreviewPath;
   if (replacePreviewHistory) closeFilePreview();
   state.fileLoading = true;
+  syncFileBackGestureAvailability();
   const list = $('#file-list');
   syncFileViewUI();
   clear(list);
@@ -4093,6 +4193,7 @@ async function loadFileDirectory(path = '', opts = {}) {
     clear(list);
     list.append(h('div', { class: 'file-empty' }, '无法读取文件', h('small', { text: error.message })));
     $('#file-count').textContent = '0 项';
+    syncFileBackGestureAvailability();
   }
 }
 
@@ -4102,6 +4203,7 @@ function renderFileBrowser() {
   renderFileEntries();
   $('#file-folder-title').textContent = state.filePath === state.fileRoot ? '主目录' : fileBaseName(state.filePath);
   updateDeviceScopeUI();
+  syncFileBackGestureAvailability();
 }
 
 function fileLocationIcon(id) {
@@ -4650,6 +4752,7 @@ function showFilePreview(entry) {
   $('#file-preview-panel').hidden = false;
   $('.file-layout').classList.add('preview-open');
   renderFileEntries();
+  syncFileBackGestureAvailability();
 }
 
 function openFilePreview(entry) {
@@ -4673,6 +4776,7 @@ function closeFilePreview() {
   $('.file-layout')?.classList.remove('preview-open');
   const frame = $('#file-preview-frame');
   if (frame) frame.src = 'about:blank';
+  syncFileBackGestureAvailability();
 }
 
 function dismissFilePreview() {
@@ -5009,38 +5113,43 @@ function initFleetHistory() {
   // 避免 WebView 留着旧预览记录导致关闭按钮退回另一个预览。
   replaceFleetHistory();
   addEventListener('popstate', async (event) => {
-    let target = event.state;
-    if (!target?.fleet) return;
-    if (state.filePreviewDismissing) {
-      state.filePreviewDismissing = false;
-      if (target.filePreviewPath) {
-        target = { ...target, filePreviewPath: '' };
-        replaceFleetHistory(target);
+    const fromFileBackGesture = fileBackAwaitingHistory;
+    try {
+      let target = event.state;
+      if (!target?.fleet) return;
+      if (state.filePreviewDismissing) {
+        state.filePreviewDismissing = false;
+        if (target.filePreviewPath) {
+          target = { ...target, filePreviewPath: '' };
+          replaceFleetHistory(target);
+        }
       }
-    }
-    if ($('#app').classList.contains('term-open') && !target.term) {
-      backToList();
-      return;
-    }
-    if (target.mode === 'files' && state.mode === 'files') {
-      if (target.fileMacId && target.fileMacId !== state.fileMacId) {
-        state.fileMacId = target.fileMacId;
-        state.macId = target.fileMacId;
-        state.filePath = state.filePaths[target.fileMacId] || '';
-        renderHosts();
-        updateDeviceScopeUI();
+      if ($('#app').classList.contains('term-open') && !target.term) {
+        backToList();
+        return;
       }
-      if (target.filePath !== undefined && target.filePath !== state.filePath) {
-        await loadFileDirectory(target.filePath || '', { fallback: true });
+      if (target.mode === 'files' && state.mode === 'files') {
+        if (target.fileMacId && target.fileMacId !== state.fileMacId) {
+          state.fileMacId = target.fileMacId;
+          state.macId = target.fileMacId;
+          state.filePath = state.filePaths[target.fileMacId] || '';
+          renderHosts();
+          updateDeviceScopeUI();
+        }
+        if (target.filePath !== undefined && target.filePath !== state.filePath) {
+          await loadFileDirectory(target.filePath || '', { fallback: true });
+        }
+        if (target.filePreviewPath) {
+          const entry = state.fileEntries.find((item) =>
+            item.kind === 'file' && item.previewable && item.path === target.filePreviewPath);
+          if (entry) showFilePreview(entry);
+          else closeFilePreview();
+        } else if (state.filePreviewPath) {
+          closeFilePreview();
+        }
       }
-      if (target.filePreviewPath) {
-        const entry = state.fileEntries.find((item) =>
-          item.kind === 'file' && item.previewable && item.path === target.filePreviewPath);
-        if (entry) showFilePreview(entry);
-        else closeFilePreview();
-      } else if (state.filePreviewPath) {
-        closeFilePreview();
-      }
+    } finally {
+      if (fromFileBackGesture) resetFileBackGesture();
     }
   });
 }
@@ -5206,6 +5315,7 @@ function init() {
   // 终端窗口
   $('#win-back').onclick = returnToSessionList;
   wireSessionBackGesture();
+  wireFileBackGesture();
   $('#reload-btn').onclick = doReload;
   $('#reload-dismiss').onclick = hideBanner;
   $('#reconnect-btn').onclick = () => { const f = curFrame(); try { f.contentWindow.location.reload(); } catch (_) { f.src = f.src; } };
@@ -5368,6 +5478,7 @@ function init() {
   // 跨断点时同步移动输入坞可见性
   addEventListener('resize', () => {
     resetSessionBackGesture();
+    resetFileBackGesture();
     if (state.mode === 'sessions' && state.termSid) $('#mobile-input').hidden = !isMobile();
     if (!$('#file-settings-menu').hidden) positionFileSettings(fileSettingsTrigger);
     if (state.mode === 'files' && state.fileView === 'columns') scrollFileColumnsToEnd();
