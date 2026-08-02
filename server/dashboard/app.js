@@ -149,6 +149,17 @@ const SETTINGS_DEFAULT = {
 
 // ---------- 工具 ----------
 const isMobile = () => matchMedia('(max-width: 860px)').matches;
+
+function visualKeyboardInset(focused, layoutHeight, viewportHeight, offsetTop) {
+  if (!focused || ![layoutHeight, viewportHeight, offsetTop].every(Number.isFinite)) return 0;
+  return Math.max(0, layoutHeight - viewportHeight - offsetTop);
+}
+
+function releaseVisualKeyboard() {
+  const active = document.activeElement;
+  if (active?.matches?.('#chat-input, #cmd-input')) active.blur();
+  document.documentElement.style.setProperty('--kb', '0px');
+}
 function relTime(ms) {
   const d = Date.now() - ms;
   if (d < 60e3) return '刚刚';
@@ -1553,6 +1564,8 @@ function syncSessionRuntimeIndicators() {
 
 function closeChatPane({ dispose = false } = {}) {
   const chat = state.chat;
+  closeChatImageViewer({ restoreFocus: false });
+  if (document.activeElement === $('#chat-input')) releaseVisualKeyboard();
   saveChatDraft(chat);
   closeChatSkillMenu();
   if (dispose && chat) {
@@ -1563,6 +1576,7 @@ function closeChatPane({ dispose = false } = {}) {
   state.chat = null;
   const pane = $('#chat-pane');
   if (pane) pane.hidden = true;
+  $('#win')?.classList.remove('chat-open');
   closeChatOptions();
 }
 
@@ -1576,6 +1590,7 @@ function showChatPane(title, cwd, { connected = true } = {}) {
   $('#reconnect-btn').hidden = true;
   $('#fullscreen-btn').hidden = false;
   $('#chat-pane').hidden = false;
+  $('#win').classList.add('chat-open');
   const tt = $('#win-title'); clear(tt);
   if (connected) tt.append(h('span', { class: 'dot live' }));
   tt.append(h('span', { class: 'ttl', text: title || 'Codex 会话' }));
@@ -2016,7 +2031,7 @@ function renderChatToolSurface(item, extraClass = '') {
   const cls = ['chat-tool compact', extraClass].filter(Boolean).join(' ');
   if (!hasBody) return h('div', { class: cls }, header);
   const body = h('div', { class: 'chat-tool-body' },
-    item.mediaPath ? h('img', { class: 'chat-tool-media', src: chatMediaSrc(item.mediaPath), alt: item.summary || 'Codex 图片' }) : null,
+    item.mediaPath ? chatImagePreview(chatMediaSrc(item.mediaPath), item.summary || 'Codex 图片', 'chat-tool-media', 'chat-tool-media-preview') : null,
     item.progress ? h('div', { class: 'chat-tool-progress', text: item.progress }) : null,
     item.meta ? h('div', { class: 'chat-tool-meta mono', text: item.meta }) : null,
     (item.summary || item.output || item.detail) ? h('div', { class: 'chat-tool-section' },
@@ -2437,7 +2452,7 @@ function renderChatItem(item, showMeta = true) {
     if (item.images && item.images.length) {
       parts.push(h('div', { class: 'chat-images' }, item.images.map((img) => {
         const src = chatImageSrc(img);
-        return src ? h('img', { class: 'chat-img', src, alt: img.name || 'image' }) : h('div', { class: 'chat-img muted', text: img.name || '图片' });
+        return src ? chatImagePreview(src, img.name || '图片', 'chat-img', 'chat-attachment-preview') : h('div', { class: 'chat-img muted', text: img.name || '图片' });
       })));
     }
     const steeringLabel = item.steering && item.steeringStatus !== 'persisted'
@@ -2494,6 +2509,39 @@ function chatImageSrc(img) {
   if (img.url && img.url.startsWith('/api/')) return `${apiBase(state.macId)}${img.url}`;
   if (img.path) return chatMediaSrc(img.path);
   return img.url || '';
+}
+
+let chatImageViewerReturnFocus = null;
+
+function chatImagePreview(src, alt, imageClass, buttonClass = '') {
+  const label = alt || '图片';
+  return h('button', {
+    type: 'button', class: ['chat-image-button', buttonClass].filter(Boolean).join(' '),
+    title: '查看大图', 'aria-label': `查看大图：${label}`,
+    onclick: (event) => openChatImageViewer(src, label, event.currentTarget),
+  }, h('img', { class: imageClass, src, alt: label }));
+}
+
+function openChatImageViewer(src, alt = '图片', trigger = null) {
+  if (!src) return;
+  const viewer = $('#chat-image-viewer');
+  const image = $('#chat-image-viewer-image');
+  if (!viewer || !image) return;
+  chatImageViewerReturnFocus = trigger || document.activeElement;
+  image.src = src;
+  image.alt = alt || '图片';
+  viewer.hidden = false;
+  $('#chat-image-viewer-close')?.focus({ preventScroll: true });
+}
+
+function closeChatImageViewer({ restoreFocus = true } = {}) {
+  const viewer = $('#chat-image-viewer');
+  if (!viewer || viewer.hidden) return;
+  viewer.hidden = true;
+  $('#chat-image-viewer-image')?.removeAttribute('src');
+  const returnFocus = chatImageViewerReturnFocus;
+  chatImageViewerReturnFocus = null;
+  if (restoreFocus && returnFocus?.isConnected) returnFocus.focus({ preventScroll: true });
 }
 
 function chatMediaSrc(source) {
@@ -2630,9 +2678,9 @@ function renderChatAttachments() {
   clear(box);
   for (const att of atts) {
     box.append(h('div', { class: 'chat-att' + (att.error ? ' err' : '') },
-      att.previewUrl ? h('img', { src: att.previewUrl, alt: att.name || 'image' }) : null,
+      att.previewUrl ? chatImagePreview(att.previewUrl, att.name || '图片', '', 'chat-att-preview') : null,
       att.error || att.uploading ? h('span', { class: 'st', text: att.error ? '失败' : '上传中' }) : null,
-      h('button', { type: 'button', title: '移除图片', 'aria-label': '移除图片', onclick: () => removeChatAttachment(att.localId) },
+      h('button', { type: 'button', class: 'chat-att-remove', title: '移除图片', 'aria-label': '移除图片', onclick: () => removeChatAttachment(att.localId) },
         svgIcon('ic', 'M18 6 6 18 M6 6l12 12'))));
   }
   updateChatComposerState();
@@ -2976,8 +3024,8 @@ async function selectChatApprovalMode(value) {
       if (state.chat === chat) renderChatApprovalMenu(chat);
       if (updatesRunningTurn && state.chat === chat) {
         toast(approvalMode === 'full-access'
-          ? '已开启完全访问，当前任务后续审批将自动允许。'
-          : '权限已更新，将从下一轮任务生效。');
+          ? '已开启完全访问；下一条消息起完整生效，当前工具调用仍按原状态继续。'
+          : '权限已更新；下一条消息起完整生效，当前工具调用仍按原状态继续。');
       }
     }
   } catch (e) {
@@ -3542,6 +3590,8 @@ async function restorePoolSnapshot() {
 
 // 移动端从终端「返回」：仅收起 push，不结束进程（tmux 持久）。
 function backToList() {
+  closeChatImageViewer({ restoreFocus: false });
+  releaseVisualKeyboard();
   $('#app').classList.remove('term-open');
   resetSessionBackGesture();
 }
@@ -5220,7 +5270,18 @@ function init() {
     syncChatTurnPin();
     if ($('#chat-scroll').scrollTop <= 80) loadOlderChatHistory();
   });
+  $('#chat-scroll').addEventListener('click', (event) => {
+    const image = event.target.closest?.('.chat-markdown img');
+    if (image) {
+      event.preventDefault();
+      openChatImageViewer(image.currentSrc || image.src, image.alt || '图片', image);
+    }
+  });
   $('#chat-jump').onclick = () => { const sc = $('#chat-scroll'); sc.scrollTop = sc.scrollHeight; $('#chat-jump').hidden = true; };
+  $('#chat-image-viewer-close').onclick = () => closeChatImageViewer();
+  $('#chat-image-viewer').addEventListener('click', (event) => {
+    if (event.target === event.currentTarget) closeChatImageViewer();
+  });
   $('#chat-approval').addEventListener('click', (e) => {
     e.stopPropagation();
     toggleChatApproval();
@@ -5283,6 +5344,10 @@ function init() {
   });
   document.addEventListener('keydown', (e) => {
     if (e.key !== 'Escape') return;
+    if (!$('#chat-image-viewer').hidden) {
+      closeChatImageViewer();
+      return;
+    }
     if (!$('#file-settings-menu').hidden) {
       closeFileSettings({ restoreFocus: true });
       return;
@@ -5310,24 +5375,30 @@ function init() {
     syncChatTurnPin();
   });
   // iOS 键盘不缩布局视口（100dvh/fixed 不变），用 VisualViewport 算出键盘高度。
-  // --kb 同时收缩自绘聊天面板、上移终端输入坞；聚焦后再校正一次，覆盖首次弹键盘漏报 resize。
+  // 只有可编辑输入框聚焦时才应用偏移，避免把 iOS 浏览器栏或安全区误当成键盘。
   if (window.visualViewport) {
     const vv = window.visualViewport;
-    const syncKb = () => {
-      const kb = Math.max(0, window.innerHeight - vv.height - vv.offsetTop);
+    const syncKb = (focused = document.activeElement?.matches?.('#chat-input, #cmd-input') || false) => {
+      const kb = visualKeyboardInset(focused, window.innerHeight, vv.height, vv.offsetTop);
       document.documentElement.style.setProperty('--kb', kb + 'px');
     };
+    const syncKbFromActiveElement = () => syncKb();
     const syncKbAfterFocus = (event) => {
       if (!event.target?.matches?.('#chat-input, #cmd-input')) return;
-      syncKb();
-      requestAnimationFrame(syncKb);
-      setTimeout(syncKb, 350);
+      syncKb(true);
+      requestAnimationFrame(syncKbFromActiveElement);
+      setTimeout(syncKbFromActiveElement, 350);
     };
-    vv.addEventListener('resize', syncKb);
-    vv.addEventListener('scroll', syncKb);
+    const clearKbAfterBlur = (event) => {
+      if (!event.target?.matches?.('#chat-input, #cmd-input')) return;
+      syncKb(false);
+      requestAnimationFrame(syncKbFromActiveElement);
+    };
+    vv.addEventListener('resize', syncKbFromActiveElement);
+    vv.addEventListener('scroll', syncKbFromActiveElement);
     document.addEventListener('focusin', syncKbAfterFocus);
-    document.addEventListener('focusout', syncKbAfterFocus);
-    syncKb();
+    document.addEventListener('focusout', clearKbAfterBlur);
+    syncKb(false);
   }
 
   updateSessionFilterUI();
