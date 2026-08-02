@@ -138,6 +138,7 @@ func (b *codexChatBackend) resetRPCIf(failed codexRPCConn) {
 	cleanup := b.cleanup
 	b.rpc = nil
 	b.cleanup = nil
+	b.loadedThreads = map[string]bool{}
 	b.mu.Unlock()
 	if cleanup != nil {
 		cleanup()

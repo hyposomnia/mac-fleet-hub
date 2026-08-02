@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"os"
 	"os/exec"
 	"strings"
 	"sync"
@@ -77,6 +78,22 @@ type codexServerInfo struct {
 	PlatformFamily string
 	PlatformOS     string
 }
+
+const (
+	codexAppServerModeAuto   = "auto"
+	codexAppServerModeDaemon = "daemon"
+	codexAppServerModeStdio  = "stdio"
+)
+
+type codexProcessConnector func(context.Context, string, ...string) (codexRPCConn, func(), error)
+
+var (
+	startManagedCodexDaemon                       = startCodexAppServerDaemon
+	connectCodexProcess     codexProcessConnector = connectCodexAppServerProcess
+	runCodexDaemonCommand                         = func(ctx context.Context, codexBin string, args ...string) ([]byte, error) {
+		return codexCommand(ctx, codexBin, args...).CombinedOutput()
+	}
+)
 
 type codexRPCConn interface {
 	call(ctx context.Context, method string, params interface{}) (json.RawMessage, error)
@@ -347,12 +364,88 @@ func (c *codexRPCClient) initialize(ctx context.Context, version string) error {
 	return nil
 }
 
-func connectCodexAppServerStdio(ctx context.Context) (codexRPCConn, func(), error) {
+func normalizeCodexAppServerMode(mode string) string {
+	switch strings.ToLower(strings.TrimSpace(mode)) {
+	case codexAppServerModeDaemon:
+		return codexAppServerModeDaemon
+	case codexAppServerModeStdio:
+		return codexAppServerModeStdio
+	default:
+		return codexAppServerModeAuto
+	}
+}
+
+func codexCommand(ctx context.Context, codexBin string, args ...string) *exec.Cmd {
+	cmd := exec.CommandContext(ctx, codexBin, args...)
+	if home := strings.TrimSpace(cfg.CodexHome); home != "" {
+		cmd.Env = envWithOverride(os.Environ(), "CODEX_HOME", home)
+	}
+	return cmd
+}
+
+func envWithOverride(env []string, key, value string) []string {
+	prefix := key + "="
+	result := make([]string, 0, len(env)+1)
+	for _, item := range env {
+		if !strings.HasPrefix(item, prefix) {
+			result = append(result, item)
+		}
+	}
+	return append(result, prefix+value)
+}
+
+func startCodexAppServerDaemon(ctx context.Context, codexBin string) error {
+	startCtx, cancel := context.WithTimeout(ctx, 20*time.Second)
+	defer cancel()
+	for _, action := range []string{"start", "enable-remote-control"} {
+		out, err := runCodexDaemonCommand(startCtx, codexBin, "app-server", "daemon", action)
+		if err == nil {
+			continue
+		}
+		detail := strings.TrimSpace(string(out))
+		if len(detail) > 512 {
+			detail = detail[:512]
+		}
+		if detail == "" {
+			return fmt.Errorf("Codex app-server daemon %s: %w", action, err)
+		}
+		return fmt.Errorf("Codex app-server daemon %s: %w: %s", action, err, detail)
+	}
+	return nil
+}
+
+func connectCodexAppServer(ctx context.Context) (codexRPCConn, func(), error) {
 	codexBin := cfg.CodexBin
 	if codexBin == "" {
 		codexBin = "codex"
 	}
-	cmd := exec.CommandContext(context.Background(), codexBin, "app-server", "--stdio")
+	mode := normalizeCodexAppServerMode(cfg.CodexMode)
+	if mode != codexAppServerModeStdio {
+		if err := startManagedCodexDaemon(ctx, codexBin); err == nil {
+			args := []string{"app-server", "proxy"}
+			if sock := strings.TrimSpace(cfg.CodexSock); sock != "" {
+				args = append(args, "--sock", sock)
+			}
+			rpc, cleanup, proxyErr := connectCodexProcess(ctx, codexBin, args...)
+			if proxyErr == nil {
+				return rpc, cleanup, nil
+			}
+			if mode == codexAppServerModeDaemon {
+				return nil, nil, fmt.Errorf("connect managed Codex app-server: %w", proxyErr)
+			}
+			log.Printf("managed Codex app-server proxy unavailable; falling back to stdio: %v", proxyErr)
+		} else {
+			if mode == codexAppServerModeDaemon {
+				return nil, nil, err
+			}
+			log.Printf("managed Codex app-server unavailable; falling back to stdio: %v", err)
+		}
+	}
+	return connectCodexProcess(ctx, codexBin, "app-server", "--stdio")
+}
+
+func connectCodexAppServerProcess(ctx context.Context, codexBin string, args ...string) (codexRPCConn, func(), error) {
+	cmd := codexCommand(context.Background(), codexBin, args...)
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
 		return nil, nil, err

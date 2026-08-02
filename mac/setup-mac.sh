@@ -28,7 +28,9 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 command -v brew >/dev/null 2>&1 || { echo "未找到 Homebrew，请先装：https://brew.sh" >&2; exit 1; }
 BREW_PREFIX="$(brew --prefix)"
 CLAUDE_BIN="$(command -v claude || echo "$BREW_PREFIX/bin/claude")"
-if [[ -n "${CODEX_BIN:-}" ]]; then
+if [[ -n "${FLEET_CODEX_BIN:-}" ]]; then
+  CODEX_BIN="$FLEET_CODEX_BIN"
+elif [[ -n "${CODEX_BIN:-}" ]]; then
   CODEX_BIN="$CODEX_BIN"
 elif command -v codex >/dev/null 2>&1; then
   CODEX_BIN="$(command -v codex)"
@@ -37,6 +39,13 @@ elif [[ -x "/Applications/ChatGPT.app/Contents/Resources/codex" ]]; then
 else
   CODEX_BIN="$BREW_PREFIX/bin/codex"
 fi
+CODEX_HOME_DIR="${FLEET_CODEX_HOME:-$HOME/.codex}"
+CODEX_APPSERVER_MODE="${FLEET_CODEX_APPSERVER_MODE:-auto}"
+CODEX_APPSERVER_SOCK="${FLEET_CODEX_APPSERVER_SOCK:-}"
+case "$CODEX_APPSERVER_MODE" in
+  auto|daemon|stdio) ;;
+  *) echo "非法 FLEET_CODEX_APPSERVER_MODE=$CODEX_APPSERVER_MODE（应为 auto/daemon/stdio）" >&2; exit 1 ;;
+esac
 
 # --- 1. Tailscale 客户端 + （可选）入网 Headscale ---
 TS_BIN="$(command -v tailscale || echo /Applications/Tailscale.app/Contents/MacOS/Tailscale)"
@@ -51,6 +60,19 @@ echo "本机 mesh IP: $TS_IP  (mac${MAC_INDEX})"
 # --- 2. 依赖 ---
 echo "安装 ttyd tmux ..."
 brew install ttyd tmux 2>/dev/null || true
+
+# Codex daemon 独立于 fleet-agent 常驻。fleet-agent 只持有 proxy，更新自身时不会终止正在运行的 turn。
+if [[ "$CODEX_APPSERVER_MODE" != "stdio" && -x "$CODEX_BIN" ]]; then
+  echo "配置 Codex app-server daemon ..."
+  if CODEX_HOME="$CODEX_HOME_DIR" "$CODEX_BIN" app-server daemon bootstrap --remote-control >/dev/null 2>&1; then
+    echo "Codex app-server daemon 已就绪"
+  elif [[ "$CODEX_APPSERVER_MODE" == "daemon" ]]; then
+    echo "Codex app-server daemon bootstrap 失败；daemon 模式无法继续，请更新 Codex 后重试。" >&2
+    exit 1
+  else
+    echo "警告：Codex daemon 不可用，fleet-agent 将回退独立 stdio；更新 agent 仍可能中断活动 turn。" >&2
+  fi
+fi
 
 # --- 3. 安装 fleet-agent / filebrowser 二进制 + ttyd 附着脚本 ---
 mkdir -p "$BIN_DIR"
@@ -131,6 +153,9 @@ render() { # src dst
       -e "s#__MAC_INDEX__#${MAC_INDEX}#g" \
       -e "s#__CLAUDE_BIN__#${CLAUDE_BIN}#g" \
       -e "s#__CODEX_BIN__#${CODEX_BIN}#g" \
+      -e "s#__CODEX_HOME__#${CODEX_HOME_DIR}#g" \
+      -e "s#__CODEX_APPSERVER_MODE__#${CODEX_APPSERVER_MODE}#g" \
+      -e "s#__CODEX_APPSERVER_SOCK__#${CODEX_APPSERVER_SOCK}#g" \
       "$1" > "$2"
 }
 PORT="$TTYD_PORT" render "$SCRIPT_DIR/com.macfleet.ttyd.plist"        "$LA/com.macfleet.ttyd.plist"

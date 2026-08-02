@@ -49,6 +49,8 @@ type Config struct {
 	ClaudeBin    string // claude 可执行文件
 	CodexHome    string // ~/.codex
 	CodexBin     string // codex 可执行文件
+	CodexMode    string // app-server 连接模式：auto / daemon / stdio
+	CodexSock    string // managed app-server unix socket（空则使用 Codex 默认）
 	MacIndex     string // 1/2/3 → 终端入口 /m{idx}/term
 	IdleSec      int64  // 空闲回收秒数（默认 1800）
 	AutoCmdR     bool   // 会话结束自动给 Desktop 发 Cmd+R
@@ -123,6 +125,8 @@ func loadConfig() Config {
 		ClaudeBin:    envOr("FLEET_CLAUDE_BIN", "claude"),
 		CodexHome:    envOr("FLEET_CODEX_HOME", filepath.Join(home, ".codex")),
 		CodexBin:     envOr("FLEET_CODEX_BIN", "codex"),
+		CodexMode:    envOr("FLEET_CODEX_APPSERVER_MODE", "auto"),
+		CodexSock:    strings.TrimSpace(os.Getenv("FLEET_CODEX_APPSERVER_SOCK")),
 		MacIndex:     envOr("FLEET_MAC_INDEX", "1"),
 		IdleSec:      idle,
 		AutoCmdR:     envOr("FLEET_AUTO_CMDR", "1") == "1",

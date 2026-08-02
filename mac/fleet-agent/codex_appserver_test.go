@@ -8,6 +8,7 @@ import (
 	"errors"
 	"io"
 	"net"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -306,4 +307,154 @@ func TestCodexRPCClientInitializeSendsInitializedNotification(t *testing.T) {
 		t.Fatalf("initialize: %v", err)
 	}
 	<-serverDone
+}
+
+func installCodexLauncherFakes(t *testing.T, mode, socket string) (*[]string, *[]string) {
+	t.Helper()
+	previousCfg := cfg
+	previousStart := startManagedCodexDaemon
+	previousConnect := connectCodexProcess
+	t.Cleanup(func() {
+		cfg = previousCfg
+		startManagedCodexDaemon = previousStart
+		connectCodexProcess = previousConnect
+	})
+
+	cfg.CodexBin = "/usr/local/bin/codex-test"
+	cfg.CodexMode = mode
+	cfg.CodexSock = socket
+	started := []string{}
+	connected := []string{}
+	startManagedCodexDaemon = func(_ context.Context, codexBin string) error {
+		started = append(started, codexBin)
+		return nil
+	}
+	connectCodexProcess = func(_ context.Context, codexBin string, args ...string) (codexRPCConn, func(), error) {
+		connected = append(connected, append([]string{codexBin}, args...)...)
+		return newFakeRPCConn(), func() {}, nil
+	}
+	return &started, &connected
+}
+
+func TestCodexAppServerAutoPrefersManagedDaemonProxy(t *testing.T) {
+	started, connected := installCodexLauncherFakes(t, "auto", "")
+	_, cleanup, err := connectCodexAppServer(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	cleanup()
+	if !reflect.DeepEqual(*started, []string{"/usr/local/bin/codex-test"}) {
+		t.Fatalf("daemon starts got %v", *started)
+	}
+	want := []string{"/usr/local/bin/codex-test", "app-server", "proxy"}
+	if !reflect.DeepEqual(*connected, want) {
+		t.Fatalf("process args got %v want %v", *connected, want)
+	}
+}
+
+func TestStartCodexAppServerDaemonEnablesRemoteControl(t *testing.T) {
+	previousRun := runCodexDaemonCommand
+	t.Cleanup(func() { runCodexDaemonCommand = previousRun })
+	commands := []string{}
+	runCodexDaemonCommand = func(_ context.Context, codexBin string, args ...string) ([]byte, error) {
+		commands = append(commands, strings.Join(append([]string{codexBin}, args...), " "))
+		return nil, nil
+	}
+
+	if err := startCodexAppServerDaemon(context.Background(), "/usr/local/bin/codex-test"); err != nil {
+		t.Fatal(err)
+	}
+	want := []string{
+		"/usr/local/bin/codex-test app-server daemon start",
+		"/usr/local/bin/codex-test app-server daemon enable-remote-control",
+	}
+	if !reflect.DeepEqual(commands, want) {
+		t.Fatalf("daemon commands got %v want %v", commands, want)
+	}
+}
+
+func TestCodexAppServerProxyUsesConfiguredSocket(t *testing.T) {
+	_, connected := installCodexLauncherFakes(t, "daemon", "/tmp/codex.sock")
+	_, cleanup, err := connectCodexAppServer(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	cleanup()
+	want := []string{"/usr/local/bin/codex-test", "app-server", "proxy", "--sock", "/tmp/codex.sock"}
+	if !reflect.DeepEqual(*connected, want) {
+		t.Fatalf("process args got %v want %v", *connected, want)
+	}
+}
+
+func TestCodexAppServerAutoFallsBackToStdio(t *testing.T) {
+	for _, test := range []struct {
+		name       string
+		startError error
+		proxyError error
+	}{
+		{name: "daemon start failure", startError: errors.New("daemon unavailable")},
+		{name: "proxy failure", proxyError: errors.New("socket unavailable")},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			started, connected := installCodexLauncherFakes(t, "auto", "")
+			startManagedCodexDaemon = func(_ context.Context, codexBin string) error {
+				*started = append(*started, codexBin)
+				return test.startError
+			}
+			connectCodexProcess = func(_ context.Context, codexBin string, args ...string) (codexRPCConn, func(), error) {
+				*connected = append(*connected, strings.Join(append([]string{codexBin}, args...), " "))
+				if len(args) > 1 && args[1] == "proxy" && test.proxyError != nil {
+					return nil, nil, test.proxyError
+				}
+				return newFakeRPCConn(), func() {}, nil
+			}
+
+			_, cleanup, err := connectCodexAppServer(context.Background())
+			if err != nil {
+				t.Fatal(err)
+			}
+			cleanup()
+			if got := (*connected)[len(*connected)-1]; got != "/usr/local/bin/codex-test app-server --stdio" {
+				t.Fatalf("fallback process got %q", got)
+			}
+		})
+	}
+}
+
+func TestCodexAppServerDaemonModeDoesNotFallBack(t *testing.T) {
+	_, connected := installCodexLauncherFakes(t, "daemon", "")
+	connectCodexProcess = func(_ context.Context, codexBin string, args ...string) (codexRPCConn, func(), error) {
+		*connected = append(*connected, strings.Join(append([]string{codexBin}, args...), " "))
+		return nil, nil, errors.New("socket unavailable")
+	}
+	if _, _, err := connectCodexAppServer(context.Background()); err == nil || !strings.Contains(err.Error(), "socket unavailable") {
+		t.Fatalf("strict daemon mode error got %v", err)
+	}
+	if len(*connected) != 1 || (*connected)[0] != "/usr/local/bin/codex-test app-server proxy" {
+		t.Fatalf("strict daemon mode unexpectedly fell back: %v", *connected)
+	}
+}
+
+func TestCodexAppServerStdioModeSkipsDaemon(t *testing.T) {
+	started, connected := installCodexLauncherFakes(t, "stdio", "")
+	_, cleanup, err := connectCodexAppServer(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	cleanup()
+	if len(*started) != 0 {
+		t.Fatalf("stdio mode started daemon: %v", *started)
+	}
+	want := []string{"/usr/local/bin/codex-test", "app-server", "--stdio"}
+	if !reflect.DeepEqual(*connected, want) {
+		t.Fatalf("process args got %v want %v", *connected, want)
+	}
+}
+
+func TestEnvWithOverrideReplacesDuplicateValues(t *testing.T) {
+	got := envWithOverride([]string{"PATH=/bin", "CODEX_HOME=/old", "CODEX_HOME=/also-old"}, "CODEX_HOME", "/new")
+	want := []string{"PATH=/bin", "CODEX_HOME=/new"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("environment got %v want %v", got, want)
+	}
 }

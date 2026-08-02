@@ -945,7 +945,8 @@ func TestCodexChatBackendFullAccessResolvesAlreadyPendingRequest(t *testing.T) {
 		"permissions": map[string]interface{}{"network": map[string]interface{}{"enabled": true}},
 		"scope":       "session",
 	}
-	if len(rpc.calls) != 2 || rpc.calls[1].method != "response:43" || !reflect.DeepEqual(rpc.calls[1].params, want) {
+	last := rpc.calls[len(rpc.calls)-1]
+	if rpc.calls[0].method != "thread/resume" || last.method != "response:43" || !reflect.DeepEqual(last.params, want) {
 		t.Fatalf("calls got %#v", rpc.calls)
 	}
 	b.mu.Lock()
@@ -1586,8 +1587,9 @@ func TestCodexChatBackendRespondsToServerRequestID(t *testing.T) {
 	if err := b.Respond(context.Background(), "codex", "thread-1", "42", json.RawMessage(`{"decision":"accept"}`)); err != nil {
 		t.Fatal(err)
 	}
-	if len(rpc.calls) != 1 || rpc.calls[0].method != "response:42" ||
-		!reflect.DeepEqual(rpc.calls[0].params, map[string]interface{}{"decision": "accept"}) {
+	last := rpc.calls[len(rpc.calls)-1]
+	if rpc.calls[0].method != "thread/resume" || last.method != "response:42" ||
+		!reflect.DeepEqual(last.params, map[string]interface{}{"decision": "accept"}) {
 		t.Fatalf("calls got %+v", rpc.calls)
 	}
 }
@@ -1625,7 +1627,8 @@ func TestCodexChatBackendRespondsToPermissionRequest(t *testing.T) {
 		"permissions": map[string]interface{}{"network": map[string]interface{}{"enabled": true}},
 		"scope":       "session",
 	}
-	if len(rpc.calls) != 1 || rpc.calls[0].method != "response:43" || !reflect.DeepEqual(rpc.calls[0].params, want) {
+	last := rpc.calls[len(rpc.calls)-1]
+	if rpc.calls[0].method != "thread/resume" || last.method != "response:43" || !reflect.DeepEqual(last.params, want) {
 		t.Fatalf("calls got %#v", rpc.calls)
 	}
 }
@@ -1680,12 +1683,53 @@ func TestCodexChatBackendRespondsToUserInputAndElicitationRequests(t *testing.T)
 			if err := b.Respond(context.Background(), "codex", "thread-1", requestID, json.RawMessage(test.response)); err != nil {
 				t.Fatal(err)
 			}
-			if len(rpc.calls) != 1 || rpc.calls[0].method != "response:"+requestID ||
-				!reflect.DeepEqual(rpc.calls[0].params, test.want) {
+			last := rpc.calls[len(rpc.calls)-1]
+			if rpc.calls[0].method != "thread/resume" || last.method != "response:"+requestID ||
+				!reflect.DeepEqual(last.params, test.want) {
 				t.Fatalf("calls got %#v", rpc.calls)
 			}
 		})
 	}
+}
+
+func TestCodexChatBackendEventsReloadsThreadAfterRPCReset(t *testing.T) {
+	rpc1 := newFakeRPCConn()
+	rpc2 := newFakeRPCConn()
+	connections := []codexRPCConn{rpc1, rpc2}
+	connectCount := 0
+	b := newCodexChatBackend(func(ctx context.Context) (codexRPCConn, func(), error) {
+		rpc := connections[connectCount]
+		connectCount++
+		return rpc, func() {}, nil
+	})
+
+	firstCtx, cancelFirst := context.WithCancel(context.Background())
+	defer cancelFirst()
+	if _, err := b.Events(firstCtx, "codex", "thread-1"); err != nil {
+		t.Fatal(err)
+	}
+	secondCtx, cancelSecond := context.WithCancel(context.Background())
+	defer cancelSecond()
+	if _, err := b.Events(secondCtx, "codex", "thread-1"); err != nil {
+		t.Fatal(err)
+	}
+	if got := methods(rpc1.calls); !reflect.DeepEqual(got, []string{"thread/resume"}) {
+		t.Fatalf("same RPC connection should load a thread once, got %v", got)
+	}
+
+	b.resetRPC()
+	thirdCtx, cancelThird := context.WithCancel(context.Background())
+	defer cancelThird()
+	if _, err := b.Events(thirdCtx, "codex", "thread-1"); err != nil {
+		t.Fatal(err)
+	}
+	if got := methods(rpc2.calls); !reflect.DeepEqual(got, []string{"thread/resume"}) {
+		t.Fatalf("replacement RPC connection should reload the thread, got %v", got)
+	}
+	cancelFirst()
+	cancelSecond()
+	cancelThird()
+	waitForCodexSyncStop(t, b, "thread-1")
 }
 
 func TestCodexChatBackendReplaysPendingRequestToReconnectedEvents(t *testing.T) {
@@ -1724,6 +1768,8 @@ func TestCodexChatBackendReplaysPendingRequestToReconnectedEvents(t *testing.T) 
 	case <-time.After(time.Second):
 		t.Fatal("replayed request event timeout")
 	}
+	cancelSecond()
+	waitForCodexSyncStop(t, b, "thread-1")
 }
 
 func methods(calls []recordedCall) []string {
@@ -1750,6 +1796,23 @@ func receiveChatEvents(t *testing.T, ch <-chan ChatEvent, count int) []ChatEvent
 		}
 	}
 	return events
+}
+
+func waitForCodexSyncStop(t *testing.T, b *codexChatBackend, sessionID string) {
+	t.Helper()
+	deadline := time.Now().Add(time.Second)
+	for {
+		b.mu.Lock()
+		_, running := b.syncers[sessionID]
+		b.mu.Unlock()
+		if !running {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("connected sync did not stop after subscriber cancellation")
+		}
+		time.Sleep(time.Millisecond)
+	}
 }
 
 func testCodexRolloutStamp(t *testing.T, path string) codexRolloutStamp {

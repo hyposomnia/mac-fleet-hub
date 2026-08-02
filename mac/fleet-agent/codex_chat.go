@@ -83,10 +83,12 @@ type codexChatBackend struct {
 	restart func(error)
 
 	connectMu           sync.Mutex
+	threadLoadMu        sync.Mutex
 	restartOnce         sync.Once
 	mu                  sync.Mutex
 	rpc                 codexRPCConn
 	cleanup             func()
+	loadedThreads       map[string]bool
 	subs                map[string]map[chan ChatEvent]struct{}
 	lastTurn            map[string]string
 	approvalModes       map[string]string
@@ -115,6 +117,7 @@ func newCodexChatBackend(connect codexConnector) *codexChatBackend {
 	return &codexChatBackend{
 		connect:             connect,
 		restart:             scheduleFleetAgentRestart,
+		loadedThreads:       map[string]bool{},
 		subs:                map[string]map[chan ChatEvent]struct{}{},
 		lastTurn:            map[string]string{},
 		approvalModes:       map[string]string{},
@@ -137,7 +140,7 @@ func newCodexChatBackend(connect codexConnector) *codexChatBackend {
 }
 
 func newAgentChatBackend() chatBackend {
-	return newCodexChatBackend(connectCodexAppServerStdio)
+	return newCodexChatBackend(connectCodexAppServer)
 }
 
 func (b *codexChatBackend) ensure(ctx context.Context) (codexRPCConn, error) {
@@ -183,6 +186,7 @@ func (b *codexChatBackend) resetRPC() {
 	cleanup := b.cleanup
 	b.rpc = nil
 	b.cleanup = nil
+	b.loadedThreads = map[string]bool{}
 	b.mu.Unlock()
 	if cleanup != nil {
 		cleanup()
@@ -311,6 +315,7 @@ func (b *codexChatBackend) Start(ctx context.Context, assistant, cwd, mode strin
 	approvalMode := codexApprovalMode(res.ApprovalPolicy, res.Sandbox)
 	b.mu.Lock()
 	b.freshThreads[sessionID] = true
+	b.loadedThreads[sessionID] = true
 	b.approvalModes[sessionID] = approvalMode
 	b.mu.Unlock()
 	return ChatStartResult{
@@ -330,6 +335,57 @@ func (b *codexChatBackend) resumeThread(ctx context.Context, rpc codexRPCConn, s
 	var res codexResumeWire
 	_ = json.Unmarshal(raw, &res)
 	return res, nil
+}
+
+func (b *codexChatBackend) rememberResumedThread(ctx context.Context, rpc codexRPCConn, sessionID string, res codexResumeWire) (string, string) {
+	status := codexThreadStatus(res.Thread.Status)
+	activeTurnID := ""
+	latestTurns := res.Thread.Turns
+	if codexStatusIsRunning(status) && len(latestTurns) == 0 {
+		latestTurns = b.latestTurns(ctx, rpc, sessionID)
+	}
+	b.mu.Lock()
+	b.loadedThreads[sessionID] = true
+	if codexStatusIsRunning(status) && len(latestTurns) > 0 {
+		latest := latestTurns[0]
+		if latest.Status == "" || codexStatusIsRunning(latest.Status) {
+			activeTurnID = latest.ID
+		}
+	}
+	if activeTurnID != "" {
+		b.lastTurn[sessionID] = activeTurnID
+	} else if !codexStatusIsRunning(status) {
+		delete(b.lastTurn, sessionID)
+	}
+	b.mu.Unlock()
+	return status, activeTurnID
+}
+
+func (b *codexChatBackend) ensureThreadLoaded(ctx context.Context, rpc codexRPCConn, sessionID string) error {
+	b.threadLoadMu.Lock()
+	defer b.threadLoadMu.Unlock()
+	b.mu.Lock()
+	loaded := b.loadedThreads[sessionID]
+	b.mu.Unlock()
+	if loaded {
+		return nil
+	}
+
+	b.beginResume(sessionID)
+	finished := false
+	defer func() {
+		if !finished {
+			b.finishResume(sessionID)
+		}
+	}()
+	res, err := b.resumeThread(ctx, rpc, sessionID)
+	if err != nil {
+		return err
+	}
+	b.rememberResumedThread(ctx, rpc, sessionID, res)
+	b.finishResume(sessionID)
+	finished = true
+	return nil
 }
 
 func (b *codexChatBackend) Resume(ctx context.Context, assistant, sessionID, mode string) (ChatResumeResult, error) {
@@ -367,27 +423,7 @@ func (b *codexChatBackend) Resume(ctx context.Context, assistant, sessionID, mod
 		return ChatResumeResult{}, err
 	}
 	b.rememberSyncEvents(sessionID, history.Events)
-	status := codexThreadStatus(res.Thread.Status)
-	activeTurnID := ""
-	latestTurns := res.Thread.Turns
-	if codexStatusIsRunning(status) && len(latestTurns) == 0 {
-		latestTurns = b.latestTurns(ctx, rpc, sessionID)
-	}
-	b.mu.Lock()
-	if codexStatusIsRunning(status) {
-		if len(latestTurns) > 0 {
-			latest := latestTurns[0]
-			if latest.Status == "" || codexStatusIsRunning(latest.Status) {
-				activeTurnID = latest.ID
-			}
-		}
-		if activeTurnID != "" {
-			b.lastTurn[sessionID] = activeTurnID
-		}
-	} else {
-		delete(b.lastTurn, sessionID)
-	}
-	b.mu.Unlock()
+	status, activeTurnID := b.rememberResumedThread(ctx, rpc, sessionID, res)
 	b.finishResume(sessionID)
 	resumeFinished = true
 	sandboxPolicy := res.SandboxPolicy
@@ -460,9 +496,11 @@ func (b *codexChatBackend) History(ctx context.Context, assistant, sessionID, cu
 	}
 	page, err := b.listHistory(ctx, rpc, sessionID, cursor)
 	if err != nil && codexThreadNotFound(err) {
-		if _, resumeErr := b.resumeThread(ctx, rpc, sessionID); resumeErr != nil {
+		res, resumeErr := b.resumeThread(ctx, rpc, sessionID)
+		if resumeErr != nil {
 			return ChatHistoryPage{}, resumeErr
 		}
+		b.rememberResumedThread(ctx, rpc, sessionID, res)
 		page, err = b.listHistory(ctx, rpc, sessionID, cursor)
 	}
 	if err != nil {
@@ -1679,7 +1717,11 @@ func (b *codexChatBackend) Input(ctx context.Context, assistant, sessionID, text
 	fresh := b.freshThreads[sessionID]
 	b.mu.Unlock()
 	if !fresh {
-		_, err = b.resumeThread(ctx, rpc, sessionID)
+		var resumed codexResumeWire
+		resumed, err = b.resumeThread(ctx, rpc, sessionID)
+		if err == nil {
+			b.rememberResumedThread(ctx, rpc, sessionID, resumed)
+		}
 	}
 	if err != nil {
 		if !codexThreadNotFound(err) {
@@ -1690,9 +1732,11 @@ func (b *codexChatBackend) Input(ctx context.Context, assistant, sessionID, text
 		if err != nil {
 			return ChatInputResult{}, err
 		}
-		if _, err := b.resumeThread(ctx, rpc, sessionID); err != nil {
-			return ChatInputResult{}, err
+		resumed, resumeErr := b.resumeThread(ctx, rpc, sessionID)
+		if resumeErr != nil {
+			return ChatInputResult{}, resumeErr
 		}
+		b.rememberResumedThread(ctx, rpc, sessionID, resumed)
 	}
 	input := codexUserInput(text, images, skills)
 	params := codexTurnStartParams(sessionID, input, opts)
@@ -1711,9 +1755,11 @@ func (b *codexChatBackend) Input(ctx context.Context, assistant, sessionID, text
 		if err != nil {
 			return ChatInputResult{}, err
 		}
-		if _, err := b.resumeThread(ctx, rpc, sessionID); err != nil {
-			return ChatInputResult{}, err
+		resumed, resumeErr := b.resumeThread(ctx, rpc, sessionID)
+		if resumeErr != nil {
+			return ChatInputResult{}, resumeErr
 		}
+		b.rememberResumedThread(ctx, rpc, sessionID, resumed)
 		raw, err = rpc.call(ctx, "turn/start", params)
 		if err != nil {
 			return ChatInputResult{}, err
@@ -2664,7 +2710,11 @@ func (b *codexChatBackend) Events(ctx context.Context, assistant, sessionID stri
 	if assistant != "codex" {
 		return nil, errUnsupportedChatAssistant
 	}
-	if _, err := b.ensure(ctx); err != nil {
+	rpc, err := b.ensure(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if err := b.ensureThreadLoaded(ctx, rpc, sessionID); err != nil {
 		return nil, err
 	}
 	b.mu.Lock()
