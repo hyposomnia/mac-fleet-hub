@@ -188,10 +188,16 @@ function visualKeyboardInset(focused, layoutHeight, viewportHeight, offsetTop, b
   return inset >= VISUAL_KEYBOARD_MIN_INSET ? inset : 0;
 }
 
+function setVisualKeyboardInset(value) {
+  const inset = Number.isFinite(value) ? Math.max(0, value) : 0;
+  document.documentElement.style.setProperty('--kb', inset + 'px');
+  document.documentElement.classList.toggle('visual-keyboard-open', inset > 0);
+}
+
 function releaseVisualKeyboard() {
   const active = document.activeElement;
   if (active?.matches?.('#chat-input, #cmd-input')) active.blur();
-  document.documentElement.style.setProperty('--kb', '0px');
+  setVisualKeyboardInset(0);
 }
 function relTime(ms) {
   const d = Date.now() - ms;
@@ -5581,7 +5587,7 @@ function init() {
     const syncKb = (focused = document.activeElement?.matches?.('#chat-input, #cmd-input') || false) => {
       if (!focused) captureVisualViewportBaseline();
       const kb = visualKeyboardInset(focused, window.innerHeight, vv.height, vv.offsetTop, visualViewportBaselineInset);
-      document.documentElement.style.setProperty('--kb', kb + 'px');
+      setVisualKeyboardInset(kb);
     };
     const syncKbFromActiveElement = () => syncKb();
     const syncKbAfterFocus = (event) => {
