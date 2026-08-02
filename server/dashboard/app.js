@@ -4139,6 +4139,25 @@ function filePreviewLocation(path, root) {
   return parent;
 }
 
+function syncFilePreviewWrapButton(entry) {
+  const button = $('#file-preview-wrap');
+  if (!button) return;
+  const supported = !!window.FleetPreview?.isTextPreviewPath(entry?.path);
+  button.hidden = !supported;
+  if (supported) {
+    window.FleetPreview.updateTextWrapButton(button, window.FleetPreview.textWrapEnabled());
+  }
+}
+
+function toggleFilePreviewWrap() {
+  const button = $('#file-preview-wrap');
+  if (!button || button.hidden) return;
+  const enabled = button.getAttribute('aria-pressed') !== 'true';
+  window.FleetPreview?.setTextWrap(enabled);
+  window.FleetPreview?.updateTextWrapButton(button, enabled);
+  try { $('#file-preview-frame').contentWindow?.FleetPreview?.setTextWrap(enabled, false); } catch (_) {}
+}
+
 function fileColumnFromData(data) {
   return {
     path: data.path || data.root || '',
@@ -4812,6 +4831,7 @@ function showFilePreview(entry) {
   $('#file-preview-modified').textContent = formatFileInfoTime(entry.modifiedAt);
   $('#file-preview-location').textContent = filePreviewLocation(entry.path, state.fileRoot);
   $('#file-preview-device').textContent = deviceName;
+  syncFilePreviewWrapButton(entry);
   $('#file-preview-frame').src = filePreviewRoute(state.fileMacId, entry.path, true);
   $('#file-preview-open').href = filePreviewRoute(state.fileMacId, entry.path, false);
   $('#file-preview-panel').hidden = false;
@@ -5359,6 +5379,7 @@ function init() {
   $('#file-delete-confirm').onclick = deleteFileTarget;
   $('#file-preview-close').onclick = dismissFilePreview;
   $('#file-preview-back').onclick = dismissFilePreview;
+  $('#file-preview-wrap').onclick = toggleFilePreviewWrap;
   const pickUpload = () => $('#file-upload-input').click();
   $('#file-upload').onclick = pickUpload;
   $$('.file-settings-trigger').forEach((button) => {

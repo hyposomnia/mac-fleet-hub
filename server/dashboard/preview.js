@@ -10,6 +10,11 @@
     '.mp4', '.m4v', '.webm', '.mov',
     '.mp3', '.m4a', '.aac', '.wav', '.ogg', '.flac',
   ]);
+  const TEXT_EXTENSIONS = new Set([
+    '.txt', '.log', '.json', '.jsonl', '.js', '.mjs', '.cjs', '.ts', '.tsx', '.jsx',
+    '.go', '.py', '.rb', '.sh', '.zsh', '.yaml', '.yml', '.toml', '.xml', '.csv', '.ini', '.conf', '.env', '.css',
+  ]);
+  const TEXT_WRAP_KEY = 'fleet-preview-text-wrap';
   const RESOURCE_EXTENSIONS = new Set([...PREVIEW_EXTENSIONS, '.css']);
   const RESOURCE_ATTRS = [
     ['img', 'src'], ['video', 'src'], ['video', 'poster'], ['audio', 'src'], ['source', 'src'],
@@ -28,6 +33,32 @@
     const slash = clean.lastIndexOf('/');
     const dot = clean.lastIndexOf('.');
     return dot > slash ? clean.slice(dot) : '';
+  }
+
+  function isTextPreviewPath(value) {
+    return TEXT_EXTENSIONS.has(extensionOf(String(value || '')));
+  }
+
+  function textWrapEnabled() {
+    try { return root.localStorage?.getItem(TEXT_WRAP_KEY) === '1'; } catch (_) { return false; }
+  }
+
+  function updateTextWrapButton(button, enabled) {
+    if (!button) return;
+    const label = enabled ? '关闭自动换行' : '开启自动换行';
+    button.setAttribute('aria-pressed', String(enabled));
+    button.setAttribute('aria-label', label);
+    button.title = label;
+  }
+
+  function setTextWrap(enabled, persist = true) {
+    const value = !!enabled;
+    root.document?.querySelector('#preview-text')?.classList.toggle('is-wrapped', value);
+    updateTextWrapButton(root.document?.querySelector('#preview-wrap'), value);
+    if (persist) {
+      try { root.localStorage?.setItem(TEXT_WRAP_KEY, value ? '1' : '0'); } catch (_) {}
+    }
+    return value;
   }
 
   function localPathValue(source, extensions = PREVIEW_EXTENSIONS) {
@@ -223,7 +254,10 @@
     }
     if (meta.kind === 'text') {
       const target = document.querySelector('#preview-text');
+      const wrap = document.querySelector('#preview-wrap');
       target.textContent = meta.content || '';
+      if (wrap) wrap.hidden = false;
+      setTextWrap(textWrapEnabled(), false);
       setPreviewState('text');
       return;
     }
@@ -261,6 +295,10 @@
       return;
     }
     document.documentElement.dataset.previewEmbed = request.embed ? 'true' : 'false';
+    const wrap = document.querySelector('#preview-wrap');
+    if (wrap) {
+      wrap.onclick = () => setTextWrap(wrap.getAttribute('aria-pressed') !== 'true');
+    }
     const host = document.querySelector('#preview-host');
     if (host) host.textContent = request.macId.toUpperCase();
     try {
@@ -278,6 +316,7 @@
 
   root.FleetPreview = {
     resolveLocalLink, resourceURL, fileEndpoint, formatBytes, isPreviewRoute, previewRequest,
-    safeHTMLDocument, rewriteCSSURLs, initRoute,
+    safeHTMLDocument, rewriteCSSURLs, isTextPreviewPath, textWrapEnabled,
+    updateTextWrapButton, setTextWrap, initRoute,
   };
 })(typeof globalThis !== 'undefined' ? globalThis : window);

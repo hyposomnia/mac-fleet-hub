@@ -187,7 +187,7 @@ body {
 /* 独立文件预览：/view 与 dashboard 共用外壳资源，但不启动主机/会话布局。 */
 #preview-page { width: 100%; height: 100dvh; min-height: 0; display: flex; flex-direction: column; background: var(--bg); }
 .preview-head {
-  min-height: 64px; flex: none; display: grid; grid-template-columns: 36px minmax(0, 1fr) auto 36px;
+  min-height: 64px; flex: none; display: grid; grid-template-columns: 36px minmax(0, 1fr) auto auto;
   align-items: center; gap: 12px; padding: 10px 16px; border-bottom: 1px solid var(--border);
   background: var(--surface); color: var(--text);
 }
@@ -195,6 +195,7 @@ body {
 .preview-title { overflow: hidden; color: var(--text); font-size: var(--t-title); font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
 .preview-path { margin-top: 2px; overflow: hidden; color: var(--text-2); font-size: var(--t-caption); text-overflow: ellipsis; white-space: nowrap; }
 .preview-meta { display: flex; align-items: center; justify-content: flex-end; gap: 7px; min-width: 0; }
+.preview-actions { display: flex; align-items: center; gap: 8px; }
 .preview-size { color: var(--text-2); font-size: var(--t-secondary); white-space: nowrap; }
 .preview-stage { position: relative; flex: 1; min-height: 0; overflow: hidden; background: var(--surface-1); }
 .preview-state { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; gap: 9px; padding: 24px; color: var(--text-2); text-align: center; }
@@ -214,6 +215,7 @@ body {
   border: 0; background: var(--surface-1); color: var(--text); font-size: var(--t-body); line-height: 1.65;
   white-space: pre; tab-size: 2;
 }
+.preview-text.is-wrapped { white-space: pre-wrap; overflow-wrap: anywhere; }
 .preview-html, .preview-pdf { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; background: #fff; }
 html[data-preview-embed="true"] .preview-head { display: none; }
 .preview-media { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; padding: 24px; overflow: auto; background: var(--bg); }
@@ -291,6 +293,7 @@ button { cursor: pointer; border: none; background: none; }
 }
 .iconbtn:hover { background: var(--surface-hover); color: var(--text); }
 .iconbtn.bare { border-color: transparent; background: transparent; }
+.iconbtn[aria-pressed="true"] { border-color: var(--accent-line); background: var(--accent-soft); color: var(--accent-text); }
 #refresh-btn.loading svg.ic { transform-origin: center; transform-box: fill-box; animation: spin .8s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
 
@@ -906,7 +909,7 @@ textarea.chat-request-input { resize: vertical; }
    ============================================================ */
 @media (max-width: 860px) {
   .preview-head {
-    min-height: 58px; grid-template-columns: 34px minmax(0, 1fr) auto 34px; gap: 8px;
+    min-height: 58px; grid-template-columns: 34px minmax(0, 1fr) auto auto; gap: 8px;
     padding: max(8px, env(safe-area-inset-top, 0px)) 10px 8px;
   }
   .preview-meta .preview-size, #preview-host { display: none; }

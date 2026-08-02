@@ -105,7 +105,7 @@ const previewSandbox = {
 };
 vm.createContext(previewSandbox);
 vm.runInContext(previewSrc, previewSandbox);
-const { resolveLocalLink, resourceURL, fileEndpoint, isPreviewRoute, previewRequest } = previewSandbox.globalThis.FleetPreview;
+const { resolveLocalLink, resourceURL, fileEndpoint, isPreviewRoute, previewRequest, isTextPreviewPath } = previewSandbox.globalThis.FleetPreview;
 
 test('chat model and app use the same versioned shell URLs', () => {
   const styleURL = indexHTML.match(/style\.css\?v=([a-zA-Z0-9_-]+)/);
@@ -187,6 +187,18 @@ test('preview page keeps HTML in a scriptless sandbox and media in native contro
   assert.match(previewSrc, /FORBID_TAGS:[\s\S]*?'script'/);
   assert.match(previewSrc, /"script-src 'none'"/);
   assert.match(appSrc, /FleetMarkdown\.renderMarkdown\(item\.text, chatMediaSrc, chatLinkHref\)/);
+});
+
+test('text previews expose one persistent auto-wrap toggle in both preview headers', () => {
+  assert.equal(isTextPreviewPath('/Users/test/config.json'), true);
+  assert.equal(isTextPreviewPath('/Users/test/main.go:12:4'), true);
+  assert.equal(isTextPreviewPath('/Users/test/readme.md'), false);
+  assert.equal(isTextPreviewPath('/Users/test/image.png'), false);
+  assert.match(indexHTML, /id="preview-wrap"[^>]*aria-pressed="false"[^>]*hidden/);
+  assert.match(indexHTML, /id="file-preview-wrap"[^>]*aria-pressed="false"[^>]*hidden/);
+  assert.match(styleCSS, /\.preview-text\.is-wrapped\s*\{[^}]*white-space:\s*pre-wrap;[^}]*overflow-wrap:\s*anywhere;/s);
+  assert.match(previewSrc, /localStorage\?\.setItem\(TEXT_WRAP_KEY/);
+  assert.match(appSrc, /contentWindow\?\.FleetPreview\?\.setTextWrap\(enabled, false\)/);
 });
 
 test('dashboard typography uses one UI scale and reserves monospace for technical content', () => {
