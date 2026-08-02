@@ -1066,26 +1066,28 @@ test('self-drawn composer contains native stop control and follow-up queue', () 
   assert.doesNotMatch(styleCSS, /#chat-composer\s*\{\s*padding:\s*8px 10px [^;}]*safe-area-inset-bottom/);
 });
 
-test('mobile chat composer fills the safe area and follows the visual viewport only for a real keyboard', () => {
-  assert.equal(visualKeyboardInset(false, 844, 810, 0), 0);
-  assert.equal(visualKeyboardInset(true, 844, 510, 0), 334);
-  assert.equal(visualKeyboardInset(true, 844, 510, 12), 322);
-  assert.equal(visualKeyboardInset(true, 844, 810, 0, 34), 0);
-  assert.equal(visualKeyboardInset(true, 844, 760, 0, 34), 0);
-  assert.equal(visualKeyboardInset(true, 844, 510, 0, 34), 300);
-  assert.equal(visualKeyboardInset(true, 844, 860, 0), 0);
+test('mobile chat composer uses the root canvas and follows a resized visual viewport', () => {
+  assert.equal(visualKeyboardInset(false, 894, 543), 0);
+  assert.equal(visualKeyboardInset(true, 894, 543), 351);
+  assert.equal(visualKeyboardInset(true, 894, 775), 0);
+  assert.equal(visualKeyboardInset(true, 894, 774), 120);
+  assert.equal(visualKeyboardInset(true, 543, 543), 0);
+  assert.equal(visualKeyboardInset(true, Number.NaN, 543), 0);
   assert.doesNotMatch(styleCSS, /#win\.chat-open/);
-  assert.match(
-    styleCSS,
-    /html:not\(\.visual-keyboard-open\) #app\.term-open #win:has\(#chat-pane:not\(\[hidden\]\)\)\s*\{\s*bottom:\s*calc\(-1 \* env\(safe-area-inset-bottom, 0px\)\);\s*\}/,
-  );
-  assert.match(styleCSS, /#chat-pane\s*\{\s*bottom:\s*var\(--kb,\s*0px\);\s*\}/);
+  assert.doesNotMatch(styleCSS, /bottom:\s*calc\(-1 \* env\(safe-area-inset-bottom/);
+  assert.doesNotMatch(styleCSS, /#chat-pane\s*\{\s*bottom:\s*var\(--kb/);
+  assert.doesNotMatch(styleCSS, /#mobile-input\s*\{[^}]*translateY\([^)]*--kb/s);
+  assert.match(styleCSS, /html:has\(#app\.term-open #chat-pane:not\(\[hidden\]\)\)\s*\{\s*background:\s*var\(--chat-bg\);\s*\}/);
+  assert.match(styleCSS, /html\.visual-keyboard-open #app\.term-open #win\s*\{[^}]*top:\s*var\(--visual-viewport-top, 0px\);[^}]*bottom:\s*auto;[^}]*height:\s*var\(--visual-viewport-height, 100dvh\);/s);
   assert.doesNotMatch(appSrc, /classList\.(?:add|remove)\('chat-open'\)/);
-  assert.match(appSrc, /function setVisualKeyboardInset\(value\)/);
-  assert.match(appSrc, /classList\.toggle\('visual-keyboard-open', inset > 0\)/);
+  assert.match(appSrc, /function setVisualKeyboardInset\(value/);
+  assert.match(appSrc, /setProperty\('--visual-viewport-top'/);
+  assert.match(appSrc, /setProperty\('--visual-viewport-height'/);
+  assert.match(appSrc, /classList\.toggle\('visual-keyboard-open', inset > 0 && viewportHeight > 0\)/);
   assert.match(appSrc, /function releaseVisualKeyboard\(\)[\s\S]*?setVisualKeyboardInset\(0\);/);
-  assert.match(appSrc, /let visualViewportBaselineInset = 0;/);
-  assert.match(appSrc, /if \(inset < VISUAL_KEYBOARD_MIN_INSET\) visualViewportBaselineInset = inset;/);
+  assert.match(appSrc, /let visualViewportBaselineHeight = vv\.height;/);
+  assert.match(appSrc, /visualViewportBaselineHeight = Math\.max\(visualViewportBaselineHeight, vv\.height\);/);
+  assert.match(appSrc, /visualKeyboardInset\(focused, visualViewportBaselineHeight, vv\.height\)/);
   assert.match(appSrc, /const syncKbAfterFocus\s*=\s*\(event\)\s*=>/);
   assert.match(appSrc, /event\.target\?\.matches\?\.\('#chat-input, #cmd-input'\)/);
   assert.match(appSrc, /document\.addEventListener\('focusin',\s*syncKbAfterFocus\)/);

@@ -185,16 +185,18 @@ const MOBILE_MEDIA = '(max-width: 860px) and (pointer: coarse)';
 const isMobile = () => matchMedia(MOBILE_MEDIA).matches;
 const VISUAL_KEYBOARD_MIN_INSET = 120;
 
-function visualKeyboardInset(focused, layoutHeight, viewportHeight, offsetTop, baselineInset = 0) {
-  if (!focused || ![layoutHeight, viewportHeight, offsetTop, baselineInset].every(Number.isFinite)) return 0;
-  const inset = Math.max(0, layoutHeight - viewportHeight - offsetTop - Math.max(0, baselineInset));
+function visualKeyboardInset(focused, baselineViewportHeight, viewportHeight) {
+  if (!focused || ![baselineViewportHeight, viewportHeight].every(Number.isFinite)) return 0;
+  const inset = Math.max(0, baselineViewportHeight - viewportHeight);
   return inset >= VISUAL_KEYBOARD_MIN_INSET ? inset : 0;
 }
 
-function setVisualKeyboardInset(value) {
+function setVisualKeyboardInset(value, offsetTop = 0, viewportHeight = 0) {
   const inset = Number.isFinite(value) ? Math.max(0, value) : 0;
-  document.documentElement.style.setProperty('--kb', inset + 'px');
-  document.documentElement.classList.toggle('visual-keyboard-open', inset > 0);
+  const root = document.documentElement;
+  root.style.setProperty('--visual-viewport-top', Math.max(0, Number(offsetTop) || 0) + 'px');
+  root.style.setProperty('--visual-viewport-height', Math.max(0, Number(viewportHeight) || 0) + 'px');
+  root.classList.toggle('visual-keyboard-open', inset > 0 && viewportHeight > 0);
 }
 
 function releaseVisualKeyboard() {
@@ -5591,19 +5593,25 @@ function init() {
     if (state.mode === 'files' && state.fileView === 'columns') scrollFileColumnsToEnd();
     syncChatTurnPin();
   });
-  // iOS 键盘不缩布局视口（100dvh/fixed 不变），用 VisualViewport 算出键盘高度。
-  // 只有可编辑输入框聚焦时才应用偏移，避免把 iOS 浏览器栏或安全区误当成键盘。
+  // iOS 26 simultaneously shrinks the layout viewport and pans VisualViewport on focus.
+  // Pin the whole session window to VisualViewport so its header and composer move together.
   if (window.visualViewport) {
     const vv = window.visualViewport;
-    let visualViewportBaselineInset = 0;
+    let visualViewportBaselineWidth = vv.width;
+    let visualViewportBaselineHeight = vv.height;
     const captureVisualViewportBaseline = () => {
-      const inset = Math.max(0, window.innerHeight - vv.height - vv.offsetTop);
-      if (inset < VISUAL_KEYBOARD_MIN_INSET) visualViewportBaselineInset = inset;
+      if (![vv.width, vv.height].every(Number.isFinite)) return;
+      if (Math.abs(vv.width - visualViewportBaselineWidth) > 1) {
+        visualViewportBaselineHeight = vv.height;
+      } else {
+        visualViewportBaselineHeight = Math.max(visualViewportBaselineHeight, vv.height);
+      }
+      visualViewportBaselineWidth = vv.width;
     };
     const syncKb = (focused = document.activeElement?.matches?.('#chat-input, #cmd-input') || false) => {
       if (!focused) captureVisualViewportBaseline();
-      const kb = visualKeyboardInset(focused, window.innerHeight, vv.height, vv.offsetTop, visualViewportBaselineInset);
-      setVisualKeyboardInset(kb);
+      const kb = visualKeyboardInset(focused, visualViewportBaselineHeight, vv.height);
+      setVisualKeyboardInset(kb, vv.offsetTop, vv.height);
     };
     const syncKbFromActiveElement = () => syncKb();
     const syncKbAfterFocus = (event) => {

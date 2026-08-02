@@ -934,7 +934,7 @@ textarea.chat-request-input { resize: vertical; }
 .chat-jump-icon { width: 26px; height: 26px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
 
 /* 移动端输入坞（终端） */
-#mobile-input { flex: none; background: var(--surface); border-top: 1px solid var(--border); padding: 8px 10px calc(8px + env(safe-area-inset-bottom, 0px)); transform: translateY(calc(-1 * var(--kb, 0px))); transition: transform var(--dur-2) var(--ease); }
+#mobile-input { flex: none; background: var(--surface); border-top: 1px solid var(--border); padding: 8px 10px calc(8px + env(safe-area-inset-bottom, 0px)); }
 .keybar { display: flex; gap: 7px; overflow-x: auto; padding-bottom: 8px; }
 .keybar::-webkit-scrollbar { height: 0; }
 .keybar button { flex: none; min-width: 46px; height: 44px; padding: 0 14px; border-radius: 11px; background: var(--surface-2); border: 1px solid var(--border); color: var(--text-1); font-family: var(--mono); font-size: var(--t-body); display: grid; place-items: center; }
@@ -1014,6 +1014,10 @@ textarea.chat-request-input { resize: vertical; }
     display: flex; position: fixed; inset: 0; z-index: 45;
     padding-top: env(safe-area-inset-top, 0px);
   }
+  html.visual-keyboard-open #app.term-open #win {
+    top: var(--visual-viewport-top, 0px); bottom: auto;
+    height: var(--visual-viewport-height, 100dvh);
+  }
   #app.term-open.session-back-dragging #win {
     transform: translate3d(var(--session-back-x), 0, 0);
     box-shadow: -14px 0 32px rgba(0, 0, 0, .28);
@@ -1036,15 +1040,14 @@ textarea.chat-request-input { resize: vertical; }
   #app.term-open .win-head { display: flex; }
   #app.term-open .win-back { display: inline-flex; }
   .win-head .tt { font-size: var(--t-body); }
-  html:not(.visual-keyboard-open) #app.term-open #win:has(#chat-pane:not([hidden])) { bottom: calc(-1 * env(safe-area-inset-bottom, 0px)); }
-  #chat-pane { bottom: var(--kb, 0px); }
+  html:has(#app.term-open #chat-pane:not([hidden])) { background: var(--chat-bg); }
   #chat-scroll { padding: 18px 14px 12px; }
   #chat-turn-pin { padding: 7px 14px; }
   .chat-turn-pin-card { max-width: 88%; }
   .chat-user-wrap { max-width: 88%; }
   .chat-tool, .chat-approval, .chat-error, .chat-diff { max-width: 88%; }
   .chat-diff-files { min-width: min(68vw, 560px); }
-  /* #win extends through the iOS bottom safe area while the software keyboard is closed. */
+  /* The root canvas continues the chat surface below iOS's drawable layout viewport. */
   #chat-composer { padding: 8px 10px 4px; background: transparent; backdrop-filter: none; }
   .chat-followup { padding-inline: 12px; font-size: var(--t-secondary); }
   .chat-composer-float { top: -60px; left: 10px; right: 10px; }
