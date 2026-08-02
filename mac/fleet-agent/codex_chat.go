@@ -82,24 +82,26 @@ type codexChatBackend struct {
 	connect codexConnector
 	restart func(error)
 
-	connectMu     sync.Mutex
-	restartOnce   sync.Once
-	mu            sync.Mutex
-	rpc           codexRPCConn
-	cleanup       func()
-	subs          map[string]map[chan ChatEvent]struct{}
-	lastTurn      map[string]string
-	approvalModes map[string]string
-	pending       map[string]pendingCodexRequest
-	resuming      map[string]bool
-	backlog       map[string][]ChatEvent
-	buffered      map[string][]ChatEvent
-	freshThreads  map[string]bool
-	syncers       map[string]*codexConnectedSync
-	syncSeen      map[string]map[string][32]byte
-	syncSeenOrder map[string][]string
-	syncInterval  time.Duration
-	rolloutStamp  func(string) (codexRolloutStamp, bool)
+	connectMu           sync.Mutex
+	restartOnce         sync.Once
+	mu                  sync.Mutex
+	rpc                 codexRPCConn
+	cleanup             func()
+	subs                map[string]map[chan ChatEvent]struct{}
+	lastTurn            map[string]string
+	approvalModes       map[string]string
+	pending             map[string]pendingCodexRequest
+	resuming            map[string]bool
+	backlog             map[string][]ChatEvent
+	buffered            map[string][]ChatEvent
+	freshThreads        map[string]bool
+	syncers             map[string]*codexConnectedSync
+	syncSeen            map[string]map[string][32]byte
+	syncSeenOrder       map[string][]string
+	assistantSyncIDs    map[string]map[string]string
+	assistantSyncCounts map[string]map[string]int
+	syncInterval        time.Duration
+	rolloutStamp        func(string) (codexRolloutStamp, bool)
 	// -1 means thread/items/list is unsupported, 0 unknown, 1 supported.
 	itemsListSupport int
 	historyPages     map[string]codexTurnsPage
@@ -111,24 +113,26 @@ type codexChatBackend struct {
 
 func newCodexChatBackend(connect codexConnector) *codexChatBackend {
 	return &codexChatBackend{
-		connect:       connect,
-		restart:       scheduleFleetAgentRestart,
-		subs:          map[string]map[chan ChatEvent]struct{}{},
-		lastTurn:      map[string]string{},
-		approvalModes: map[string]string{},
-		pending:       map[string]pendingCodexRequest{},
-		resuming:      map[string]bool{},
-		backlog:       map[string][]ChatEvent{},
-		buffered:      map[string][]ChatEvent{},
-		freshThreads:  map[string]bool{},
-		syncers:       map[string]*codexConnectedSync{},
-		syncSeen:      map[string]map[string][32]byte{},
-		syncSeenOrder: map[string][]string{},
-		syncInterval:  codexConnectedSyncInterval,
-		rolloutStamp:  codexSessionRolloutStamp,
-		historyPages:  map[string]codexTurnsPage{},
-		historyUsage:  map[string]codexTurnUsageCache{},
-		rolloutTools:  map[string]*codexRolloutToolsCache{},
+		connect:             connect,
+		restart:             scheduleFleetAgentRestart,
+		subs:                map[string]map[chan ChatEvent]struct{}{},
+		lastTurn:            map[string]string{},
+		approvalModes:       map[string]string{},
+		pending:             map[string]pendingCodexRequest{},
+		resuming:            map[string]bool{},
+		backlog:             map[string][]ChatEvent{},
+		buffered:            map[string][]ChatEvent{},
+		freshThreads:        map[string]bool{},
+		syncers:             map[string]*codexConnectedSync{},
+		syncSeen:            map[string]map[string][32]byte{},
+		syncSeenOrder:       map[string][]string{},
+		assistantSyncIDs:    map[string]map[string]string{},
+		assistantSyncCounts: map[string]map[string]int{},
+		syncInterval:        codexConnectedSyncInterval,
+		rolloutStamp:        codexSessionRolloutStamp,
+		historyPages:        map[string]codexTurnsPage{},
+		historyUsage:        map[string]codexTurnUsageCache{},
+		rolloutTools:        map[string]*codexRolloutToolsCache{},
 	}
 }
 
@@ -437,11 +441,13 @@ func (b *codexChatBackend) finishResume(sessionID string) {
 	events := b.buffered[sessionID]
 	delete(b.buffered, sessionID)
 	delete(b.resuming, sessionID)
-	if len(events) > 0 {
-		b.backlog[sessionID] = append(b.backlog[sessionID], events...)
+	for _, event := range events {
+		if !b.rememberSyncEventLocked(event) && event.Type == "assistant_done" {
+			continue
+		}
+		b.backlog[sessionID] = append(b.backlog[sessionID], event)
 	}
 	b.mu.Unlock()
-	b.rememberSyncEvents(sessionID, events)
 }
 
 func (b *codexChatBackend) History(ctx context.Context, assistant, sessionID, cursor string) (ChatHistoryPage, error) {
@@ -554,7 +560,7 @@ func (b *codexChatBackend) listHistoryByTurns(ctx context.Context, rpc codexRPCC
 			return ChatHistoryPage{}, err
 		}
 	}
-	return ChatHistoryPage{Events: events, NextCursor: next}, nil
+	return ChatHistoryPage{Events: withAssistantHistorySyncIDs(events), NextCursor: next}, nil
 }
 
 func (b *codexChatBackend) fetchTurnsPage(ctx context.Context, rpc codexRPCConn, sessionID, cursor string) (codexTurnsPage, error) {
@@ -713,11 +719,85 @@ func updateCodexRolloutTaskState(stamp codexRolloutStamp, state *codexRolloutTas
 	}
 }
 
+func chatEventAssistantText(event ChatEvent) string {
+	if event.Type != "assistant_done" || len(event.Data) == 0 {
+		return ""
+	}
+	var payload struct {
+		Text string `json:"text"`
+		Item struct {
+			Text string `json:"text"`
+		} `json:"item"`
+	}
+	if json.Unmarshal(event.Data, &payload) != nil {
+		return ""
+	}
+	text := firstNonEmpty(payload.Text, payload.Item.Text)
+	return strings.TrimSpace(strings.ReplaceAll(text, "\r\n", "\n"))
+}
+
+func chatEventAssistantPhase(event ChatEvent) string {
+	if event.Type != "assistant_done" || len(event.Data) == 0 {
+		return ""
+	}
+	var payload struct {
+		Phase string `json:"phase"`
+		Item  struct {
+			Phase string `json:"phase"`
+		} `json:"item"`
+	}
+	if json.Unmarshal(event.Data, &payload) != nil {
+		return ""
+	}
+	return strings.TrimSpace(firstNonEmpty(payload.Phase, payload.Item.Phase))
+}
+
+func assistantEventSemanticBase(event ChatEvent) string {
+	text := chatEventAssistantText(event)
+	if text == "" {
+		return ""
+	}
+	hash := sha256.Sum256([]byte(event.TurnID + "\x00" + chatEventAssistantPhase(event) + "\x00" + text))
+	return fmt.Sprintf("assistant:%x", hash)
+}
+
+func withAssistantHistorySyncIDs(events []ChatEvent) []ChatEvent {
+	counts := map[string]int{}
+	out := append([]ChatEvent(nil), events...)
+	for i := range out {
+		base := assistantEventSemanticBase(out[i])
+		if base == "" {
+			continue
+		}
+		counts[base]++
+		out[i].syncID = fmt.Sprintf("%s:%d", base, counts[base])
+	}
+	return out
+}
+
 func chatEventSyncKey(event ChatEvent) string {
+	if event.syncID != "" {
+		return event.Type + "\x00" + event.TurnID + "\x00" + event.syncID
+	}
 	return event.Type + "\x00" + event.TurnID + "\x00" + event.ItemID
 }
 
 func chatEventFingerprint(event ChatEvent) [32]byte {
+	if event.syncID != "" {
+		hash := sha256.New()
+		_, _ = hash.Write([]byte(event.Type))
+		_, _ = hash.Write([]byte{0})
+		_, _ = hash.Write([]byte(event.Assistant))
+		_, _ = hash.Write([]byte{0})
+		_, _ = hash.Write([]byte(event.SessionID))
+		_, _ = hash.Write([]byte{0})
+		_, _ = hash.Write([]byte(event.TurnID))
+		_, _ = hash.Write([]byte{0})
+		_, _ = hash.Write([]byte(event.syncID))
+		var fingerprint [32]byte
+		copy(fingerprint[:], hash.Sum(nil))
+		return fingerprint
+	}
 	data := event.Data
 	if event.Type == "assistant_done" {
 		var payload map[string]json.RawMessage
@@ -745,39 +825,37 @@ func chatEventFingerprint(event ChatEvent) [32]byte {
 	return fingerprint
 }
 
-func (b *codexChatBackend) rememberSyncEvents(sessionID string, events []ChatEvent) {
-	if len(events) == 0 {
-		return
+func (b *codexChatBackend) withLiveAssistantSyncID(event ChatEvent) ChatEvent {
+	base := assistantEventSemanticBase(event)
+	if base == "" || event.ItemID == "" {
+		return event
 	}
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	if b.syncSeen[sessionID] == nil {
-		b.syncSeen[sessionID] = map[string][32]byte{}
+	if b.assistantSyncIDs[event.SessionID] == nil {
+		b.assistantSyncIDs[event.SessionID] = map[string]string{}
 	}
-	for _, event := range events {
-		key := chatEventSyncKey(event)
-		if _, exists := b.syncSeen[sessionID][key]; !exists {
-			b.syncSeenOrder[sessionID] = append(b.syncSeenOrder[sessionID], key)
-		}
-		b.syncSeen[sessionID][key] = chatEventFingerprint(event)
+	if syncID := b.assistantSyncIDs[event.SessionID][event.ItemID]; syncID != "" {
+		event.syncID = syncID
+		return event
 	}
-	for len(b.syncSeenOrder[sessionID]) > codexSyncSeenLimit {
-		oldest := b.syncSeenOrder[sessionID][0]
-		b.syncSeenOrder[sessionID] = b.syncSeenOrder[sessionID][1:]
-		delete(b.syncSeen[sessionID], oldest)
+	if b.assistantSyncCounts[event.SessionID] == nil {
+		b.assistantSyncCounts[event.SessionID] = map[string]int{}
 	}
+	b.assistantSyncCounts[event.SessionID][base]++
+	event.syncID = fmt.Sprintf("%s:%d", base, b.assistantSyncCounts[event.SessionID][base])
+	b.assistantSyncIDs[event.SessionID][event.ItemID] = event.syncID
+	return event
 }
 
-func (b *codexChatBackend) publishSyncEvent(event ChatEvent) {
-	key := chatEventSyncKey(event)
-	fingerprint := chatEventFingerprint(event)
-	b.mu.Lock()
+func (b *codexChatBackend) rememberSyncEventLocked(event ChatEvent) bool {
 	if b.syncSeen[event.SessionID] == nil {
 		b.syncSeen[event.SessionID] = map[string][32]byte{}
 	}
+	key := chatEventSyncKey(event)
+	fingerprint := chatEventFingerprint(event)
 	if b.syncSeen[event.SessionID][key] == fingerprint {
-		b.mu.Unlock()
-		return
+		return false
 	}
 	if _, exists := b.syncSeen[event.SessionID][key]; !exists {
 		b.syncSeenOrder[event.SessionID] = append(b.syncSeenOrder[event.SessionID], key)
@@ -788,8 +866,34 @@ func (b *codexChatBackend) publishSyncEvent(event ChatEvent) {
 		b.syncSeenOrder[event.SessionID] = b.syncSeenOrder[event.SessionID][1:]
 		delete(b.syncSeen[event.SessionID], oldest)
 	}
+	return true
+}
+
+func (b *codexChatBackend) rememberSyncEvents(sessionID string, events []ChatEvent) {
+	if len(events) == 0 {
+		return
+	}
+	events = withAssistantHistorySyncIDs(events)
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	for _, event := range events {
+		if event.SessionID == "" {
+			event.SessionID = sessionID
+		}
+		b.rememberSyncEventLocked(event)
+	}
+}
+
+func (b *codexChatBackend) publishSyncEvent(event ChatEvent) {
+	b.mu.Lock()
+	if !b.rememberSyncEventLocked(event) {
+		b.mu.Unlock()
+		return
+	}
+	for ch := range b.subs[event.SessionID] {
+		ch <- event
+	}
 	b.mu.Unlock()
-	b.publish(event)
 }
 
 func (b *codexChatBackend) reconcileConnectedSession(ctx context.Context, rpc codexRPCConn, sessionID string, state codexRolloutTaskState) (bool, error) {
@@ -2033,7 +2137,7 @@ func projectCodexHistoryPage(sessionID string, page codexItemsPage, usageByTurn 
 	if page.NextCursor != nil {
 		next = *page.NextCursor
 	}
-	return ChatHistoryPage{Events: events, NextCursor: next}
+	return ChatHistoryPage{Events: withAssistantHistorySyncIDs(events), NextCursor: next}
 }
 
 func projectCodexHistoryItem(sessionID, turnID string, raw json.RawMessage) (ChatEvent, bool) {
@@ -2690,7 +2794,9 @@ func (b *codexChatBackend) dispatch(rpc codexRPCConn, notes <-chan rpcNotificati
 			}
 		}
 		for _, ev := range mapCodexNotification(n) {
-			b.rememberSyncEvents(ev.SessionID, []ChatEvent{ev})
+			if ev.Type == "assistant_done" {
+				ev = b.withLiveAssistantSyncID(ev)
+			}
 			if ev.Type == "turn_started" && ev.SessionID != "" && ev.TurnID != "" {
 				b.mu.Lock()
 				b.lastTurn[ev.SessionID] = ev.TurnID
@@ -2710,6 +2816,11 @@ func (b *codexChatBackend) dispatch(rpc codexRPCConn, notes <-chan rpcNotificati
 				continue
 			}
 			b.mu.Unlock()
+			if ev.Type == "assistant_done" {
+				b.publishSyncEvent(ev)
+				continue
+			}
+			b.rememberSyncEvents(ev.SessionID, []ChatEvent{ev})
 			b.publish(ev)
 		}
 	}

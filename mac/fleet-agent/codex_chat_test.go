@@ -1279,6 +1279,123 @@ func TestChatEventFingerprintIgnoresAssistantUsageOnly(t *testing.T) {
 	}
 }
 
+func TestAssistantDoneIdentityIgnoresSourceItemIDAndEnvelope(t *testing.T) {
+	direct := withAssistantHistorySyncIDs([]ChatEvent{newChatEvent("assistant_done", "codex", "thread-1", "turn-1", "item-17", map[string]interface{}{
+		"text":  "same commentary",
+		"phase": "commentary",
+	})})[0]
+	b := newCodexChatBackend(func(context.Context) (codexRPCConn, func(), error) {
+		return newFakeRPCConn(), func() {}, nil
+	})
+	nested := b.withLiveAssistantSyncID(newChatEvent("assistant_done", "codex", "thread-1", "turn-1", "msg-native", map[string]interface{}{
+		"item":  map[string]interface{}{"id": "live-msg", "type": "agentMessage", "text": "same commentary"},
+		"phase": "commentary",
+	}))
+	if chatEventSyncKey(direct) != chatEventSyncKey(nested) {
+		t.Fatalf("same logical message got different keys: %q != %q", chatEventSyncKey(direct), chatEventSyncKey(nested))
+	}
+	if chatEventFingerprint(direct) != chatEventFingerprint(nested) {
+		t.Fatal("same logical message got different fingerprints")
+	}
+
+	changed := nested
+	changed.Data = json.RawMessage(`{"item":{"id":"live-msg","type":"agentMessage","text":"different commentary"}}`)
+	changed.syncID = ""
+	changed = withAssistantHistorySyncIDs([]ChatEvent{changed})[0]
+	if chatEventSyncKey(direct) == chatEventSyncKey(changed) {
+		t.Fatal("different assistant messages shared an identity")
+	}
+}
+
+func TestProjectCodexHistoryPagePreservesRepeatedTextWithStableOccurrences(t *testing.T) {
+	page := codexItemsPage{Data: []codexHistoryItemEntry{
+		{TurnID: "turn-1", Item: json.RawMessage(`{"id":"history-msg","type":"agentMessage","text":"same commentary"}`)},
+		{TurnID: "turn-1", Item: json.RawMessage(`{"id":"rollout-msg","type":"agentMessage","text":"same commentary"}`)},
+		{TurnID: "turn-1", Item: json.RawMessage(`{"id":"other-msg","type":"agentMessage","text":"different commentary"}`)},
+	}}
+	history := projectCodexHistoryPage("thread-1", page, nil)
+	if len(history.Events) != 3 {
+		t.Fatalf("assistant history was collapsed: %+v", history.Events)
+	}
+	texts := make([]string, 0, len(history.Events))
+	for _, event := range history.Events {
+		texts = append(texts, chatEventAssistantText(event))
+	}
+	if !reflect.DeepEqual(texts, []string{"different commentary", "same commentary", "same commentary"}) {
+		t.Fatalf("history order/content changed: %#v", texts)
+	}
+	if history.Events[1].syncID == history.Events[2].syncID || history.Events[1].syncID == "" || history.Events[2].syncID == "" {
+		t.Fatalf("repeated messages did not get stable occurrences: %q %q", history.Events[1].syncID, history.Events[2].syncID)
+	}
+}
+
+func TestPublishSyncEventSuppressesAssistantDuplicateFromAnotherSource(t *testing.T) {
+	b := newCodexChatBackend(func(context.Context) (codexRPCConn, func(), error) {
+		return newFakeRPCConn(), func() {}, nil
+	})
+	ch := make(chan ChatEvent, 1)
+	b.subs["thread-1"] = map[chan ChatEvent]struct{}{ch: {}}
+	history := withAssistantHistorySyncIDs([]ChatEvent{newChatEvent("assistant_done", "codex", "thread-1", "turn-1", "item-17", map[string]interface{}{
+		"text":  "same commentary",
+		"phase": "commentary",
+	})})[0]
+	live := b.withLiveAssistantSyncID(newChatEvent("assistant_done", "codex", "thread-1", "turn-1", "msg-native", map[string]interface{}{
+		"item":  map[string]interface{}{"id": "live-msg", "type": "agentMessage", "text": "same commentary"},
+		"phase": "commentary",
+	}))
+	b.rememberSyncEvents("thread-1", []ChatEvent{history})
+	b.publishSyncEvent(live)
+	assertNoChatEvent(t, ch)
+}
+
+func TestDispatchPreservesDistinctRepeatedAssistantCompletions(t *testing.T) {
+	rpc := newFakeRPCConn()
+	b := newCodexChatBackend(func(context.Context) (codexRPCConn, func(), error) {
+		return rpc, func() {}, nil
+	})
+	ch := make(chan ChatEvent, 2)
+	b.subs["thread-1"] = map[chan ChatEvent]struct{}{ch: {}}
+	for _, itemID := range []string{"event-msg", "response-item"} {
+		params := fmt.Sprintf(`{"threadId":"thread-1","turnId":"turn-1","item":{"id":%q,"type":"agentMessage","text":"same commentary"}}`, itemID)
+		rpc.notes <- rpcNotification{Method: "item/completed", Params: json.RawMessage(params)}
+	}
+	close(rpc.notes)
+	b.dispatch(rpc, rpc.notes)
+
+	events := receiveChatEvents(t, ch, 2)
+	for _, event := range events {
+		if event.Type != "assistant_done" || chatEventAssistantText(event) != "same commentary" {
+			t.Fatalf("assistant completion got %+v", event)
+		}
+	}
+	assertNoChatEvent(t, ch)
+}
+
+func TestFinishResumeDropsBufferedAssistantAlreadyPresentInHistory(t *testing.T) {
+	b := newCodexChatBackend(func(context.Context) (codexRPCConn, func(), error) {
+		return newFakeRPCConn(), func() {}, nil
+	})
+	b.beginResume("thread-1")
+	b.buffered["thread-1"] = []ChatEvent{
+		b.withLiveAssistantSyncID(newChatEvent("assistant_done", "codex", "thread-1", "turn-1", "live-msg", map[string]interface{}{
+			"item": map[string]interface{}{"text": "same commentary"},
+		})),
+		b.withLiveAssistantSyncID(newChatEvent("assistant_done", "codex", "thread-1", "turn-1", "other-msg", map[string]interface{}{
+			"item": map[string]interface{}{"text": "different commentary"},
+		})),
+	}
+	b.rememberSyncEvents("thread-1", withAssistantHistorySyncIDs([]ChatEvent{
+		newChatEvent("assistant_done", "codex", "thread-1", "turn-1", "history-msg", map[string]interface{}{
+			"text": "same commentary",
+		}),
+	}))
+	b.finishResume("thread-1")
+
+	if len(b.backlog["thread-1"]) != 1 || chatEventAssistantText(b.backlog["thread-1"][0]) != "different commentary" {
+		t.Fatalf("resume backlog retained duplicate: %+v", b.backlog["thread-1"])
+	}
+}
+
 func TestCodexChatBackendReconcileConnectedSessionUsesRolloutLifecycle(t *testing.T) {
 	rpc := newFakeRPCConn()
 	rpc.reply["thread/turns/list"] = json.RawMessage(`{

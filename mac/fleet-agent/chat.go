@@ -28,6 +28,7 @@ type ChatEvent struct {
 	TurnID    string          `json:"turnId,omitempty"`
 	ItemID    string          `json:"itemId,omitempty"`
 	Data      json.RawMessage `json:"data,omitempty"`
+	syncID    string
 }
 
 func newChatEvent(typ, assistant, sessionID, turnID, itemID string, data interface{}) ChatEvent {
