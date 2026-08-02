@@ -521,7 +521,7 @@ svg.ic.fill { fill: currentColor; stroke: none; }
 .session-searchbar { display: flex; align-items: center; gap: 7px; margin: 9px 10px 0; padding: 0 9px; min-height: 34px; border: 1px solid var(--border); border-radius: 7px; background: var(--surface-1); color: var(--text-2); }
 .session-searchbar:focus-within { border-color: var(--accent); box-shadow: var(--ring); color: var(--text-1); }
 .session-searchbar .ic { width: 15px; height: 15px; flex: none; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; }
-.session-searchbar input { width: 100%; min-width: 0; border: 0; outline: 0; background: transparent; color: var(--text); font-size: var(--t-secondary); }
+.session-searchbar input { width: 100%; min-width: 0; border: 0; border-radius: 0; outline: 0; background: transparent; box-shadow: none; color: var(--text); font-size: var(--t-secondary); }
 .sc-body { flex: 1; overflow-y: auto; padding: 10px; }
 .sc-body.loading-more::after {
   content: ""; display: block; width: 14px; height: 14px; margin: 12px auto 6px;
@@ -1200,7 +1200,7 @@ textarea.chat-request-input { resize: vertical; }
 .file-searchbar { margin-top: 12px; }
 .file-searchbar:focus-within { border-color: var(--accent); box-shadow: var(--ring); color: var(--text-1); }
 .file-searchbar .ic { width: 16px; height: 16px; flex: none; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; }
-.file-searchbar input { width: 100%; min-width: 0; border: 0; outline: 0; background: transparent; color: var(--text); font-size: var(--t-body); }
+.file-searchbar input { width: 100%; min-width: 0; border: 0; border-radius: 0; outline: 0; background: transparent; box-shadow: none; color: var(--text); font-size: var(--t-body); }
 .file-table-head, .file-row {
   display: grid; grid-template-columns: minmax(220px, 1fr) 142px 82px 34px; align-items: center; gap: 10px;
 }
