@@ -3023,8 +3023,8 @@ async function selectChatApprovalMode(value) {
       if (state.chat === chat) renderChatApprovalMenu(chat);
       if (updatesRunningTurn && state.chat === chat) {
         toast(approvalMode === 'full-access'
-          ? '已开启完全访问；下一条消息起完整生效，当前工具调用仍按原状态继续。'
-          : '权限已更新；下一条消息起完整生效，当前工具调用仍按原状态继续。');
+          ? '已开启完全访问，当前任务后续审批将自动允许。'
+          : '权限已更新，将从下一轮任务生效。');
       }
     }
   } catch (e) {
