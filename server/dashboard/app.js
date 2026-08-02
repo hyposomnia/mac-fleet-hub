@@ -1407,7 +1407,6 @@ function updateChatSkillMenu() {
   const chat = state.chat;
   const input = $('#chat-input');
   if (!chat || !input) return;
-  if (chat.pendingStart) { closeChatSkillMenu(); return; }
   const trigger = chatSkillTriggerAt(input.value, input.selectionStart);
   if (!trigger) { closeChatSkillMenu(); return; }
   if (!chat.skillsLoaded) {
