@@ -1047,6 +1047,8 @@ test('mobile session detail supports a deliberate edge swipe back', () => {
   assert.match(appSrc, /addEventListener\('touchstart',[\s\S]*addEventListener\('touchend'/);
   assert.match(appSrc, /sessionBackDragOffset\(sessionBackTouch, point, window\.innerWidth\)/);
   assert.match(appSrc, /settleSessionBackGesture\(isSessionBackSwipe\(sessionBackTouch, end\)\)/);
+  assert.doesNotMatch(appSrc, /new MutationObserver\([\s\S]*?term-open/);
+  assert.equal((appSrc.match(/\$\('#app'\)\.classList\.remove\('term-open'\)/g) || []).length, 1);
 });
 
 test('root viewport stays fixed and uses the active app background', () => {

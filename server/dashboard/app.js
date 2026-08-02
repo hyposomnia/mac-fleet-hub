@@ -385,7 +385,7 @@ function setSessionDevice(id) {
   if (state.sessionMacId === id) { closeOverlay('device-modal'); return; }
   state.sessionMacId = id;
   if (id !== 'all') state.macId = id;
-  $('#app').classList.remove('term-open');
+  backToList();
   state.selectedSid = null;
   state.selectedSessionMacId = null;
   state.sessionResults = [];
@@ -602,7 +602,7 @@ function setMode(mode) {
   state.mode = mode === 'files' ? 'files' : 'sessions';
   mode = state.mode;
   $('#app').dataset.mode = mode;
-  if (mode !== 'sessions') $('#app').classList.remove('term-open'); // 离开会话模式收起终端 push
+  if (mode !== 'sessions') backToList(); // 离开会话模式收起终端 push
   $$('button[data-mode]').forEach((b) => b.setAttribute('aria-selected', String(b.dataset.mode === mode)));
   renderHosts();
   updateDeviceScopeUI();
@@ -3582,7 +3582,9 @@ function resetSessionBackGesture() {
     window.clearTimeout(sessionBackSettleTimer);
     sessionBackSettleTimer = null;
   }
-  app.classList.remove('session-back-dragging', 'session-back-settling');
+  if (app.classList.contains('session-back-dragging') || app.classList.contains('session-back-settling')) {
+    app.classList.remove('session-back-dragging', 'session-back-settling');
+  }
   win.style.removeProperty('--session-back-x');
 }
 
@@ -3638,9 +3640,6 @@ function wireSessionBackGesture() {
     if (sessionBackTouch?.axis === 'x') settleSessionBackGesture(false);
     else resetSessionBackGesture();
   }, { passive: true });
-  new MutationObserver(() => {
-    if (!app.classList.contains('term-open')) resetSessionBackGesture();
-  }).observe(app, { attributes: true, attributeFilter: ['class'] });
 }
 
 // ============================================================
@@ -3993,7 +3992,7 @@ function loadFiles(opts = {}) {
   state.macId = state.fileMacId;
   closeChatPane();
   stopWatch(); hideBanner();
-  $('#app').classList.remove('term-open');
+  backToList();
   state.current = null;
   for (const e of state.pool) e.iframe.classList.remove('show');
   $('#frame').classList.remove('show');
@@ -4768,7 +4767,7 @@ async function closeSession() {
     if (ent) {
       const wasCurrent = ent === state.current;
       poolDrop(ent);
-      if (wasCurrent) { $('#app').classList.remove('term-open'); restoreTermOrEmpty(); }
+      if (wasCurrent) { backToList(); restoreTermOrEmpty(); }
     }
   } catch (e) { toast('终止失败：' + e.message, 'err'); }
   state.killTarget = state.killAssistant = state.killMacId = null;
