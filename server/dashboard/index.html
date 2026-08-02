@@ -16,7 +16,7 @@
   <!-- 主题：默认跟随系统 prefers-color-scheme，用户切换后写 localStorage 覆盖（与 app.js initTheme 一致）。
        内联以避免首屏闪烁。 -->
   <script>(function () { var t; try { t = localStorage.getItem('fleet-theme'); } catch (e) {} if (t !== 'light' && t !== 'dark') t = matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark'; document.documentElement.dataset.theme = t; document.querySelector('meta[name="theme-color"]').content = t === 'light' ? '#f6f7f9' : '#090c12'; })();</script>
-  <link rel="stylesheet" href="style.css?v=85" />
+  <link rel="stylesheet" href="style.css?v=86" />
 </head>
 <body>
   <div id="network-status" class="network-status" role="status" hidden>
@@ -486,9 +486,9 @@
   </div>
   <script src="vendor/purify.min.js?v=3.2.6"></script>
   <script src="vendor/marked.min.js?v=15.0.12"></script>
-  <script src="markdown.js?v=85"></script>
-  <script src="preview.js?v=85"></script>
-  <script src="chat_model.js?v=85"></script>
-  <script src="app.js?v=85"></script>
+  <script src="markdown.js?v=86"></script>
+  <script src="preview.js?v=86"></script>
+  <script src="chat_model.js?v=86"></script>
+  <script src="app.js?v=86"></script>
 </body>
 </html>

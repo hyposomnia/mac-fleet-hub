@@ -1004,7 +1004,7 @@ test('self-drawn composer contains native stop control and follow-up queue', () 
   assert.match(styleCSS, /\.chat-send \.chat-stop-icon\s*\{\s*display:\s*none/);
   assert.match(styleCSS, /chat-send\[data-action="interrupt"\]/);
   assert.equal((styleCSS.match(/\.chat-send\s*\{\s*width:\s*36px;\s*height:\s*36px;/g) || []).length, 2);
-  assert.match(styleCSS, /#chat-composer\s*\{\s*padding:\s*8px 10px 6px;\s*background:\s*var\(--chat-bg\);\s*backdrop-filter:\s*none;/);
+  assert.match(styleCSS, /#chat-composer\s*\{\s*padding:\s*8px 10px 4px;\s*background:\s*transparent;\s*backdrop-filter:\s*none;/);
   assert.doesNotMatch(styleCSS, /#chat-composer\s*\{\s*padding:\s*8px 10px [^;}]*safe-area-inset-bottom/);
 });
 
@@ -1012,11 +1012,15 @@ test('mobile chat composer follows the visual viewport only while an input is fo
   assert.equal(visualKeyboardInset(false, 844, 810, 0), 0);
   assert.equal(visualKeyboardInset(true, 844, 510, 0), 334);
   assert.equal(visualKeyboardInset(true, 844, 510, 12), 322);
+  assert.equal(visualKeyboardInset(true, 844, 810, 0, 34), 0);
+  assert.equal(visualKeyboardInset(true, 844, 760, 0, 34), 0);
+  assert.equal(visualKeyboardInset(true, 844, 510, 0, 34), 300);
   assert.equal(visualKeyboardInset(true, 844, 860, 0), 0);
-  assert.match(styleCSS, /#win\.chat-open\s*\{\s*background:\s*var\(--chat-bg\);\s*\}/);
+  assert.doesNotMatch(styleCSS, /#win\.chat-open/);
   assert.match(styleCSS, /#chat-pane\s*\{\s*bottom:\s*var\(--kb,\s*0px\);\s*\}/);
-  assert.match(appSrc, /\$\('#win'\)\.classList\.add\('chat-open'\)/);
-  assert.match(appSrc, /\$\('#win'\)\?\.classList\.remove\('chat-open'\)/);
+  assert.doesNotMatch(appSrc, /classList\.(?:add|remove)\('chat-open'\)/);
+  assert.match(appSrc, /let visualViewportBaselineInset = 0;/);
+  assert.match(appSrc, /if \(inset < VISUAL_KEYBOARD_MIN_INSET\) visualViewportBaselineInset = inset;/);
   assert.match(appSrc, /const syncKbAfterFocus\s*=\s*\(event\)\s*=>/);
   assert.match(appSrc, /event\.target\?\.matches\?\.\('#chat-input, #cmd-input'\)/);
   assert.match(appSrc, /document\.addEventListener\('focusin',\s*syncKbAfterFocus\)/);

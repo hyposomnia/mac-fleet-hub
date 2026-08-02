@@ -968,7 +968,6 @@ textarea.chat-request-input { resize: vertical; }
   #app.term-open .win-head { display: flex; }
   #app.term-open .win-back { display: inline-flex; }
   .win-head .tt { font-size: var(--t-body); }
-  #win.chat-open { background: var(--chat-bg); }
   #chat-pane { bottom: var(--kb, 0px); }
   #chat-scroll { padding: 18px 14px 12px; }
   #chat-turn-pin { padding: 7px 14px; }
@@ -977,7 +976,7 @@ textarea.chat-request-input { resize: vertical; }
   .chat-tool, .chat-approval, .chat-error, .chat-diff { max-width: 88%; }
   .chat-diff-files { min-width: min(68vw, 560px); }
   /* The iOS fullscreen shell already insets #win above its bottom system area. */
-  #chat-composer { padding: 8px 10px 6px; background: var(--chat-bg); backdrop-filter: none; }
+  #chat-composer { padding: 8px 10px 4px; background: transparent; backdrop-filter: none; }
   .chat-followup { padding-inline: 12px; font-size: var(--t-secondary); }
   .chat-composer-float { top: -60px; left: 10px; right: 10px; }
   .chat-composer-inner { min-height: 108px; padding: 6px; border-radius: 20px; }

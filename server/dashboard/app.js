@@ -180,10 +180,12 @@ const SETTINGS_DEFAULT = {
 
 // ---------- 工具 ----------
 const isMobile = () => matchMedia('(max-width: 860px)').matches;
+const VISUAL_KEYBOARD_MIN_INSET = 120;
 
-function visualKeyboardInset(focused, layoutHeight, viewportHeight, offsetTop) {
-  if (!focused || ![layoutHeight, viewportHeight, offsetTop].every(Number.isFinite)) return 0;
-  return Math.max(0, layoutHeight - viewportHeight - offsetTop);
+function visualKeyboardInset(focused, layoutHeight, viewportHeight, offsetTop, baselineInset = 0) {
+  if (!focused || ![layoutHeight, viewportHeight, offsetTop, baselineInset].every(Number.isFinite)) return 0;
+  const inset = Math.max(0, layoutHeight - viewportHeight - offsetTop - Math.max(0, baselineInset));
+  return inset >= VISUAL_KEYBOARD_MIN_INSET ? inset : 0;
 }
 
 function releaseVisualKeyboard() {
@@ -1628,7 +1630,6 @@ function closeChatPane({ dispose = false } = {}) {
   state.chat = null;
   const pane = $('#chat-pane');
   if (pane) pane.hidden = true;
-  $('#win')?.classList.remove('chat-open');
   closeChatOptions();
 }
 
@@ -1642,7 +1643,6 @@ function showChatPane(title, cwd, { connected = true } = {}) {
   $('#reconnect-btn').hidden = true;
   $('#fullscreen-btn').hidden = false;
   $('#chat-pane').hidden = false;
-  $('#win').classList.add('chat-open');
   const tt = $('#win-title'); clear(tt);
   if (connected) tt.append(h('span', { class: 'dot live' }));
   tt.append(h('span', { class: 'ttl', text: title || 'Codex 会话' }));
@@ -5552,13 +5552,20 @@ function init() {
   // 只有可编辑输入框聚焦时才应用偏移，避免把 iOS 浏览器栏或安全区误当成键盘。
   if (window.visualViewport) {
     const vv = window.visualViewport;
+    let visualViewportBaselineInset = 0;
+    const captureVisualViewportBaseline = () => {
+      const inset = Math.max(0, window.innerHeight - vv.height - vv.offsetTop);
+      if (inset < VISUAL_KEYBOARD_MIN_INSET) visualViewportBaselineInset = inset;
+    };
     const syncKb = (focused = document.activeElement?.matches?.('#chat-input, #cmd-input') || false) => {
-      const kb = visualKeyboardInset(focused, window.innerHeight, vv.height, vv.offsetTop);
+      if (!focused) captureVisualViewportBaseline();
+      const kb = visualKeyboardInset(focused, window.innerHeight, vv.height, vv.offsetTop, visualViewportBaselineInset);
       document.documentElement.style.setProperty('--kb', kb + 'px');
     };
     const syncKbFromActiveElement = () => syncKb();
     const syncKbAfterFocus = (event) => {
       if (!event.target?.matches?.('#chat-input, #cmd-input')) return;
+      captureVisualViewportBaseline();
       syncKb(true);
       requestAnimationFrame(syncKbFromActiveElement);
       setTimeout(syncKbFromActiveElement, 350);
