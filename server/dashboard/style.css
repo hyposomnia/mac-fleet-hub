@@ -1040,14 +1040,16 @@ textarea.chat-request-input { resize: vertical; }
   #app.term-open .win-head { display: flex; }
   #app.term-open .win-back { display: inline-flex; }
   .win-head .tt { font-size: var(--t-body); }
-  html:has(#app.term-open #chat-pane:not([hidden])) { background: var(--chat-bg); }
+  html:has(#app.term-open #chat-pane:not([hidden])),
+  body:has(#app.term-open #chat-pane:not([hidden])) { background: var(--chat-bg); }
+  #app.term-open #win:has(#chat-pane:not([hidden])) { background: var(--chat-bg); }
   #chat-scroll { padding: 18px 14px 12px; }
   #chat-turn-pin { padding: 7px 14px; }
   .chat-turn-pin-card { max-width: 88%; }
   .chat-user-wrap { max-width: 88%; }
   .chat-tool, .chat-approval, .chat-error, .chat-diff { max-width: 88%; }
   .chat-diff-files { min-width: min(68vw, 560px); }
-  /* The root canvas continues the chat surface below iOS's drawable layout viewport. */
+  /* The real page canvases continue the chat surface through the iOS safe area. */
   #chat-composer { padding: 8px 10px 4px; background: transparent; backdrop-filter: none; }
   .chat-followup { padding-inline: 12px; font-size: var(--t-secondary); }
   .chat-composer-float { top: -60px; left: 10px; right: 10px; }

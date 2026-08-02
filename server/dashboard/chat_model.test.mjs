@@ -1077,7 +1077,9 @@ test('mobile chat composer uses the root canvas and follows a resized visual vie
   assert.doesNotMatch(styleCSS, /bottom:\s*calc\(-1 \* env\(safe-area-inset-bottom/);
   assert.doesNotMatch(styleCSS, /#chat-pane\s*\{\s*bottom:\s*var\(--kb/);
   assert.doesNotMatch(styleCSS, /#mobile-input\s*\{[^}]*translateY\([^)]*--kb/s);
-  assert.match(styleCSS, /html:has\(#app\.term-open #chat-pane:not\(\[hidden\]\)\)\s*\{\s*background:\s*var\(--chat-bg\);\s*\}/);
+  assert.match(styleCSS, /html:has\(#app\.term-open #chat-pane:not\(\[hidden\]\)\),\s*body:has\(#app\.term-open #chat-pane:not\(\[hidden\]\)\)\s*\{\s*background:\s*var\(--chat-bg\);\s*\}/);
+  assert.match(styleCSS, /#app\.term-open #win:has\(#chat-pane:not\(\[hidden\]\)\)\s*\{\s*background:\s*var\(--chat-bg\);\s*\}/);
+  assert.doesNotMatch(styleCSS, /#chat-pane(?:::(?:before|after)|\s*::(?:before|after))/);
   assert.match(styleCSS, /html\.visual-keyboard-open #app\.term-open #win\s*\{[^}]*top:\s*var\(--visual-viewport-top, 0px\);[^}]*bottom:\s*auto;[^}]*height:\s*var\(--visual-viewport-height, 100dvh\);/s);
   assert.doesNotMatch(appSrc, /classList\.(?:add|remove)\('chat-open'\)/);
   assert.match(appSrc, /function setVisualKeyboardInset\(value/);
