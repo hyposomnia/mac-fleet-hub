@@ -105,7 +105,7 @@ const previewSandbox = {
 };
 vm.createContext(previewSandbox);
 vm.runInContext(previewSrc, previewSandbox);
-const { resolveLocalLink, resourceURL, fileEndpoint, isPreviewRoute, previewRequest, isTextPreviewPath } = previewSandbox.globalThis.FleetPreview;
+const { resolveLocalLink, resourceURL, fileEndpoint, isPreviewRoute, previewRequest, isTextPreviewPath, textPreviewMode } = previewSandbox.globalThis.FleetPreview;
 
 test('chat model and app use the same versioned shell URLs', () => {
   const styleURL = indexHTML.match(/style\.css\?v=([a-zA-Z0-9_-]+)/);
@@ -179,7 +179,7 @@ test('preview page keeps HTML in a scriptless sandbox and media in native contro
   assert.doesNotMatch(iframe, /allow-scripts|allow-same-origin/);
   assert.match(indexHTML, /<video id="preview-video" controls playsinline preload="metadata">/);
   assert.match(indexHTML, /<audio id="preview-audio" controls preload="metadata">/);
-  assert.match(indexHTML, /<pre id="preview-text"[^>]*data-preview-kind="text"/);
+  assert.match(indexHTML, /<div id="preview-text"[^>]*data-preview-kind="text"/);
   assert.match(indexHTML, /<iframe id="preview-pdf"[^>]*data-preview-kind="pdf"/);
   assert.match(previewSrc, /meta\.kind === 'text'/);
   assert.match(previewSrc, /meta\.kind === 'pdf'/);
@@ -196,9 +196,28 @@ test('text previews expose one persistent auto-wrap toggle in both preview heade
   assert.equal(isTextPreviewPath('/Users/test/image.png'), false);
   assert.match(indexHTML, /id="preview-wrap"[^>]*aria-pressed="false"[^>]*hidden/);
   assert.match(indexHTML, /id="file-preview-wrap"[^>]*aria-pressed="false"[^>]*hidden/);
-  assert.match(styleCSS, /\.preview-text\.is-wrapped\s*\{[^}]*white-space:\s*pre-wrap;[^}]*overflow-wrap:\s*anywhere;/s);
+  assert.match(styleCSS, /\.preview-text\.is-wrapped > textarea\s*\{[^}]*white-space:\s*pre-wrap;[^}]*overflow-wrap:\s*anywhere;/s);
   assert.match(previewSrc, /localStorage\?\.setItem\(TEXT_WRAP_KEY/);
   assert.match(appSrc, /contentWindow\?\.FleetPreview\?\.setTextWrap\(enabled, false\)/);
+});
+
+test('text previews map source formats into a read-only line-numbered code viewer', () => {
+  assert.equal(textPreviewMode('/repo/config.json'), 'application/json');
+  assert.equal(textPreviewMode('/repo/app.tsx'), 'text/typescript-jsx');
+  assert.equal(textPreviewMode('/repo/main.go:12:4'), 'text/x-go');
+  assert.equal(textPreviewMode('/repo/settings.yaml'), 'text/x-yaml');
+  assert.equal(textPreviewMode('/repo/.env'), 'text/x-sh');
+  assert.equal(textPreviewMode('/repo/notes.txt'), null);
+
+  assert.match(indexHTML, /vendor\/codemirror\/lib\/codemirror\.css\?v=5\.65\.20/);
+  assert.match(indexHTML, /<div id="preview-text"[^>]*data-preview-kind="text"[^>]*>[\s\S]*?<textarea id="preview-code"/);
+  assert.ok(indexHTML.indexOf('vendor/codemirror/lib/codemirror.js') < indexHTML.indexOf('preview.js'));
+  assert.match(previewSrc, /CodeMirror\.fromTextArea\(textarea,\s*\{/);
+  assert.match(previewSrc, /lineNumbers:\s*true/);
+  assert.match(previewSrc, /readOnly:\s*true/);
+  assert.match(previewSrc, /setOption\('lineWrapping', value\)/);
+  assert.match(styleCSS, /\.preview-text \.CodeMirror-linenumber\s*\{/);
+  assert.match(serviceWorker, /\.\.\.CODEMIRROR_ASSETS/);
 });
 
 test('dashboard typography uses one UI scale and reserves monospace for technical content', () => {

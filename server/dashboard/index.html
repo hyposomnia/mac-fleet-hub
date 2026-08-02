@@ -16,7 +16,8 @@
   <!-- 主题：默认跟随系统 prefers-color-scheme，用户切换后写 localStorage 覆盖（与 app.js initTheme 一致）。
        内联以避免首屏闪烁。 -->
   <script>(function () { var t; try { t = localStorage.getItem('fleet-theme'); } catch (e) {} if (t !== 'light' && t !== 'dark') t = matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark'; document.documentElement.dataset.theme = t; document.querySelector('meta[name="theme-color"]').content = t === 'light' ? '#f6f7f9' : '#090c12'; })();</script>
-  <link rel="stylesheet" href="style.css?v=88" />
+  <link rel="stylesheet" href="vendor/codemirror/lib/codemirror.css?v=5.65.20" />
+  <link rel="stylesheet" href="style.css?v=89" />
 </head>
 <body>
   <div id="network-status" class="network-status" role="status" hidden>
@@ -46,7 +47,7 @@
       <div class="preview-state" data-preview-kind="loading"><span class="preview-spinner"></span><span>正在载入…</span></div>
       <div id="preview-error" class="preview-state preview-error" data-preview-kind="error" hidden></div>
       <article id="preview-markdown" class="preview-markdown" data-preview-kind="markdown" hidden></article>
-      <pre id="preview-text" class="preview-text mono" data-preview-kind="text" hidden></pre>
+      <div id="preview-text" class="preview-text mono" data-preview-kind="text" hidden><textarea id="preview-code" aria-label="文本内容" readonly></textarea></div>
       <iframe id="preview-html" class="preview-html" data-preview-kind="html" sandbox="allow-popups allow-popups-to-escape-sandbox" title="HTML 预览" hidden></iframe>
       <iframe id="preview-pdf" class="preview-pdf" data-preview-kind="pdf" title="PDF 预览" hidden></iframe>
       <div class="preview-media" data-preview-kind="image" hidden><img id="preview-image" alt="" /></div>
@@ -490,9 +491,21 @@
   </div>
   <script src="vendor/purify.min.js?v=3.2.6"></script>
   <script src="vendor/marked.min.js?v=15.0.12"></script>
-  <script src="markdown.js?v=88"></script>
-  <script src="preview.js?v=88"></script>
-  <script src="chat_model.js?v=88"></script>
-  <script src="app.js?v=88"></script>
+  <script src="vendor/codemirror/lib/codemirror.js?v=5.65.20"></script>
+  <script src="vendor/codemirror/mode/javascript/javascript.js?v=5.65.20"></script>
+  <script src="vendor/codemirror/mode/xml/xml.js?v=5.65.20"></script>
+  <script src="vendor/codemirror/mode/jsx/jsx.js?v=5.65.20"></script>
+  <script src="vendor/codemirror/mode/css/css.js?v=5.65.20"></script>
+  <script src="vendor/codemirror/mode/go/go.js?v=5.65.20"></script>
+  <script src="vendor/codemirror/mode/python/python.js?v=5.65.20"></script>
+  <script src="vendor/codemirror/mode/ruby/ruby.js?v=5.65.20"></script>
+  <script src="vendor/codemirror/mode/shell/shell.js?v=5.65.20"></script>
+  <script src="vendor/codemirror/mode/yaml/yaml.js?v=5.65.20"></script>
+  <script src="vendor/codemirror/mode/toml/toml.js?v=5.65.20"></script>
+  <script src="vendor/codemirror/mode/properties/properties.js?v=5.65.20"></script>
+  <script src="markdown.js?v=89"></script>
+  <script src="preview.js?v=89"></script>
+  <script src="chat_model.js?v=89"></script>
+  <script src="app.js?v=89"></script>
 </body>
 </html>

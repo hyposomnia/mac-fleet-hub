@@ -4,7 +4,7 @@
   const PREVIEW_EXTENSIONS = new Set([
     '.md', '.markdown', '.html', '.htm',
     '.txt', '.log', '.json', '.jsonl', '.js', '.mjs', '.cjs', '.ts', '.tsx', '.jsx',
-    '.go', '.py', '.rb', '.sh', '.zsh', '.yaml', '.yml', '.toml', '.xml', '.csv', '.ini', '.conf', '.env',
+    '.go', '.py', '.rb', '.sh', '.zsh', '.yaml', '.yml', '.toml', '.xml', '.csv', '.ini', '.conf', '.env', '.css',
     '.pdf',
     '.png', '.jpg', '.jpeg', '.gif', '.webp', '.avif',
     '.mp4', '.m4v', '.webm', '.mov',
@@ -15,10 +15,21 @@
     '.go', '.py', '.rb', '.sh', '.zsh', '.yaml', '.yml', '.toml', '.xml', '.csv', '.ini', '.conf', '.env', '.css',
   ]);
   const TEXT_WRAP_KEY = 'fleet-preview-text-wrap';
-  const RESOURCE_EXTENSIONS = new Set([...PREVIEW_EXTENSIONS, '.css']);
+  const TEXT_MODE_BY_EXTENSION = Object.freeze({
+    '.json': 'application/json', '.jsonl': 'application/json',
+    '.js': 'text/javascript', '.mjs': 'text/javascript', '.cjs': 'text/javascript', '.jsx': 'text/jsx',
+    '.ts': 'text/typescript', '.tsx': 'text/typescript-jsx',
+    '.go': 'text/x-go', '.py': 'text/x-python', '.rb': 'text/x-ruby',
+    '.sh': 'text/x-sh', '.zsh': 'text/x-sh', '.env': 'text/x-sh',
+    '.yaml': 'text/x-yaml', '.yml': 'text/x-yaml', '.toml': 'text/x-toml',
+    '.xml': 'application/xml', '.css': 'text/css',
+    '.ini': 'text/x-properties', '.conf': 'text/x-properties',
+  });
+  const RESOURCE_EXTENSIONS = new Set(PREVIEW_EXTENSIONS);
   const RESOURCE_ATTRS = [
     ['img', 'src'], ['video', 'src'], ['video', 'poster'], ['audio', 'src'], ['source', 'src'],
   ];
+  let textEditor = null;
 
   function decodedPath(value) {
     try { return decodeURIComponent(value); } catch (_) { return value; }
@@ -39,6 +50,10 @@
     return TEXT_EXTENSIONS.has(extensionOf(String(value || '')));
   }
 
+  function textPreviewMode(value) {
+    return TEXT_MODE_BY_EXTENSION[extensionOf(String(value || ''))] || null;
+  }
+
   function textWrapEnabled() {
     try { return root.localStorage?.getItem(TEXT_WRAP_KEY) === '1'; } catch (_) { return false; }
   }
@@ -54,11 +69,45 @@
   function setTextWrap(enabled, persist = true) {
     const value = !!enabled;
     root.document?.querySelector('#preview-text')?.classList.toggle('is-wrapped', value);
+    textEditor?.setOption('lineWrapping', value);
     updateTextWrapButton(root.document?.querySelector('#preview-wrap'), value);
     if (persist) {
       try { root.localStorage?.setItem(TEXT_WRAP_KEY, value ? '1' : '0'); } catch (_) {}
     }
     return value;
+  }
+
+  function ensureTextEditor() {
+    if (textEditor) return textEditor;
+    const textarea = root.document?.querySelector('#preview-code');
+    if (!textarea || typeof root.CodeMirror?.fromTextArea !== 'function') return null;
+    textEditor = root.CodeMirror.fromTextArea(textarea, {
+      lineNumbers: true,
+      lineWrapping: textWrapEnabled(),
+      readOnly: true,
+      cursorBlinkRate: -1,
+      tabSize: 2,
+      indentUnit: 2,
+      viewportMargin: 10,
+    });
+    return textEditor;
+  }
+
+  function renderTextPreview(meta) {
+    const target = root.document?.querySelector('#preview-text');
+    const textarea = root.document?.querySelector('#preview-code');
+    const content = String(meta.content || '');
+    const editor = ensureTextEditor();
+    if (editor) {
+      target?.classList.remove('is-fallback');
+      editor.setOption('mode', textPreviewMode(meta.path));
+      editor.setValue(content);
+      editor.setOption('lineWrapping', textWrapEnabled());
+      root.requestAnimationFrame?.(() => editor.refresh());
+      return;
+    }
+    if (textarea) textarea.value = content;
+    target?.classList.add('is-fallback');
   }
 
   function localPathValue(source, extensions = PREVIEW_EXTENSIONS) {
@@ -253,9 +302,8 @@
       return;
     }
     if (meta.kind === 'text') {
-      const target = document.querySelector('#preview-text');
       const wrap = document.querySelector('#preview-wrap');
-      target.textContent = meta.content || '';
+      renderTextPreview(meta);
       if (wrap) wrap.hidden = false;
       setTextWrap(textWrapEnabled(), false);
       setPreviewState('text');
@@ -316,7 +364,7 @@
 
   root.FleetPreview = {
     resolveLocalLink, resourceURL, fileEndpoint, formatBytes, isPreviewRoute, previewRequest,
-    safeHTMLDocument, rewriteCSSURLs, isTextPreviewPath, textWrapEnabled,
+    safeHTMLDocument, rewriteCSSURLs, isTextPreviewPath, textPreviewMode, textWrapEnabled,
     updateTextWrapButton, setTextWrap, initRoute,
   };
 })(typeof globalThis !== 'undefined' ? globalThis : window);
