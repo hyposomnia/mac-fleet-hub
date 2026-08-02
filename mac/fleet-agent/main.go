@@ -1346,6 +1346,16 @@ func markSessionRuntime(assistant string, all []Session, ptySet map[string]bool,
 	for i := range all {
 		all[i].Pty = ptySet[shortSidFor(assistant, all[i].SessionID)]
 		if assistant == "codex" {
+			if runtime, ok := codexRolloutRuntimeState(paths[all[i].SessionID]); ok && runtime.turnID != "" {
+				if runtime.terminal {
+					all[i].Status = "idle"
+					all[i].Live = false
+					all[i].Waiting = false
+				} else {
+					all[i].Status = "active"
+					all[i].Live = true
+				}
+			}
 			all[i].Live = all[i].Live || all[i].Pty
 			all[i].Waiting = all[i].Waiting || sessionWaiting(paths[all[i].SessionID])
 			continue

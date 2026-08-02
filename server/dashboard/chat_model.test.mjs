@@ -79,8 +79,8 @@ const appSandbox = {
   Date: FixedAppDate,
 };
 vm.createContext(appSandbox);
-vm.runInContext(`${appSrc}\n;globalThis.__chatCacheTest = { chatCacheVictim, isChatConnectionKept, isSessionRunning, updateChatUpdatedAt, formatChatDate, chatAssistantMetaText, chatUserMetaText, chatMessageMetaVisibility, applyChatMetadataDefaults, enqueueChatFollowup, removeChatFollowup, normalizeChatDraft, isNoActiveTurnError, chatSkillTriggerAt, parseChatSkillInput, chatSkillTokenNames, mergeChatComposerText, mergeChatAttachments, chatComposerAction: typeof chatComposerAction === 'function' ? chatComposerAction : null, chatImageSrc, chatToolStatus, chatToolDuration, chatToolActivityLabel, chatToolHasExpandableBody, isChatActivityItem, isChatTraceItem: typeof isChatTraceItem === 'function' ? isChatTraceItem : null, chatRenderUnits: typeof chatRenderUnits === 'function' ? chatRenderUnits : null, renderChatTurnProgress: typeof renderChatTurnProgress === 'function' ? renderChatTurnProgress : null, chatActivityGroupSummaryText, chatActivityActiveSummarySegments, chatActivityGroupIconKind, renderChatActivityGroup, renderChatActivityRun: typeof renderChatActivityRun === 'function' ? renderChatActivityRun : null, renderChatItem: typeof renderChatItem === 'function' ? renderChatItem : null, sessionRow, sessionStatus, filterFileEntries, sortFileEntries: typeof sortFileEntries === 'function' ? sortFileEntries : null, normalizeFileView: typeof normalizeFileView === 'function' ? normalizeFileView : null, truncateFileColumns: typeof truncateFileColumns === 'function' ? truncateFileColumns : null, fileColumnRequestCurrent: typeof fileColumnRequestCurrent === 'function' ? fileColumnRequestCurrent : null, fileIconName: typeof fileIconName === 'function' ? fileIconName : null, activeFileLocationID: typeof activeFileLocationID === 'function' ? activeFileLocationID : null, applyTheme: typeof applyTheme === 'function' ? applyTheme : null, visualKeyboardInset: typeof visualKeyboardInset === 'function' ? visualKeyboardInset : null, sessionBackDragOffset: typeof sessionBackDragOffset === 'function' ? sessionBackDragOffset : null, isSessionBackSwipe: typeof isSessionBackSwipe === 'function' ? isSessionBackSwipe : null, ensurePendingChatStarted: typeof ensurePendingChatStarted === 'function' ? ensurePendingChatStarted : null, filePreviewTypeLabel, filePreviewLocation, chatTurnPinText: typeof chatTurnPinText === 'function' ? chatTurnPinText : () => '', isInternalChatTool: typeof isInternalChatTool === 'function' ? isInternalChatTool : () => false, state };`, appSandbox);
-const { chatCacheVictim, isChatConnectionKept, isSessionRunning, updateChatUpdatedAt, formatChatDate, chatAssistantMetaText, chatUserMetaText, chatMessageMetaVisibility, applyChatMetadataDefaults, enqueueChatFollowup, removeChatFollowup, normalizeChatDraft, isNoActiveTurnError, chatSkillTriggerAt, parseChatSkillInput, chatSkillTokenNames, mergeChatComposerText, mergeChatAttachments, chatComposerAction, chatImageSrc, chatToolStatus, chatToolDuration, chatToolActivityLabel, chatToolHasExpandableBody, isChatActivityItem, isChatTraceItem, chatRenderUnits, renderChatTurnProgress, chatActivityGroupSummaryText, chatActivityActiveSummarySegments, chatActivityGroupIconKind, renderChatActivityGroup, renderChatActivityRun, renderChatItem, sessionRow, sessionStatus, filterFileEntries, sortFileEntries, normalizeFileView, truncateFileColumns, fileColumnRequestCurrent, fileIconName, activeFileLocationID, applyTheme, visualKeyboardInset, sessionBackDragOffset, isSessionBackSwipe, ensurePendingChatStarted, filePreviewTypeLabel, filePreviewLocation, chatTurnPinText, isInternalChatTool, state: appState } = appSandbox.__chatCacheTest;
+vm.runInContext(`${appSrc}\n;globalThis.__chatCacheTest = { chatCacheVictim, isChatConnectionKept, isSessionRunning, updateChatUpdatedAt, formatChatDate, chatAssistantMetaText, chatUserMetaText, chatMessageMetaVisibility, applyChatMetadataDefaults, enqueueChatFollowup, removeChatFollowup, normalizeChatDraft, isNoActiveTurnError, createDeviceScopeButton, chatSkillTriggerAt, parseChatSkillInput, chatSkillTokenNames, mergeChatComposerText, mergeChatAttachments, chatComposerAction: typeof chatComposerAction === 'function' ? chatComposerAction : null, chatImageSrc, chatToolStatus, chatToolDuration, chatToolActivityLabel, chatToolHasExpandableBody, isChatActivityItem, isChatTraceItem: typeof isChatTraceItem === 'function' ? isChatTraceItem : null, chatRenderUnits: typeof chatRenderUnits === 'function' ? chatRenderUnits : null, renderChatTurnProgress: typeof renderChatTurnProgress === 'function' ? renderChatTurnProgress : null, chatActivityGroupSummaryText, chatActivityActiveSummarySegments, chatActivityGroupIconKind, renderChatActivityGroup, renderChatActivityRun: typeof renderChatActivityRun === 'function' ? renderChatActivityRun : null, renderChatItem: typeof renderChatItem === 'function' ? renderChatItem : null, sessionRow, sessionStatus, filterFileEntries, sortFileEntries: typeof sortFileEntries === 'function' ? sortFileEntries : null, normalizeFileView: typeof normalizeFileView === 'function' ? normalizeFileView : null, truncateFileColumns: typeof truncateFileColumns === 'function' ? truncateFileColumns : null, fileColumnRequestCurrent: typeof fileColumnRequestCurrent === 'function' ? fileColumnRequestCurrent : null, fileIconName: typeof fileIconName === 'function' ? fileIconName : null, activeFileLocationID: typeof activeFileLocationID === 'function' ? activeFileLocationID : null, applyTheme: typeof applyTheme === 'function' ? applyTheme : null, visualKeyboardInset: typeof visualKeyboardInset === 'function' ? visualKeyboardInset : null, sessionBackDragOffset: typeof sessionBackDragOffset === 'function' ? sessionBackDragOffset : null, isSessionBackSwipe: typeof isSessionBackSwipe === 'function' ? isSessionBackSwipe : null, ensurePendingChatStarted: typeof ensurePendingChatStarted === 'function' ? ensurePendingChatStarted : null, filePreviewTypeLabel, filePreviewLocation, chatTurnPinText: typeof chatTurnPinText === 'function' ? chatTurnPinText : () => '', isInternalChatTool: typeof isInternalChatTool === 'function' ? isInternalChatTool : () => false, state };`, appSandbox);
+const { chatCacheVictim, isChatConnectionKept, isSessionRunning, updateChatUpdatedAt, formatChatDate, chatAssistantMetaText, chatUserMetaText, chatMessageMetaVisibility, applyChatMetadataDefaults, enqueueChatFollowup, removeChatFollowup, normalizeChatDraft, isNoActiveTurnError, createDeviceScopeButton, chatSkillTriggerAt, parseChatSkillInput, chatSkillTokenNames, mergeChatComposerText, mergeChatAttachments, chatComposerAction, chatImageSrc, chatToolStatus, chatToolDuration, chatToolActivityLabel, chatToolHasExpandableBody, isChatActivityItem, isChatTraceItem, chatRenderUnits, renderChatTurnProgress, chatActivityGroupSummaryText, chatActivityActiveSummarySegments, chatActivityGroupIconKind, renderChatActivityGroup, renderChatActivityRun, renderChatItem, sessionRow, sessionStatus, filterFileEntries, sortFileEntries, normalizeFileView, truncateFileColumns, fileColumnRequestCurrent, fileIconName, activeFileLocationID, applyTheme, visualKeyboardInset, sessionBackDragOffset, isSessionBackSwipe, ensurePendingChatStarted, filePreviewTypeLabel, filePreviewLocation, chatTurnPinText, isInternalChatTool, state: appState } = appSandbox.__chatCacheTest;
 vm.runInContext('globalThis.__updateChatSkillMenuTest = updateChatSkillMenu;', appSandbox);
 const updateChatSkillMenu = appSandbox.__updateChatSkillMenuTest;
 function toolLabelText(item) {
@@ -291,7 +291,7 @@ test('session header keeps archive browsing in settings', () => {
   const header = indexHTML.match(/<header class="sc-head">[\s\S]*?<\/header>/)?.[0] || '';
   assert.ok(header);
   assert.match(header, /class="sc-head-actions"[\s\S]*id="new-session"/);
-  assert.match(header, /id="session-device-button"[\s\S]*id="session-device-label">全部设备/);
+  assert.match(header, /data-device-scope-slot="sessions"/);
   assert.match(header, /id="session-view-toggle"[\s\S]*id="session-search"[\s\S]*id="new-session-mobile"/);
   assert.doesNotMatch(header, /session-summary|session-count|session-view-label|个未归档|按项目分组/);
   assert.doesNotMatch(header, /id="refresh-btn"/);
@@ -487,7 +487,7 @@ test('session state uses one right-side text label without leading or running do
 
 test('custom file browser stays on one device and shares the protected preview route', () => {
   for (const id of [
-    'file-browser', 'file-device-button', 'file-locations', 'file-breadcrumbs',
+    'file-browser', 'file-locations', 'file-breadcrumbs',
     'file-list', 'file-preview-frame', 'file-upload-input', 'file-settings',
     'file-settings-menu', 'file-show-hidden',
     'file-preview-type', 'file-preview-size', 'file-preview-modified',
@@ -495,6 +495,7 @@ test('custom file browser stays on one device and shares the protected preview r
   ]) {
     assert.match(indexHTML, new RegExp(`id="${id}"`));
   }
+  assert.match(indexHTML, /data-device-scope-slot="files"/);
   const fileSources = indexHTML.match(/<aside class="file-sources">[\s\S]*?<\/aside>/)?.[0] || '';
   const fileToolbar = indexHTML.match(/<header class="file-toolbar">[\s\S]*?<\/header>/)?.[0] || '';
   assert.doesNotMatch(fileSources, /file-settings-trigger/);
@@ -1093,11 +1094,29 @@ test('mobile title switch emphasizes only the selected mode', () => {
 test('mobile device picker sits compactly in each title row', () => {
   const sessionTitle = indexHTML.match(/<div class="sc-title-row">[\s\S]*?<\/div>\s*<div class="session-search-row">/)?.[0] || '';
   const fileTitle = indexHTML.match(/<header class="file-mobile-head">[\s\S]*?<\/header>/)?.[0] || '';
-  assert.match(sessionTitle, /class="mobile-title-switch"[\s\S]*id="session-device-button"[\s\S]*class="sc-head-actions"/);
-  assert.match(fileTitle, /class="mobile-title-switch"[\s\S]*id="file-device-button"[\s\S]*class="iconbtn bare mobile-menu-trigger"/);
+  assert.match(sessionTitle, /class="mobile-title-switch"[\s\S]*data-device-scope-slot="sessions"[\s\S]*class="sc-head-actions"/);
+  assert.match(fileTitle, /class="mobile-title-switch"[\s\S]*data-device-scope-slot="files"[\s\S]*class="iconbtn bare mobile-menu-trigger"/);
   assert.match(styleCSS, /\.mobile-device-scope\s*\{[^}]*flex:\s*0 1 176px;[^}]*width:\s*auto;[^}]*min-width:\s*0;[^}]*min-height:\s*38px;/s);
-  assert.match(styleCSS, /\.mobile-device-scope > span:not\(\.file-device-avatar\)\s*\{\s*display:\s*none;\s*\}/);
+  assert.match(styleCSS, /\.mobile-device-scope > span:not\(\.device-scope-avatar\)\s*\{\s*display:\s*none;\s*\}/);
   assert.match(styleCSS, /\.mobile-title-switch\s*\{[^}]*flex:\s*none;[^}]*white-space:\s*nowrap;/s);
+});
+
+test('session and file views reuse one device scope component', () => {
+  const sessionButton = createDeviceScopeButton('sessions');
+  const fileButton = createDeviceScopeButton('files');
+  const childClasses = (button) => button.children.map((child) => child.className || child.attributes?.class || '');
+
+  assert.equal(sessionButton.attributes.id, 'session-device-button');
+  assert.equal(fileButton.attributes.id, 'file-device-button');
+  assert.equal(sessionButton.dataset.deviceContext, 'sessions');
+  assert.equal(fileButton.dataset.deviceContext, 'files');
+  assert.deepEqual(childClasses(sessionButton), childClasses(fileButton));
+  assert.equal(nodesWithClass(sessionButton, 'device-scope-avatar')[0]?.textContent, 'ALL');
+  assert.equal(nodesWithClass(fileButton, 'device-scope-avatar')[0]?.textContent, 'M');
+  assert.equal(typeof sessionButton.onclick, 'function');
+  assert.equal(typeof fileButton.onclick, 'function');
+  assert.match(appSrc, /mountDeviceScopeButtons\(\);/);
+  assert.doesNotMatch(indexHTML, /id="(?:session|file)-device-button"/);
 });
 
 test('device picker lists the small fleet without a search field', () => {

@@ -1,5 +1,5 @@
 // PWA 外壳缓存。终端、API 与用户文件必须实时，明确不进入 Cache Storage。
-const CACHE = 'fleet-shell-v84';
+const CACHE = 'fleet-shell-v85';
 const FILE_TYPE_ICONS = [
   'audio', 'c', 'console', 'cpp', 'csharp', 'css', 'dart', 'database', 'docker',
   'document', 'exe', 'font', 'git', 'go', 'html', 'image', 'java', 'javascript',
@@ -9,9 +9,9 @@ const FILE_TYPE_ICONS = [
   'word', 'xml', 'yaml', 'zip',
 ].map((name) => `/icons/file-types/${name}.svg`);
 const SHELL = [
-  '/', '/index.html', '/style.css?v=84',
+  '/', '/index.html', '/style.css?v=85',
   '/vendor/purify.min.js?v=3.2.6', '/vendor/marked.min.js?v=15.0.12',
-  '/markdown.js?v=84', '/preview.js?v=84', '/chat_model.js?v=84', '/app.js?v=84',
+  '/markdown.js?v=85', '/preview.js?v=85', '/chat_model.js?v=85', '/app.js?v=85',
   '/manifest.webmanifest', '/icons/icon.svg', '/icons/icon-180.png', '/icons/icon-192.png',
   '/icons/icon-512.png', '/icons/icon-maskable-512.png',
   ...FILE_TYPE_ICONS,

@@ -57,6 +57,16 @@ type codexRolloutTaskState struct {
 	terminal bool
 }
 
+type codexRolloutRuntimeCacheEntry struct {
+	stamp codexRolloutStamp
+	state codexRolloutTaskState
+}
+
+var codexRolloutRuntimeCache = struct {
+	sync.Mutex
+	entries map[string]codexRolloutRuntimeCacheEntry
+}{entries: map[string]codexRolloutRuntimeCacheEntry{}}
+
 type codexRolloutTurnMarker struct {
 	AssistantText string
 	Item          json.RawMessage
@@ -608,6 +618,37 @@ func codexSessionRolloutStamp(sessionID string) (codexRolloutStamp, bool) {
 		return codexRolloutStamp{}, false
 	}
 	return codexRolloutStamp{path: path, size: info.Size(), modTime: info.ModTime().UnixNano()}, true
+}
+
+// codexRolloutRuntimeState keeps list polling cheap: the first request parses
+// the rollout once, then later requests only consume bytes appended since the
+// previous stamp. A same-size rewrite must restart from byte zero.
+func codexRolloutRuntimeState(path string) (codexRolloutTaskState, bool) {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return codexRolloutTaskState{}, false
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		return codexRolloutTaskState{}, false
+	}
+	stamp := codexRolloutStamp{path: path, size: info.Size(), modTime: info.ModTime().UnixNano()}
+
+	codexRolloutRuntimeCache.Lock()
+	defer codexRolloutRuntimeCache.Unlock()
+	entry, cached := codexRolloutRuntimeCache.entries[path]
+	if cached && entry.stamp == stamp {
+		return entry.state, true
+	}
+	state := entry.state
+	if !cached || (entry.stamp.modTime != stamp.modTime && stamp.size <= entry.stamp.size) {
+		state = codexRolloutTaskState{}
+	}
+	if err := updateCodexRolloutTaskState(stamp, &state); err != nil {
+		return codexRolloutTaskState{}, false
+	}
+	codexRolloutRuntimeCache.entries[path] = codexRolloutRuntimeCacheEntry{stamp: stamp, state: state}
+	return state, true
 }
 
 func updateCodexRolloutTaskState(stamp codexRolloutStamp, state *codexRolloutTaskState) error {

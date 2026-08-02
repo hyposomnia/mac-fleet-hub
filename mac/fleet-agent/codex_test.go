@@ -360,3 +360,38 @@ func TestCodexOpenedPtyIsActiveEvenWhenHistoryDormant(t *testing.T) {
 		t.Fatalf("unopened Codex history should not be active: %+v", all[1])
 	}
 }
+
+func TestCodexRolloutLifecycleDrivesSessionListRuntime(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "rollout.jsonl")
+	if err := os.WriteFile(path, []byte(
+		`{"type":"event_msg","payload":{"type":"task_started","turn_id":"turn-live"}}`+"\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	paths := map[string]string{"thread-1": path}
+	active := []Session{{SessionID: "thread-1", Assistant: "codex", Status: "notLoaded"}}
+	markSessionRuntime("codex", active, nil, paths)
+	if !active[0].Live || active[0].Status != "active" {
+		t.Fatalf("unfinished rollout should be active in the session list: %+v", active[0])
+	}
+
+	f, err := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, writeErr := f.WriteString(
+		`{"type":"event_msg","payload":{"type":"task_complete","turn_id":"turn-live"}}` + "\n")
+	closeErr := f.Close()
+	if writeErr != nil {
+		t.Fatal(writeErr)
+	}
+	if closeErr != nil {
+		t.Fatal(closeErr)
+	}
+
+	idle := []Session{{SessionID: "thread-1", Assistant: "codex", Status: "notLoaded", Waiting: true}}
+	markSessionRuntime("codex", idle, nil, paths)
+	if idle[0].Live || idle[0].Status != "idle" || idle[0].Waiting {
+		t.Fatalf("completed rollout should return the session list to idle: %+v", idle[0])
+	}
+}

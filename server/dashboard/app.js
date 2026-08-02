@@ -68,6 +68,37 @@ function svgIconParts(cls, parts) {
   return svg;
 }
 
+const DEVICE_SCOPE_COMPONENTS = Object.freeze({
+  sessions: { id: 'session-device-button', label: '全部设备', meta: '正在连接', avatar: 'ALL', ariaLabel: '选择会话设备' },
+  files: { id: 'file-device-button', label: '选择设备', meta: '文件仅浏览单台设备', avatar: 'M', ariaLabel: '选择文件设备' },
+});
+
+function createDeviceScopeButton(context) {
+  const config = DEVICE_SCOPE_COMPONENTS[context];
+  if (!config) return null;
+  return h('button', {
+    id: config.id,
+    type: 'button',
+    class: 'scope-button mobile-device-scope',
+    dataset: { deviceContext: context },
+    'aria-label': config.ariaLabel,
+    'aria-haspopup': 'dialog',
+    'aria-controls': 'device-modal',
+    onclick: () => openDevicePicker(context),
+  },
+  h('span', { class: 'device-scope-avatar', text: config.avatar, 'aria-hidden': 'true' }),
+  h('strong', { class: 'device-scope-label', text: config.label }),
+  h('span', { class: 'device-scope-meta', text: config.meta }),
+  svgIcon('ic scope-chevron', 'M6 9l6 6 6-6'));
+}
+
+function mountDeviceScopeButtons() {
+  $$('[data-device-scope-slot]').forEach((slot) => {
+    const button = createDeviceScopeButton(slot.dataset.deviceScopeSlot);
+    if (button) slot.replaceWith(button);
+  });
+}
+
 // 终止图标：实心圆角方块（stop）。用 SVG 而非 Unicode ⏹——后者在 iOS 上会渲染成彩色 emoji。
 function svgStop() {
   const NS = 'http://www.w3.org/2000/svg';
@@ -3829,22 +3860,21 @@ function wireFileBackGesture() {
 // ============================================================
 function updateDeviceScopeUI() {
   const onlineCount = MACS.filter((m) => state.nodes[m.id]).length;
-  const sessionLabel = $('#session-device-label');
-  const sessionMeta = $('#session-device-meta');
-  if (sessionLabel) sessionLabel.textContent = state.sessionMacId === 'all' ? '全部设备' : macName(state.sessionMacId);
-  if (sessionMeta) {
-    sessionMeta.textContent = state.sessionMacId === 'all'
+  $$('.scope-button[data-device-context]').forEach((button) => {
+    const context = button.dataset.deviceContext;
+    const selectedId = context === 'sessions' ? state.sessionMacId : state.fileMacId;
+    const allDevices = context === 'sessions' && selectedId === 'all';
+    const label = allDevices ? '全部设备' : (selectedId ? macName(selectedId) : '选择设备');
+    const meta = allDevices
       ? `${onlineCount}/${MACS.length} 台在线`
-      : (state.nodes[state.sessionMacId] ? '在线' : '离线');
-  }
-  const fileLabel = $('#file-device-label');
-  const fileMeta = $('#file-device-meta');
-  const fileAvatar = $('#file-device-avatar');
-  if (fileLabel) fileLabel.textContent = state.fileMacId ? macName(state.fileMacId) : '选择设备';
-  if (fileMeta) fileMeta.textContent = state.fileMacId
-    ? (state.nodes[state.fileMacId] ? '在线 · 文件仅限当前设备' : '离线')
-    : '文件仅浏览单台设备';
-  if (fileAvatar) fileAvatar.textContent = state.fileMacId ? state.fileMacId.toUpperCase() : 'M';
+      : (selectedId
+        ? (state.nodes[selectedId] ? (context === 'files' ? '在线 · 文件仅限当前设备' : '在线') : '离线')
+        : '文件仅浏览单台设备');
+    const avatar = allDevices ? 'ALL' : (selectedId ? selectedId.toUpperCase() : 'M');
+    $('.device-scope-label', button).textContent = label;
+    $('.device-scope-meta', button).textContent = meta;
+    $('.device-scope-avatar', button).textContent = avatar;
+  });
   const statusDevice = $('#file-status-device');
   if (statusDevice) statusDevice.textContent = state.fileMacId ? macName(state.fileMacId) : '';
 }
@@ -5280,6 +5310,7 @@ function init() {
     registerServiceWorker();
     return;
   }
+  mountDeviceScopeButtons();
   initUIState();
   initSessionListPreferences();
   initExperimentFlags();
@@ -5314,9 +5345,6 @@ function init() {
   $$('#new-session, #new-session-mobile').forEach((button) => {
     button.onclick = requestNewSession;
   });
-  $('#session-device-button').onclick = () => openDevicePicker('sessions');
-  $('#file-device-button').onclick = () => openDevicePicker('files');
-
   // 自绘文件浏览器
   $('#file-search').oninput = (event) => { state.fileSearch = event.target.value.trim(); renderFileEntries(); };
   $$('[data-file-view]').forEach((button) => {

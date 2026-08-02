@@ -1050,9 +1050,9 @@ textarea.chat-request-input { resize: vertical; }
 .scope-button:hover { border-color: var(--border-strong); background: var(--surface-hover); }
 .scope-button .ic { width: 18px; height: 18px; flex: none; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 .scope-button strong { min-width: 0; overflow: hidden; font-size: var(--t-body); font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
-.scope-button > span:not(.file-device-avatar) { margin-left: auto; color: var(--text-2); font-size: var(--t-secondary); white-space: nowrap; }
+.scope-button > span:not(.device-scope-avatar) { margin-left: auto; color: var(--text-2); font-size: var(--t-secondary); white-space: nowrap; }
 .scope-button .scope-chevron { width: 15px; height: 15px; color: var(--text-2); }
-.file-device-avatar {
+.device-scope-avatar {
   display: grid; place-items: center; width: 32px; height: 32px; flex: none;
   border: 1px solid var(--border-strong); border-radius: 7px; background: var(--surface-2); color: var(--accent-text); font-weight: 600;
 }
@@ -1398,11 +1398,11 @@ textarea.chat-request-input { resize: vertical; }
     display: flex; flex: 0 1 176px; width: auto; min-width: 0; min-height: 38px;
     margin: 0 0 0 auto; padding: 0 8px; gap: 6px; border-radius: 7px;
   }
-  .mobile-device-scope > span:not(.file-device-avatar) { display: none; }
+  .mobile-device-scope > span:not(.device-scope-avatar) { display: none; }
   .mobile-device-scope strong { flex: 1; font-size: var(--t-secondary); }
   .mobile-device-scope > .ic:not(.scope-chevron) { width: 16px; height: 16px; }
   .mobile-device-scope .scope-chevron { width: 13px; height: 13px; }
-  .mobile-device-scope .file-device-avatar { width: 24px; height: 24px; border-radius: 6px; font-size: var(--t-caption); }
+  .mobile-device-scope .device-scope-avatar { width: 24px; height: 24px; border-radius: 6px; font-size: var(--t-caption); }
   .sc-head-actions { gap: 6px; margin-left: 0; }
   .sc-head-actions .iconbtn { width: 42px; height: 42px; }
   .mobile-assistant-seg { display: flex; width: 100%; margin-top: 10px; }
