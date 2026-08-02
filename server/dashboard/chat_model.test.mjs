@@ -689,9 +689,11 @@ test('PWA shell supports install, offline navigation, updates, and native shortc
   assert.match(serviceWorker, /request\.mode === 'navigate'/);
   assert.match(serviceWorker, /cache\.match\('\/index\.html'\)/);
   assert.match(serviceWorker, /SKIP_WAITING/);
+  assert.match(serviceWorker, /self\.addEventListener\('install',[\s\S]*?await self\.skipWaiting\(\)/);
   assert.match(serviceWorker, /\^\\\/m\\d\+/);
   assert.match(appSrc, /beforeinstallprompt/);
   assert.match(appSrc, /controllerchange/);
+  assert.match(appSrc, /registration\.update\(\)\.catch\(\(\) => \{\}\)/);
   assert.match(appSrc, /addEventListener\('offline'/);
   assert.match(
     styleCSS,

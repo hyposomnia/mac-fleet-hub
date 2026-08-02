@@ -41,6 +41,7 @@ self.addEventListener('install', (event) => {
       if (!response.ok) throw new Error(`${url}: ${response.status}`);
       await cache.put(url, response);
     }));
+    await self.skipWaiting();
   })());
 });
 

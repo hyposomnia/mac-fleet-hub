@@ -5293,6 +5293,7 @@ async function registerServiceWorker() {
       if (reloadForUpdate) location.reload();
       reloadForUpdate = true;
     });
+    registration.update().catch(() => {});
     document.addEventListener('visibilitychange', () => {
       if (document.visibilityState === 'visible') registration.update().catch(() => {});
     });
