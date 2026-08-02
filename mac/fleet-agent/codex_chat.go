@@ -1619,9 +1619,14 @@ func (b *codexChatBackend) Steer(ctx context.Context, assistant, sessionID, clie
 			b.mu.Lock()
 			b.lastTurn[sessionID] = actualTurnID
 			b.mu.Unlock()
+			turnID = actualTurnID
 			raw, err = rpc.call(ctx, "turn/steer", params)
 		}
 		if err != nil {
+			if codexNoActiveTurn(err) {
+				b.reconcileInactiveTurn(sessionID, turnID)
+				return ChatInputResult{}, fmt.Errorf("%w: %v", errNoActiveChatTurn, err)
+			}
 			return ChatInputResult{}, err
 		}
 	}
@@ -1656,6 +1661,35 @@ func codexActualTurnID(err error) string {
 		return match[1]
 	}
 	return ""
+}
+
+func codexNoActiveTurn(err error) bool {
+	if err == nil {
+		return false
+	}
+	message := err.Error()
+	var callErr *rpcCallError
+	if errors.As(err, &callErr) {
+		message = callErr.Message
+	}
+	message = strings.ToLower(strings.TrimSpace(message))
+	return strings.Contains(message, "no active turn to steer") ||
+		strings.Contains(message, "no active turn to interrupt")
+}
+
+func (b *codexChatBackend) reconcileInactiveTurn(sessionID, observedTurnID string) bool {
+	b.mu.Lock()
+	currentTurnID := b.lastTurn[sessionID]
+	if currentTurnID != observedTurnID {
+		b.mu.Unlock()
+		return false
+	}
+	delete(b.lastTurn, sessionID)
+	b.mu.Unlock()
+	b.publish(newChatEvent("thread_status", "codex", sessionID, "", "", map[string]interface{}{
+		"status": "idle", "reconciledTurnId": observedTurnID,
+	}))
+	return true
 }
 
 func codexTurnStartParams(sessionID string, input []map[string]string, opts ChatTurnOptions) map[string]interface{} {
@@ -2547,9 +2581,14 @@ func (b *codexChatBackend) Interrupt(ctx context.Context, assistant, sessionID s
 	turnID := b.lastTurn[sessionID]
 	b.mu.Unlock()
 	if turnID == "" {
+		b.reconcileInactiveTurn(sessionID, "")
 		return errNoActiveChatTurn
 	}
 	_, err = rpc.call(ctx, "turn/interrupt", map[string]string{"threadId": sessionID, "turnId": turnID})
+	if codexNoActiveTurn(err) {
+		b.reconcileInactiveTurn(sessionID, turnID)
+		return fmt.Errorf("%w: %v", errNoActiveChatTurn, err)
+	}
 	if err == nil {
 		if cleaner, ok := rpc.(interface{ terminateCommandDescendants() }); ok {
 			cleaner.terminateCommandDescendants()

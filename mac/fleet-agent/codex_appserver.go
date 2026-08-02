@@ -31,6 +31,17 @@ type rpcError struct {
 	Data    json.RawMessage `json:"data,omitempty"`
 }
 
+type rpcCallError struct {
+	Method  string
+	Code    int
+	Message string
+	Data    json.RawMessage
+}
+
+func (e *rpcCallError) Error() string {
+	return fmt.Sprintf("codex app-server %s failed: %s", e.Method, e.Message)
+}
+
 type rpcResponse struct {
 	ID           int64           `json:"id"`
 	Result       json.RawMessage `json:"result,omitempty"`
@@ -253,7 +264,10 @@ func (c *codexRPCClient) call(ctx context.Context, method string, params interfa
 			return nil, resp.transportErr
 		}
 		if resp.Error != nil {
-			return nil, fmt.Errorf("codex app-server %s failed: %s", method, resp.Error.Message)
+			return nil, &rpcCallError{
+				Method: method, Code: resp.Error.Code, Message: resp.Error.Message,
+				Data: append(json.RawMessage(nil), resp.Error.Data...),
+			}
 		}
 		return resp.Result, nil
 	case <-ctx.Done():

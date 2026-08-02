@@ -1006,6 +1006,49 @@ func TestCodexChatBackendSteerUsesStructuredSkills(t *testing.T) {
 	}
 }
 
+func TestCodexChatBackendSteerReconcilesRemoteNoActiveTurn(t *testing.T) {
+	rpc := newFakeRPCConn()
+	rpc.errs["turn/steer"] = []error{&rpcCallError{
+		Method: "turn/steer", Code: -32001, Message: "no active turn to steer",
+	}}
+	b := newCodexChatBackend(func(ctx context.Context) (codexRPCConn, func(), error) {
+		return rpc, func() {}, nil
+	})
+	b.lastTurn["thread-1"] = "turn-old"
+	events := make(chan ChatEvent, 1)
+	b.subs["thread-1"] = map[chan ChatEvent]struct{}{events: {}}
+
+	_, err := b.Steer(context.Background(), "codex", "thread-1", "follow-1", "continue", nil, nil)
+	if !errors.Is(err, errNoActiveChatTurn) {
+		t.Fatalf("steer error got %v", err)
+	}
+	if b.lastTurn["thread-1"] != "" {
+		t.Fatalf("stale turn remained: %#v", b.lastTurn)
+	}
+	select {
+	case event := <-events:
+		if event.Type != "thread_status" || !strings.Contains(string(event.Data), `"reconciledTurnId":"turn-old"`) {
+			t.Fatalf("reconciliation event got %+v", event)
+		}
+	default:
+		t.Fatal("missing inactive-turn reconciliation event")
+	}
+}
+
+func TestCodexChatBackendInactiveReconciliationPreservesNewTurn(t *testing.T) {
+	b := newCodexChatBackend(func(context.Context) (codexRPCConn, func(), error) {
+		return newFakeRPCConn(), func() {}, nil
+	})
+	b.lastTurn["thread-1"] = "turn-new"
+
+	if b.reconcileInactiveTurn("thread-1", "turn-old") {
+		t.Fatal("stale reconciliation unexpectedly succeeded")
+	}
+	if b.lastTurn["thread-1"] != "turn-new" {
+		t.Fatalf("new turn was cleared: %#v", b.lastTurn)
+	}
+}
+
 func TestCodexChatBackendEventsReplaysLargeBacklogWithoutBlocking(t *testing.T) {
 	rpc := newFakeRPCConn()
 	b := newCodexChatBackend(func(context.Context) (codexRPCConn, func(), error) {
@@ -1046,6 +1089,23 @@ func TestCodexChatBackendInterruptWithoutActiveTurn(t *testing.T) {
 	}
 	if len(rpc.calls) != 0 {
 		t.Fatalf("interrupt should not call RPC without a turn: %+v", rpc.calls)
+	}
+}
+
+func TestCodexChatBackendInterruptReconcilesRemoteNoActiveTurn(t *testing.T) {
+	rpc := newFakeRPCConn()
+	rpc.errs["turn/interrupt"] = []error{errors.New("codex app-server turn/interrupt failed: no active turn to interrupt")}
+	b := newCodexChatBackend(func(ctx context.Context) (codexRPCConn, func(), error) {
+		return rpc, func() {}, nil
+	})
+	b.lastTurn["thread-1"] = "turn-old"
+
+	err := b.Interrupt(context.Background(), "codex", "thread-1")
+	if !errors.Is(err, errNoActiveChatTurn) {
+		t.Fatalf("interrupt error got %v", err)
+	}
+	if b.lastTurn["thread-1"] != "" {
+		t.Fatalf("stale turn remained: %#v", b.lastTurn)
 	}
 }
 

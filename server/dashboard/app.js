@@ -1451,6 +1451,27 @@ function isChatRunning(chat) {
   return !!chat && (chat.model?.phase === 'running' || chat.submitting === true);
 }
 
+function isNoActiveTurnError(error) {
+  return error?.code === 'no_active_turn'
+    || /no active turn to (?:steer|interrupt)/i.test(String(error?.message || ''));
+}
+
+function reconcileChatInactiveTurn(chat, observedTurnId) {
+  if (!chat) return false;
+  const activeTurnId = chat.model?.activeTurnId || '';
+  if (observedTurnId && activeTurnId && observedTurnId !== activeTurnId) return false;
+  chat.model = FleetChatModel.reduceChatEvent(chat.model, {
+    type: 'thread_status',
+    data: { status: 'idle', reconciledTurnId: observedTurnId || '' },
+  });
+  syncSessionRuntimeIndicators();
+  if (state.chat === chat) {
+    renderChat();
+    updateChatComposerState();
+  }
+  return true;
+}
+
 function enqueueChatFollowup(chat, text, images, id, skills, displayText) {
   if (!chat) return null;
   chat.followups = chat.followups || [];
@@ -3367,9 +3388,9 @@ async function submitChatInput({ forceQueue = false } = {}) {
         enqueueChatFollowup(chat, item.text, item.images, item.id, item.skills, item.displayText);
         if (state.chat === chat) {
           renderChatFollowups();
-          toast('追问未能插入当前任务，已保留到下一轮。', 'err');
+          toast(item.steerNoActive ? '当前任务已结束，追问将作为下一轮发送。' : '追问未能插入当前任务，已保留到下一轮。', item.steerNoActive ? '' : 'err');
         }
-        if (!isChatRunning(chat)) flushChatFollowups(chat);
+        if (!isChatRunning(chat)) await flushChatFollowups(chat);
       }
     }
     return;
@@ -3430,8 +3451,11 @@ async function sendChatTurn(chat, item, { restoreOnFailure = true } = {}) {
 
 async function sendChatSteer(chat, item) {
   const clientId = item.id || `steer-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  const observedTurnId = chat.model.activeTurnId;
+  item.steerError = '';
+  item.steerNoActive = false;
   chat.model = FleetChatModel.appendSteeringMessage(
-    chat.model, (item.displayText || item.text).trim(), clientId, item.images, chat.model.activeTurnId,
+    chat.model, (item.displayText || item.text).trim(), clientId, item.images, observedTurnId,
   );
   if (state.chat === chat) renderChat();
   try {
@@ -3454,6 +3478,9 @@ async function sendChatSteer(chat, item) {
       type: 'steer_failed', itemId: clientId, data: { clientId, message: e.message },
     });
     item.steerError = e.message;
+    if (isNoActiveTurnError(e)) {
+      item.steerNoActive = reconcileChatInactiveTurn(chat, observedTurnId);
+    }
     if (state.chat === chat) {
       renderChat();
     }
@@ -3482,6 +3509,14 @@ async function guideChatFollowup(id) {
     if (!sent) {
       item.guiding = false;
       renderChatFollowups();
+      if (item.steerNoActive) {
+        const pendingId = item.id;
+        await flushChatFollowups(chat);
+        if (chat.followups?.some((entry) => entry.id === pendingId)) {
+          toast('当前任务已结束，追问自动续投失败，仍保留在队列。', 'err');
+        }
+        return;
+      }
       toast('引导失败，追问仍保留在队列：' + (item.steerError || '当前任务已经结束'), 'err');
       return;
     }
@@ -3501,6 +3536,7 @@ async function guideChatFollowup(id) {
 async function interruptChat() {
   const chat = state.chat;
   if (!chat || !isChatRunning(chat) || chat.interrupting) return;
+  const observedTurnId = chat.model.activeTurnId;
   chat.interrupting = true;
   updateChatComposerState();
   try {
@@ -3509,11 +3545,10 @@ async function interruptChat() {
       body: JSON.stringify({ assistant: 'codex', sessionId: chat.sessionId }),
     });
   } catch (e) {
-    if (e.code === 'no_active_turn') {
-      chat.model = FleetChatModel.reduceChatEvent(chat.model, { type: 'thread_status', data: { status: 'idle' } });
-      syncSessionRuntimeIndicators();
-      if (state.chat === chat) renderChat();
+    if (isNoActiveTurnError(e)) {
+      reconcileChatInactiveTurn(chat, observedTurnId);
       toast('任务已结束，状态已同步。');
+      await flushChatFollowups(chat);
     } else {
       toast('停止失败：' + e.message, 'err');
     }

@@ -141,6 +141,38 @@ func TestCodexRPCClientCallRoutesResponsesAndIncrementsIDs(t *testing.T) {
 	<-serverDone
 }
 
+func TestCodexRPCClientPreservesStructuredErrors(t *testing.T) {
+	clientConn, serverConn := net.Pipe()
+	defer clientConn.Close()
+	defer serverConn.Close()
+
+	c := newCodexRPCClient(clientConn)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go c.run(ctx)
+
+	serverDone := make(chan struct{})
+	go func() {
+		defer close(serverDone)
+		s := bufio.NewScanner(serverConn)
+		if !s.Scan() {
+			t.Errorf("missing request: %v", s.Err())
+			return
+		}
+		_, _ = serverConn.Write([]byte(`{"id":1,"error":{"code":-32001,"message":"no active turn to steer","data":{"turnId":"turn-1"}}}` + "\n"))
+	}()
+
+	_, err := c.call(context.Background(), "turn/steer", map[string]string{"threadId": "thread-1"})
+	var callErr *rpcCallError
+	if !errors.As(err, &callErr) {
+		t.Fatalf("call error got %T %v", err, err)
+	}
+	if callErr.Method != "turn/steer" || callErr.Code != -32001 || callErr.Message != "no active turn to steer" || !strings.Contains(string(callErr.Data), "turn-1") {
+		t.Fatalf("structured error got %+v", callErr)
+	}
+	<-serverDone
+}
+
 func TestDescendantProcessIDsAreLeafFirstAndScoped(t *testing.T) {
 	pairs := [][2]int{
 		{100, 1},

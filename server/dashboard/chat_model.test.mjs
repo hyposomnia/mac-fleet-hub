@@ -79,8 +79,8 @@ const appSandbox = {
   Date: FixedAppDate,
 };
 vm.createContext(appSandbox);
-vm.runInContext(`${appSrc}\n;globalThis.__chatCacheTest = { chatCacheVictim, isChatConnectionKept, isSessionRunning, updateChatUpdatedAt, formatChatDate, chatAssistantMetaText, chatUserMetaText, chatMessageMetaVisibility, applyChatMetadataDefaults, enqueueChatFollowup, removeChatFollowup, normalizeChatDraft, chatSkillTriggerAt, parseChatSkillInput, chatSkillTokenNames, mergeChatComposerText, mergeChatAttachments, chatComposerAction: typeof chatComposerAction === 'function' ? chatComposerAction : null, chatImageSrc, chatToolStatus, chatToolDuration, chatToolActivityLabel, chatToolHasExpandableBody, isChatActivityItem, isChatTraceItem: typeof isChatTraceItem === 'function' ? isChatTraceItem : null, chatRenderUnits: typeof chatRenderUnits === 'function' ? chatRenderUnits : null, renderChatTurnProgress: typeof renderChatTurnProgress === 'function' ? renderChatTurnProgress : null, chatActivityGroupSummaryText, chatActivityActiveSummarySegments, chatActivityGroupIconKind, renderChatActivityGroup, renderChatActivityRun: typeof renderChatActivityRun === 'function' ? renderChatActivityRun : null, renderChatItem: typeof renderChatItem === 'function' ? renderChatItem : null, sessionRow, sessionStatus, filterFileEntries, sortFileEntries: typeof sortFileEntries === 'function' ? sortFileEntries : null, normalizeFileView: typeof normalizeFileView === 'function' ? normalizeFileView : null, truncateFileColumns: typeof truncateFileColumns === 'function' ? truncateFileColumns : null, fileColumnRequestCurrent: typeof fileColumnRequestCurrent === 'function' ? fileColumnRequestCurrent : null, fileIconName: typeof fileIconName === 'function' ? fileIconName : null, activeFileLocationID: typeof activeFileLocationID === 'function' ? activeFileLocationID : null, applyTheme: typeof applyTheme === 'function' ? applyTheme : null, visualKeyboardInset: typeof visualKeyboardInset === 'function' ? visualKeyboardInset : null, sessionBackDragOffset: typeof sessionBackDragOffset === 'function' ? sessionBackDragOffset : null, isSessionBackSwipe: typeof isSessionBackSwipe === 'function' ? isSessionBackSwipe : null, ensurePendingChatStarted: typeof ensurePendingChatStarted === 'function' ? ensurePendingChatStarted : null, filePreviewTypeLabel, filePreviewLocation, chatTurnPinText: typeof chatTurnPinText === 'function' ? chatTurnPinText : () => '', isInternalChatTool: typeof isInternalChatTool === 'function' ? isInternalChatTool : () => false, state };`, appSandbox);
-const { chatCacheVictim, isChatConnectionKept, isSessionRunning, updateChatUpdatedAt, formatChatDate, chatAssistantMetaText, chatUserMetaText, chatMessageMetaVisibility, applyChatMetadataDefaults, enqueueChatFollowup, removeChatFollowup, normalizeChatDraft, chatSkillTriggerAt, parseChatSkillInput, chatSkillTokenNames, mergeChatComposerText, mergeChatAttachments, chatComposerAction, chatImageSrc, chatToolStatus, chatToolDuration, chatToolActivityLabel, chatToolHasExpandableBody, isChatActivityItem, isChatTraceItem, chatRenderUnits, renderChatTurnProgress, chatActivityGroupSummaryText, chatActivityActiveSummarySegments, chatActivityGroupIconKind, renderChatActivityGroup, renderChatActivityRun, renderChatItem, sessionRow, sessionStatus, filterFileEntries, sortFileEntries, normalizeFileView, truncateFileColumns, fileColumnRequestCurrent, fileIconName, activeFileLocationID, applyTheme, visualKeyboardInset, sessionBackDragOffset, isSessionBackSwipe, ensurePendingChatStarted, filePreviewTypeLabel, filePreviewLocation, chatTurnPinText, isInternalChatTool, state: appState } = appSandbox.__chatCacheTest;
+vm.runInContext(`${appSrc}\n;globalThis.__chatCacheTest = { chatCacheVictim, isChatConnectionKept, isSessionRunning, updateChatUpdatedAt, formatChatDate, chatAssistantMetaText, chatUserMetaText, chatMessageMetaVisibility, applyChatMetadataDefaults, enqueueChatFollowup, removeChatFollowup, normalizeChatDraft, isNoActiveTurnError, chatSkillTriggerAt, parseChatSkillInput, chatSkillTokenNames, mergeChatComposerText, mergeChatAttachments, chatComposerAction: typeof chatComposerAction === 'function' ? chatComposerAction : null, chatImageSrc, chatToolStatus, chatToolDuration, chatToolActivityLabel, chatToolHasExpandableBody, isChatActivityItem, isChatTraceItem: typeof isChatTraceItem === 'function' ? isChatTraceItem : null, chatRenderUnits: typeof chatRenderUnits === 'function' ? chatRenderUnits : null, renderChatTurnProgress: typeof renderChatTurnProgress === 'function' ? renderChatTurnProgress : null, chatActivityGroupSummaryText, chatActivityActiveSummarySegments, chatActivityGroupIconKind, renderChatActivityGroup, renderChatActivityRun: typeof renderChatActivityRun === 'function' ? renderChatActivityRun : null, renderChatItem: typeof renderChatItem === 'function' ? renderChatItem : null, sessionRow, sessionStatus, filterFileEntries, sortFileEntries: typeof sortFileEntries === 'function' ? sortFileEntries : null, normalizeFileView: typeof normalizeFileView === 'function' ? normalizeFileView : null, truncateFileColumns: typeof truncateFileColumns === 'function' ? truncateFileColumns : null, fileColumnRequestCurrent: typeof fileColumnRequestCurrent === 'function' ? fileColumnRequestCurrent : null, fileIconName: typeof fileIconName === 'function' ? fileIconName : null, activeFileLocationID: typeof activeFileLocationID === 'function' ? activeFileLocationID : null, applyTheme: typeof applyTheme === 'function' ? applyTheme : null, visualKeyboardInset: typeof visualKeyboardInset === 'function' ? visualKeyboardInset : null, sessionBackDragOffset: typeof sessionBackDragOffset === 'function' ? sessionBackDragOffset : null, isSessionBackSwipe: typeof isSessionBackSwipe === 'function' ? isSessionBackSwipe : null, ensurePendingChatStarted: typeof ensurePendingChatStarted === 'function' ? ensurePendingChatStarted : null, filePreviewTypeLabel, filePreviewLocation, chatTurnPinText: typeof chatTurnPinText === 'function' ? chatTurnPinText : () => '', isInternalChatTool: typeof isInternalChatTool === 'function' ? isInternalChatTool : () => false, state };`, appSandbox);
+const { chatCacheVictim, isChatConnectionKept, isSessionRunning, updateChatUpdatedAt, formatChatDate, chatAssistantMetaText, chatUserMetaText, chatMessageMetaVisibility, applyChatMetadataDefaults, enqueueChatFollowup, removeChatFollowup, normalizeChatDraft, isNoActiveTurnError, chatSkillTriggerAt, parseChatSkillInput, chatSkillTokenNames, mergeChatComposerText, mergeChatAttachments, chatComposerAction, chatImageSrc, chatToolStatus, chatToolDuration, chatToolActivityLabel, chatToolHasExpandableBody, isChatActivityItem, isChatTraceItem, chatRenderUnits, renderChatTurnProgress, chatActivityGroupSummaryText, chatActivityActiveSummarySegments, chatActivityGroupIconKind, renderChatActivityGroup, renderChatActivityRun, renderChatItem, sessionRow, sessionStatus, filterFileEntries, sortFileEntries, normalizeFileView, truncateFileColumns, fileColumnRequestCurrent, fileIconName, activeFileLocationID, applyTheme, visualKeyboardInset, sessionBackDragOffset, isSessionBackSwipe, ensurePendingChatStarted, filePreviewTypeLabel, filePreviewLocation, chatTurnPinText, isInternalChatTool, state: appState } = appSandbox.__chatCacheTest;
 vm.runInContext('globalThis.__updateChatSkillMenuTest = updateChatSkillMenu;', appSandbox);
 const updateChatSkillMenu = appSandbox.__updateChatSkillMenuTest;
 function toolLabelText(item) {
@@ -799,6 +799,29 @@ test('Codex object status and turn lifecycle drive the running phase', () => {
   });
   assert.equal(state.phase, 'idle');
   assert.equal(state.activeTurnId, '');
+});
+
+test('stale inactive events cannot clear a newer active turn', () => {
+  let state = reduceChatEvent(createChatState(), {
+    type: 'turn_started', turnId: 'turn-new', data: { turn: { id: 'turn-new' } },
+  });
+  state = reduceChatEvent(state, {
+    type: 'thread_status', data: { status: 'idle', reconciledTurnId: 'turn-old' },
+  });
+  assert.equal(state.phase, 'running');
+  assert.equal(state.activeTurnId, 'turn-new');
+
+  state = reduceChatEvent(state, {
+    type: 'turn_done', turnId: 'turn-old', data: { turn: { id: 'turn-old', status: 'completed' } },
+  });
+  assert.equal(state.phase, 'running');
+  assert.equal(state.activeTurnId, 'turn-new');
+});
+
+test('no-active errors support structured and legacy agent responses', () => {
+  assert.equal(isNoActiveTurnError({ code: 'no_active_turn', message: '当前没有任务' }), true);
+  assert.equal(isNoActiveTurnError({ code: 'chat_failed', message: 'codex app-server turn/steer failed: no active turn to steer' }), true);
+  assert.equal(isNoActiveTurnError({ code: 'chat_failed', message: 'connection reset' }), false);
 });
 
 test('follow-up queue is FIFO and removing one item preserves the others', () => {
@@ -1803,8 +1826,9 @@ test('send and stop source contracts reject stale active state', () => {
   assert.match(appSrc, /FleetChatModel\.removeMessage\(chat\.model, optimisticId\)/);
   assert.match(appSrc, /restoreChatComposerItem\(chat, item\)/);
   assert.match(appSrc, /Skill 列表加载失败，消息未发送/);
-  assert.match(appSrc, /e\.code === 'no_active_turn'/);
-  assert.match(appSrc, /type: 'thread_status', data: \{ status: 'idle' \}/);
+  assert.match(appSrc, /isNoActiveTurnError\(e\)/);
+  assert.match(appSrc, /reconcileChatInactiveTurn\(chat, observedTurnId\)/);
+  assert.match(appSrc, /await flushChatFollowups\(chat\)/);
 });
 
 test('new Codex sessions open a local self-drawn draft before starting', () => {

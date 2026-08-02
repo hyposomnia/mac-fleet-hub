@@ -336,8 +336,13 @@
     switch (ev && ev.type) {
       case 'thread_status': {
         const previousTurnId = next.activeTurnId;
-        next.phase = chatPhase(data.status || data.state || next.phase);
-        if (next.phase === 'running') {
+        const phase = chatPhase(data.status || data.state || next.phase);
+        const reconciledTurnId = firstString(data.reconciledTurnId, data.reconciled_turn_id);
+        if (phase !== 'running' && reconciledTurnId && previousTurnId && reconciledTurnId !== previousTurnId) {
+          return next;
+        }
+        next.phase = phase;
+        if (phase === 'running') {
           next.activeTurnId = firstString(data.activeTurnId, data.active_turn_id, next.activeTurnId);
           if (next.activeTurnId && next.activeTurnId !== previousTurnId) next.turnProgress = '';
           if (next.activeTurnId) {
@@ -564,11 +569,13 @@
         return next;
       }
       case 'turn_done': {
-        next.phase = 'idle';
-        next.activeTurnId = '';
-        next.turnProgress = '';
         mergeTurnMetadata(next, data, ev, true);
         const turnId = firstString(ev && ev.turnId, data.turnId, data.turn_id, asObject(data.turn).id);
+        if (!turnId || !next.activeTurnId || turnId === next.activeTurnId) {
+          next.phase = 'idle';
+          next.activeTurnId = '';
+          next.turnProgress = '';
+        }
         if (turnId) delete next.turnUsage[turnId];
         return next;
       }
