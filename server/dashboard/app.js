@@ -3746,12 +3746,12 @@ function syncFileBackGestureAvailability() {
 }
 
 function setFileBackOffset(offset) {
-  $('.file-layout')?.style.setProperty('--file-back-x', `${Math.max(0, offset)}px`);
+  $('.file-browser-content')?.style.setProperty('--file-back-x', `${Math.max(0, offset)}px`);
 }
 
 function resetFileBackGesture() {
   const app = $('#app');
-  const layout = $('.file-layout');
+  const content = $('.file-browser-content');
   fileBackTouch = null;
   fileBackAwaitingHistory = false;
   if (fileBackSettleTimer !== null) {
@@ -3759,7 +3759,7 @@ function resetFileBackGesture() {
     fileBackSettleTimer = null;
   }
   app.classList.remove('file-back-dragging', 'file-back-settling');
-  layout?.style.removeProperty('--file-back-x');
+  content?.style.removeProperty('--file-back-x');
   syncFileBackGestureAvailability();
 }
 
