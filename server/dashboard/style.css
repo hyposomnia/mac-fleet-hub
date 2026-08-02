@@ -967,9 +967,9 @@ textarea.chat-request-input { resize: vertical; }
 .chat-context-note { color: var(--chat-text-3); font-size: var(--t-caption); }
 
 /* ============================================================
-   响应式：≤860px 切移动端布局（头部 + 主机条 + 分段 + push 终端）
+   响应式：≤860px 的触控设备切移动端布局（头部 + 主机条 + 分段 + push 终端）
    ============================================================ */
-@media (max-width: 860px) {
+@media (max-width: 860px) and (pointer: coarse) {
   .preview-head {
     min-height: 58px; grid-template-columns: 34px minmax(0, 1fr) auto auto; gap: 8px;
     padding: max(8px, env(safe-area-inset-top, 0px)) 10px 8px;
@@ -1090,7 +1090,7 @@ textarea.chat-request-input { resize: vertical; }
   .chat-options-trigger .ic { display: none; }
 }
 
-@media (min-width: 861px) {
+@media (min-width: 861px), (pointer: fine) {
   #mobile-input { display: none !important; }
 }
 
@@ -1432,7 +1432,8 @@ textarea.chat-request-input { resize: vertical; }
 .pwa-update button, .pwa-install button { min-height: 26px; padding: 3px 8px; border-radius: 5px; background: var(--accent); color: #fff; font-weight: 600; }
 #app[data-network="offline"] .dot.on { background: var(--offline); }
 
-@media (max-width: 1180px) and (min-width: 861px) {
+@media (max-width: 1180px) and (min-width: 861px),
+       (max-width: 1180px) and (pointer: fine) {
   :root { --rail-w: 220px; --sess-w: 310px; --file-source-w: 190px; --file-preview-w: 330px; }
   .file-layout.preview-open { grid-template-columns: var(--file-source-w) minmax(390px, 1fr); }
   .file-layout.preview-open .file-preview-panel {
@@ -1440,7 +1441,7 @@ textarea.chat-request-input { resize: vertical; }
   }
 }
 
-@media (max-width: 860px) {
+@media (max-width: 860px) and (pointer: coarse) {
   #app, #app[data-mode="files"] { display: flex; flex-direction: column; height: 100dvh; }
   #rail { display: none; }
   #mtopbar { display: contents; }
