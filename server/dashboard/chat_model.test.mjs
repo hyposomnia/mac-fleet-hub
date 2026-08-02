@@ -318,7 +318,7 @@ test('Codex is the first and default session assistant', () => {
   assert.match(appSrc, /assistant:\s*'codex',\s*\/\/ claude \| codex/);
 });
 
-test('session header keeps archive browsing in settings', () => {
+test('settings menu owns archive browsing and session settings', () => {
   const header = indexHTML.match(/<header class="sc-head">[\s\S]*?<\/header>/)?.[0] || '';
   assert.ok(header);
   assert.match(header, /class="sc-head-actions"[\s\S]*id="new-session"/);
@@ -327,12 +327,30 @@ test('session header keeps archive browsing in settings', () => {
   assert.doesNotMatch(header, /session-summary|session-count|session-view-label|个未归档|按项目分组/);
   assert.doesNotMatch(header, /id="refresh-btn"/);
   assert.doesNotMatch(indexHTML, /data-scope=/);
-  assert.match(indexHTML, /data-settings-tab="sessions"/);
-  assert.match(indexHTML, /id="st-show-archived"[^>]*type="checkbox"/);
-  assert.match(indexHTML, />显示已归档会话</);
+  assert.match(indexHTML, /id="user-name">设置</);
+  assert.deepEqual(
+    [...indexHTML.matchAll(/<button data-act="([^"]+)"/g)].map((match) => match[1]),
+    ['theme', 'archive', 'settings', 'logout', 'theme', 'archive', 'settings', 'logout'],
+  );
+  assert.equal((indexHTML.match(/>显示已归档会话</g) || []).length, 2);
+  assert.equal((indexHTML.match(/>会话设置</g) || []).length, 3);
+  assert.doesNotMatch(indexHTML, /data-settings-tab="sessions"|id="st-show-archived"/);
   assert.match(appSrc, /SESSION_ARCHIVE_KEY\s*=\s*'fleet-show-archived-sessions'/);
   assert.match(appSrc, /localStorage\.setItem\(SESSION_ARCHIVE_KEY/);
+  assert.match(appSrc, /const unavailable = state\.mode === 'files';[\s\S]*?button\.disabled = unavailable;/);
+  assert.match(appSrc, /else if \(b\.dataset\.act === 'archive'\) toggleArchivedSessions\(\)/);
+  assert.match(styleCSS, /\.menu button:disabled\s*\{[^}]*opacity:\s*\.48;/s);
   assert.match(styleCSS, /\.sc-head-actions\s*\{/);
+});
+
+test('self-drawn Codex is enabled by default and configured in the self-drawn tab', () => {
+  assert.match(indexHTML, /data-settings-tab="chat"[^>]*>自绘</);
+  assert.match(indexHTML, /id="st-selfdraw"[^>]*type="checkbox"[^>]*checked/);
+  assert.match(indexHTML, />为Codex默认使用自绘界面（近Codex Desktop）</);
+  assert.doesNotMatch(indexHTML, /data-act="selfdraw"|>自绘界面<\/button>/);
+  assert.match(appSrc, /localStorage\.getItem\(SELF_DRAW_KEY\) !== '0'/);
+  assert.match(appSrc, /const nextSelfDraw = \$\('#st-selfdraw'\)\.checked;/);
+  assert.match(appSrc, /setSelfDraw\(nextSelfDraw\)/);
 });
 
 test('mobile session toolbar keeps square actions on both sides of search', () => {
@@ -715,7 +733,8 @@ test('PWA shell supports install, offline navigation, updates, and native shortc
   assert.deepEqual(manifest.shortcuts.map((shortcut) => shortcut.url), ['/?mode=sessions', '/?mode=files']);
   assert.match(indexHTML, /rel="apple-touch-icon" href="icons\/icon-180\.png"/);
   assert.match(indexHTML, /id="network-status"/);
-  assert.match(indexHTML, /class="pwa-install-action"/);
+  assert.match(indexHTML, /id="pwa-install"[^>]*class="pwa-install"/);
+  assert.match(indexHTML, /id="pwa-install-now"/);
   assert.match(serviceWorker, /Promise\.allSettled\(SHELL\.map/);
   assert.match(serviceWorker, /request\.mode === 'navigate'/);
   assert.match(serviceWorker, /cache\.match\('\/index\.html'\)/);

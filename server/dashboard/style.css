@@ -360,8 +360,10 @@ svg.ic.fill { fill: currentColor; stroke: none; }
 .iconbtn svg.ic { width: 18px; height: 18px; }
 .menu button svg.ic { width: 17px; height: 17px; flex: none; }
 .menu .menu-label { padding: 7px 12px 3px; color: var(--text-2); font-size: var(--t-caption); letter-spacing: .08em; text-transform: uppercase; }
-.toggle-dot { width: 9px; height: 9px; border-radius: 50%; border: 1px solid var(--border-strong); background: transparent; flex: none; }
-.toggle-dot.on { background: var(--accent); border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+.menu .menu-item-label { flex: 1; min-width: 0; }
+.menu-check { width: 17px; height: 17px; border: 1px solid var(--border-strong); border-radius: 5px; display: grid; place-items: center; flex: none; }
+.menu button[aria-pressed="true"] .menu-check { background: var(--accent); border-color: var(--accent); }
+.menu button[aria-pressed="true"] .menu-check::after { content: ''; width: 7px; height: 4px; border: solid #fff; border-width: 0 0 2px 2px; transform: translateY(-1px) rotate(-45deg); }
 .modeseg button svg.ic { width: 15px; height: 15px; }
 .userrow .cv svg.ic { width: 14px; height: 14px; }
 .send-btn svg.ic { width: 20px; height: 20px; }
@@ -463,6 +465,8 @@ svg.ic.fill { fill: currentColor; stroke: none; }
 .menu button { display: flex; align-items: center; gap: 11px; width: 100%; padding: 9px 11px; border-radius: 8px; color: var(--text-1); font-size: var(--t-body); font-weight: 500; text-align: left; }
 .menu button .gi { width: 18px; text-align: center; }
 .menu button:hover { background: var(--surface-hover); color: var(--text); }
+.menu button:disabled { color: var(--text-2); cursor: not-allowed; opacity: .48; }
+.menu button:disabled:hover { background: transparent; color: var(--text-2); }
 .menu button.danger:hover { background: var(--danger-soft); color: var(--danger); }
 .menu .sep { height: 1px; background: var(--border); margin: 5px 4px; }
 
@@ -505,6 +509,7 @@ svg.ic.fill { fill: currentColor; stroke: none; }
 .userrow { display: flex; align-items: center; gap: 9px; padding: 8px 10px; border-radius: 10px; width: 100%; transition: background var(--dur-1) var(--ease); }
 .userrow:hover { background: var(--surface-hover); }
 .avatar { width: 28px; height: 28px; border-radius: 50%; display: grid; place-items: center; font-size: var(--t-secondary); font-weight: 600; background: var(--surface-2); color: var(--accent-text); flex: none; }
+.avatar svg.ic { width: 15px; height: 15px; }
 .userrow .un { flex: 1; font-weight: 500; font-size: var(--t-body); text-align: left; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .userrow .cv { color: var(--text-2); }
 #usermenu { bottom: calc(100% + 6px); left: 0; right: 0; }
@@ -1416,15 +1421,15 @@ textarea.chat-request-input { resize: vertical; }
 .device-option-check { width: 18px; height: 18px; fill: none; stroke: var(--accent-text); stroke-width: 2.5; }
 .device-option-info { width: 30px; height: 30px; }
 
-.network-status, .pwa-update {
+.network-status, .pwa-update, .pwa-install {
   position: fixed; z-index: 100; display: flex; align-items: center; gap: 8px;
   min-height: 34px; padding: 7px 11px; border: 1px solid var(--border-strong); border-radius: 7px;
   background: var(--surface); color: var(--text); box-shadow: var(--e2); font-size: var(--t-secondary);
 }
 .network-status { top: max(10px, env(safe-area-inset-top, 0px)); left: 50%; transform: translateX(-50%); }
 .network-status-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--wait); }
-.pwa-update { right: 14px; bottom: max(14px, env(safe-area-inset-bottom, 0px)); }
-.pwa-update button { min-height: 26px; padding: 3px 8px; border-radius: 5px; background: var(--accent); color: #fff; font-weight: 600; }
+.pwa-update, .pwa-install { right: 14px; bottom: max(14px, env(safe-area-inset-bottom, 0px)); }
+.pwa-update button, .pwa-install button { min-height: 26px; padding: 3px 8px; border-radius: 5px; background: var(--accent); color: #fff; font-weight: 600; }
 #app[data-network="offline"] .dot.on { background: var(--offline); }
 
 @media (max-width: 1180px) and (min-width: 861px) {

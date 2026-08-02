@@ -136,7 +136,7 @@ const state = {
   pool: [],              // 终端 iframe 池：每个打开的会话一个常驻 iframe（见「终端 iframe 池」段）
   current: null,         // 当前显示的池条目（null = 空态 / 文件模式）
   settings: null,        // dashboard 偏好（窗口上限/回滚行数，网关存；GET /api/settings）
-  selfDraw: false,       // 实验：Codex 自绘界面（localStorage，默认关）
+  selfDraw: true,        // Codex 默认使用自绘界面（localStorage，可在会话设置中关闭）
   chat: null,            // 当前自绘 Codex 会话状态（独立于 ttyd pool）
   chatCache: new Map(),  // key(macId/sessionId) -> 自绘 Codex 会话状态；保持 SSE 连接，切回秒开
   sessionSearch: '',
@@ -288,16 +288,13 @@ function initSessionListPreferences() {
   catch (_) { state.scope = 'active'; }
 }
 function initExperimentFlags() {
-  try { state.selfDraw = localStorage.getItem(SELF_DRAW_KEY) === '1'; } catch (_) { state.selfDraw = false; }
-  updateExperimentMenus();
+  try { state.selfDraw = localStorage.getItem(SELF_DRAW_KEY) !== '0'; } catch (_) { state.selfDraw = true; }
 }
-function updateExperimentMenus() {
-  $$('.selfdraw-mark').forEach((el) => el.classList.toggle('on', !!state.selfDraw));
-}
-function toggleSelfDraw() {
-  state.selfDraw = !state.selfDraw;
+function setSelfDraw(enabled) {
+  const next = !!enabled;
+  if (state.selfDraw === next) return;
+  state.selfDraw = next;
   try { localStorage.setItem(SELF_DRAW_KEY, state.selfDraw ? '1' : '0'); } catch (_) {}
-  updateExperimentMenus();
   if (!state.selfDraw) {
     closeChatPane();
     restoreTermOrEmpty();
@@ -544,13 +541,13 @@ function openSettings() {
   $('#st-mscroll').value = s.mobileScrollback;
   $('#st-autoclose').value = s.autoCloseMinutes;
   $('#st-chat-cache-max').value = s.chatCacheMaxSessions;
-  $('#st-show-archived').checked = state.scope === 'all';
+  $('#st-selfdraw').checked = state.selfDraw;
   renderChatCacheStats();
-  showSettingsTab('sessions');
+  showSettingsTab('terminal');
   openOverlay('settings-modal');
 }
 async function saveSettings() {
-  const nextScope = $('#st-show-archived').checked ? 'all' : 'active';
+  const nextSelfDraw = $('#st-selfdraw').checked;
   const body = {
     desktopMaxWindows: parseInt($('#st-dmax').value, 10) || 0,
     desktopScrollback: parseInt($('#st-dscroll').value, 10) || 0,
@@ -565,25 +562,17 @@ async function saveSettings() {
     });
     if (!r.ok) throw new Error('HTTP ' + r.status);
     state.settings = { ...SETTINGS_DEFAULT, ...(await r.json()) }; // 服务端 normalize 后的真实值
-    const scopeChanged = state.scope !== nextScope;
-    state.scope = nextScope;
-    try { localStorage.setItem(SESSION_ARCHIVE_KEY, nextScope === 'all' ? '1' : '0'); } catch (_) {}
+    setSelfDraw(nextSelfDraw);
     closeOverlay('settings-modal');
     toast('设置已保存', 'ok');
     poolEvict();              // 上限调小 → 立即按新上限释放多余窗口
     evictChatCache();         // 自绘缓存上限调小 → 立即释放最久未看的连接
     applyScrollbackToPool();  // 回滚行数即时作用到已开终端
-    if (scopeChanged) {
-      state.sessionResults = [];
-      state.sessionCursors = {};
-      updateSessionFilterUI();
-      loadSessions({ clear: true });
-    }
   } catch (e) { toast('保存失败：' + e.message, 'err'); }
 }
 
 function showSettingsTab(tab) {
-  const key = tab === 'chat' || tab === 'sessions' ? tab : 'terminal';
+  const key = tab === 'chat' ? 'chat' : 'terminal';
   $$('[data-settings-tab]').forEach((b) => b.setAttribute('aria-selected', String(b.dataset.settingsTab === key)));
   $$('[data-settings-panel]').forEach((p) => { p.hidden = p.dataset.settingsPanel !== key; });
   if (key === 'chat') renderChatCacheStats();
@@ -652,6 +641,7 @@ function setMode(mode) {
   state.mode = mode === 'files' ? 'files' : 'sessions';
   mode = state.mode;
   $('#app').dataset.mode = mode;
+  updateSettingsMenus();
   if (mode !== 'sessions') backToList(); // 离开会话模式收起终端 push
   if (mode !== 'files') resetFileBackGesture();
   $$('button[data-mode]').forEach((b) => b.setAttribute('aria-selected', String(b.dataset.mode === mode)));
@@ -709,6 +699,26 @@ function updateSessionFilterUI() {
     toggle.title = recent ? '按项目分组' : '按最近更新排序';
     toggle.setAttribute('aria-label', toggle.title);
   }
+}
+
+function updateSettingsMenus() {
+  const unavailable = state.mode === 'files';
+  $$('.archive-menu-action').forEach((button) => {
+    button.disabled = unavailable;
+    button.setAttribute('aria-pressed', String(state.scope === 'all'));
+    button.title = unavailable ? '仅在会话页可用' : '';
+  });
+}
+
+function toggleArchivedSessions() {
+  if (state.mode === 'files') return;
+  state.scope = state.scope === 'all' ? 'active' : 'all';
+  try { localStorage.setItem(SESSION_ARCHIVE_KEY, state.scope === 'all' ? '1' : '0'); } catch (_) {}
+  state.sessionResults = [];
+  state.sessionCursors = {};
+  updateSessionFilterUI();
+  updateSettingsMenus();
+  loadSessions({ clear: true });
 }
 
 function sessionKey(session) {
@@ -5132,6 +5142,7 @@ function toggleMenu(id, e) {
   const m = $('#' + id);
   const willOpen = m.hidden;
   closeMenus();
+  updateSettingsMenus();
   m.hidden = !willOpen;
 }
 
@@ -5261,7 +5272,8 @@ function syncInstallActions() {
   const standalone = matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
   const isiOS = /iPad|iPhone|iPod/.test(navigator.userAgent || '');
   const available = !standalone && (!!state.deferredInstallPrompt || isiOS);
-  $$('.pwa-install-action').forEach((button) => { button.hidden = !available; });
+  const banner = $('#pwa-install');
+  if (banner) banner.hidden = !available;
 }
 
 async function promptPWAInstall() {
@@ -5279,6 +5291,8 @@ async function promptPWAInstall() {
 
 function initPWAExperience() {
   updateNetworkStatus();
+  const installButton = $('#pwa-install-now');
+  if (installButton) installButton.onclick = promptPWAInstall;
   addEventListener('online', () => { updateNetworkStatus({ refresh: true }); toast('网络已恢复', 'ok'); });
   addEventListener('offline', () => updateNetworkStatus());
   addEventListener('beforeinstallprompt', (event) => {
@@ -5501,7 +5515,7 @@ function init() {
   });
   $('#chat-options-back').addEventListener('click', (e) => { e.stopPropagation(); showChatOptionsMain({ focus: true }); });
 
-  // 用户菜单（主题切换已收进菜单内 data-act="theme"，不再单独占一行）
+  // 全局设置菜单（桌面侧栏与移动端共用同一组动作）
   $('#user-btn').onclick = (e) => toggleMenu('usermenu', e);
   $('#m-menu-btn').onclick = (e) => toggleMenu('m-menu', e);
   $$('.mobile-menu-trigger').forEach((button) => {
@@ -5515,9 +5529,8 @@ function init() {
     b.onclick = () => {
       closeMenus();
       if (b.dataset.act === 'theme') toggleTheme();
+      else if (b.dataset.act === 'archive') toggleArchivedSessions();
       else if (b.dataset.act === 'settings') openSettings();
-      else if (b.dataset.act === 'selfdraw') toggleSelfDraw();
-      else if (b.dataset.act === 'install') promptPWAInstall();
       else if (b.dataset.act === 'logout') doLogout();
     };
   });
