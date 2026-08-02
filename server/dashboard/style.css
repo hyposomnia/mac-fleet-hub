@@ -165,8 +165,15 @@
    ============================================================ */
 * { box-sizing: border-box; margin: 0; padding: 0; }
 [hidden] { display: none !important; }
-html, body { height: 100%; overflow-x: hidden; max-width: 100%; }
+html {
+  height: 100%; max-width: 100%; overflow: hidden; background: var(--bg);
+  overscroll-behavior: none;
+  touch-action: manipulation;
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
 body {
+  height: 100%; max-width: 100%;
   font-family: var(--font);
   background: var(--bg);
   color: var(--text);
@@ -921,6 +928,17 @@ textarea.chat-request-input { resize: vertical; }
   #app.term-open #win {
     display: flex; position: fixed; inset: 0; z-index: 45;
     padding-top: env(safe-area-inset-top, 0px);
+  }
+  #app.term-open.session-back-dragging #win {
+    transform: translate3d(var(--session-back-x), 0, 0);
+    box-shadow: -14px 0 32px rgba(0, 0, 0, .28);
+    will-change: transform;
+  }
+  #app.term-open.session-back-settling #win {
+    transform: translate3d(var(--session-back-x), 0, 0);
+    box-shadow: -14px 0 32px rgba(0, 0, 0, .28);
+    transition: transform 220ms var(--ease);
+    will-change: transform;
   }
   #app.term-open #session-back-gesture {
     display: block; position: fixed; z-index: 6;

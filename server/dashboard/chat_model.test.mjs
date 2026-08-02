@@ -52,6 +52,12 @@ function nodeText(node) {
 }
 const appSandbox = {
   document: {
+    documentElement: {
+      attributes: {},
+      style: { setProperty() {}, removeProperty() {} },
+      setAttribute(name, value) { this.attributes[name] = String(value); },
+      getAttribute(name) { return this.attributes[name] || null; },
+    },
     addEventListener() {},
     createElement: testElement,
     createElementNS: (_ns, tag) => testElement(tag),
@@ -72,8 +78,8 @@ const appSandbox = {
   Date: FixedAppDate,
 };
 vm.createContext(appSandbox);
-vm.runInContext(`${appSrc}\n;globalThis.__chatCacheTest = { chatCacheVictim, isChatConnectionKept, isSessionRunning, updateChatUpdatedAt, formatChatDate, chatAssistantMetaText, chatUserMetaText, chatMessageMetaVisibility, applyChatMetadataDefaults, enqueueChatFollowup, removeChatFollowup, normalizeChatDraft, chatSkillTriggerAt, parseChatSkillInput, chatSkillTokenNames, mergeChatComposerText, mergeChatAttachments, chatComposerAction: typeof chatComposerAction === 'function' ? chatComposerAction : null, chatImageSrc, chatToolStatus, chatToolDuration, chatToolActivityLabel, chatToolHasExpandableBody, isChatActivityItem, isChatTraceItem: typeof isChatTraceItem === 'function' ? isChatTraceItem : null, chatRenderUnits: typeof chatRenderUnits === 'function' ? chatRenderUnits : null, renderChatTurnProgress: typeof renderChatTurnProgress === 'function' ? renderChatTurnProgress : null, chatActivityGroupSummaryText, chatActivityActiveSummarySegments, chatActivityGroupIconKind, renderChatActivityGroup, renderChatActivityRun: typeof renderChatActivityRun === 'function' ? renderChatActivityRun : null, sessionRow, sessionStatus, filterFileEntries, sortFileEntries: typeof sortFileEntries === 'function' ? sortFileEntries : null, normalizeFileView: typeof normalizeFileView === 'function' ? normalizeFileView : null, truncateFileColumns: typeof truncateFileColumns === 'function' ? truncateFileColumns : null, fileColumnRequestCurrent: typeof fileColumnRequestCurrent === 'function' ? fileColumnRequestCurrent : null, fileIconName: typeof fileIconName === 'function' ? fileIconName : null, activeFileLocationID: typeof activeFileLocationID === 'function' ? activeFileLocationID : null, isSessionBackSwipe: typeof isSessionBackSwipe === 'function' ? isSessionBackSwipe : null, ensurePendingChatStarted: typeof ensurePendingChatStarted === 'function' ? ensurePendingChatStarted : null, filePreviewTypeLabel, filePreviewLocation, chatTurnPinText: typeof chatTurnPinText === 'function' ? chatTurnPinText : () => '', isInternalChatTool: typeof isInternalChatTool === 'function' ? isInternalChatTool : () => false, state };`, appSandbox);
-const { chatCacheVictim, isChatConnectionKept, isSessionRunning, updateChatUpdatedAt, formatChatDate, chatAssistantMetaText, chatUserMetaText, chatMessageMetaVisibility, applyChatMetadataDefaults, enqueueChatFollowup, removeChatFollowup, normalizeChatDraft, chatSkillTriggerAt, parseChatSkillInput, chatSkillTokenNames, mergeChatComposerText, mergeChatAttachments, chatComposerAction, chatImageSrc, chatToolStatus, chatToolDuration, chatToolActivityLabel, chatToolHasExpandableBody, isChatActivityItem, isChatTraceItem, chatRenderUnits, renderChatTurnProgress, chatActivityGroupSummaryText, chatActivityActiveSummarySegments, chatActivityGroupIconKind, renderChatActivityGroup, renderChatActivityRun, sessionRow, sessionStatus, filterFileEntries, sortFileEntries, normalizeFileView, truncateFileColumns, fileColumnRequestCurrent, fileIconName, activeFileLocationID, isSessionBackSwipe, ensurePendingChatStarted, filePreviewTypeLabel, filePreviewLocation, chatTurnPinText, isInternalChatTool, state: appState } = appSandbox.__chatCacheTest;
+vm.runInContext(`${appSrc}\n;globalThis.__chatCacheTest = { chatCacheVictim, isChatConnectionKept, isSessionRunning, updateChatUpdatedAt, formatChatDate, chatAssistantMetaText, chatUserMetaText, chatMessageMetaVisibility, applyChatMetadataDefaults, enqueueChatFollowup, removeChatFollowup, normalizeChatDraft, chatSkillTriggerAt, parseChatSkillInput, chatSkillTokenNames, mergeChatComposerText, mergeChatAttachments, chatComposerAction: typeof chatComposerAction === 'function' ? chatComposerAction : null, chatImageSrc, chatToolStatus, chatToolDuration, chatToolActivityLabel, chatToolHasExpandableBody, isChatActivityItem, isChatTraceItem: typeof isChatTraceItem === 'function' ? isChatTraceItem : null, chatRenderUnits: typeof chatRenderUnits === 'function' ? chatRenderUnits : null, renderChatTurnProgress: typeof renderChatTurnProgress === 'function' ? renderChatTurnProgress : null, chatActivityGroupSummaryText, chatActivityActiveSummarySegments, chatActivityGroupIconKind, renderChatActivityGroup, renderChatActivityRun: typeof renderChatActivityRun === 'function' ? renderChatActivityRun : null, sessionRow, sessionStatus, filterFileEntries, sortFileEntries: typeof sortFileEntries === 'function' ? sortFileEntries : null, normalizeFileView: typeof normalizeFileView === 'function' ? normalizeFileView : null, truncateFileColumns: typeof truncateFileColumns === 'function' ? truncateFileColumns : null, fileColumnRequestCurrent: typeof fileColumnRequestCurrent === 'function' ? fileColumnRequestCurrent : null, fileIconName: typeof fileIconName === 'function' ? fileIconName : null, activeFileLocationID: typeof activeFileLocationID === 'function' ? activeFileLocationID : null, applyTheme: typeof applyTheme === 'function' ? applyTheme : null, sessionBackDragOffset: typeof sessionBackDragOffset === 'function' ? sessionBackDragOffset : null, isSessionBackSwipe: typeof isSessionBackSwipe === 'function' ? isSessionBackSwipe : null, ensurePendingChatStarted: typeof ensurePendingChatStarted === 'function' ? ensurePendingChatStarted : null, filePreviewTypeLabel, filePreviewLocation, chatTurnPinText: typeof chatTurnPinText === 'function' ? chatTurnPinText : () => '', isInternalChatTool: typeof isInternalChatTool === 'function' ? isInternalChatTool : () => false, state };`, appSandbox);
+const { chatCacheVictim, isChatConnectionKept, isSessionRunning, updateChatUpdatedAt, formatChatDate, chatAssistantMetaText, chatUserMetaText, chatMessageMetaVisibility, applyChatMetadataDefaults, enqueueChatFollowup, removeChatFollowup, normalizeChatDraft, chatSkillTriggerAt, parseChatSkillInput, chatSkillTokenNames, mergeChatComposerText, mergeChatAttachments, chatComposerAction, chatImageSrc, chatToolStatus, chatToolDuration, chatToolActivityLabel, chatToolHasExpandableBody, isChatActivityItem, isChatTraceItem, chatRenderUnits, renderChatTurnProgress, chatActivityGroupSummaryText, chatActivityActiveSummarySegments, chatActivityGroupIconKind, renderChatActivityGroup, renderChatActivityRun, sessionRow, sessionStatus, filterFileEntries, sortFileEntries, normalizeFileView, truncateFileColumns, fileColumnRequestCurrent, fileIconName, activeFileLocationID, applyTheme, sessionBackDragOffset, isSessionBackSwipe, ensurePendingChatStarted, filePreviewTypeLabel, filePreviewLocation, chatTurnPinText, isInternalChatTool, state: appState } = appSandbox.__chatCacheTest;
 function toolLabelText(item) {
   const status = chatToolStatus(item.status);
   return chatToolActivityLabel(item, status, chatToolDuration(item.durationMs)).map(nodeText).join('');
@@ -1024,6 +1030,11 @@ test('device picker lists the small fleet without a search field', () => {
 });
 
 test('mobile session detail supports a deliberate edge swipe back', () => {
+  assert.equal(sessionBackDragOffset({ x: 8, y: 300, edge: true }, { x: 108, y: 312 }, 390), 100);
+  assert.equal(sessionBackDragOffset({ x: 8, y: 300, edge: true }, { x: 500, y: 312 }, 390), 390);
+  assert.equal(sessionBackDragOffset({ x: 8, y: 300, edge: true }, { x: -20, y: 302 }, 390), 0);
+  assert.equal(sessionBackDragOffset({ x: 8, y: 300, edge: true }, { x: 70, y: 390 }, 390), 0);
+  assert.equal(sessionBackDragOffset({ x: 48, y: 300, edge: false }, { x: 160, y: 305 }, 390), 0);
   assert.equal(isSessionBackSwipe({ x: 8, y: 300, edge: true }, { x: 110, y: 310 }), true);
   assert.equal(isSessionBackSwipe({ x: 8, y: 300, edge: true }, { x: 60, y: 305 }), false);
   assert.equal(isSessionBackSwipe({ x: 8, y: 300, edge: true }, { x: 120, y: 410 }), false);
@@ -1031,8 +1042,35 @@ test('mobile session detail supports a deliberate edge swipe back', () => {
   assert.equal(isSessionBackSwipe({ x: 8, y: 300, edge: true }, { x: -100, y: 305 }), false);
   assert.match(indexHTML, /id="session-back-gesture"[^>]*aria-hidden="true"/);
   assert.match(styleCSS, /#app\.term-open #session-back-gesture\s*\{[^}]*display:\s*block;/s);
+  assert.match(styleCSS, /#app\.term-open\.session-back-dragging #win\s*\{[^}]*transform:\s*translate3d\(var\(--session-back-x\), 0, 0\)/s);
+  assert.match(styleCSS, /#app\.term-open\.session-back-settling #win\s*\{[^}]*transition:\s*transform/s);
   assert.match(appSrc, /addEventListener\('touchstart',[\s\S]*addEventListener\('touchend'/);
-  assert.match(appSrc, /if \(isSessionBackSwipe\(sessionBackTouch, end\)\)\s*\{[\s\S]*?returnToSessionList\(\)/);
+  assert.match(appSrc, /sessionBackDragOffset\(sessionBackTouch, point, window\.innerWidth\)/);
+  assert.match(appSrc, /settleSessionBackGesture\(isSessionBackSwipe\(sessionBackTouch, end\)\)/);
+});
+
+test('root viewport stays fixed and uses the active app background', () => {
+  assert.match(styleCSS, /html\s*\{[^}]*background:\s*var\(--bg\);[^}]*overscroll-behavior:\s*none;[^}]*-webkit-text-size-adjust:\s*100%;[^}]*text-size-adjust:\s*100%;/s);
+  assert.match(styleCSS, /body\s*\{[^}]*overflow:\s*hidden;/s);
+  assert.doesNotMatch(indexHTML, /maximum-scale|user-scalable\s*=\s*no/i);
+});
+
+test('dashboard and preview disable double-tap zoom without disabling pinch zoom', () => {
+  assert.match(styleCSS, /html\s*\{[^}]*touch-action:\s*manipulation;/s);
+  assert.match(indexHTML, /id="preview-page"/);
+  assert.match(indexHTML, /id="app"/);
+  assert.doesNotMatch(indexHTML, /maximum-scale|user-scalable\s*=\s*no/i);
+});
+
+test('manual theme selection updates the browser chrome color', () => {
+  const themeMeta = testElement('meta');
+  themeMeta.content = '';
+  appSandbox.document.querySelector = (selector) => selector === 'meta[name="theme-color"]' ? themeMeta : null;
+  applyTheme('light');
+  assert.equal(themeMeta.content, '#f6f7f9');
+  applyTheme('dark');
+  assert.equal(themeMeta.content, '#090c12');
+  assert.equal((indexHTML.match(/<meta name="theme-color"/g) || []).length, 1);
 });
 
 test('mobile text controls prevent iOS focus zoom without disabling pinch zoom', () => {

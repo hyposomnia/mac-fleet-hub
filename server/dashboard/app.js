@@ -263,8 +263,12 @@ function isIMEComposing(e, composingFlag) {
 // ============================================================
 //  主题（默认跟随系统 prefers-color-scheme，切换后写 localStorage 覆盖）
 // ============================================================
+const THEME_COLORS = { dark: '#090c12', light: '#f6f7f9' };
+
 function applyTheme(t) {
   document.documentElement.setAttribute('data-theme', t);
+  const themeColor = document.querySelector('meta[name="theme-color"]');
+  if (themeColor) themeColor.content = THEME_COLORS[t] || THEME_COLORS.dark;
   try { localStorage.setItem('fleet-theme', t); } catch (_) {}
   applyTermTheme(); // 终端(iframe 内 xterm)跟随切换
 }
@@ -3537,7 +3541,10 @@ async function restorePoolSnapshot() {
 }
 
 // 移动端从终端「返回」：仅收起 push，不结束进程（tmux 持久）。
-function backToList() { $('#app').classList.remove('term-open'); }
+function backToList() {
+  $('#app').classList.remove('term-open');
+  resetSessionBackGesture();
+}
 
 function returnToSessionList() {
   if (!$('#app').classList.contains('term-open')) return;
@@ -3552,31 +3559,88 @@ function isSessionBackSwipe(start, end) {
   return dx >= 72 && dy <= dx * 0.6;
 }
 
+function sessionBackDragOffset(start, point, viewportWidth) {
+  if (!start?.edge || !point || !Number.isFinite(viewportWidth) || viewportWidth <= 0) return 0;
+  const dx = point.x - start.x;
+  const dy = Math.abs(point.y - start.y);
+  if (dx <= 0 || dy > Math.max(18, dx * 0.8)) return 0;
+  return Math.min(dx, viewportWidth);
+}
+
 let sessionBackTouch = null;
+let sessionBackSettleTimer = null;
+
+function setSessionBackOffset(offset) {
+  $('#win').style.setProperty('--session-back-x', `${Math.max(0, offset)}px`);
+}
+
+function resetSessionBackGesture() {
+  const app = $('#app');
+  const win = $('#win');
+  sessionBackTouch = null;
+  if (sessionBackSettleTimer !== null) {
+    window.clearTimeout(sessionBackSettleTimer);
+    sessionBackSettleTimer = null;
+  }
+  app.classList.remove('session-back-dragging', 'session-back-settling');
+  win.style.removeProperty('--session-back-x');
+}
+
+function settleSessionBackGesture(accepted) {
+  const app = $('#app');
+  if (!app.classList.contains('term-open')) {
+    resetSessionBackGesture();
+    return;
+  }
+  sessionBackTouch = null;
+  app.classList.remove('session-back-dragging');
+  app.classList.add('session-back-settling');
+  setSessionBackOffset(accepted ? window.innerWidth : 0);
+  const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  sessionBackSettleTimer = window.setTimeout(() => {
+    sessionBackSettleTimer = null;
+    if (accepted) returnToSessionList();
+    else resetSessionBackGesture();
+  }, reducedMotion ? 0 : 220);
+}
+
 function wireSessionBackGesture() {
   const gesture = $('#session-back-gesture');
+  const app = $('#app');
   gesture.addEventListener('touchstart', (event) => {
+    if (app.classList.contains('session-back-settling')) return;
     const touch = event.touches.length === 1 ? event.touches[0] : null;
-    sessionBackTouch = touch ? { x: touch.clientX, y: touch.clientY, edge: true } : null;
+    resetSessionBackGesture();
+    sessionBackTouch = touch ? { x: touch.clientX, y: touch.clientY, edge: true, axis: null } : null;
   }, { passive: true });
   gesture.addEventListener('touchmove', (event) => {
     const touch = sessionBackTouch && event.touches.length === 1 ? event.touches[0] : null;
     if (!touch) return;
     const dx = touch.clientX - sessionBackTouch.x;
     const dy = Math.abs(touch.clientY - sessionBackTouch.y);
-    if (dx > 8 && dx > dy) event.preventDefault();
+    if (!sessionBackTouch.axis && Math.max(Math.abs(dx), dy) >= 8) {
+      sessionBackTouch.axis = dx > 0 && dx > dy ? 'x' : 'y';
+    }
+    if (sessionBackTouch.axis !== 'x') return;
+    event.preventDefault();
+    const point = { x: touch.clientX, y: touch.clientY };
+    const offset = sessionBackDragOffset(sessionBackTouch, point, window.innerWidth);
+    app.classList.add('session-back-dragging');
+    setSessionBackOffset(offset);
   }, { passive: false });
   gesture.addEventListener('touchend', (event) => {
     const touch = event.changedTouches[0];
     const end = touch ? { x: touch.clientX, y: touch.clientY } : null;
-    if (isSessionBackSwipe(sessionBackTouch, end)) {
-      sessionBackTouch = null;
-      returnToSessionList();
-      return;
-    }
-    sessionBackTouch = null;
+    if (sessionBackTouch?.axis === 'x') settleSessionBackGesture(isSessionBackSwipe(sessionBackTouch, end));
+    else resetSessionBackGesture();
   }, { passive: true });
-  gesture.addEventListener('touchcancel', () => { sessionBackTouch = null; }, { passive: true });
+  gesture.addEventListener('touchcancel', () => {
+    if (sessionBackTouch?.axis === 'x') settleSessionBackGesture(false);
+    else resetSessionBackGesture();
+  }, { passive: true });
+  new MutationObserver(() => {
+    if (!app.classList.contains('term-open')) resetSessionBackGesture();
+  }).observe(app, { attributes: true, attributeFilter: ['class'] });
 }
 
 // ============================================================
@@ -5240,6 +5304,7 @@ function init() {
   });
   // 跨断点时同步移动输入坞可见性
   addEventListener('resize', () => {
+    resetSessionBackGesture();
     if (state.mode === 'sessions' && state.termSid) $('#mobile-input').hidden = !isMobile();
     if (!$('#file-settings-menu').hidden) positionFileSettings(fileSettingsTrigger);
     if (state.mode === 'files' && state.fileView === 'columns') scrollFileColumnsToEnd();
