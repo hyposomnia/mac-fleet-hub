@@ -461,14 +461,23 @@ func connectCodexAppServer(ctx context.Context) (codexRPCConn, func(), error) {
 	}
 	mode := normalizeCodexAppServerMode(cfg.CodexMode)
 	if mode != codexAppServerModeStdio {
-		if err := startManagedCodexDaemon(ctx, codexBin); err == nil {
-			socketPath, socketErr := codexAppServerSocketPath()
+		socketPath, socketErr := codexAppServerSocketPath()
+		if socketErr == nil {
+			if rpc, cleanup, err := connectCodexSocket(ctx, socketPath); err == nil {
+				return rpc, cleanup, nil
+			} else {
+				socketErr = err
+			}
+		}
+
+		startErr := startManagedCodexDaemon(ctx, codexBin)
+		if startErr == nil {
+			socketPath, socketErr = codexAppServerSocketPath()
 			if socketErr == nil {
-				var rpc codexRPCConn
-				var cleanup func()
-				rpc, cleanup, socketErr = connectCodexSocket(ctx, socketPath)
-				if socketErr == nil {
+				if rpc, cleanup, err := connectCodexSocket(ctx, socketPath); err == nil {
 					return rpc, cleanup, nil
+				} else {
+					socketErr = err
 				}
 			}
 			if mode == codexAppServerModeDaemon {
@@ -477,9 +486,9 @@ func connectCodexAppServer(ctx context.Context) (codexRPCConn, func(), error) {
 			log.Printf("managed Codex app-server socket unavailable; falling back to stdio: %v", socketErr)
 		} else {
 			if mode == codexAppServerModeDaemon {
-				return nil, nil, err
+				return nil, nil, startErr
 			}
-			log.Printf("managed Codex app-server unavailable; falling back to stdio: %v", err)
+			log.Printf("Codex app-server socket and managed daemon unavailable; falling back to stdio: %v", startErr)
 		}
 	}
 	return connectCodexProcess(ctx, codexBin, "app-server", "--stdio")

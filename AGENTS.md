@@ -101,7 +101,7 @@ curl -I https://<FLEET_HOST>[:GATEWAY_PORT]/auth    # 期望 200
 | `TTYD_PORT`/`FB_PORT`/`AGENT_PORT`/`FB_ROOT` | 服务端口 / 文件管理根目录 | 默认即可（FB_ROOT 默认整个 home） |
 | `FLEET_CLAUDE_HOME`/`FLEET_CLAUDE_BIN` | Claude 会话库与命令路径 | 默认 `~/.claude` / 自动发现 `claude` |
 | `FLEET_CODEX_HOME`/`FLEET_CODEX_BIN` | Codex 会话库与命令路径 | 默认 `~/.codex` / 自动发现 `codex` |
-| `FLEET_CODEX_APPSERVER_MODE` | Codex app-server 连接模式：`auto` 优先 daemon、失败回退 stdio；`daemon` 禁止回退；`stdio` 保留旧行为 | `auto` |
+| `FLEET_CODEX_APPSERVER_MODE` | Codex app-server 连接模式：`auto` 优先复用现有 control socket，不可用时启动 managed daemon，最后回退 stdio；`daemon` 禁止回退；`stdio` 保留旧行为 | `auto` |
 | `FLEET_CODEX_APPSERVER_SOCK` | 指定 managed app-server Unix socket；留空由 Codex 选择默认 control socket | （空） |
 
 ### 执行（二选一）
@@ -117,7 +117,7 @@ curl -fsSL https://<网关地址>/enroll/mac-bundle.tar.gz | tar xz
 LOGIN_SERVER=https://<网关地址>:8443 AUTHKEY=<预授权密钥> bash mac/install.sh
 #   网关用高位端口/封 443 时把 :8443 换成 Headscale 对外端口（如 :28443）
 ```
-两者都会装 Tailscale、入网 Headscale（需 sudo 密码）、起 ttyd / filebrowser / fleet-agent，并用 `codex app-server daemon bootstrap --remote-control` 配置独立的 Codex app-server pid-backed daemon。remote control 只通过当前用户私有的 Unix control socket 开放，不新增公网监听。fleet-agent 直接在该 socket 上建立 WebSocket，不经过子 app-server 或 proxy。控制台的「会话」页可在 Claude / Codex 之间切换；Claude 使用本机 `~/.claude` 与 `claude`，Codex 使用本机 `~/.codex` 与 `codex`。网页关闭或 fleet-agent 更新/重启时只会断开 socket 客户端，正在执行的 Codex turn 继续由 daemon 运行；网页重连后会重新 `thread/resume` 并继续接收事件。旧版 Codex 不支持 daemon 时，默认 `auto` 模式会回退 stdio。
+两者都会装 Tailscale、入网 Headscale（需 sudo 密码）、起 ttyd / filebrowser / fleet-agent，并用 `codex app-server daemon bootstrap --remote-control` 配置独立的 Codex app-server pid-backed daemon。remote control 只通过当前用户私有的 Unix control socket 开放，不新增公网监听。`auto` 模式会先直接握手目标机器上已有的兼容 control socket（例如 Codex 客户端已启动的 app-server）；没有可用 socket 时才启动 managed daemon。fleet-agent 在该 socket 上建立 WebSocket，不经过子 app-server 或 proxy。控制台的「会话」页可在 Claude / Codex 之间切换；Claude 使用本机 `~/.claude` 与 `claude`，Codex 使用本机 `~/.codex` 与 `codex`。网页关闭或 fleet-agent 更新/重启时只会断开 socket 客户端，正在执行的 Codex turn 继续由独立 app-server 运行；网页重连后会重新 `thread/resume` 并继续接收事件。旧版 Codex 不支持 control socket/daemon 时，默认 `auto` 模式才回退 stdio。
 AI 执行 B 时：用 env 把 LOGIN_SERVER/AUTHKEY/MAC_INDEX 传入即可非交互；编号自行按现有数量 +1，别问用户。
 
 ### 验证

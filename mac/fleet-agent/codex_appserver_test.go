@@ -435,8 +435,37 @@ func installCodexLauncherFakes(t *testing.T, mode, socket string) (*[]string, *[
 	return &started, &sockets, &processes
 }
 
-func TestCodexAppServerAutoPrefersManagedDaemonSocket(t *testing.T) {
+func TestCodexAppServerAutoReusesExistingSocket(t *testing.T) {
 	started, sockets, processes := installCodexLauncherFakes(t, "auto", "")
+	_, cleanup, err := connectCodexAppServer(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	cleanup()
+	if len(*started) != 0 {
+		t.Fatalf("existing socket unexpectedly started daemon: %v", *started)
+	}
+	want := []string{"/tmp/codex-home/app-server-control/app-server-control.sock"}
+	if !reflect.DeepEqual(*sockets, want) {
+		t.Fatalf("socket paths got %v want %v", *sockets, want)
+	}
+	if len(*processes) != 0 {
+		t.Fatalf("managed socket started child process: %v", *processes)
+	}
+}
+
+func TestCodexAppServerStartsManagedDaemonAfterSocketFailure(t *testing.T) {
+	started, sockets, processes := installCodexLauncherFakes(t, "auto", "")
+	attempts := 0
+	connectCodexSocket = func(_ context.Context, socketPath string) (codexRPCConn, func(), error) {
+		*sockets = append(*sockets, socketPath)
+		attempts++
+		if attempts == 1 {
+			return nil, nil, errors.New("socket unavailable")
+		}
+		return newFakeRPCConn(), func() {}, nil
+	}
+
 	_, cleanup, err := connectCodexAppServer(context.Background())
 	if err != nil {
 		t.Fatal(err)
@@ -445,9 +474,12 @@ func TestCodexAppServerAutoPrefersManagedDaemonSocket(t *testing.T) {
 	if !reflect.DeepEqual(*started, []string{"/usr/local/bin/codex-test"}) {
 		t.Fatalf("daemon starts got %v", *started)
 	}
-	want := []string{"/tmp/codex-home/app-server-control/app-server-control.sock"}
-	if !reflect.DeepEqual(*sockets, want) {
-		t.Fatalf("socket paths got %v want %v", *sockets, want)
+	wantSockets := []string{
+		"/tmp/codex-home/app-server-control/app-server-control.sock",
+		"/tmp/codex-home/app-server-control/app-server-control.sock",
+	}
+	if !reflect.DeepEqual(*sockets, wantSockets) {
+		t.Fatalf("socket attempts got %v want %v", *sockets, wantSockets)
 	}
 	if len(*processes) != 0 {
 		t.Fatalf("managed socket started child process: %v", *processes)
@@ -511,7 +543,7 @@ func TestCodexAppServerAutoFallsBackToStdio(t *testing.T) {
 				if test.socketError != nil {
 					return nil, nil, test.socketError
 				}
-				return newFakeRPCConn(), func() {}, nil
+				return nil, nil, errors.New("socket unavailable before daemon start")
 			}
 			connectCodexProcess = func(_ context.Context, codexBin string, args ...string) (codexRPCConn, func(), error) {
 				*processes = append(*processes, strings.Join(append([]string{codexBin}, args...), " "))
@@ -539,7 +571,7 @@ func TestCodexAppServerDaemonModeDoesNotFallBack(t *testing.T) {
 	if _, _, err := connectCodexAppServer(context.Background()); err == nil || !strings.Contains(err.Error(), "socket unavailable") {
 		t.Fatalf("strict daemon mode error got %v", err)
 	}
-	if len(*sockets) != 1 || len(*processes) != 0 {
+	if len(*sockets) != 2 || len(*processes) != 0 {
 		t.Fatalf("strict daemon mode unexpectedly fell back: sockets=%v processes=%v", *sockets, *processes)
 	}
 }

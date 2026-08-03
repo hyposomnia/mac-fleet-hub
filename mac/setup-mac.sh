@@ -76,6 +76,8 @@ if [[ "$CODEX_APPSERVER_MODE" != "stdio" && -x "$CODEX_BIN" ]]; then
   elif [[ "$CODEX_APPSERVER_MODE" == "daemon" ]]; then
     echo "Codex app-server daemon bootstrap 失败；daemon 模式无法继续，请更新 Codex 后重试。" >&2
     exit 1
+  elif [[ -S "${CODEX_APPSERVER_SOCK:-$CODEX_HOME_DIR/app-server-control/app-server-control.sock}" ]]; then
+    echo "检测到现有 Codex control socket；fleet-agent 将先直接连接并验证，失败才回退 stdio。"
   else
     echo "警告：Codex daemon 不可用，fleet-agent 将回退独立 stdio；更新 agent 仍可能中断活动 turn。" >&2
   fi
