@@ -179,10 +179,7 @@ const SETTINGS_DEFAULT = {
 };
 
 // ---------- 工具 ----------
-// Mobile layout needs both a narrow viewport and a touch-first device. Desktop
-// Chrome can briefly restore with a stale narrow viewport before its window settles.
-const MOBILE_MEDIA = '(max-width: 860px) and (pointer: coarse)';
-const isMobile = () => matchMedia(MOBILE_MEDIA).matches;
+const isMobile = () => matchMedia('(max-width: 860px)').matches;
 const VISUAL_KEYBOARD_MIN_INSET = 120;
 
 function visualKeyboardInset(focused, baselineViewportHeight, viewportHeight) {

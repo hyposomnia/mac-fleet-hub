@@ -356,11 +356,11 @@ test('self-drawn Codex is enabled by default and configured in the self-drawn ta
 test('mobile session toolbar keeps square actions on both sides of search', () => {
   assert.match(
     styleCSS,
-    /@media \(max-width: 860px\) and \(pointer: coarse\)[\s\S]*?\.session-search-row\s*\{[^}]*grid-template-columns:\s*46px minmax\(0, 1fr\) 46px;/s,
+    /@media \(max-width: 860px\)[\s\S]*?\.session-search-row\s*\{[^}]*grid-template-columns:\s*46px minmax\(0, 1fr\) 46px;/s,
   );
   assert.match(
     styleCSS,
-    /@media \(max-width: 860px\) and \(pointer: coarse\)[\s\S]*?\.session-search-row \.iconbtn\s*\{[^}]*width:\s*46px;[^}]*height:\s*46px;/s,
+    /@media \(max-width: 860px\)[\s\S]*?\.session-search-row \.iconbtn\s*\{[^}]*width:\s*46px;[^}]*height:\s*46px;/s,
   );
 });
 
@@ -443,16 +443,16 @@ test('session pagination loads automatically near the scroll boundary', () => {
   assert.match(appSrc, /loadSessions\(\{\s*append:\s*true\s*\}\)/);
 });
 
-test('mobile layout requires both a narrow viewport and touch-first input', () => {
-  const query = '@media (max-width: 860px) and (pointer: coarse)';
+test('mobile layout follows viewport width regardless of pointer type', () => {
+  const query = '@media (max-width: 860px)';
   assert.equal(styleCSS.split(query).length - 1, 2);
-  assert.doesNotMatch(styleCSS, /@media \(max-width: 860px\) \{/);
-  assert.match(appSrc, /const MOBILE_MEDIA = '\(max-width: 860px\) and \(pointer: coarse\)'/);
-  assert.match(appSrc, /const isMobile = \(\) => matchMedia\(MOBILE_MEDIA\)\.matches/);
+  assert.doesNotMatch(styleCSS, /pointer:\s*(?:coarse|fine)/);
+  assert.match(appSrc, /const isMobile = \(\) => matchMedia\('\(max-width: 860px\)'\)\.matches/);
+  assert.doesNotMatch(appSrc, /MOBILE_MEDIA|pointer:\s*(?:coarse|fine)/);
 });
 
 test('mobile session list does not create a second safe-area block', () => {
-  const mobileRules = styleCSS.match(/@media \(max-width:\s*860px\) and \(pointer:\s*coarse\)[\s\S]*$/)?.[0] || '';
+  const mobileRules = styleCSS.match(/@media \(max-width:\s*860px\)[\s\S]*$/)?.[0] || '';
   assert.ok(mobileRules);
   assert.match(mobileRules, /\.sc-body\s*\{[^}]*padding:\s*8px;[^}]*scroll-padding-bottom:\s*8px;/s);
   assert.doesNotMatch(mobileRules, /\.sc-body\s*\{[^}]*safe-area-inset-bottom/s);
@@ -1150,14 +1150,14 @@ test('self-drawn user message time renders outside the bubble', () => {
 });
 
 test('mobile session rows keep a compact touch target', () => {
-  assert.match(styleCSS, /@media \(max-width: 860px\) and \(pointer: coarse\)[\s\S]*?\.ses\s*\{[^}]*min-height:\s*40px;[^}]*padding:\s*2px 8px;/s);
-  assert.doesNotMatch(styleCSS, /@media \(max-width: 860px\) and \(pointer: coarse\)[\s\S]*?\.ses\s*\{\s*min-height:\s*68px;/);
+  assert.match(styleCSS, /@media \(max-width: 860px\)[\s\S]*?\.ses\s*\{[^}]*min-height:\s*40px;[^}]*padding:\s*2px 8px;/s);
+  assert.doesNotMatch(styleCSS, /@media \(max-width: 860px\)[\s\S]*?\.ses\s*\{\s*min-height:\s*68px;/);
 });
 
 test('mobile session rows center single-line content vertically', () => {
   assert.match(
     styleCSS,
-    /@media \(max-width: 860px\) and \(pointer: coarse\)[\s\S]*?\.ses\s*\{[^}]*min-height:\s*40px;[^}]*justify-content:\s*center;/s,
+    /@media \(max-width: 860px\)[\s\S]*?\.ses\s*\{[^}]*min-height:\s*40px;[^}]*justify-content:\s*center;/s,
   );
 });
 
