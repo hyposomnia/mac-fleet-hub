@@ -464,6 +464,11 @@ test('mobile settings actions fill the drawer in two equal touch targets', () =>
   assert.match(mobileRules, /#settings-modal \.modal-foot \.btn\s*\{[^}]*width:\s*100%;[^}]*min-height:\s*48px;/s);
 });
 
+test('root canvas uses the large viewport instead of clipping standalone content', () => {
+  assert.match(styleCSS, /html\s*\{[^}]*height:\s*100%;\s*height:\s*100lvh;[^}]*overflow:\s*hidden;/s);
+  assert.match(styleCSS, /body\s*\{[^}]*height:\s*100%;\s*height:\s*100lvh;[^}]*overflow:\s*hidden;/s);
+});
+
 test('session list aggregates online devices while row actions retain their source Mac', () => {
   assert.match(appSrc, /sessionMacId:\s*'all'/);
   assert.match(appSrc, /sessionCursors:\s*\{\}/);
@@ -1068,8 +1073,8 @@ test('self-drawn composer contains native stop control and follow-up queue', () 
   assert.match(styleCSS, /\.chat-send \.chat-stop-icon\s*\{\s*display:\s*none/);
   assert.match(styleCSS, /chat-send\[data-action="interrupt"\]/);
   assert.equal((styleCSS.match(/\.chat-send\s*\{\s*width:\s*36px;\s*height:\s*36px;/g) || []).length, 2);
-  assert.match(styleCSS, /#chat-composer\s*\{\s*padding:\s*8px 10px 4px;\s*background:\s*transparent;\s*backdrop-filter:\s*none;/);
-  assert.doesNotMatch(styleCSS, /#chat-composer\s*\{\s*padding:\s*8px 10px [^;}]*safe-area-inset-bottom/);
+  assert.match(styleCSS, /#chat-composer\s*\{\s*padding:\s*8px 10px max\(12px,\s*env\(safe-area-inset-bottom,\s*0px\)\);\s*background:\s*transparent;\s*backdrop-filter:\s*none;/);
+  assert.match(styleCSS, /html\.visual-keyboard-open #chat-composer\s*\{\s*padding-bottom:\s*4px;/);
 });
 
 test('mobile chat composer uses the root canvas and follows a resized visual viewport', () => {
@@ -1114,7 +1119,9 @@ test('chat image attachments open through one accessible fullscreen viewer', () 
   assert.equal(typeof controls[0].onclick, 'function');
   assert.match(indexHTML, /id="chat-image-viewer"[^>]*role="dialog"[^>]*aria-modal="true"/);
   assert.match(indexHTML, /id="chat-image-viewer-close"/);
-  assert.match(styleCSS, /\.chat-image-viewer\s*\{[^}]*position:\s*fixed;[^}]*inset:\s*0;[^}]*z-index:\s*160;/s);
+  assert.match(styleCSS, /\.chat-image-viewer\s*\{[^}]*position:\s*fixed;[^}]*inset:\s*0;[^}]*z-index:\s*160;[^}]*padding:\s*0;/s);
+  assert.match(styleCSS, /\.chat-image-viewer > img\s*\{[^}]*width:\s*100%;[^}]*height:\s*100%;[^}]*object-fit:\s*contain;/s);
+  assert.match(styleCSS, /\.chat-image-viewer-close\s*\{[^}]*position:\s*absolute;[^}]*top:\s*calc\(env\(safe-area-inset-top,\s*0px\) \+ 10px\);[^}]*right:/s);
   assert.match(appSrc, /event\.target\.closest\?\.\('\.chat-markdown img'\)[\s\S]*?event\.preventDefault\(\);/);
   assert.match(appSrc, /if \(!\$\('#chat-image-viewer'\)\.hidden\)\s*\{\s*closeChatImageViewer\(\);/s);
 });
