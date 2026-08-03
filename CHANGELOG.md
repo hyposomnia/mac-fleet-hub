@@ -4,6 +4,11 @@ mac-fleet-hub 变更记录（日期为本地时间）。
 
 ## 2026-08-03
 
+### 修复 Codex control socket 被旧 CLI 路径遮蔽
+- **根因修复**：fleet-agent 在配置的 Codex 可执行文件已失效时，不再直接返回空会话；只要当前用户的 Unix control socket 仍可用，就继续复用现有 Codex app-server。
+- **无安装兼容**：Codex 可执行文件与 control socket 都不存在时仍返回空列表，不会误触发 app-server 恢复或 fleet-agent 重启。
+- **回归保护**：新增“旧 CLI 路径失效但 control socket 可用”的接口测试，确保本地历史线程继续显示。
+
 ### 放大移动端会话设置操作按钮
 - **整行双列操作**：移动端会话设置抽屉的取消与保存按钮铺满内容宽度，各占一半并提升到 48px 触控高度；其他弹窗保持原样。
 - **缓存升级**：dashboard 外壳缓存升级到 v96，确保已安装 PWA 获取新的按钮布局。

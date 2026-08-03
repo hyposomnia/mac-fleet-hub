@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -216,6 +217,60 @@ func TestHandleSessionsMissingCodexExecutableReturnsEmptyWithoutRestart(t *testi
 	case err := <-restarts:
 		t.Fatalf("missing Codex scheduled fleet-agent restart: %v", err)
 	case <-time.After(30 * time.Millisecond):
+	}
+}
+
+func TestHandleSessionsMissingCodexExecutableReusesControlSocket(t *testing.T) {
+	previousCfg := cfg
+	previousBackend := agentChatBackend
+	codexHome := t.TempDir()
+	cfg.CodexBin = filepath.Join(t.TempDir(), "missing-codex")
+	cfg.CodexHome = codexHome
+	socketDir, err := os.MkdirTemp("/tmp", "mfh-codex-socket-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.RemoveAll(socketDir) })
+	socketPath := filepath.Join(socketDir, "control.sock")
+	cfg.CodexSock = socketPath
+	listener, err := net.Listen("unix", socketPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		listener.Close()
+		cfg = previousCfg
+		agentChatBackend = previousBackend
+	})
+
+	rpc := newFakeRPCConn()
+	rpc.reply["thread/list"] = json.RawMessage(`{"data":[{"id":"thread-1","cwd":"/repo","preview":"Visible"}]}`)
+	connects := 0
+	backend := newCodexChatBackend(func(context.Context) (codexRPCConn, func(), error) {
+		connects++
+		return rpc, func() {}, nil
+	})
+	agentChatBackend = backend
+
+	req := httptest.NewRequest(http.MethodGet, "/api/sessions?assistant=codex&archived=false", nil)
+	rr := httptest.NewRecorder()
+	handleSessions(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status got %d, want 200: %s", rr.Code, rr.Body.String())
+	}
+	var body struct {
+		Sessions []Session `json:"sessions"`
+		Total    int       `json:"total"`
+	}
+	if err := json.Unmarshal(rr.Body.Bytes(), &body); err != nil {
+		t.Fatalf("response should be JSON, got %q", rr.Body.String())
+	}
+	if len(body.Sessions) != 1 || body.Sessions[0].SessionID != "thread-1" || body.Total != 1 {
+		t.Fatalf("existing control socket should expose threads, got %+v", body)
+	}
+	if connects != 1 {
+		t.Fatalf("existing control socket backend connect count got %d, want 1", connects)
 	}
 }
 

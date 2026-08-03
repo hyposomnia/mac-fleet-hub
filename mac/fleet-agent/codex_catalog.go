@@ -344,7 +344,7 @@ func codexSessionSource(raw json.RawMessage) string {
 }
 
 func codexListThreads(ctx context.Context, opts codexThreadListOptions) (codexThreadPage, error) {
-	if !codexExecutableAvailable() {
+	if !codexExecutableAvailable() && !codexControlSocketAvailable() {
 		return codexThreadPage{Sessions: []Session{}}, nil
 	}
 	catalog, ok := agentChatBackend.(codexThreadCatalog)
@@ -361,6 +361,15 @@ func codexExecutableAvailable() bool {
 	}
 	_, err := exec.LookPath(bin)
 	return err == nil
+}
+
+func codexControlSocketAvailable() bool {
+	socketPath, err := codexAppServerSocketPath()
+	if err != nil {
+		return false
+	}
+	info, err := os.Stat(socketPath)
+	return err == nil && info.Mode()&os.ModeSocket != 0
 }
 
 func codexAllThreads(ctx context.Context, archived bool) ([]Session, error) {
