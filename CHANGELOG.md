@@ -37,10 +37,10 @@ mac-fleet-hub 变更记录（日期为本地时间）。
 ## 2026-08-02
 
 ### Codex 执行生命周期脱离 fleet-agent
-- **独立 daemon**：Mac 安装时通过 `codex app-server daemon bootstrap --remote-control` 配置 launchd 常驻服务；fleet-agent 默认启动 Codex proxy 连接当前用户私有的 Unix control socket，不再把实际 app-server 作为自己的子进程。
-- **更新不中止 turn**：fleet-agent 或其 proxy 更新、退出、重启时，正在运行的 Codex turn 继续留在 daemon；网页 SSE 重连后自动执行 `thread/resume`，重新挂载事件流和活动 turn。
+- **独立 daemon**：Mac 安装时通过 `codex app-server daemon bootstrap --remote-control` 配置 pid-backed 独立进程；fleet-agent 直接通过当前用户私有 Unix control socket 的 WebSocket transport 连接，不再把实际 app-server 作为自己的子进程。
+- **更新不中止 turn**：fleet-agent 或其 socket 客户端更新、退出、重启时，正在运行的 Codex turn 继续留在 daemon；网页 SSE 重连后自动执行 `thread/resume`，重新挂载事件流和活动 turn。
 - **兼容与可控回退**：`FLEET_CODEX_APPSERVER_MODE=auto` 默认优先 daemon、不可用时回退旧 stdio；`daemon` 可强制禁止回退，`stdio` 可显式保留旧行为，并支持自定义 control socket。
-- **回归保护**：新增 daemon/proxy 启动选择、socket、回退、严格模式、`CODEX_HOME` 环境覆盖和 RPC 重建后 thread 重载测试；同步重建 fleet-agent Darwin amd64/arm64 产物。
+- **回归保护**：新增 daemon/socket 启动选择、Unix WebSocket framing、真实 managed socket、回退、严格模式、`CODEX_HOME` 环境覆盖和 RPC 重建后 thread 重载测试；同步重建 fleet-agent Darwin amd64/arm64 产物。
 
 ### 文本预览增加行号与语法高亮
 - **只读代码视图**：文本类文件使用本地内置的 CodeMirror 渲染，每个逻辑行显示稳定行号，长文件按可视区域更新 DOM。

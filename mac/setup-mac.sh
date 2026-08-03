@@ -61,9 +61,16 @@ echo "本机 mesh IP: $TS_IP  (mac${MAC_INDEX})"
 echo "安装 ttyd tmux ..."
 brew install ttyd tmux 2>/dev/null || true
 
-# Codex daemon 独立于 fleet-agent 常驻。fleet-agent 只持有 proxy，更新自身时不会终止正在运行的 turn。
+# Codex daemon 独立于 fleet-agent 常驻。fleet-agent 只连接私有 Unix WebSocket，更新自身时不会终止正在运行的 turn。
 if [[ "$CODEX_APPSERVER_MODE" != "stdio" && -x "$CODEX_BIN" ]]; then
   echo "配置 Codex app-server daemon ..."
+  MANAGED_CODEX="$CODEX_HOME_DIR/packages/standalone/current/codex"
+  if [[ ! -x "$MANAGED_CODEX" ]]; then
+    # daemon 固定从 managed 路径启动。目标机已有 Codex CLI 时复用该签名二进制，
+    # 后续 bootstrap updater 仍可按 Codex 官方安装器正常更新此路径。
+    install -d -m 0700 "$(dirname "$MANAGED_CODEX")"
+    install -m 0755 "$CODEX_BIN" "$MANAGED_CODEX"
+  fi
   if CODEX_HOME="$CODEX_HOME_DIR" "$CODEX_BIN" app-server daemon bootstrap --remote-control >/dev/null 2>&1; then
     echo "Codex app-server daemon 已就绪"
   elif [[ "$CODEX_APPSERVER_MODE" == "daemon" ]]; then

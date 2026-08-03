@@ -18,7 +18,7 @@ Claude 项目命令 `/dev`、`/ui`、`/deploy` 在 Codex 中分别使用 `$dev`�
 
 - **网关**：一台常驻 Linux 服务器（VPS、家里的小主机 / NAS 均可），是整套系统对外的唯一入口，跑 nginx + Headscale + Authelia。
 - **mesh**：Headscale 自建的私有组网（类 Tailscale）。各 Mac 只在 mesh 内可达，不直接暴露公网。
-- **Mac 客户端**：被远程操作的 Mac，跑 ttyd（网页终端）/ filebrowser（文件）/ fleet-agent（会话管理）；Codex 自绘聊天通过独立 launchd app-server daemon 执行，fleet-agent 只连接它的 proxy。
+- **Mac 客户端**：被远程操作的 Mac，跑 ttyd（网页终端）/ filebrowser（文件）/ fleet-agent（会话管理）；Codex 自绘聊天通过独立的 pid-backed app-server daemon 执行，fleet-agent 直接连接它的私有 Unix WebSocket。
 
 ---
 
@@ -117,7 +117,7 @@ curl -fsSL https://<网关地址>/enroll/mac-bundle.tar.gz | tar xz
 LOGIN_SERVER=https://<网关地址>:8443 AUTHKEY=<预授权密钥> bash mac/install.sh
 #   网关用高位端口/封 443 时把 :8443 换成 Headscale 对外端口（如 :28443）
 ```
-两者都会装 Tailscale、入网 Headscale（需 sudo 密码）、起 ttyd / filebrowser / fleet-agent，并用 `codex app-server daemon bootstrap --remote-control` 配置独立的 Codex app-server launchd 服务。remote control 只通过当前用户私有的 Unix control socket 开放，不新增公网监听。控制台的「会话」页可在 Claude / Codex 之间切换；Claude 使用本机 `~/.claude` 与 `claude`，Codex 使用本机 `~/.codex` 与 `codex`。网页关闭或 fleet-agent 更新/重启时只会断开 proxy，正在执行的 Codex turn 继续由 daemon 运行；网页重连后会重新 `thread/resume` 并继续接收事件。旧版 Codex 不支持 daemon 时，默认 `auto` 模式会回退 stdio。
+两者都会装 Tailscale、入网 Headscale（需 sudo 密码）、起 ttyd / filebrowser / fleet-agent，并用 `codex app-server daemon bootstrap --remote-control` 配置独立的 Codex app-server pid-backed daemon。remote control 只通过当前用户私有的 Unix control socket 开放，不新增公网监听。fleet-agent 直接在该 socket 上建立 WebSocket，不经过子 app-server 或 proxy。控制台的「会话」页可在 Claude / Codex 之间切换；Claude 使用本机 `~/.claude` 与 `claude`，Codex 使用本机 `~/.codex` 与 `codex`。网页关闭或 fleet-agent 更新/重启时只会断开 socket 客户端，正在执行的 Codex turn 继续由 daemon 运行；网页重连后会重新 `thread/resume` 并继续接收事件。旧版 Codex 不支持 daemon 时，默认 `auto` 模式会回退 stdio。
 AI 执行 B 时：用 env 把 LOGIN_SERVER/AUTHKEY/MAC_INDEX 传入即可非交互；编号自行按现有数量 +1，别问用户。
 
 ### 验证

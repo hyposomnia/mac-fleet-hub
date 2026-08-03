@@ -8,18 +8,22 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"net"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"syscall"
 	"time"
+
+	"github.com/gorilla/websocket"
 )
 
 // rpcRequest / rpcResponse / rpcNotification model the line-oriented JSON-RPC-ish
-// protocol used by `codex app-server proxy`. The wire omits "jsonrpc":"2.0",
-// but otherwise behaves like request/response plus notifications.
+// protocol used by app-server. The wire omits "jsonrpc":"2.0", but otherwise
+// behaves like request/response plus notifications.
 type rpcRequest struct {
 	ID     int64       `json:"id"`
 	Method string      `json:"method"`
@@ -86,10 +90,12 @@ const (
 )
 
 type codexProcessConnector func(context.Context, string, ...string) (codexRPCConn, func(), error)
+type codexSocketConnector func(context.Context, string) (codexRPCConn, func(), error)
 
 var (
 	startManagedCodexDaemon                       = startCodexAppServerDaemon
 	connectCodexProcess     codexProcessConnector = connectCodexAppServerProcess
+	connectCodexSocket      codexSocketConnector  = connectCodexAppServerSocket
 	runCodexDaemonCommand                         = func(ctx context.Context, codexBin string, args ...string) ([]byte, error) {
 		return codexCommand(ctx, codexBin, args...).CombinedOutput()
 	}
@@ -105,6 +111,40 @@ type codexRPCConn interface {
 type stdioReadWriter struct {
 	io.Reader
 	io.Writer
+}
+
+// websocketLineReadWriter adapts app-server's one-JSON-object-per-WebSocket-
+// message transport to the line-oriented reader used by codexRPCClient.
+type websocketLineReadWriter struct {
+	conn    *websocket.Conn
+	pending []byte
+}
+
+func (rw *websocketLineReadWriter) Read(p []byte) (int, error) {
+	for len(rw.pending) == 0 {
+		messageType, message, err := rw.conn.ReadMessage()
+		if err != nil {
+			return 0, err
+		}
+		if messageType != websocket.TextMessage && messageType != websocket.BinaryMessage {
+			continue
+		}
+		rw.pending = append(message, '\n')
+	}
+	n := copy(p, rw.pending)
+	rw.pending = rw.pending[n:]
+	return n, nil
+}
+
+func (rw *websocketLineReadWriter) Write(p []byte) (int, error) {
+	message := p
+	if len(message) > 0 && message[len(message)-1] == '\n' {
+		message = message[:len(message)-1]
+	}
+	if err := rw.conn.WriteMessage(websocket.TextMessage, message); err != nil {
+		return 0, err
+	}
+	return len(p), nil
 }
 
 func newCodexRPCClient(rw io.ReadWriter) *codexRPCClient {
@@ -422,18 +462,19 @@ func connectCodexAppServer(ctx context.Context) (codexRPCConn, func(), error) {
 	mode := normalizeCodexAppServerMode(cfg.CodexMode)
 	if mode != codexAppServerModeStdio {
 		if err := startManagedCodexDaemon(ctx, codexBin); err == nil {
-			args := []string{"app-server", "proxy"}
-			if sock := strings.TrimSpace(cfg.CodexSock); sock != "" {
-				args = append(args, "--sock", sock)
-			}
-			rpc, cleanup, proxyErr := connectCodexProcess(ctx, codexBin, args...)
-			if proxyErr == nil {
-				return rpc, cleanup, nil
+			socketPath, socketErr := codexAppServerSocketPath()
+			if socketErr == nil {
+				var rpc codexRPCConn
+				var cleanup func()
+				rpc, cleanup, socketErr = connectCodexSocket(ctx, socketPath)
+				if socketErr == nil {
+					return rpc, cleanup, nil
+				}
 			}
 			if mode == codexAppServerModeDaemon {
-				return nil, nil, fmt.Errorf("connect managed Codex app-server: %w", proxyErr)
+				return nil, nil, fmt.Errorf("connect managed Codex app-server: %w", socketErr)
 			}
-			log.Printf("managed Codex app-server proxy unavailable; falling back to stdio: %v", proxyErr)
+			log.Printf("managed Codex app-server socket unavailable; falling back to stdio: %v", socketErr)
 		} else {
 			if mode == codexAppServerModeDaemon {
 				return nil, nil, err
@@ -442,6 +483,55 @@ func connectCodexAppServer(ctx context.Context) (codexRPCConn, func(), error) {
 		}
 	}
 	return connectCodexProcess(ctx, codexBin, "app-server", "--stdio")
+}
+
+func codexAppServerSocketPath() (string, error) {
+	if socketPath := strings.TrimSpace(cfg.CodexSock); socketPath != "" {
+		return socketPath, nil
+	}
+	codexHome := strings.TrimSpace(cfg.CodexHome)
+	if codexHome == "" {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return "", err
+		}
+		codexHome = filepath.Join(home, ".codex")
+	}
+	return filepath.Join(codexHome, "app-server-control", "app-server-control.sock"), nil
+}
+
+func connectCodexAppServerSocket(ctx context.Context, socketPath string) (codexRPCConn, func(), error) {
+	dialer := websocket.Dialer{
+		NetDialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
+			return (&net.Dialer{}).DialContext(ctx, "unix", socketPath)
+		},
+	}
+	conn, response, err := dialer.DialContext(ctx, "ws://localhost/", nil)
+	if err != nil {
+		if response != nil && response.Body != nil {
+			_ = response.Body.Close()
+		}
+		return nil, nil, err
+	}
+
+	runCtx, cancelRun := context.WithCancel(context.Background())
+	client := newCodexRPCClient(&websocketLineReadWriter{conn: conn})
+	go client.run(runCtx)
+
+	initCtx, cancelInit := context.WithTimeout(ctx, 15*time.Second)
+	err = client.initialize(initCtx, version)
+	cancelInit()
+	if err != nil {
+		cancelRun()
+		_ = conn.Close()
+		return nil, nil, err
+	}
+
+	cleanup := func() {
+		cancelRun()
+		_ = conn.Close()
+	}
+	return client, cleanup, nil
 }
 
 func connectCodexAppServerProcess(ctx context.Context, codexBin string, args ...string) (codexRPCConn, func(), error) {

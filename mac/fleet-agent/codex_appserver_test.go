@@ -8,10 +8,15 @@ import (
 	"errors"
 	"io"
 	"net"
+	"net/http"
+	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/gorilla/websocket"
 )
 
 func TestCodexRPCClientAcceptsResponsesLargerThanScannerLimit(t *testing.T) {
@@ -309,35 +314,129 @@ func TestCodexRPCClientInitializeSendsInitializedNotification(t *testing.T) {
 	<-serverDone
 }
 
-func installCodexLauncherFakes(t *testing.T, mode, socket string) (*[]string, *[]string) {
+func TestConnectCodexAppServerSocketUsesWebSocketFrames(t *testing.T) {
+	tempDir, err := os.MkdirTemp("/tmp", "mfh-ws-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(tempDir) })
+	socketPath := filepath.Join(tempDir, "app-server.sock")
+	listener, err := net.Listen("unix", socketPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	upgrader := websocket.Upgrader{}
+	server := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		conn, err := upgrader.Upgrade(w, r, nil)
+		if err != nil {
+			t.Errorf("upgrade: %v", err)
+			return
+		}
+		defer conn.Close()
+		for {
+			_, message, err := conn.ReadMessage()
+			if err != nil {
+				return
+			}
+			var request rpcRequest
+			if err := json.Unmarshal(message, &request); err != nil {
+				t.Errorf("decode request: %v", err)
+				return
+			}
+			switch request.Method {
+			case "initialize":
+				err = conn.WriteJSON(map[string]interface{}{
+					"id":     request.ID,
+					"result": map[string]string{"userAgent": "test-server"},
+				})
+			case "thread/list":
+				err = conn.WriteJSON(map[string]interface{}{
+					"id":     request.ID,
+					"result": map[string]interface{}{"data": []interface{}{}},
+				})
+			}
+			if err != nil {
+				return
+			}
+		}
+	})}
+	go func() { _ = server.Serve(listener) }()
+	defer server.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	rpc, cleanup, err := connectCodexAppServerSocket(ctx, socketPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer cleanup()
+	raw, err := rpc.call(ctx, "thread/list", map[string]int{"limit": 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(raw) != `{"data":[]}` {
+		t.Fatalf("thread/list result got %s", raw)
+	}
+}
+
+func TestConnectCodexAppServerSocketLive(t *testing.T) {
+	socketPath := os.Getenv("FLEET_TEST_CODEX_SOCKET")
+	if socketPath == "" {
+		t.Skip("set FLEET_TEST_CODEX_SOCKET to run against a managed daemon")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	rpc, cleanup, err := connectCodexAppServerSocket(ctx, socketPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer cleanup()
+	raw, err := rpc.call(ctx, "thread/list", map[string]int{"limit": 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !json.Valid(raw) {
+		t.Fatalf("thread/list returned invalid JSON: %q", raw)
+	}
+}
+
+func installCodexLauncherFakes(t *testing.T, mode, socket string) (*[]string, *[]string, *[]string) {
 	t.Helper()
 	previousCfg := cfg
 	previousStart := startManagedCodexDaemon
 	previousConnect := connectCodexProcess
+	previousSocket := connectCodexSocket
 	t.Cleanup(func() {
 		cfg = previousCfg
 		startManagedCodexDaemon = previousStart
 		connectCodexProcess = previousConnect
+		connectCodexSocket = previousSocket
 	})
 
 	cfg.CodexBin = "/usr/local/bin/codex-test"
+	cfg.CodexHome = "/tmp/codex-home"
 	cfg.CodexMode = mode
 	cfg.CodexSock = socket
 	started := []string{}
-	connected := []string{}
+	sockets := []string{}
+	processes := []string{}
 	startManagedCodexDaemon = func(_ context.Context, codexBin string) error {
 		started = append(started, codexBin)
 		return nil
 	}
-	connectCodexProcess = func(_ context.Context, codexBin string, args ...string) (codexRPCConn, func(), error) {
-		connected = append(connected, append([]string{codexBin}, args...)...)
+	connectCodexSocket = func(_ context.Context, socketPath string) (codexRPCConn, func(), error) {
+		sockets = append(sockets, socketPath)
 		return newFakeRPCConn(), func() {}, nil
 	}
-	return &started, &connected
+	connectCodexProcess = func(_ context.Context, codexBin string, args ...string) (codexRPCConn, func(), error) {
+		processes = append(processes, strings.Join(append([]string{codexBin}, args...), " "))
+		return newFakeRPCConn(), func() {}, nil
+	}
+	return &started, &sockets, &processes
 }
 
-func TestCodexAppServerAutoPrefersManagedDaemonProxy(t *testing.T) {
-	started, connected := installCodexLauncherFakes(t, "auto", "")
+func TestCodexAppServerAutoPrefersManagedDaemonSocket(t *testing.T) {
+	started, sockets, processes := installCodexLauncherFakes(t, "auto", "")
 	_, cleanup, err := connectCodexAppServer(context.Background())
 	if err != nil {
 		t.Fatal(err)
@@ -346,9 +445,12 @@ func TestCodexAppServerAutoPrefersManagedDaemonProxy(t *testing.T) {
 	if !reflect.DeepEqual(*started, []string{"/usr/local/bin/codex-test"}) {
 		t.Fatalf("daemon starts got %v", *started)
 	}
-	want := []string{"/usr/local/bin/codex-test", "app-server", "proxy"}
-	if !reflect.DeepEqual(*connected, want) {
-		t.Fatalf("process args got %v want %v", *connected, want)
+	want := []string{"/tmp/codex-home/app-server-control/app-server-control.sock"}
+	if !reflect.DeepEqual(*sockets, want) {
+		t.Fatalf("socket paths got %v want %v", *sockets, want)
+	}
+	if len(*processes) != 0 {
+		t.Fatalf("managed socket started child process: %v", *processes)
 	}
 }
 
@@ -373,39 +475,46 @@ func TestStartCodexAppServerDaemonEnablesRemoteControl(t *testing.T) {
 	}
 }
 
-func TestCodexAppServerProxyUsesConfiguredSocket(t *testing.T) {
-	_, connected := installCodexLauncherFakes(t, "daemon", "/tmp/codex.sock")
+func TestCodexAppServerUsesConfiguredSocket(t *testing.T) {
+	_, sockets, processes := installCodexLauncherFakes(t, "daemon", "/tmp/codex.sock")
 	_, cleanup, err := connectCodexAppServer(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
 	cleanup()
-	want := []string{"/usr/local/bin/codex-test", "app-server", "proxy", "--sock", "/tmp/codex.sock"}
-	if !reflect.DeepEqual(*connected, want) {
-		t.Fatalf("process args got %v want %v", *connected, want)
+	want := []string{"/tmp/codex.sock"}
+	if !reflect.DeepEqual(*sockets, want) {
+		t.Fatalf("socket paths got %v want %v", *sockets, want)
+	}
+	if len(*processes) != 0 {
+		t.Fatalf("configured socket started child process: %v", *processes)
 	}
 }
 
 func TestCodexAppServerAutoFallsBackToStdio(t *testing.T) {
 	for _, test := range []struct {
-		name       string
-		startError error
-		proxyError error
+		name        string
+		startError  error
+		socketError error
 	}{
 		{name: "daemon start failure", startError: errors.New("daemon unavailable")},
-		{name: "proxy failure", proxyError: errors.New("socket unavailable")},
+		{name: "socket failure", socketError: errors.New("socket unavailable")},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			started, connected := installCodexLauncherFakes(t, "auto", "")
+			started, sockets, processes := installCodexLauncherFakes(t, "auto", "")
 			startManagedCodexDaemon = func(_ context.Context, codexBin string) error {
 				*started = append(*started, codexBin)
 				return test.startError
 			}
-			connectCodexProcess = func(_ context.Context, codexBin string, args ...string) (codexRPCConn, func(), error) {
-				*connected = append(*connected, strings.Join(append([]string{codexBin}, args...), " "))
-				if len(args) > 1 && args[1] == "proxy" && test.proxyError != nil {
-					return nil, nil, test.proxyError
+			connectCodexSocket = func(_ context.Context, socketPath string) (codexRPCConn, func(), error) {
+				*sockets = append(*sockets, socketPath)
+				if test.socketError != nil {
+					return nil, nil, test.socketError
 				}
+				return newFakeRPCConn(), func() {}, nil
+			}
+			connectCodexProcess = func(_ context.Context, codexBin string, args ...string) (codexRPCConn, func(), error) {
+				*processes = append(*processes, strings.Join(append([]string{codexBin}, args...), " "))
 				return newFakeRPCConn(), func() {}, nil
 			}
 
@@ -414,7 +523,7 @@ func TestCodexAppServerAutoFallsBackToStdio(t *testing.T) {
 				t.Fatal(err)
 			}
 			cleanup()
-			if got := (*connected)[len(*connected)-1]; got != "/usr/local/bin/codex-test app-server --stdio" {
+			if got := (*processes)[len(*processes)-1]; got != "/usr/local/bin/codex-test app-server --stdio" {
 				t.Fatalf("fallback process got %q", got)
 			}
 		})
@@ -422,21 +531,21 @@ func TestCodexAppServerAutoFallsBackToStdio(t *testing.T) {
 }
 
 func TestCodexAppServerDaemonModeDoesNotFallBack(t *testing.T) {
-	_, connected := installCodexLauncherFakes(t, "daemon", "")
-	connectCodexProcess = func(_ context.Context, codexBin string, args ...string) (codexRPCConn, func(), error) {
-		*connected = append(*connected, strings.Join(append([]string{codexBin}, args...), " "))
+	_, sockets, processes := installCodexLauncherFakes(t, "daemon", "")
+	connectCodexSocket = func(_ context.Context, socketPath string) (codexRPCConn, func(), error) {
+		*sockets = append(*sockets, socketPath)
 		return nil, nil, errors.New("socket unavailable")
 	}
 	if _, _, err := connectCodexAppServer(context.Background()); err == nil || !strings.Contains(err.Error(), "socket unavailable") {
 		t.Fatalf("strict daemon mode error got %v", err)
 	}
-	if len(*connected) != 1 || (*connected)[0] != "/usr/local/bin/codex-test app-server proxy" {
-		t.Fatalf("strict daemon mode unexpectedly fell back: %v", *connected)
+	if len(*sockets) != 1 || len(*processes) != 0 {
+		t.Fatalf("strict daemon mode unexpectedly fell back: sockets=%v processes=%v", *sockets, *processes)
 	}
 }
 
 func TestCodexAppServerStdioModeSkipsDaemon(t *testing.T) {
-	started, connected := installCodexLauncherFakes(t, "stdio", "")
+	started, sockets, processes := installCodexLauncherFakes(t, "stdio", "")
 	_, cleanup, err := connectCodexAppServer(context.Background())
 	if err != nil {
 		t.Fatal(err)
@@ -445,9 +554,12 @@ func TestCodexAppServerStdioModeSkipsDaemon(t *testing.T) {
 	if len(*started) != 0 {
 		t.Fatalf("stdio mode started daemon: %v", *started)
 	}
-	want := []string{"/usr/local/bin/codex-test", "app-server", "--stdio"}
-	if !reflect.DeepEqual(*connected, want) {
-		t.Fatalf("process args got %v want %v", *connected, want)
+	if len(*sockets) != 0 {
+		t.Fatalf("stdio mode connected socket: %v", *sockets)
+	}
+	want := []string{"/usr/local/bin/codex-test app-server --stdio"}
+	if !reflect.DeepEqual(*processes, want) {
+		t.Fatalf("process args got %v want %v", *processes, want)
 	}
 }
 

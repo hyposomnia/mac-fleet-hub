@@ -17,7 +17,7 @@
       ▼
    Mac① · Mac② · … · Mac︎N
    每台跑：网页终端 (ttyd→tmux→claude/codex) · 文件管理 (filebrowser)
-           会话服务 (fleet-agent→Codex proxy→独立 app-server daemon)
+           会话服务 (fleet-agent→Unix WebSocket→独立 app-server daemon)
 ```
 
 - **网关**：整套系统对外的唯一入口。VPS、云主机、家里的小主机 / NAS 都行（Linux）。
@@ -41,7 +41,7 @@
 经网关入口（两步验证登录后）选一台 Mac，即可在网页里续接它的 Claude Code / Codex 会话、浏览 / 传它的文件。每台 Mac 的前置：
 
 - **已装 Claude Code 或 Codex**：网页终端续接的就是这台机器的本地会话；要用 Claude 需 `claude` 命令可用，要用 Codex 需 `codex` 命令可用。
-- **Codex 后台独立运行**：安装脚本用 Codex 自带的 `daemon bootstrap --remote-control` 配置 launchd 服务；remote control 仅通过当前用户私有的 Unix socket 开放。网页和 fleet-agent 只连接本机 proxy，agent 更新或重启不会终止 daemon 中正在执行的 turn，重连后会恢复同一 thread。
+- **Codex 后台独立运行**：安装脚本用 Codex 自带的 `daemon bootstrap --remote-control` 配置 pid-backed daemon；remote control 仅通过当前用户私有的 Unix socket 开放。fleet-agent 直接在该 socket 上建立 WebSocket，agent 更新或重启不会终止 daemon 中正在执行的 turn，重连后会恢复同一 thread。
 - **已装 Homebrew**：安装脚本用它装 ttyd / tmux 等依赖。
 - **磁盘访问**：文件管理默认根目录是整个用户主目录。macOS 会保护「桌面 / 文档 / 下载」等目录——要在网页里浏览这几个，需给文件服务（filebrowser，经 launchd 运行）授予「完全磁盘访问权限」（系统设置 ›  隐私与安全性 ›  完全磁盘访问权限，把 filebrowser 二进制加进去）；主目录其余文件无需额外授权即可读。
 - 这些服务**只绑私有组网地址**、不对公网；任何外部访问都经网关 + 两步验证。
