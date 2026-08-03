@@ -458,6 +458,12 @@ test('mobile session list does not create a second safe-area block', () => {
   assert.doesNotMatch(mobileRules, /\.sc-body\s*\{[^}]*safe-area-inset-bottom/s);
 });
 
+test('mobile settings actions fill the drawer in two equal touch targets', () => {
+  const mobileRules = styleCSS.match(/@media \(max-width:\s*860px\)[\s\S]*$/)?.[0] || '';
+  assert.match(mobileRules, /#settings-modal \.modal-foot\s*\{[^}]*display:\s*grid;[^}]*grid-template-columns:\s*repeat\(2,\s*minmax\(0,\s*1fr\)\);/s);
+  assert.match(mobileRules, /#settings-modal \.modal-foot \.btn\s*\{[^}]*width:\s*100%;[^}]*min-height:\s*48px;/s);
+});
+
 test('session list aggregates online devices while row actions retain their source Mac', () => {
   assert.match(appSrc, /sessionMacId:\s*'all'/);
   assert.match(appSrc, /sessionCursors:\s*\{\}/);

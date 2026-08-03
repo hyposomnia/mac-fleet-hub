@@ -1078,6 +1078,8 @@ textarea.chat-request-input { resize: vertical; }
   /* 弹窗在移动端变底部抽屉 */
   .overlay { place-items: end center; padding: 0; }
   .modal { max-width: none; max-height: 90dvh; border-radius: var(--r-xl) var(--r-xl) 0 0; border-bottom: 0; animation: sheetup var(--dur-3) var(--ease); padding-bottom: env(safe-area-inset-bottom, 0px); }
+  #settings-modal .modal-foot { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+  #settings-modal .modal-foot .btn { width: 100%; min-height: 48px; font-size: var(--t-body); }
   @keyframes sheetup { from { transform: translateY(100%); } }
 
   /* toast 容器避让安全区 */

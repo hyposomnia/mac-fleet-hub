@@ -1,5 +1,5 @@
 // PWA 外壳缓存。终端、API 与用户文件必须实时，明确不进入 Cache Storage。
-const CACHE = 'fleet-shell-v95';
+const CACHE = 'fleet-shell-v96';
 const FILE_TYPE_ICONS = [
   'audio', 'c', 'console', 'cpp', 'csharp', 'css', 'dart', 'database', 'docker',
   'document', 'exe', 'font', 'git', 'go', 'html', 'image', 'java', 'javascript',
@@ -14,10 +14,10 @@ const CODEMIRROR_ASSETS = [
   'javascript', 'xml', 'jsx', 'css', 'go', 'python', 'ruby', 'shell', 'yaml', 'toml', 'properties',
 ].map((name, index) => index < 2 ? name : `/vendor/codemirror/mode/${name}/${name}.js?v=5.65.20`);
 const SHELL = [
-  '/', '/index.html', '/style.css?v=95',
+  '/', '/index.html', '/style.css?v=96',
   '/vendor/purify.min.js?v=3.2.6', '/vendor/marked.min.js?v=15.0.12',
   ...CODEMIRROR_ASSETS,
-  '/markdown.js?v=95', '/preview.js?v=95', '/chat_model.js?v=95', '/app.js?v=95',
+  '/markdown.js?v=96', '/preview.js?v=96', '/chat_model.js?v=96', '/app.js?v=96',
   '/manifest.webmanifest', '/icons/icon.svg', '/icons/icon-180.png', '/icons/icon-192.png',
   '/icons/icon-512.png', '/icons/icon-maskable-512.png',
   ...FILE_TYPE_ICONS,
