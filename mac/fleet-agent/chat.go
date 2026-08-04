@@ -1003,6 +1003,7 @@ func handleChatEvents(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("X-Accel-Buffering", "no")
 	flusher, _ := w.(http.Flusher)
 	heartbeat := time.NewTicker(15 * time.Second)
 	defer heartbeat.Stop()

@@ -24,6 +24,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -1158,11 +1159,8 @@ func shortSidFor(assistant, sessionID string) string {
 	if normAssistant(assistant) == "claude" {
 		return shortSid(sessionID)
 	}
-	id := strings.ReplaceAll(sessionID, "-", "")
-	if len(id) > 10 {
-		id = id[:10]
-	}
-	return "fleet-codex" + id
+	sum := sha256.Sum256([]byte(sessionID))
+	return fmt.Sprintf("fleet-codex%x", sum[:12])
 }
 
 // fleet-agent 自管理的 tmux 配置，经 `tmux -f` 在 server 启动时加载：
@@ -1210,6 +1208,25 @@ func ensureTmux(name, cwd, cmd string) error {
 	_, err := tmux(tmuxNewSessionArgs(cfg.TmuxConf, name, full)...)
 	return err
 }
+
+var (
+	startTmuxSession = ensureTmux
+	killTmuxSession  = func(name string) { _, _ = tmux("kill-session", "-t", name) }
+	newTmuxSequence  atomic.Uint64
+)
+
+func newTmuxNameAt(assistant string, unixNano int64, sequence uint64) string {
+	prefix := "new"
+	if normAssistant(assistant) == "codex" {
+		prefix = "codexnew"
+	}
+	return fmt.Sprintf("fleet-%s%016x%016x", prefix, uint64(unixNano), sequence)
+}
+
+func newTmuxName(assistant string) string {
+	return newTmuxNameAt(assistant, time.Now().UnixNano(), newTmuxSequence.Add(1))
+}
+
 func shellQuote(s string) string {
 	if s == "" {
 		return "$HOME"
@@ -1593,7 +1610,7 @@ func handleOpen(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	name := shortSidFor(assistant, req.SessionID)
-	if err := ensureTmux(name, cwd, resumeCmd(assistant, req.SessionID, mode)); err != nil {
+	if err := startTmuxSession(name, cwd, resumeCmd(assistant, req.SessionID, mode)); err != nil {
 		httpTmuxErr(w, err)
 		return
 	}
@@ -1614,12 +1631,8 @@ func handleNew(w http.ResponseWriter, r *http.Request) {
 	}
 	assistant := normAssistant(req.Assistant)
 	mode := normMode(req.Mode, req.Bypass)
-	prefix := "new"
-	if assistant == "codex" {
-		prefix = "codexnew"
-	}
-	name := fmt.Sprintf("fleet-%s%d", prefix, time.Now().Unix())
-	if err := ensureTmux(name, req.Cwd, newCmd(assistant, req.Cwd, mode)); err != nil {
+	name := newTmuxName(assistant)
+	if err := startTmuxSession(name, req.Cwd, newCmd(assistant, req.Cwd, mode)); err != nil {
 		httpTmuxErr(w, err)
 		return
 	}
@@ -1651,7 +1664,7 @@ func handleClose(w http.ResponseWriter, r *http.Request) {
 	}
 	killed := tmuxHas(name)
 	if killed {
-		tmux("kill-session", "-t", name)
+		killTmuxSession(name)
 	}
 	watchMu.Lock()
 	delete(watchers, name)
@@ -1708,14 +1721,17 @@ func handleReload(w http.ResponseWriter, r *http.Request) {
 	watchMu.Lock()
 	wt := watchers[req.Sid]
 	watchMu.Unlock()
-	tmux("kill-session", "-t", req.Sid)
+	killTmuxSession(req.Sid)
 	if wt != nil && wt.sessionID != "" {
 		cwd, err := cwdForSession(r.Context(), wt.assistant, wt.sessionID)
 		if err != nil {
 			writeChatErr(w, err)
 			return
 		}
-		ensureTmux(req.Sid, cwd, resumeCmd(wt.assistant, wt.sessionID, wt.mode))
+		if err := startTmuxSession(req.Sid, cwd, resumeCmd(wt.assistant, wt.sessionID, wt.mode)); err != nil {
+			httpTmuxErr(w, err)
+			return
+		}
 		registerWatch(req.Sid, wt.assistant, wt.sessionID, wt.mode) // 重置 offset/tip/external，沿用权限模式
 	}
 	writeJSON(w, map[string]bool{"ok": true})
@@ -1739,7 +1755,7 @@ func reaper() {
 			act, _ := strconv.ParseInt(f[2], 10, 64)
 			if attached == 0 && now-act > idleSec.Load() {
 				onSessionEnd(f[0])
-				tmux("kill-session", "-t", f[0])
+				killTmuxSession(f[0])
 			}
 		}
 	}

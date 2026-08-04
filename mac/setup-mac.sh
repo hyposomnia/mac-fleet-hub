@@ -59,7 +59,9 @@ echo "本机 mesh IP: $TS_IP  (mac${MAC_INDEX})"
 
 # --- 2. 依赖 ---
 echo "安装 ttyd tmux ..."
-brew install ttyd tmux 2>/dev/null || true
+brew install ttyd tmux
+[[ -x "$BREW_PREFIX/bin/ttyd" ]] || { echo "ttyd 安装失败：$BREW_PREFIX/bin/ttyd 不存在。" >&2; exit 1; }
+[[ -x "$BREW_PREFIX/bin/tmux" ]] || { echo "tmux 安装失败：$BREW_PREFIX/bin/tmux 不存在。" >&2; exit 1; }
 
 # Codex daemon 独立于 fleet-agent 常驻。fleet-agent 只连接私有 Unix WebSocket，更新自身时不会终止正在运行的 turn。
 if [[ "$CODEX_APPSERVER_MODE" != "stdio" && -x "$CODEX_BIN" ]]; then
@@ -124,6 +126,7 @@ elif command -v curl >/dev/null 2>&1; then
 else
   fb_brew_fallback "无 curl 可用"
 fi
+[[ -x "$FB_BIN" ]] || { echo "filebrowser 安装失败：$FB_BIN 不可执行。" >&2; exit 1; }
 
 # --- 4. filebrowser DB：建用户 + noauth + baseURL（鉴权交给 Headscale ACL）---
 # 重跑场景：先卸载已在运行的服务，否则 filebrowser config set 会因 DB 被占而超时。

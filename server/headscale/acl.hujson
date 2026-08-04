@@ -29,9 +29,9 @@
       "action": "accept",
       "src": ["tag:fleet-gw"],
       "dst": [
-        "tag:fleet-mac:7681",
-        "tag:fleet-mac:8080",
-        "tag:fleet-mac:7682",
+        "tag:fleet-mac:__TTYD_PORT__",
+        "tag:fleet-mac:__FB_PORT__",
+        "tag:fleet-mac:__AGENT_PORT__",
       ],
     },
     // (可选) Mac 也能回连网关（一般不需要；如需在此放行)

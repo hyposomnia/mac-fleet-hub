@@ -10,6 +10,7 @@ set -euo pipefail
 [[ $EUID -eq 0 ]] || { echo "请用 sudo 运行。" >&2; exit 1; }
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SRV="$ROOT/server"
+source "$ROOT/mac/tailscale-utils.sh"
 if [[ ! -f "$SRV/.env" ]]; then
   if [[ -t 0 ]]; then
     echo "未找到 server/.env，进入交互配置（回车用方括号里的默认/推荐值）："
@@ -43,12 +44,12 @@ AGENT_PORT=7682
 NGINX_SITE=/etc/nginx/sites-enabled/mac-fleet-hub.conf
 ENVEOF
     echo "  ✓ 已写入 server/.env（细调可直接编辑后重跑；参数含义见 AGENTS.md）"
-  else
+  elif [[ -z "${DOMAIN:-}" || -z "${FLEET_HOST:-}" || -z "${SSL_CERT:-}" || -z "${SSL_KEY:-}" ]]; then
     echo "缺少 server/.env：请 cp server/.env.example server/.env 填写，或在交互终端运行本脚本进入向导。" >&2
     exit 1
   fi
 fi
-set -a; source "$SRV/.env"; set +a
+if [[ -f "$SRV/.env" ]]; then set -a; source "$SRV/.env"; set +a; fi
 : "${DOMAIN:?在 .env 设置 DOMAIN}"
 : "${FLEET_HOST:?在 .env 设置 FLEET_HOST（服务子域，如 fleet.example.com）}"
 : "${SSL_CERT:?在 .env 设置 SSL_CERT（证书完整链路径）}"
@@ -57,6 +58,9 @@ set -a; source "$SRV/.env"; set +a
 MAC_IPS="${MAC_IPS:-}"
 [[ -n "$MAC_IPS" ]] || echo "  ⚠️ MAC_IPS 为空：本次仅部署网关（暂不生成 Mac 反代块）；Mac 入网后回填重跑。"
 NGINX_SITE="${NGINX_SITE:-/etc/nginx/sites-enabled/mac-fleet-hub.conf}"
+TTYD_PORT="${TTYD_PORT:-7681}"
+FB_PORT="${FB_PORT:-8080}"
+AGENT_PORT="${AGENT_PORT:-7682}"
 # 对外端口：默认标准端口、无 NAT（见 .env 注释）。nginx 内部恒听 443。
 GATEWAY_PORT="${GATEWAY_PORT:-443}"
 HEADSCALE_PUBLIC_PORT="${HEADSCALE_PUBLIC_PORT:-8443}"
@@ -94,10 +98,9 @@ sed -e "s/{{DOMAIN}}/${DOMAIN}/g" -e "s/{{FLEET_HOST}}/${FLEET_HOST}/g" \
     -e "s|{{HS_BASE}}|${HS_BASE}|g" -e "s/{{HEADSCALE_LISTEN_PORT}}/${HEADSCALE_LISTEN_PORT}/g" \
     -e "s|{{SSL_CERT}}|${SSL_CERT}|g" -e "s|{{SSL_KEY}}|${SSL_KEY}|g" \
     "$SRV/headscale/config.yaml.example" > /etc/headscale/config.yaml
-cp "$SRV/headscale/acl.hujson" /etc/headscale/acl.hujson
-# 让 headscale 能读 LE 证书
-usermod -aG "$(stat -c %G /etc/letsencrypt/live/${DOMAIN}/fullchain.pem 2>/dev/null || echo root)" headscale 2>/dev/null || true
-chmod 0644 /etc/letsencrypt/archive/${DOMAIN}/*.pem 2>/dev/null || true
+sed -e "s/__TTYD_PORT__/${TTYD_PORT}/g" -e "s/__FB_PORT__/${FB_PORT}/g" \
+    -e "s/__AGENT_PORT__/${AGENT_PORT}/g" \
+    "$SRV/headscale/acl.hujson" > /etc/headscale/acl.hujson
 cp "$SRV/systemd/headscale.service" /etc/systemd/system/headscale.service
 
 echo "==> [2/7] 安装 Authelia"
@@ -115,16 +118,27 @@ fi
 id authelia >/dev/null 2>&1 || useradd --system --home /var/lib/authelia --shell /usr/sbin/nologin authelia || true
 install -d -o authelia -g authelia /var/lib/authelia /etc/authelia /etc/authelia/secrets
 sed -e "s/{{DOMAIN}}/${DOMAIN}/g" -e "s/{{FLEET_HOST}}/${FLEET_HOST}/g" -e "s|{{WEB_BASE}}|${WEB_BASE}|g" "$SRV/authelia/configuration.yml" > /etc/authelia/configuration.yml
-# 用户库（含 argon2 哈希），不入库，从模板拷一次
-if [[ ! -f /etc/authelia/users_database.yml ]]; then
-  if [[ -t 0 ]]; then
-    # 首次：交互式建登录用户（用户名 + 密码 → argon2id 哈希）。明文不落盘。
+# 用户库（含 argon2 哈希）不入库。已有占位库也视为未配置，避免重跑后继续假成功。
+if [[ ! -s /etc/authelia/users_database.yml ]] || grep -q 'REPLACE_WITH_YOUR_OWN_HASH' /etc/authelia/users_database.yml; then
+  AU_USER="${AUTHELIA_USER:-admin}"
+  AU_HASH="${AUTHELIA_PASSWORD_HASH:-}"
+  if [[ -n "${AUTHELIA_PASSWORD_HASH_FILE:-}" ]]; then
+    [[ -r "$AUTHELIA_PASSWORD_HASH_FILE" ]] || { echo "✗ Authelia 哈希文件不可读: $AUTHELIA_PASSWORD_HASH_FILE" >&2; exit 1; }
+    AU_HASH="$(grep -oE '\$argon2id\$[^[:space:]]+' "$AUTHELIA_PASSWORD_HASH_FILE" | head -1 || true)"
+  fi
+  if [[ -z "$AU_HASH" && -t 0 ]]; then
     read -r -p "  设置登录用户名 [admin] > " AU_USER < /dev/tty; AU_USER="${AU_USER:-admin}"
     read -r -s -p "  设置登录密码（不回显）> " AU_PW < /dev/tty; echo
-    AU_HASH="$(/usr/local/bin/authelia crypto hash generate argon2 --password "$AU_PW" 2>/dev/null | grep -oE '\$argon2id\$[^[:space:]]+' | head -1)"
+    AU_HASH="$(/usr/local/bin/authelia crypto hash generate argon2 --password "$AU_PW" 2>/dev/null \
+      | grep -oE '\$argon2id\$[^[:space:]]+' | head -1 || true)"
     unset AU_PW
-    if [[ -n "$AU_HASH" ]]; then
-      cat > /etc/authelia/users_database.yml <<EOF
+  fi
+  [[ "$AU_USER" =~ ^[A-Za-z0-9._-]+$ ]] || { echo "✗ AUTHELIA_USER 只能包含字母、数字、点、下划线或连字符。" >&2; exit 1; }
+  [[ "$AU_HASH" == '$argon2id$'* ]] || {
+    echo "✗ 首次非交互部署必须设置 AUTHELIA_PASSWORD_HASH_FILE（内容为真实 argon2id 哈希）。" >&2
+    exit 1
+  }
+  cat > /etc/authelia/users_database.yml <<EOF
 users:
   ${AU_USER}:
     displayname: '${AU_USER}'
@@ -133,17 +147,10 @@ users:
     groups:
       - admins
 EOF
-      echo "  ✓ 已创建登录用户 ${AU_USER}（密码哈希已写入，明文未留存）"
-    else
-      cp "$SRV/authelia/users_database.yml.example" /etc/authelia/users_database.yml
-      echo "  ⚠️ 哈希生成失败，已拷占位库，请手动替换：authelia crypto hash generate argon2 --password '强密码'"
-    fi
-  else
-    cp "$SRV/authelia/users_database.yml.example" /etc/authelia/users_database.yml
-    echo "  ⚠️ 非交互运行：已建占位用户库，请替换为真实 argon2 哈希："
-    echo "     authelia crypto hash generate argon2 --password '强密码'"
-  fi
+  echo "  ✓ 已创建登录用户 ${AU_USER}（密码哈希已写入，明文未留存）"
 fi
+chown root:authelia /etc/authelia/users_database.yml
+chmod 0640 /etc/authelia/users_database.yml
 # 密钥
 gen() { [[ -s "/etc/authelia/secrets/$1" ]] || { openssl rand -base64 48 | tr -d '\n' > "/etc/authelia/secrets/$1"; }; }
 gen JWT_SECRET; gen SESSION_SECRET; gen STORAGE_ENCRYPTION_KEY
@@ -158,6 +165,11 @@ chown -R www-data:www-data /var/www/fleet 2>/dev/null || true
 
 echo "==> [4/7] 渲染 nginx 独立站点（子域 server 块）+ ws map/limit"
 install -d "$(dirname "$NGINX_SITE")"
+DEPLOY_TMP="$(mktemp -d)"
+cleanup_deploy_tmp() { [[ -n "${DEPLOY_TMP:-}" && -d "$DEPLOY_TMP" ]] && rm -rf -- "$DEPLOY_TMP"; }
+trap cleanup_deploy_tmp EXIT
+NGINX_SITE_RENDERED="$DEPLOY_TMP/mac-fleet-hub.conf"
+NGINX_MAP_RENDERED="$DEPLOY_TMP/fleet-map.conf"
 # 按 MAC_IPS 循环渲染每台 Mac 的反代块（单 Mac 模板 fleet-mac.conf；台数任意）。
 # 第 i 个 IP → mac i（路径 /m{i}/，与 dashboard 按节点名 mac<N> 枚举对齐）。
 MAC_BLOCKS="$(mktemp)"; i=0
@@ -172,14 +184,14 @@ awk -v f="$MAC_BLOCKS" '/__MAC_LOCATIONS__/{while((getline line < f)>0) print li
   | sed -e "s|__FLEET_HOST__|${FLEET_HOST}|g" \
         -e "s|__SSL_CERT__|${SSL_CERT}|g" -e "s|__SSL_KEY__|${SSL_KEY}|g" \
         -e "s|__TTYD_PORT__|${TTYD_PORT}|g" -e "s|__FB_PORT__|${FB_PORT}|g" -e "s|__AGENT_PORT__|${AGENT_PORT}|g" \
-  > "$NGINX_SITE"
+  > "$NGINX_SITE_RENDERED"
 rm -f "$MAC_BLOCKS"
 {
   printf 'map $http_upgrade $fleet_conn_upgrade { default upgrade; "" close; }\n'
   printf 'limit_req_zone $binary_remote_addr zone=fleet_enroll:1m rate=20r/m;\n'
-} > /etc/nginx/conf.d/fleet-map.conf
+} > "$NGINX_MAP_RENDERED"
 
-echo "==> [5/7] nginx 独立站点已写入 ${NGINX_SITE}（子域，不动同机其它站点）"
+echo "==> [5/7] nginx 独立站点候选配置已渲染（校验通过后写入 ${NGINX_SITE}）"
 grep -Rqs 'sites-enabled/\*' /etc/nginx/nginx.conf \
   || echo "  ⚠️ nginx.conf 似乎未 include sites-enabled/*，请确认 ${NGINX_SITE} 会被加载。"
 # 迁移清理：v1 路径模式曾把 'include snippets/fleet.conf;' 注入既有站点的 443 块；子域模式下应移除。
@@ -206,9 +218,8 @@ FLEET_UID="${FLEET_UID:-1}"
 PAK="$(headscale preauthkeys create -u "$FLEET_UID" --reusable --expiration 24h --tags tag:fleet-mac 2>/dev/null | tail -1 || true)"
 
 # 网关自身入 mesh（nginx 要经 mesh 到各 Mac）。用本地解析让网关直连自己的 headscale。
-if ! tailscale status >/dev/null 2>&1; then
-  command -v tailscale >/dev/null 2>&1 || curl -fsSL https://tailscale.com/install.sh | sh || true
-fi
+if ! command -v tailscale >/dev/null 2>&1; then curl -fsSL https://tailscale.com/install.sh | sh; fi
+command -v tailscale >/dev/null 2>&1 || { echo "✗ Tailscale 安装失败。" >&2; exit 1; }
 grep -q '127.0.0.1 '"${FLEET_HOST}" /etc/hosts || echo "127.0.0.1 ${FLEET_HOST}" >> /etc/hosts
 # DERP 回环重定向：仅当对外端口 ≠ 监听端口（即你做了 NAT 映射）才需要，解决网关 hairpin。
 if [[ "$HEADSCALE_PUBLIC_PORT" != "$HEADSCALE_LISTEN_PORT" ]]; then
@@ -221,10 +232,28 @@ else
   systemctl disable --now fleet-derp-redirect.service 2>/dev/null || true
   rm -f /etc/systemd/system/fleet-derp-redirect.service; systemctl daemon-reload
 fi
-if ! tailscale ip -4 >/dev/null 2>&1; then
-  GWKEY="$(headscale preauthkeys create -u "$FLEET_UID" --reusable --expiration 1h --tags tag:fleet-gw 2>/dev/null | tail -1)"
-  tailscale up --login-server="https://${FLEET_HOST}:${HEADSCALE_LISTEN_PORT:-8443}" --authkey="$GWKEY" --hostname=gateway --accept-dns=false || true
+GW_LOGIN_SERVER="$HS_BASE"
+GW_TARGET_CONTROL="$(fleet_normalize_control_url "$GW_LOGIN_SERVER")"
+GW_JOIN=1
+if fleet_tailscale_connected tailscale; then
+  GW_CURRENT_CONTROL="$(fleet_normalize_control_url "$(fleet_tailscale_control_url tailscale)")"
+  if [[ -n "$GW_CURRENT_CONTROL" && "$GW_CURRENT_CONTROL" == "$GW_TARGET_CONTROL" ]]; then
+    GW_JOIN=0
+    [[ "$(fleet_tailscale_hostname tailscale)" == "gateway" ]] || tailscale set --hostname=gateway --accept-dns=false
+  elif [[ "${FLEET_REPLACE_TAILNET:-0}" == "1" ]]; then
+    tailscale logout
+  else
+    echo "✗ 网关当前连接了其他 Tailscale 控制面：${GW_CURRENT_CONTROL:-无法识别}" >&2
+    echo "  确认可替换后设置 FLEET_REPLACE_TAILNET=1 重跑。" >&2
+    exit 1
+  fi
 fi
+if [[ "$GW_JOIN" == "1" ]]; then
+  GWKEY="$(headscale preauthkeys create -u "$FLEET_UID" --reusable --expiration 1h --tags tag:fleet-gw 2>/dev/null | tail -1)"
+  tailscale up --login-server="$GW_LOGIN_SERVER" --authkey="$GWKEY" --hostname=gateway --accept-dns=false
+fi
+GW_FINAL_CONTROL="$(fleet_normalize_control_url "$(fleet_tailscale_control_url tailscale)")"
+[[ "$GW_FINAL_CONTROL" == "$GW_TARGET_CONTROL" ]] || { echo "✗ 网关入网后控制面校验失败。" >&2; exit 1; }
 # 确保网关节点带 tag:fleet-gw（用 fleet-gw key 入网会自动打；这里兜「已在 mesh / 重跑」未打的情况）。
 GW_ID="$(headscale nodes list 2>/dev/null | awk '/gateway/{print $1; exit}')"
 [[ -n "${GW_ID:-}" ]] && headscale nodes tag -i "$GW_ID" -t tag:fleet-gw >/dev/null 2>&1 || true
@@ -265,7 +294,32 @@ echo "  入网二维码（请用 Authenticator 添加，与登录 2FA 分开）�
 /usr/local/bin/fleet-enroll -show-uri || true
 
 echo "==> [7/7] 校验并 reload nginx"
-if nginx -t; then systemctl reload nginx; echo "  nginx reloaded"; else echo "  ⚠️ nginx -t 失败，未 reload，请检查"; fi
+NGINX_MAP=/etc/nginx/conf.d/fleet-map.conf
+SITE_EXISTED=0; MAP_EXISTED=0
+if [[ -e "$NGINX_SITE" ]]; then cp -p "$NGINX_SITE" "$DEPLOY_TMP/site.backup"; SITE_EXISTED=1; fi
+if [[ -e "$NGINX_MAP" ]]; then cp -p "$NGINX_MAP" "$DEPLOY_TMP/map.backup"; MAP_EXISTED=1; fi
+rollback_nginx() {
+  if [[ "$SITE_EXISTED" == "1" ]]; then cp -p "$DEPLOY_TMP/site.backup" "$NGINX_SITE" || true; else rm -f "$NGINX_SITE"; fi
+  if [[ "$MAP_EXISTED" == "1" ]]; then cp -p "$DEPLOY_TMP/map.backup" "$NGINX_MAP" || true; else rm -f "$NGINX_MAP"; fi
+}
+if ! install -m 0644 "$NGINX_SITE_RENDERED" "$NGINX_SITE" ||
+   ! install -m 0644 "$NGINX_MAP_RENDERED" "$NGINX_MAP"; then
+  echo "✗ nginx 配置安装失败，正在恢复原配置。" >&2
+  rollback_nginx
+  exit 1
+fi
+if ! nginx -t; then
+  echo "✗ nginx -t 失败，正在恢复原配置。" >&2
+  rollback_nginx
+  exit 1
+fi
+if ! systemctl reload nginx; then
+  echo "✗ nginx reload 失败，正在恢复原配置。" >&2
+  rollback_nginx
+  nginx -t && systemctl reload nginx || true
+  exit 1
+fi
+echo "  nginx 配置已安装并 reload"
 
 cat <<EOF
 

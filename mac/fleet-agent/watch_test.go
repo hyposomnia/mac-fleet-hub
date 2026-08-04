@@ -1,8 +1,13 @@
 package main
 
 import (
+	"encoding/json"
+	"errors"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -40,6 +45,49 @@ func TestEvalWatchEntrypoint(t *testing.T) {
 	// 3) external 一旦为真应保持（粘滞）
 	if !evalWatch(sid) {
 		t.Fatalf("external 状态未粘滞")
+	}
+}
+
+func TestHandleReloadReturnsTmuxError(t *testing.T) {
+	originalStart := startTmuxSession
+	originalKill := killTmuxSession
+	originalPtyUsage := ptyUsage
+	watchMu.Lock()
+	originalWatchers := watchers
+	failedWatch := &watcher{assistant: "claude", sessionID: "reload-session", mode: "auto"}
+	watchers = map[string]*watcher{"fleet-reload-test": failedWatch}
+	watchMu.Unlock()
+	t.Cleanup(func() {
+		startTmuxSession = originalStart
+		killTmuxSession = originalKill
+		ptyUsage = originalPtyUsage
+		watchMu.Lock()
+		watchers = originalWatchers
+		watchMu.Unlock()
+	})
+	startTmuxSession = func(name, cwd, command string) error { return errors.New("reload failed") }
+	killTmuxSession = func(string) {}
+	ptyUsage = func() (int, int) { return 1, 511 }
+
+	req := httptest.NewRequest(http.MethodPost, "/api/reload", strings.NewReader(`{"sid":"fleet-reload-test"}`))
+	recorder := httptest.NewRecorder()
+	handleReload(recorder, req)
+
+	if recorder.Code != http.StatusInternalServerError {
+		t.Fatalf("status got %d body %s", recorder.Code, recorder.Body.String())
+	}
+	var body map[string]string
+	if err := json.Unmarshal(recorder.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if body["error"] != "tmux_failed" || !strings.Contains(body["message"], "reload failed") {
+		t.Fatalf("body got %#v", body)
+	}
+	watchMu.Lock()
+	gotWatch := watchers["fleet-reload-test"]
+	watchMu.Unlock()
+	if gotWatch != failedWatch {
+		t.Fatal("failed reload replaced the existing watcher")
 	}
 }
 
