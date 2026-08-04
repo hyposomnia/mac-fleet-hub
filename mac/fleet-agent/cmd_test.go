@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http/httptest"
+	"regexp"
 	"strings"
 	"testing"
 )
@@ -108,6 +109,42 @@ func TestTmuxNewSessionArgs(t *testing.T) {
 	bare := tmuxNewSessionArgs("", "fleet-abc", "x")
 	if bare[0] != "new-session" {
 		t.Fatalf("conf 为空：不应带 -f，got %v", bare)
+	}
+}
+
+func TestCodexTmuxNamesAvoidUUIDv7PrefixCollisions(t *testing.T) {
+	first := "019f02d3-5ef8-7b01-a740-c3e6afe0bd16"
+	second := "019f02d3-5ef9-7c02-b851-d4f7b0f1ce27"
+	if shortSid(first) != shortSid(second) {
+		t.Fatal("test fixture must collide under the legacy UUID prefix scheme")
+	}
+	firstName := shortSidFor("codex", first)
+	secondName := shortSidFor("codex", second)
+	if firstName == secondName {
+		t.Fatalf("distinct Codex sessions mapped to %q", firstName)
+	}
+	if firstName != shortSidFor("codex", first) {
+		t.Fatal("Codex tmux name is not deterministic")
+	}
+}
+
+func TestNewTmuxNamesAreUniqueAndTmuxSafe(t *testing.T) {
+	const timestamp = int64(1722758400123456789)
+	names := []string{
+		newTmuxNameAt("claude", timestamp, 1),
+		newTmuxNameAt("claude", timestamp, 2),
+		newTmuxNameAt("codex", timestamp, 1),
+	}
+	valid := regexp.MustCompile(`^fleet-[a-z0-9]+$`)
+	seen := map[string]bool{}
+	for _, name := range names {
+		if seen[name] {
+			t.Fatalf("duplicate tmux name %q", name)
+		}
+		seen[name] = true
+		if !valid.MatchString(name) {
+			t.Fatalf("tmux name contains unsupported characters: %q", name)
+		}
 	}
 }
 

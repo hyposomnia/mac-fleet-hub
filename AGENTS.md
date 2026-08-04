@@ -49,6 +49,8 @@ Claude 项目命令 `/dev`、`/ui`、`/deploy` 在 Codex 中分别使用 `$dev`�
 | `NGINX_SITE` | 输出的 nginx 站点文件路径 | `/etc/nginx/sites-enabled/mac-fleet-hub.conf` | 一般不改 |
 | `HEADSCALE_DEB` / `AUTHELIA_TGZ` | 指向本地预下载的安装包（离线 / 国内网慢时用） | （自动从 GitHub 下载） | 下载失败时 |
 | `HEADSCALE_VERSION` / `AUTHELIA_VERSION` | 指定版本号 | （自动取最新） | 需要锁版本时 |
+| `AUTHELIA_USER` / `AUTHELIA_PASSWORD_HASH_FILE` | 首次非交互部署的登录用户与 argon2id 哈希文件 | `admin` / （交互时不需要） | AI 或 CI 非交互首次部署时必填哈希文件 |
+| `FLEET_REPLACE_TAILNET` | 网关已连接其他 Tailscale 控制面时，明确允许退出并切换到 Fleet mesh | `0` | 仅确认可以替换当前 tailnet 时设为 `1` |
 
 ### 要不要 NAT？要的话设什么？
 
@@ -103,6 +105,7 @@ curl -I https://<FLEET_HOST>[:GATEWAY_PORT]/auth    # 期望 200
 | `FLEET_CODEX_HOME`/`FLEET_CODEX_BIN` | Codex 会话库与命令路径 | 默认 `~/.codex` / 自动发现 `codex` |
 | `FLEET_CODEX_APPSERVER_MODE` | Codex app-server 连接模式：`auto` 优先复用现有 control socket，不可用时启动 managed daemon，最后回退 stdio；`daemon` 禁止回退；`stdio` 保留旧行为 | `auto` |
 | `FLEET_CODEX_APPSERVER_SOCK` | 指定 managed app-server Unix socket；留空由 Codex 选择默认 control socket | （空） |
+| `FLEET_REPLACE_TAILNET` | 当前已连接其他 Tailscale 控制面时，明确允许退出并切换到 Fleet mesh | `0` | 仅确认可以替换当前 tailnet 时设为 `1` |
 
 ### 执行（二选一）
 

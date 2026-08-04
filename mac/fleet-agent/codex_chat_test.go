@@ -1129,6 +1129,66 @@ func TestCodexChatBackendInterruptTerminatesAppServerDescendants(t *testing.T) {
 	}
 }
 
+func TestCodexChatBackendInterruptPreservesOtherTurnDescendants(t *testing.T) {
+	rpc := newFakeRPCConn()
+	rpc.reply["turn/interrupt"] = json.RawMessage(`{}`)
+	b := newCodexChatBackend(func(ctx context.Context) (codexRPCConn, func(), error) {
+		return rpc, func() {}, nil
+	})
+	b.lastTurn["thread-1"] = "turn-1"
+	b.lastTurn["thread-2"] = "turn-2"
+
+	if err := b.Interrupt(context.Background(), "codex", "thread-1"); err != nil {
+		t.Fatal(err)
+	}
+	if rpc.terminatedDescendants != 0 {
+		t.Fatalf("another active turn's descendants were terminated: %d cleanup calls", rpc.terminatedDescendants)
+	}
+}
+
+func TestCodexChatBackendPublicationDisconnectsSlowSubscriber(t *testing.T) {
+	publishers := []struct {
+		name string
+		run  func(*codexChatBackend, ChatEvent)
+	}{
+		{name: "live", run: func(b *codexChatBackend, event ChatEvent) { b.publish(event) }},
+		{name: "sync", run: func(b *codexChatBackend, event ChatEvent) { b.publishSyncEvent(event) }},
+	}
+	for _, publisher := range publishers {
+		t.Run(publisher.name, func(t *testing.T) {
+			b := newCodexChatBackend(func(context.Context) (codexRPCConn, func(), error) {
+				return newFakeRPCConn(), func() {}, nil
+			})
+			ch := make(chan ChatEvent, 1)
+			ch <- newChatEvent("queued", "codex", "thread-1", "turn-1", "", nil)
+			b.subs["thread-1"] = map[chan ChatEvent]struct{}{ch: {}}
+
+			done := make(chan struct{})
+			go func() {
+				publisher.run(b, newChatEvent("next", "codex", "thread-1", "turn-1", "", nil))
+				close(done)
+			}()
+			select {
+			case <-done:
+			case <-time.After(time.Second):
+				t.Fatal("publication blocked on a full subscriber")
+			}
+
+			b.mu.Lock()
+			_, stillSubscribed := b.subs["thread-1"][ch]
+			removedTwice := b.removeSubscriberLocked("thread-1", ch)
+			b.mu.Unlock()
+			if stillSubscribed || removedTwice {
+				t.Fatalf("slow subscriber cleanup state: subscribed=%v removedTwice=%v", stillSubscribed, removedTwice)
+			}
+			<-ch // drain the event buffered before disconnection
+			if _, open := <-ch; open {
+				t.Fatal("slow subscriber channel remained open")
+			}
+		})
+	}
+}
+
 func TestCodexTurnStartParamsClearsServiceTier(t *testing.T) {
 	standard := ""
 	params := codexTurnStartParams("thread-1", []map[string]string{{"type": "text", "text": "hello"}}, ChatTurnOptions{ServiceTier: &standard})

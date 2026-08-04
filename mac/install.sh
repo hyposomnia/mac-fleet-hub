@@ -16,6 +16,7 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/tailscale-utils.sh"
 LOGIN_SERVER="${LOGIN_SERVER:-}"   # Headscale 控制面（网关）地址；留空则交互询问（bootstrap.sh 会自动注入）
 MAC_INDEX="${MAC_INDEX:-${1:-}}"
 AUTHKEY="${AUTHKEY:-${2:-}}"
@@ -67,13 +68,44 @@ else
 fi
 
 # --- 4. 入网 Headscale（需 sudo）---
-if "$TS_BIN" status >/dev/null 2>&1 && "$TS_BIN" ip -4 >/dev/null 2>&1; then
-  echo "[3/4] 已在 mesh 中（$("$TS_BIN" ip -4 | head -n1)），跳过入网"
-else
+TARGET_CONTROL="$(fleet_normalize_control_url "$LOGIN_SERVER")"
+JOIN_FLEET=1
+if fleet_tailscale_connected "$TS_BIN"; then
+  CURRENT_CONTROL="$(fleet_normalize_control_url "$(fleet_tailscale_control_url "$TS_BIN")")"
+  CURRENT_HOSTNAME="$(fleet_tailscale_hostname "$TS_BIN")"
+  if [[ -n "$CURRENT_CONTROL" && "$CURRENT_CONTROL" == "$TARGET_CONTROL" ]]; then
+    JOIN_FLEET=0
+    if [[ "$CURRENT_HOSTNAME" =~ ^mac([1-9][0-9]*)$ ]]; then
+      EXISTING_INDEX="${BASH_REMATCH[1]}"
+      if [[ "$EXISTING_INDEX" != "$MAC_INDEX" ]]; then
+        echo "[3/4] 已作为 mac${EXISTING_INDEX} 加入目标 mesh；复用现有编号（忽略新分配的 mac${MAC_INDEX}）"
+        MAC_INDEX="$EXISTING_INDEX"
+      else
+        echo "[3/4] 已在目标 mesh 中（$("$TS_BIN" ip -4 | head -n1)），跳过入网"
+      fi
+    else
+      bold "[3/4] 已在目标 mesh，修正节点名为 mac${MAC_INDEX}（需要 sudo 密码）"
+      sudo "$TS_BIN" set --hostname="mac${MAC_INDEX}" --accept-dns=false
+    fi
+  elif [[ "${FLEET_REPLACE_TAILNET:-0}" == "1" ]]; then
+    bold "[3/4] 退出当前 Tailscale 网络并切换到 Fleet mesh（需要 sudo 密码）"
+    sudo "$TS_BIN" logout
+  else
+    echo "检测到当前 Tailscale 控制面不是目标 Headscale：${CURRENT_CONTROL:-无法识别}" >&2
+    echo "为避免覆盖现有网络，安装已停止。确认要切换后设置 FLEET_REPLACE_TAILNET=1 重跑。" >&2
+    exit 1
+  fi
+fi
+if [[ "$JOIN_FLEET" == "1" ]]; then
   bold "[3/4] 入网 Headscale（需要 sudo 密码）"
   sudo "$TS_BIN" up --login-server="$LOGIN_SERVER" --authkey="$AUTHKEY" --hostname="mac${MAC_INDEX}" --accept-dns=false
   sleep 3
 fi
+FINAL_CONTROL="$(fleet_normalize_control_url "$(fleet_tailscale_control_url "$TS_BIN")")"
+[[ "$FINAL_CONTROL" == "$TARGET_CONTROL" ]] || {
+  echo "入网失败：当前控制面 ${FINAL_CONTROL:-无法识别}，目标为 ${TARGET_CONTROL}。" >&2
+  exit 1
+}
 TS_IP="$("$TS_BIN" ip -4 2>/dev/null | head -n1 || true)"
 [[ -n "$TS_IP" ]] || { echo "入网失败：拿不到 mesh IP。检查 AUTHKEY / 网络后重试。" >&2; exit 1; }
 

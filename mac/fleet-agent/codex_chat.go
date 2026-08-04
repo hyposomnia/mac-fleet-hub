@@ -83,6 +83,7 @@ type codexChatBackend struct {
 	restart func(error)
 
 	connectMu           sync.Mutex
+	turnProcessMu       sync.Mutex
 	threadLoadMu        sync.Mutex
 	restartOnce         sync.Once
 	mu                  sync.Mutex
@@ -924,14 +925,11 @@ func (b *codexChatBackend) rememberSyncEvents(sessionID string, events []ChatEve
 
 func (b *codexChatBackend) publishSyncEvent(event ChatEvent) {
 	b.mu.Lock()
+	defer b.mu.Unlock()
 	if !b.rememberSyncEventLocked(event) {
-		b.mu.Unlock()
 		return
 	}
-	for ch := range b.subs[event.SessionID] {
-		ch <- event
-	}
-	b.mu.Unlock()
+	b.publishLocked(event)
 }
 
 func (b *codexChatBackend) reconcileConnectedSession(ctx context.Context, rpc codexRPCConn, sessionID string, state codexRolloutTaskState) (bool, error) {
@@ -1745,6 +1743,8 @@ func (b *codexChatBackend) Input(ctx context.Context, assistant, sessionID, text
 		b.approvalModes[sessionID] = opts.ApprovalMode
 		b.mu.Unlock()
 	}
+	b.turnProcessMu.Lock()
+	defer b.turnProcessMu.Unlock()
 	raw, err := rpc.call(ctx, "turn/start", params)
 	if err != nil {
 		if !codexThreadNotFound(err) {
@@ -2751,15 +2751,8 @@ func (b *codexChatBackend) Events(ctx context.Context, assistant, sessionID stri
 	go func() {
 		<-ctx.Done()
 		b.mu.Lock()
-		delete(b.subs[sessionID], ch)
-		if len(b.subs[sessionID]) == 0 {
-			delete(b.subs, sessionID)
-			if current := b.syncers[sessionID]; current != nil {
-				current.cancel()
-			}
-		}
+		b.removeSubscriberLocked(sessionID, ch)
 		b.mu.Unlock()
-		close(ch)
 	}()
 	return ch, nil
 }
@@ -2772,6 +2765,8 @@ func (b *codexChatBackend) Interrupt(ctx context.Context, assistant, sessionID s
 	if err != nil {
 		return err
 	}
+	b.turnProcessMu.Lock()
+	defer b.turnProcessMu.Unlock()
 	b.mu.Lock()
 	turnID := b.lastTurn[sessionID]
 	b.mu.Unlock()
@@ -2785,8 +2780,19 @@ func (b *codexChatBackend) Interrupt(ctx context.Context, assistant, sessionID s
 		return fmt.Errorf("%w: %v", errNoActiveChatTurn, err)
 	}
 	if err == nil {
-		if cleaner, ok := rpc.(interface{ terminateCommandDescendants() }); ok {
-			cleaner.terminateCommandDescendants()
+		b.mu.Lock()
+		otherTurnActive := false
+		for activeSessionID, activeTurnID := range b.lastTurn {
+			if activeSessionID != sessionID && activeTurnID != "" {
+				otherTurnActive = true
+				break
+			}
+		}
+		b.mu.Unlock()
+		if !otherTurnActive {
+			if cleaner, ok := rpc.(interface{ terminateCommandDescendants() }); ok {
+				cleaner.terminateCommandDescendants()
+			}
 		}
 	}
 	return err
@@ -2879,9 +2885,33 @@ func (b *codexChatBackend) dispatch(rpc codexRPCConn, notes <-chan rpcNotificati
 func (b *codexChatBackend) publish(ev ChatEvent) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
+	b.publishLocked(ev)
+}
+
+func (b *codexChatBackend) publishLocked(ev ChatEvent) {
 	for ch := range b.subs[ev.SessionID] {
-		ch <- ev
+		select {
+		case ch <- ev:
+		default:
+			b.removeSubscriberLocked(ev.SessionID, ch)
+		}
 	}
+}
+
+func (b *codexChatBackend) removeSubscriberLocked(sessionID string, ch chan ChatEvent) bool {
+	subscribers := b.subs[sessionID]
+	if _, exists := subscribers[ch]; !exists {
+		return false
+	}
+	delete(subscribers, ch)
+	close(ch)
+	if len(subscribers) == 0 {
+		delete(b.subs, sessionID)
+		if current := b.syncers[sessionID]; current != nil {
+			current.cancel()
+		}
+	}
+	return true
 }
 
 func rpcIDKey(raw json.RawMessage) string {

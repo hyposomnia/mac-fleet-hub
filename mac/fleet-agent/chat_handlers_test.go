@@ -541,6 +541,9 @@ func TestChatEventsStreamsSSE(t *testing.T) {
 	if ct := rr.Header().Get("Content-Type"); ct != "text/event-stream" {
 		t.Fatalf("content type got %q", ct)
 	}
+	if buffering := rr.Header().Get("X-Accel-Buffering"); buffering != "no" {
+		t.Fatalf("X-Accel-Buffering got %q", buffering)
+	}
 	body := rr.Body.String()
 	if !strings.Contains(body, "data: ") || !strings.Contains(body, `"assistant_delta"`) || !strings.Contains(body, `"delta":"ok"`) {
 		t.Fatalf("bad sse body: %s", body)
