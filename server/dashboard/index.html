@@ -17,7 +17,7 @@
        内联以避免首屏闪烁。 -->
   <script>(function () { var t; try { t = localStorage.getItem('fleet-theme'); } catch (e) {} if (t !== 'light' && t !== 'dark') t = matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark'; document.documentElement.dataset.theme = t; document.querySelector('meta[name="theme-color"]').content = t === 'light' ? '#f6f7f9' : '#090c12'; })();</script>
   <link rel="stylesheet" href="vendor/codemirror/lib/codemirror.css?v=5.65.20" />
-  <link rel="stylesheet" href="style.css?v=97" />
+  <link rel="stylesheet" href="style.css?v=98" />
 </head>
 <body>
   <div id="network-status" class="network-status" role="status" hidden>
@@ -495,9 +495,9 @@
   <script src="vendor/codemirror/mode/yaml/yaml.js?v=5.65.20"></script>
   <script src="vendor/codemirror/mode/toml/toml.js?v=5.65.20"></script>
   <script src="vendor/codemirror/mode/properties/properties.js?v=5.65.20"></script>
-  <script src="markdown.js?v=97"></script>
-  <script src="preview.js?v=97"></script>
-  <script src="chat_model.js?v=97"></script>
-  <script src="app.js?v=97"></script>
+  <script src="markdown.js?v=98"></script>
+  <script src="preview.js?v=98"></script>
+  <script src="chat_model.js?v=98"></script>
+  <script src="app.js?v=98"></script>
 </body>
 </html>

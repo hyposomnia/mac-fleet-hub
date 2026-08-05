@@ -198,18 +198,22 @@ func configSync() {
 
 // ---------------- 数据类型 ----------------
 type Session struct {
-	SessionID string `json:"sessionId"`
-	Assistant string `json:"assistant"`
-	Cwd       string `json:"cwd"`
-	Title     string `json:"title"`
-	GitBranch string `json:"gitBranch"`
-	Mtime     int64  `json:"mtime"`   // 毫秒
-	Live      bool   `json:"live"`    // Desktop 未归档（活跃）
-	Pty       bool   `json:"pty"`     // 控制台已为该会话起过 fleet tmux（有可终止/可回到的进程）
-	Waiting   bool   `json:"waiting"` // 卡在「等你回答/授权」：jsonl 最后一条 assistant 且 stop_reason==tool_use
-	Status    string `json:"status,omitempty"`
-	Source    string `json:"source,omitempty"`
-	Pinned    bool   `json:"pinned,omitempty"`
+	SessionID   string `json:"sessionId"`
+	Assistant   string `json:"assistant"`
+	Cwd         string `json:"cwd"`
+	Title       string `json:"title"`
+	GitBranch   string `json:"gitBranch"`
+	Mtime       int64  `json:"mtime"`   // 毫秒
+	Live        bool   `json:"live"`    // Desktop 未归档（活跃）
+	Pty         bool   `json:"pty"`     // 控制台已为该会话起过 fleet tmux（有可终止/可回到的进程）
+	Waiting     bool   `json:"waiting"` // 卡在「等你回答/授权」：jsonl 最后一条 assistant 且 stop_reason==tool_use
+	Status      string `json:"status,omitempty"`
+	Source      string `json:"source,omitempty"`
+	Pinned      bool   `json:"pinned,omitempty"`
+	ProjectID   string `json:"projectId,omitempty"`
+	ProjectName string `json:"projectName,omitempty"`
+	ProjectCwd  string `json:"projectCwd,omitempty"`
+	Projectless bool   `json:"projectless,omitempty"`
 }
 
 // jsonl 行（只取需要字段）
@@ -1472,17 +1476,24 @@ func handleProjects(w http.ResponseWriter, r *http.Request) {
 		Mtime int64  `json:"mtime"`
 	}{}
 	for _, s := range sessions {
-		if s.Cwd == "" {
+		if s.Projectless {
 			continue
 		}
-		p := seen[s.Cwd]
+		projectCwd := s.ProjectCwd
+		if projectCwd == "" {
+			projectCwd = s.Cwd
+		}
+		if projectCwd == "" {
+			continue
+		}
+		p := seen[projectCwd]
 		if p == nil {
 			p = &struct {
 				Cwd   string `json:"cwd"`
 				Count int    `json:"count"`
 				Mtime int64  `json:"mtime"`
-			}{Cwd: s.Cwd}
-			seen[s.Cwd] = p
+			}{Cwd: projectCwd}
+			seen[projectCwd] = p
 		}
 		p.Count++
 		if s.Mtime > p.Mtime {

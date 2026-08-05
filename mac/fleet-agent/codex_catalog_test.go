@@ -14,15 +14,32 @@ import (
 	"time"
 )
 
-func TestCodexListThreadsUsesDesktopQueryAndFiltersOnlyHiddenSources(t *testing.T) {
+func TestCodexListThreadsUsesDesktopProjectsAndFiltersInternalThreads(t *testing.T) {
 	previousCfg := cfg
 	cfg.CodexHome = t.TempDir()
 	t.Cleanup(func() { cfg = previousCfg })
+	state := `{
+		"local-projects":{
+			"project-jobs":{"id":"project-jobs","name":"get_job_done","rootPaths":["/repos/get_job_done"]}
+		},
+		"thread-project-assignments":{
+			"main":{"projectKind":"local","projectId":"project-jobs","cwd":"/repos/get_job_done"},
+			"worktree":{"projectKind":"local","projectId":"project-jobs","cwd":"/codex/worktrees/6dd7/get_job_done"}
+		},
+		"projectless-thread-ids":["quick","child"]
+	}`
+	if err := os.WriteFile(filepath.Join(cfg.CodexHome, ".codex-global-state.json"), []byte(state), 0600); err != nil {
+		t.Fatal(err)
+	}
 
 	rpc := newFakeRPCConn()
 	rpc.reply["thread/list"] = json.RawMessage(`{
 		"data":[
-			{"id":"visible","cwd":"/repo","preview":"Visible","createdAt":1,"updatedAt":2,"recencyAt":3,"status":{"type":"notLoaded"}},
+			{"id":"main","cwd":"/repos/get_job_done","preview":"Main","source":"vscode","threadSource":"user","createdAt":1,"updatedAt":2,"recencyAt":3,"status":{"type":"notLoaded"}},
+			{"id":"worktree","cwd":"/codex/worktrees/6dd7/get_job_done","preview":"Worktree","source":"vscode","threadSource":"subagent","parentThreadId":"main","createdAt":1,"updatedAt":4,"recencyAt":5,"status":{"type":"notLoaded"}},
+			{"id":"quick","cwd":"/Users/test/Documents/Codex/2026-08-05/qu","preview":"Quick chat","source":"vscode","threadSource":"user","createdAt":1,"updatedAt":2},
+			{"id":"child","cwd":"/Users/test/Documents/Codex/2026-08-05/child","preview":"Child","source":"vscode","threadSource":"subagent","parentThreadId":"quick","createdAt":1,"updatedAt":2},
+			{"id":"object-subagent","cwd":"/repo","preview":"Object child","source":{"subAgent":{"other":"worker"}},"threadSource":"subagent","createdAt":1,"updatedAt":2},
 			{"id":"ephemeral","cwd":"/repo","preview":"Ephemeral","ephemeral":true,"createdAt":1,"updatedAt":2},
 			{"id":"ambient","cwd":"/repo","preview":"Ambient","threadSource":"ambient_suggestions","createdAt":1,"updatedAt":2}
 		],
@@ -38,8 +55,31 @@ func TestCodexListThreadsUsesDesktopQueryAndFiltersOnlyHiddenSources(t *testing.
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(page.Sessions) != 1 || page.Sessions[0].SessionID != "visible" || page.NextCursor != "next" {
+	if len(page.Sessions) != 3 || page.NextCursor != "next" {
 		t.Fatalf("page got %+v", page)
+	}
+	byID := map[string]Session{}
+	for _, session := range page.Sessions {
+		byID[session.SessionID] = session
+	}
+	for _, id := range []string{"main", "worktree", "quick"} {
+		if _, ok := byID[id]; !ok {
+			t.Fatalf("visible session %q missing from %+v", id, page.Sessions)
+		}
+	}
+	for _, id := range []string{"child", "object-subagent", "ephemeral", "ambient"} {
+		if _, ok := byID[id]; ok {
+			t.Fatalf("internal session %q leaked into %+v", id, page.Sessions)
+		}
+	}
+	for _, id := range []string{"main", "worktree"} {
+		session := byID[id]
+		if session.ProjectID != "project-jobs" || session.ProjectName != "get_job_done" || session.ProjectCwd != "/repos/get_job_done" || session.Projectless {
+			t.Fatalf("project context for %q got %+v", id, session)
+		}
+	}
+	if quick := byID["quick"]; !quick.Projectless || quick.ProjectID != "" || quick.ProjectCwd != "" {
+		t.Fatalf("projectless context got %+v", quick)
 	}
 	if len(rpc.calls) != 1 || rpc.calls[0].method != "thread/list" {
 		t.Fatalf("calls got %+v", rpc.calls)

@@ -55,12 +55,21 @@ Desktop 的普通会话列表使用：
 
 Fleet 使用同一组默认参数，并把搜索映射到 `searchTerm`、归档页映射到 `archived:true`、加载更多映射到 app-server opaque cursor。
 
-列表只额外排除 Desktop 同样隐藏的：
+列表先排除 Desktop 同样隐藏的：
 
 - `ephemeral === true`
 - `threadSource === "ambient_suggestions"`
 
-不再按 CLI/app-server/source 名称自创白名单。`recency_at` 不受旧版本支持时，只窄回退到 `updated_at`，不回退本地数据库扫描。
+随后读取 `~/.codex/.codex-global-state.json` 的 `local-projects`、`thread-project-assignments` 与
+`projectless-thread-ids`，对齐 Desktop 的项目归属：同一项目的主仓与 worktree 归入一个项目，快速会话统一归入
+“无项目”。会话自身 `cwd` 保持不变，只额外投影项目根目录供列表归组与项目内新建使用。
+
+有 `parentThreadId` 或对象型 `source.subAgent` / `source.subagent`、且没有明确本地项目绑定的内部子 Agent
+线程不进入普通会话列表。不能只凭 `threadSource === "subagent"` 过滤，因为 Desktop 已绑定项目的 worktree
+会话和部分历史迁移会话也可能保留这个值。
+
+除此之外不按 CLI/app-server/source 名称自创白名单。`recency_at` 不受旧版本支持时，只窄回退到
+`updated_at`，不回退本地数据库扫描。
 
 会话重命名、归档、取消归档和删除分别使用：
 

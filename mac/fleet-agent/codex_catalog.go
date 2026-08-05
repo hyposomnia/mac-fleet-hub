@@ -47,21 +47,123 @@ type codexThreadListWire struct {
 }
 
 type codexThreadWire struct {
-	ID           string          `json:"id"`
-	SessionID    string          `json:"sessionId"`
-	Cwd          string          `json:"cwd"`
-	Name         *string         `json:"name"`
-	Preview      string          `json:"preview"`
-	Source       json.RawMessage `json:"source"`
-	ThreadSource json.RawMessage `json:"threadSource"`
-	Ephemeral    bool            `json:"ephemeral"`
-	CreatedAt    int64           `json:"createdAt"`
-	UpdatedAt    int64           `json:"updatedAt"`
-	RecencyAt    *int64          `json:"recencyAt"`
-	Status       json.RawMessage `json:"status"`
-	GitInfo      *struct {
+	ID             string          `json:"id"`
+	SessionID      string          `json:"sessionId"`
+	ParentThreadID string          `json:"parentThreadId"`
+	Cwd            string          `json:"cwd"`
+	Name           *string         `json:"name"`
+	Preview        string          `json:"preview"`
+	Source         json.RawMessage `json:"source"`
+	ThreadSource   json.RawMessage `json:"threadSource"`
+	Ephemeral      bool            `json:"ephemeral"`
+	CreatedAt      int64           `json:"createdAt"`
+	UpdatedAt      int64           `json:"updatedAt"`
+	RecencyAt      *int64          `json:"recencyAt"`
+	Status         json.RawMessage `json:"status"`
+	GitInfo        *struct {
 		Branch string `json:"branch"`
 	} `json:"gitInfo"`
+}
+
+type codexProjectContext struct {
+	ProjectID   string
+	ProjectName string
+	ProjectCwd  string
+	Projectless bool
+}
+
+type codexDesktopProjectState struct {
+	LocalProjects map[string]struct {
+		Name      string   `json:"name"`
+		RootPaths []string `json:"rootPaths"`
+	} `json:"local-projects"`
+	ThreadProjectAssignments map[string]struct {
+		ProjectKind string `json:"projectKind"`
+		ProjectID   string `json:"projectId"`
+		Cwd         string `json:"cwd"`
+	} `json:"thread-project-assignments"`
+	ProjectlessThreadIDs []string `json:"projectless-thread-ids"`
+}
+
+func codexProjectContexts() map[string]codexProjectContext {
+	contexts := map[string]codexProjectContext{}
+	data, err := os.ReadFile(filepath.Join(cfg.CodexHome, ".codex-global-state.json"))
+	if err != nil {
+		return contexts
+	}
+	var state codexDesktopProjectState
+	if json.Unmarshal(data, &state) != nil {
+		return contexts
+	}
+	for threadID, assignment := range state.ThreadProjectAssignments {
+		if assignment.ProjectKind != "local" || strings.TrimSpace(assignment.ProjectID) == "" {
+			continue
+		}
+		project, ok := state.LocalProjects[assignment.ProjectID]
+		if !ok {
+			continue
+		}
+		projectCwd := ""
+		for _, root := range project.RootPaths {
+			if root = strings.TrimSpace(root); root != "" {
+				projectCwd = filepath.Clean(root)
+				break
+			}
+		}
+		if projectCwd == "" {
+			projectCwd = strings.TrimSpace(assignment.Cwd)
+			if projectCwd != "" {
+				projectCwd = filepath.Clean(projectCwd)
+			}
+		}
+		name := strings.TrimSpace(project.Name)
+		if name == "" && projectCwd != "" {
+			name = filepath.Base(projectCwd)
+		}
+		contexts[threadID] = codexProjectContext{
+			ProjectID: assignment.ProjectID, ProjectName: name, ProjectCwd: projectCwd,
+		}
+	}
+	for _, threadID := range state.ProjectlessThreadIDs {
+		threadID = strings.TrimSpace(threadID)
+		if threadID == "" {
+			continue
+		}
+		if _, assigned := contexts[threadID]; !assigned {
+			contexts[threadID] = codexProjectContext{Projectless: true}
+		}
+	}
+	return contexts
+}
+
+func applyCodexProjectContext(session *Session, project codexProjectContext) {
+	if project.Projectless {
+		session.Projectless = true
+		return
+	}
+	session.ProjectID = project.ProjectID
+	session.ProjectName = project.ProjectName
+	session.ProjectCwd = project.ProjectCwd
+}
+
+func codexThreadID(thread codexThreadWire) string {
+	if id := strings.TrimSpace(thread.ID); id != "" {
+		return id
+	}
+	return strings.TrimSpace(thread.SessionID)
+}
+
+func codexThreadIsInternalSubagent(thread codexThreadWire) bool {
+	if strings.TrimSpace(thread.ParentThreadID) != "" {
+		return true
+	}
+	var source map[string]json.RawMessage
+	if json.Unmarshal(thread.Source, &source) != nil {
+		return false
+	}
+	_, camelCase := source["subAgent"]
+	_, legacyCase := source["subagent"]
+	return camelCase || legacyCase
 }
 
 func (b *codexChatBackend) ListThreads(ctx context.Context, opts codexThreadListOptions) (codexThreadPage, error) {
@@ -106,12 +208,21 @@ func (b *codexChatBackend) ListThreads(ctx context.Context, opts codexThreadList
 	if wire.NextCursor != nil {
 		page.NextCursor = *wire.NextCursor
 	}
+	projects := codexProjectContexts()
 	for _, thread := range wire.Data {
 		if thread.Ephemeral || codexThreadSource(thread.ThreadSource) == "ambient_suggestions" {
 			continue
 		}
+		project, hasProjectContext := projects[codexThreadID(thread)]
+		projectAssigned := hasProjectContext && project.ProjectID != ""
+		if codexThreadIsInternalSubagent(thread) && !projectAssigned {
+			continue
+		}
 		session, ok := codexSessionFromThread(thread)
 		if ok {
+			if hasProjectContext {
+				applyCodexProjectContext(&session, project)
+			}
 			page.Sessions = append(page.Sessions, session)
 		}
 	}
@@ -268,10 +379,7 @@ func codexThreadSource(raw json.RawMessage) string {
 }
 
 func codexSessionFromThread(thread codexThreadWire) (Session, bool) {
-	id := strings.TrimSpace(thread.ID)
-	if id == "" {
-		id = strings.TrimSpace(thread.SessionID)
-	}
+	id := codexThreadID(thread)
 	if id == "" {
 		return Session{}, false
 	}

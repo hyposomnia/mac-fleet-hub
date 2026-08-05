@@ -210,6 +210,30 @@ function relTime(ms) {
 }
 function projName(cwd) { return cwd ? cwd.split('/').filter(Boolean).pop() : '(未知项目)'; }
 function projFull(cwd) { return (cwd || '(未知路径)').replace(/^\/Users\/[^/]+/, '~'); }
+function sessionProjectInfo(session) {
+  const projectless = !!session?.projectless;
+  const cwd = projectless ? '' : (session?.projectCwd || session?.cwd || '');
+  const projectId = session?.projectId || '';
+  return {
+    key: projectless ? 'projectless:' : (cwd ? `cwd:${cwd}` : (projectId ? `id:${projectId}` : 'unknown:')),
+    name: projectless ? '无项目' : (session?.projectName || projName(cwd)),
+    cwd,
+    projectless,
+  };
+}
+function groupSessionsByProject(sessions) {
+  const groups = new Map();
+  for (const session of sessions || []) {
+    const project = sessionProjectInfo(session);
+    let group = groups.get(project.key);
+    if (!group) {
+      group = { ...project, arr: [] };
+      groups.set(project.key, group);
+    }
+    group.arr.push(session);
+  }
+  return [...groups.values()];
+}
 function macName(id) { return macNames[id] || ('Mac ' + id.slice(1)); }
 function assistantLabel(a = state.assistant) { return a === 'codex' ? 'Codex' : 'Claude'; }
 async function api(id, path, opts) {
@@ -766,7 +790,7 @@ function normalizeDeviceSessions(macId, data) {
     if (state.sessionSearch) {
       const needle = state.sessionSearch.toLocaleLowerCase();
       sessions = sessions.filter((session) =>
-        `${session.title || ''}\n${session.cwd || ''}\n${macName(macId)}`.toLocaleLowerCase().includes(needle));
+        `${session.title || ''}\n${session.projectName || ''}\n${session.cwd || ''}\n${macName(macId)}`.toLocaleLowerCase().includes(needle));
     }
   }
   return sessions;
@@ -785,36 +809,34 @@ function renderSessionResults(opts = {}) {
   } else if (state.sessionView === 'recent') {
     wrap.append(h('div', { class: 'recent-session-list' }, ...sessions.map(sessionRow)));
   } else {
-  const groups = {};
-  for (const s of sessions) (groups[s.cwd] ||= []).push(s);
-  const ordered = Object.entries(groups).map(([cwd, arr]) => {
-    arr.sort((a, b) => (Number(b.pinned) - Number(a.pinned)) || (b.live - a.live) || (b.mtime - a.mtime));
-    return { cwd, arr, pinned: arr.some((session) => session.pinned), last: Math.max(...arr.map((s) => s.mtime)) };
-  }).sort((a, b) => (Number(b.pinned) - Number(a.pinned)) || (b.last - a.last));
+    const ordered = groupSessionsByProject(sessions).map((group) => {
+      group.arr.sort((a, b) => (Number(b.pinned) - Number(a.pinned)) || (b.live - a.live) || (b.mtime - a.mtime));
+      return { ...group, pinned: group.arr.some((session) => session.pinned), last: Math.max(...group.arr.map((s) => s.mtime)) };
+    }).sort((a, b) => (Number(b.pinned) - Number(a.pinned)) || (b.last - a.last));
 
     for (const g of ordered) {
-      const collapsed = state.collapsed.has(g.cwd);
+      const collapsed = state.collapsed.has(g.key);
       const toggle = h('button', { type: 'button', class: 'grp-toggle', 'aria-expanded': String(!collapsed) },
         svgIcon('chev', 'M6 9l6 6 6-6'),
-        h('span', { class: 'gn', text: projName(g.cwd) }),
+        h('span', { class: 'gn', text: g.name }),
       );
       const projectMacId = state.sessionMacId === 'all' ? (g.arr[0]?.macId || state.macId) : state.sessionMacId;
-      const create = h('button', {
+      const create = !g.projectless && g.cwd ? h('button', {
         type: 'button', class: 'gpath badge project-new-session', dataset: { path: projFull(g.cwd) },
-        title: `在 ${projName(g.cwd)} 中新建会话`, 'aria-label': `在 ${projName(g.cwd)} 中新建会话`,
+        title: `在 ${g.name} 中新建会话`, 'aria-label': `在 ${g.name} 中新建会话`,
         onclick: (event) => {
           event.stopPropagation();
           activateConcreteMac(projectMacId);
           newSessionIn(g.cwd, { macId: projectMacId });
         },
-      }, svgIcon('ic', 'M12 5v14M5 12h14'));
+      }, svgIcon('ic', 'M12 5v14M5 12h14')) : null;
       const head = h('div', { class: 'grp-h' }, toggle, create);
       const items = h('div', { class: 'grp-items' }, ...g.arr.map(sessionRow));
       const grp = h('div', { class: 'grp' + (collapsed ? ' collapsed' : '') }, head, items);
       toggle.onclick = () => {
         grp.classList.toggle('collapsed');
-        if (grp.classList.contains('collapsed')) state.collapsed.add(g.cwd);
-        else state.collapsed.delete(g.cwd);
+        if (grp.classList.contains('collapsed')) state.collapsed.add(g.key);
+        else state.collapsed.delete(g.key);
         toggle.setAttribute('aria-expanded', String(!grp.classList.contains('collapsed')));
       };
       wrap.append(grp);
@@ -1029,7 +1051,7 @@ function sessionRow(s) {
   const meta = h('div', { class: 'ses-meta' },
     state.sessionMacId === 'all' ? h('span', { class: 'session-device-name', text: macName(macId) }) : null,
     state.sessionView === 'recent'
-      ? h('span', { class: 'session-project-name', text: projName(s.cwd) })
+      ? h('span', { class: 'session-project-name', text: sessionProjectInfo(s).name })
       : null,
   );
   // 池内 / 有进程的会话点行即直接进入，不需按钮；仅冷会话才展开三种权限模式。
