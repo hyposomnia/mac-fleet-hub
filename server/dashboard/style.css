@@ -952,7 +952,8 @@ textarea.chat-request-input { resize: vertical; }
               border-color var(--dur-1) var(--ease), transform var(--dur-1) var(--ease);
 }
 #chat-jump[hidden] { display: none; }
-#chat-jump:hover { background: var(--chat-surface-hover); border-color: var(--chat-border-strong); color: var(--chat-text); }
+/* 悬浮按钮 hover 不能用半透明底（会透出底下消息文字），在不透明底色上调 hover 色 */
+#chat-jump:hover { background: color-mix(in oklab, var(--chat-text) 6%, var(--chat-composer-bg)); border-color: var(--chat-border-strong); color: var(--chat-text); }
 #chat-jump:active { transform: translateY(1px); }
 #chat-jump:focus-visible { border-radius: 50%; box-shadow: var(--ring), var(--e2); }
 .chat-jump-icon { width: 26px; height: 26px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
