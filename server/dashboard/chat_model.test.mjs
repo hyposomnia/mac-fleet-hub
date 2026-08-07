@@ -443,6 +443,11 @@ test('session pagination loads automatically near the scroll boundary', () => {
   assert.match(appSrc, /loadSessions\(\{\s*append:\s*true\s*\}\)/);
 });
 
+test('recent session polling reconciles keyed rows without rebuilding the list', () => {
+  assert.match(appSrc, /function reconcileRecentSessionRows\(\)[\s\S]*?existing = new Map[\s\S]*?row\.replaceWith\(replacement\)[\s\S]*?list\.insertBefore\(row, position\)/);
+  assert.match(appSrc, /if \(state\.sessionView === 'recent'\)[\s\S]*?reconcileRecentSessionRows\(\);[\s\S]*?return;/);
+});
+
 test('mobile layout follows viewport width regardless of pointer type', () => {
   const query = '@media (max-width: 860px)';
   assert.equal(styleCSS.split(query).length - 1, 2);
@@ -475,7 +480,7 @@ test('session list aggregates online devices while row actions retain their sour
   assert.match(appSrc, /MACS\.filter\(\(m\) => state\.nodes\[m\.id\]\)/);
   assert.match(appSrc, /Promise\.all\(targets\.map\(async \(macId\)/);
   assert.match(appSrc, /macId,\s*assistant:\s*session\.assistant \|\| state\.assistant/);
-  assert.match(appSrc, /dataset:\s*\{\s*sid,\s*mac:\s*macId,\s*assistant\s*\}/);
+  assert.match(appSrc, /dataset:\s*\{\s*sid,\s*mac:\s*macId,\s*assistant,\s*renderSignature:/);
   assert.match(appSrc, /api\(session\.macId,\s*'sessions\/action'/);
   assert.match(appSrc, /termSes\(sid,\s*s\.title,\s*macId,\s*assistant\)/);
   assert.match(appSrc, /query\.set\('archived',\s*String\(state\.scope === 'all'\)\)/);
