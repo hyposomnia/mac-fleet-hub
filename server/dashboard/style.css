@@ -562,7 +562,7 @@ svg.ic.fill { fill: currentColor; stroke: none; }
 }
 .grp-h .gpath:hover::after { opacity: 1; }
 .grp.collapsed .grp-items { display: none; }
-.grp-items { padding-top: 2px; }
+.grp-items { padding: 2px var(--s1) 0 var(--s3); }
 
 .ses { position: relative; display: flex; flex-direction: column; padding: 4px 7px 4px 11px; border-radius: 8px; border: 1px solid transparent; transition: background var(--dur-1) var(--ease), border-color var(--dur-1) var(--ease); cursor: pointer; width: 100%; text-align: left; }
 .ses:hover { background: var(--surface-1); border-color: var(--border); }
