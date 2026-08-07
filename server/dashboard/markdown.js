@@ -12,6 +12,117 @@
     'git-create-pr': '已创建拉取请求',
     'code-comment': '代码批注',
   };
+  const CODE_MODE_BY_LANGUAGE = Object.freeze({
+    bash: 'text/x-sh', cjs: 'text/javascript', css: 'text/css', env: 'text/x-sh',
+    go: 'text/x-go', html: 'text/html', htm: 'text/html', js: 'text/javascript',
+    javascript: 'text/javascript', json: 'application/json', jsonl: 'application/json',
+    jsx: 'text/jsx', py: 'text/x-python', python: 'text/x-python', rb: 'text/x-ruby',
+    ruby: 'text/x-ruby', sh: 'text/x-sh', shell: 'text/x-sh', toml: 'text/x-toml',
+    ts: 'text/typescript', tsx: 'text/typescript-jsx', xml: 'application/xml',
+    yaml: 'text/x-yaml', yml: 'text/x-yaml', zsh: 'text/x-sh',
+  });
+
+  function languageOf(code) {
+    const match = String(code.className || '').match(/(?:^|\s)language-([^\s]+)/i);
+    return match ? match[1].toLowerCase() : '';
+  }
+
+  function appendHighlightedLine(target, source, mode, state) {
+    if (!mode || !root.CodeMirror?.StringStream) {
+      target.textContent = source || '\u200b';
+      return;
+    }
+    const stream = new root.CodeMirror.StringStream(source, 4);
+    while (!stream.eol()) {
+      const style = mode.token(stream, state);
+      const value = stream.current();
+      if (style) {
+        const span = document.createElement('span');
+        span.className = style.split(/\s+/).map((name) => `cm-${name}`).join(' ');
+        span.textContent = value;
+        target.append(span);
+      } else {
+        target.append(document.createTextNode(value));
+      }
+      stream.start = stream.pos;
+    }
+    if (!target.childNodes.length) target.textContent = '\u200b';
+  }
+
+  function copyText(value) {
+    if (root.navigator?.clipboard?.writeText) return root.navigator.clipboard.writeText(value);
+    const textarea = document.createElement('textarea');
+    textarea.value = value;
+    textarea.setAttribute('readonly', '');
+    textarea.style.position = 'fixed';
+    textarea.style.opacity = '0';
+    document.body.append(textarea);
+    textarea.select();
+    const copied = document.execCommand?.('copy');
+    textarea.remove();
+    return copied ? Promise.resolve() : Promise.reject(new Error('copy failed'));
+  }
+
+  function enhanceCodeBlock(pre) {
+    const code = pre.querySelector(':scope > code');
+    if (!code) return;
+    const source = code.textContent.replace(/\n$/, '');
+    const language = languageOf(code);
+    const viewer = document.createElement('div');
+    viewer.className = 'chat-code-block';
+
+    const toolbar = document.createElement('div');
+    toolbar.className = 'chat-code-toolbar';
+    const label = document.createElement('span');
+    label.className = 'chat-code-language';
+    label.textContent = language || 'text';
+    const copy = document.createElement('button');
+    copy.className = 'chat-code-copy';
+    copy.type = 'button';
+    copy.textContent = '复制';
+    copy.setAttribute('aria-label', '复制代码');
+    copy.addEventListener('click', async () => {
+      try {
+        await copyText(source);
+        copy.textContent = '√';
+        copy.classList.add('is-copied');
+        copy.setAttribute('aria-label', '已复制');
+        root.setTimeout(() => {
+          copy.textContent = '复制';
+          copy.classList.remove('is-copied');
+          copy.setAttribute('aria-label', '复制代码');
+        }, 1800);
+      } catch (_) {
+        copy.textContent = '复制失败';
+      }
+    });
+    toolbar.append(label, copy);
+
+    const lines = document.createElement('div');
+    lines.className = 'chat-code-lines cm-s-default';
+    let mode = null;
+    let state = null;
+    if (language && root.CodeMirror?.getMode) {
+      mode = root.CodeMirror.getMode({ indentUnit: 2 }, CODE_MODE_BY_LANGUAGE[language] || language);
+      if (mode?.name === 'null') mode = null;
+      else state = root.CodeMirror.startState(mode);
+    }
+    source.split('\n').forEach((line, index) => {
+      const row = document.createElement('div');
+      row.className = 'chat-code-line';
+      const number = document.createElement('span');
+      number.className = 'chat-code-line-number';
+      number.textContent = String(index + 1);
+      number.setAttribute('aria-hidden', 'true');
+      const content = document.createElement('span');
+      content.className = 'chat-code-line-content';
+      appendHighlightedLine(content, line, mode, state);
+      row.append(number, content);
+      lines.append(row);
+    });
+    viewer.append(toolbar, lines);
+    pre.replaceWith(viewer);
+  }
 
   function parseDirectiveAttrs(source) {
     const attrs = {};
@@ -88,8 +199,9 @@
     const chunk = document.createElement('div');
     chunk.innerHTML = root.DOMPurify.sanitize(parsed, {
       ALLOWED_TAGS,
-      ALLOWED_ATTR: ['href', 'title', 'start', 'src', 'alt'],
+      ALLOWED_ATTR: ['href', 'title', 'start', 'src', 'alt', 'class'],
     });
+    chunk.querySelectorAll('pre').forEach(enhanceCodeBlock);
     chunk.querySelectorAll('a[href]').forEach((link) => {
       const original = link.getAttribute('href');
       const resolved = typeof resolveLink === 'function' ? resolveLink(original) : original;

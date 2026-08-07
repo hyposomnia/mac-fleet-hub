@@ -855,6 +855,16 @@ test('vendored markdown parser formats common assistant response blocks', () => 
   assert.match(html, /<pre><code class="language-sh">node --test/);
 });
 
+test('chat code blocks wrap, show line numbers, syntax color, and copy feedback', () => {
+  assert.match(markdownSrc, /chunk\.querySelectorAll\('pre'\)\.forEach\(enhanceCodeBlock\)/);
+  assert.match(markdownSrc, /CODE_MODE_BY_LANGUAGE/);
+  assert.match(markdownSrc, /chat-code-line-number/);
+  assert.match(markdownSrc, /navigator\?\.clipboard\?\.writeText/);
+  assert.match(markdownSrc, /copy\.textContent = '√'/);
+  assert.match(styleCSS, /\.chat-code-line-content\s*\{[^}]*white-space:\s*pre-wrap;[^}]*overflow-wrap:\s*anywhere;/s);
+  assert.match(styleCSS, /\.chat-code-lines \.cm-keyword\s*\{[^}]*var\(--syntax-keyword\)/s);
+});
+
 test('Codex git directives are parsed as structured status blocks', () => {
   assert.deepEqual(
     JSON.parse(JSON.stringify(parseCodexDirective('::git-commit{cwd="/Users/hjc/Git_Repositories/mac-fleet-hub"}'))),
