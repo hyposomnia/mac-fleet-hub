@@ -1996,3 +1996,17 @@ test('fresh Codex sessions initialize model options without calling resume', () 
   assert.match(source, /startChatEvents\(chat\)/);
   assert.match(source, /if \(s\.fresh\)[\s\S]*?return;[\s\S]*?'chat\/resume'/);
 });
+
+test('foreground restore replaces a stale SSE stream and reconciles missed history', () => {
+  const source = appSrc.match(/async function restoreChatAfterForeground\(chat = state\.chat\) \{[\s\S]*?\n\}\n\nfunction wireChatPageLifecycle/)?.[0] || '';
+  assert.match(source, /chat\.events\.close\(\)/);
+  assert.match(source, /'chat\/resume'/);
+  assert.match(source, /FleetChatModel\.prependHistory\(chat\.model, resumed\.history\?\.events \|\| \[\]\)/);
+  assert.match(source, /startChatEvents\(chat\)/);
+  assert.match(appSrc, /document\.addEventListener\('visibilitychange',[\s\S]*?restoreChatAfterForeground\(\)/);
+  assert.match(appSrc, /addEventListener\('pageshow',[\s\S]*?event\.persisted/);
+});
+
+test('chat send keeps textarea focus through pointerdown on mobile keyboards', () => {
+  assert.match(appSrc, /\$\('#chat-send'\)\.addEventListener\('pointerdown',[\s\S]*?document\.activeElement === \$\('#chat-input'\)[\s\S]*?e\.preventDefault\(\)/);
+});

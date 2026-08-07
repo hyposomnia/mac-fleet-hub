@@ -3330,6 +3330,67 @@ function startChatEvents(chat = state.chat) {
   };
 }
 
+async function restoreChatAfterForeground(chat = state.chat) {
+  if (!chat || chat.pendingStart || !chat.historyReady) return;
+  if (state.chatCache.get(chat.cacheKey) !== chat) return;
+  if (chat.foregroundSyncPromise) return chat.foregroundSyncPromise;
+
+  if (chat.events) { try { chat.events.close(); } catch (_) {} }
+  chat.events = null;
+  syncSessionRuntimeIndicators();
+
+  const task = (async () => {
+    try {
+      const resumed = await api(chat.macId, 'chat/resume', {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ assistant: 'codex', sessionId: chat.sessionId, mode: 'default' }),
+      });
+      if (state.chatCache.get(chat.cacheKey) !== chat) return;
+      acknowledgeChatFollowups(chat, resumed.history?.events);
+      chat.model = FleetChatModel.prependHistory(chat.model, resumed.history?.events || []);
+      chat.model = FleetChatModel.reduceChatEvent(chat.model, {
+        type: 'thread_status',
+        data: { status: resumed.status, activeTurnId: resumed.activeTurnId },
+      });
+      chat.historyCursor = resumed.history?.nextCursor || chat.historyCursor || '';
+      applyChatMetadataDefaults(chat);
+      updateChatUpdatedAt(chat, Date.now());
+      if (state.chat === chat) {
+        renderChat();
+        updateChatComposerState();
+        renderChatFollowups();
+      }
+      if (!isChatRunning(chat)) flushChatFollowups(chat);
+    } catch (_) {
+      // 恢复时即使历史补偿暂时失败，也要重新建立实时流；下一次回前台会再次补偿。
+    } finally {
+      if (state.chatCache.get(chat.cacheKey) === chat) startChatEvents(chat);
+    }
+  })();
+  chat.foregroundSyncPromise = task;
+  try {
+    await task;
+  } finally {
+    if (chat.foregroundSyncPromise === task) chat.foregroundSyncPromise = null;
+  }
+}
+
+function wireChatPageLifecycle() {
+  let wasHidden = document.visibilityState === 'hidden';
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'hidden') {
+      wasHidden = true;
+      return;
+    }
+    if (!wasHidden) return;
+    wasHidden = false;
+    restoreChatAfterForeground();
+  });
+  addEventListener('pageshow', (event) => {
+    if (event.persisted) restoreChatAfterForeground();
+  });
+}
+
 async function ensurePendingChatStarted(chat) {
   if (!chat?.pendingStart) return chat;
   if (chat.startPromise) return chat.startPromise;
@@ -5455,6 +5516,11 @@ function init() {
     if (action === 'interrupt') interruptChat();
     else submitChatInput({ forceQueue: action === 'queue' });
   };
+  // iOS 键盘展开时，默认 pointerdown 会先让 textarea 失焦并移动 VisualViewport，
+  // 按钮可能在 click 产生前移出触点。保留焦点，让同一次轻点直接触发表单提交。
+  $('#chat-send').addEventListener('pointerdown', (e) => {
+    if (e.isPrimary !== false && document.activeElement === $('#chat-input')) e.preventDefault();
+  });
   $('#chat-attach').onclick = () => $('#chat-file').click();
   $('#chat-file').addEventListener('change', (e) => { addChatFiles(e.target.files); e.target.value = ''; });
   $('#chat-input').addEventListener('input', () => {
@@ -5655,6 +5721,7 @@ function init() {
   updateSessionFilterUI();
   $$('[data-assistant]').forEach((b) => b.setAttribute('aria-selected', String(b.dataset.assistant === state.assistant)));
   initFleetHistory();
+  wireChatPageLifecycle();
   setMode(state.mode);
   if (state.mode === 'sessions') restorePoolSnapshot();
   initPWAExperience();
