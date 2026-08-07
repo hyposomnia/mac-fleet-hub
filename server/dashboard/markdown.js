@@ -63,6 +63,17 @@
     return copied ? Promise.resolve() : Promise.reject(new Error('copy failed'));
   }
 
+  function copySuccessIcon() {
+    const icon = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    icon.setAttribute('class', 'chat-code-copy-icon');
+    icon.setAttribute('viewBox', '0 0 24 24');
+    icon.setAttribute('aria-hidden', 'true');
+    const check = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    check.setAttribute('d', 'm5 12 4.5 4.5L19 7');
+    icon.append(check);
+    return icon;
+  }
+
   function enhanceCodeBlock(pre) {
     const code = pre.querySelector(':scope > code');
     if (!code) return;
@@ -84,7 +95,7 @@
     copy.addEventListener('click', async () => {
       try {
         await copyText(source);
-        copy.textContent = '√';
+        copy.replaceChildren(copySuccessIcon());
         copy.classList.add('is-copied');
         copy.setAttribute('aria-label', '已复制');
         root.setTimeout(() => {

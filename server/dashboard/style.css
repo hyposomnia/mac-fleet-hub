@@ -689,9 +689,10 @@ svg.ic.fill { fill: currentColor; stroke: none; }
 .chat-code-block { max-width: 100%; margin: .65em 0 .9em; overflow: hidden; border: 1px solid var(--chat-border); border-radius: 8px; background: var(--chat-code-bg); }
 .chat-code-toolbar { display: flex; align-items: center; justify-content: space-between; min-height: 34px; padding: 4px 7px 4px 12px; border-bottom: 1px solid var(--chat-border); color: var(--chat-text-2); font-size: var(--t-caption); }
 .chat-code-language { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.chat-code-copy { min-width: 48px; min-height: 26px; padding: 3px 8px; border-radius: 6px; color: var(--chat-text-2); font-size: var(--t-caption); transition: color .15s var(--ease), background .15s var(--ease); }
+.chat-code-copy { display: inline-grid; min-width: 48px; min-height: 26px; padding: 3px 8px; place-items: center; border-radius: 6px; color: var(--chat-text-2); font-size: var(--t-caption); transition: color .15s var(--ease), background .15s var(--ease); }
 .chat-code-copy:hover { background: var(--chat-surface-2); color: var(--chat-text); }
-.chat-code-copy.is-copied { color: var(--online); font-size: var(--t-body); }
+.chat-code-copy.is-copied { color: var(--online); }
+.chat-code-copy-icon { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 .chat-code-lines { padding: 8px 0; overflow: hidden; color: var(--chat-text); font-family: var(--mono); font-size: var(--t-secondary); line-height: 1.55; }
 .chat-code-line { display: grid; grid-template-columns: 42px minmax(0, 1fr); align-items: start; }
 .chat-code-line-number { padding: 0 10px 0 4px; border-right: 1px solid var(--chat-border); color: var(--chat-text-3); text-align: right; user-select: none; }
