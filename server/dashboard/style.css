@@ -946,16 +946,15 @@ textarea.chat-request-input { resize: vertical; }
 .chat-image-viewer-close .ic { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; }
 #chat-jump {
   width: 48px; height: 48px; padding: 0; flex: none; display: grid; place-items: center;
-  border: 1px solid var(--chat-border); border-radius: 50%;
-  background: color-mix(in oklab, var(--chat-text) 8%, transparent); color: var(--chat-text-1);
-  box-shadow: var(--chat-composer-shadow); pointer-events: auto; backdrop-filter: blur(18px);
+  border: 1px solid var(--chat-border-light); border-radius: 50%; background: var(--chat-user-bg); color: var(--chat-text-1);
+  pointer-events: auto; backdrop-filter: blur(18px);
   transition: background var(--dur-1) var(--ease), color var(--dur-1) var(--ease),
               border-color var(--dur-1) var(--ease), transform var(--dur-1) var(--ease);
 }
 #chat-jump[hidden] { display: none; }
-/* 毛玻璃 fab：与用户气泡/turn-pin 同配方（半透明底+blur+composer 软影），
-   底色比气泡略深一档，空白处也有磨砂观感；hover 再加深 */
-#chat-jump:hover { background: color-mix(in oklab, var(--chat-text) 12%, transparent); border-color: var(--chat-border-strong); color: var(--chat-text); }
+/* 与用户气泡 .chat-row.user .chat-card 同款配方：--chat-user-bg 半透明底 + chat-border-light 细边、无投影；
+   多一个 blur 保证浮在文字上时是磨砂；hover 加深一档 */
+#chat-jump:hover { background: color-mix(in oklab, var(--chat-text) 5%, var(--chat-user-bg)); border-color: var(--chat-border); color: var(--chat-text); }
 #chat-jump:active { transform: translateY(1px); }
 #chat-jump:focus-visible { border-radius: 50%; box-shadow: var(--ring), var(--e2); }
 .chat-jump-icon { width: 26px; height: 26px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
