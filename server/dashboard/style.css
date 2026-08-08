@@ -946,14 +946,14 @@ textarea.chat-request-input { resize: vertical; }
 .chat-image-viewer-close .ic { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; }
 #chat-jump {
   width: 48px; height: 48px; padding: 0; flex: none; display: grid; place-items: center;
-  border: 1px solid var(--chat-border); border-radius: 50%; background: var(--chat-composer-bg); color: var(--chat-text-1);
-  box-shadow: var(--e2); pointer-events: auto;
+  border: 1px solid var(--chat-border); border-radius: 50%; background: var(--chat-user-bg); color: var(--chat-text-1);
+  box-shadow: var(--e2); pointer-events: auto; backdrop-filter: blur(18px);
   transition: background var(--dur-1) var(--ease), color var(--dur-1) var(--ease),
               border-color var(--dur-1) var(--ease), transform var(--dur-1) var(--ease);
 }
 #chat-jump[hidden] { display: none; }
-/* 悬浮按钮 hover 不能用半透明底（会透出底下消息文字），在不透明底色上调 hover 色 */
-#chat-jump:hover { background: color-mix(in oklab, var(--chat-text) 6%, var(--chat-composer-bg)); border-color: var(--chat-border-strong); color: var(--chat-text); }
+/* 与用户气泡同款毛玻璃半透明（light 半透明+blur、dark 实底），hover 加深一档 */
+#chat-jump:hover { background: color-mix(in oklab, var(--chat-text) 6%, var(--chat-user-bg)); border-color: var(--chat-border-strong); color: var(--chat-text); }
 #chat-jump:active { transform: translateY(1px); }
 #chat-jump:focus-visible { border-radius: 50%; box-shadow: var(--ring), var(--e2); }
 .chat-jump-icon { width: 26px; height: 26px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
