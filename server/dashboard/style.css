@@ -954,10 +954,19 @@ textarea.chat-request-input { resize: vertical; }
 #chat-jump[hidden] { display: none; }
 /* 与用户气泡 .chat-row.user .chat-card 同款配方：--chat-user-bg 半透明底 + chat-border-light 细边、无投影；
    多一个 blur 保证浮在文字上时是磨砂；hover 加深一档 */
-#chat-jump:hover { background: color-mix(in oklab, var(--chat-text) 5%, var(--chat-user-bg)); border-color: var(--chat-border); color: var(--chat-text); }
+@media (hover: hover) {
+  #chat-jump:hover {
+    background: color-mix(in oklab, var(--chat-text) 5%, var(--chat-user-bg)); border-color: var(--chat-border); color: var(--chat-text);
+    transform: translateY(-2px);
+  }
+  #chat-jump:hover .chat-jump-icon { transform: translateY(2px); }
+}
 #chat-jump:active { transform: translateY(1px); }
 #chat-jump:focus-visible { border-radius: 50%; box-shadow: var(--ring), var(--e2); }
-.chat-jump-icon { width: 26px; height: 26px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.chat-jump-icon {
+  width: 26px; height: 26px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round;
+  transition: transform var(--dur-1) var(--ease);
+}
 
 /* 移动端输入坞（终端） */
 #mobile-input { flex: none; background: var(--surface); border-top: 1px solid var(--border); padding: 8px 10px calc(8px + env(safe-area-inset-bottom, 0px)); }
