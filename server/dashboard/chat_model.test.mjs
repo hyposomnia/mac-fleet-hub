@@ -803,6 +803,12 @@ test('jump-to-bottom control uses an accessible inline SVG icon', () => {
   assert.doesNotMatch(indexHTML, />跳到底部<\/button>/);
 });
 
+test('jump-to-bottom glass is not trapped inside the composer backdrop root', () => {
+  assert.match(styleCSS, /#chat-composer\s*\{[^}]*background:\s*transparent;[^}]*backdrop-filter:\s*none;/s);
+  assert.match(styleCSS, /#chat-composer::before\s*\{[^}]*backdrop-filter:\s*blur\(18px\);/s);
+  assert.match(styleCSS, /#chat-jump\s*\{[^}]*backdrop-filter:\s*blur\(18px\);/s);
+});
+
 test('chat cache evicts the earliest updated non-current session', () => {
   const oldest = { updatedAt: 100, lastUsed: 999 };
   const newest = { updatedAt: 300, lastUsed: 1 };
@@ -1111,7 +1117,8 @@ test('self-drawn composer contains native stop control and follow-up queue', () 
   assert.match(styleCSS, /\.chat-send \.chat-stop-icon\s*\{\s*display:\s*none/);
   assert.match(styleCSS, /chat-send\[data-action="interrupt"\]/);
   assert.equal((styleCSS.match(/\.chat-send\s*\{\s*width:\s*36px;\s*height:\s*36px;/g) || []).length, 2);
-  assert.match(styleCSS, /#chat-composer\s*\{\s*padding:\s*8px 10px max\(12px,\s*env\(safe-area-inset-bottom,\s*0px\)\);\s*background:\s*transparent;\s*backdrop-filter:\s*none;/);
+  assert.match(styleCSS, /#chat-composer\s*\{\s*padding:\s*8px 10px max\(12px,\s*env\(safe-area-inset-bottom,\s*0px\)\);\s*\}/);
+  assert.match(styleCSS, /#chat-composer::before\s*\{\s*content:\s*none;\s*\}/);
   assert.match(styleCSS, /html\.visual-keyboard-open #chat-composer\s*\{\s*padding-bottom:\s*4px;/);
 });
 
