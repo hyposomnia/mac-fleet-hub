@@ -32,6 +32,7 @@ mac/fleet-agent/fleet-agent
 # 嵌套在此被主仓库忽略；跨账号同步走它们各自的私有远端（在该目录内 git push/pull）。
 .agents/
 .claude/
+.qoder/
 
 # 个人部署笔记 / 私有资料（本地保留，不入库）
 .private/
