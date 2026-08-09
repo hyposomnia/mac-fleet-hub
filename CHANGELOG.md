@@ -5,6 +5,13 @@
 
 mac-fleet-hub 变更记录（日期为本地时间）。
 
+## 2026-08-09
+
+### 会话列表时间改为输出结束时间
+- **时间语义**：会话列表右侧相对时间现在显示「会话输出结束时间」（rollout 末条 `task_complete` 的时间戳），不再用 Codex state DB 里 turn 结束后不更新的 recency；无 rollout 的会话（首轮前/已归档）回退原时间。
+- **双链路一致**：app-server 主链路（`thread/list`）与 SQLite/rollout 回退链路都返回 `outputEndedAt`；dashboard 列表渲染与软刷新优先读取。
+- **回归保护**：新增 rollout 输出结束时间尾解析与 ListThreads 上报测试；dashboard 会话行测试断言「20 秒前优先于 11 分钟前」。
+
 ## 2026-08-07
 
 ### 明确项目与会话的列表层级

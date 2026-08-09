@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 )
@@ -127,6 +128,52 @@ func TestCodexSessionFromThreadMapsDesktopRuntimeStatus(t *testing.T) {
 	}
 	if idle.Live || idle.Status != "idle" || idle.Waiting {
 		t.Fatalf("idle Desktop status was not preserved: %+v", idle)
+	}
+}
+
+func TestCodexListThreadsReportsRolloutOutputEndTime(t *testing.T) {
+	previousCfg := cfg
+	cfg.CodexHome = t.TempDir()
+	t.Cleanup(func() { cfg = previousCfg })
+
+	id := "019e865e-55cc-7362-9cd4-77b6fdf68509"
+	dir := filepath.Join(cfg.CodexHome, "sessions", "2026", "08", "09")
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	rollout := filepath.Join(dir, "rollout-2026-08-09T11-49-00-"+id+".jsonl")
+	body := strings.Join([]string{
+		`{"type":"session_meta","payload":{"id":"` + id + `","cwd":"/repo","originator":"Codex Desktop","source":"vscode"}}`,
+		`{"timestamp":"2026-08-09T03:49:00Z","type":"event_msg","payload":{"type":"task_started","turn_id":"turn-1"}}`,
+		`{"timestamp":"2026-08-09T03:59:40Z","type":"event_msg","payload":{"type":"task_complete","turn_id":"turn-1"}}`,
+	}, "\n") + "\n"
+	if err := os.WriteFile(rollout, []byte(body), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	rpc := newFakeRPCConn()
+	rpc.reply["thread/list"] = json.RawMessage(`{"data":[
+		{"id":"` + id + `","cwd":"/repo","preview":"Done","source":"vscode","createdAt":1,"updatedAt":2,"recencyAt":3},
+		{"id":"019e865e-55cc-7362-9cd4-77b6fdf68510","cwd":"/repo","preview":"Fresh","source":"vscode","createdAt":1,"updatedAt":4,"recencyAt":5}
+	]}`)
+	backend := newCodexChatBackend(func(context.Context) (codexRPCConn, func(), error) {
+		return rpc, func() {}, nil
+	})
+
+	page, err := backend.ListThreads(context.Background(), codexThreadListOptions{Limit: 50})
+	if err != nil {
+		t.Fatal(err)
+	}
+	byID := map[string]Session{}
+	for _, session := range page.Sessions {
+		byID[session.SessionID] = session
+	}
+	// 列表时间应反映会话输出结束（rollout 末条 task_complete），而非 state DB recency。
+	if want := parseTimeMs("2026-08-09T03:59:40Z"); byID[id].OutputEndedAt != want {
+		t.Fatalf("outputEndedAt got %d, want %d", byID[id].OutputEndedAt, want)
+	}
+	if got := byID["019e865e-55cc-7362-9cd4-77b6fdf68510"].OutputEndedAt; got != 0 {
+		t.Fatalf("thread without rollout should have no output end time, got %d", got)
 	}
 }
 

@@ -1046,6 +1046,7 @@ async function refreshSessionsSoft() {
     if (current) {
       Object.assign(current, {
         live: session.live, waiting: session.waiting, status: session.status, mtime: session.mtime,
+        outputEndedAt: session.outputEndedAt,
       });
     }
     updateCachedChatFromSession(session.macId, session);
@@ -1055,7 +1056,7 @@ async function refreshSessionsSoft() {
     if (!session) continue;
     el.classList.toggle('session-waiting', !!session.waiting);
     const tEl = el.querySelector('.ses-time');
-    if (tEl) tEl.textContent = relTime(session.mtime);
+    if (tEl) tEl.textContent = relTime(session.outputEndedAt || session.mtime);
     const status = el.querySelector('.ses-status');
     if (status) {
       const value = sessionStatus(session);
@@ -1104,7 +1105,7 @@ function sessionRow(s) {
   const top = h('div', { class: 'ses-top' },
     h('span', { class: 't', text: s.title || '(无标题)' }),
     // 紧凑化：不再单起一行显示分支/路径，仅在同行标题后跟相对时间
-    h('span', { class: 'ses-time', text: relTime(s.mtime) }),
+    h('span', { class: 'ses-time', text: relTime(s.outputEndedAt || s.mtime) }),
     h('span', { class: `ses-status${status.className ? ' ' + status.className : ''}`, text: status.text }),
     h('span', { class: 'chat-cache-status', title: '自绘会话保持连接', 'aria-label': '自绘会话保持连接' }),
     pin,

@@ -9,6 +9,23 @@ import (
 	"testing"
 )
 
+func TestCodexLastOutputEndMsUsesLatestTaskComplete(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "rollout.jsonl")
+	data := strings.Join([]string{
+		`{"timestamp":"2026-08-09T03:40:00Z","type":"event_msg","payload":{"type":"task_complete"}}`,
+		`{"timestamp":"2026-08-09T03:50:00Z","type":"event_msg","payload":{"type":"task_started"}}`,
+		`{"timestamp":"2026-08-09T03:59:40.123Z","type":"event_msg","payload":{"type":"task_complete"}}`,
+		`{"timestamp":"2026-08-09T03:59:40.124Z","type":"event_msg","payload":{"type":"token_count"}}`,
+	}, "\n")
+	if err := os.WriteFile(path, []byte(data), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	want := parseTimeMs("2026-08-09T03:59:40.123Z")
+	if got := codexLastOutputEndMs(path); got != want {
+		t.Fatalf("output end got %d, want %d", got, want)
+	}
+}
+
 // 用临时 CodexHome 搭最小数据集，验证 scanCodexSessions 只列「desktop app 活跃会话」：
 //
 //	originator=="Codex Desktop"（排除命令行 codex-tui/codex_exec）、source 为字符串（排除

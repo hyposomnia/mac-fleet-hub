@@ -198,22 +198,23 @@ func configSync() {
 
 // ---------------- 数据类型 ----------------
 type Session struct {
-	SessionID   string `json:"sessionId"`
-	Assistant   string `json:"assistant"`
-	Cwd         string `json:"cwd"`
-	Title       string `json:"title"`
-	GitBranch   string `json:"gitBranch"`
-	Mtime       int64  `json:"mtime"`   // 毫秒
-	Live        bool   `json:"live"`    // Desktop 未归档（活跃）
-	Pty         bool   `json:"pty"`     // 控制台已为该会话起过 fleet tmux（有可终止/可回到的进程）
-	Waiting     bool   `json:"waiting"` // 卡在「等你回答/授权」：jsonl 最后一条 assistant 且 stop_reason==tool_use
-	Status      string `json:"status,omitempty"`
-	Source      string `json:"source,omitempty"`
-	Pinned      bool   `json:"pinned,omitempty"`
-	ProjectID   string `json:"projectId,omitempty"`
-	ProjectName string `json:"projectName,omitempty"`
-	ProjectCwd  string `json:"projectCwd,omitempty"`
-	Projectless bool   `json:"projectless,omitempty"`
+	SessionID     string `json:"sessionId"`
+	Assistant     string `json:"assistant"`
+	Cwd           string `json:"cwd"`
+	Title         string `json:"title"`
+	GitBranch     string `json:"gitBranch"`
+	Mtime         int64  `json:"mtime"`                   // 毫秒
+	OutputEndedAt int64  `json:"outputEndedAt,omitempty"` // 最近一次 Codex 输出完成（task_complete）时间，毫秒
+	Live          bool   `json:"live"`                    // Desktop 未归档（活跃）
+	Pty           bool   `json:"pty"`                     // 控制台已为该会话起过 fleet tmux（有可终止/可回到的进程）
+	Waiting       bool   `json:"waiting"`                 // 卡在「等你回答/授权」：jsonl 最后一条 assistant 且 stop_reason==tool_use
+	Status        string `json:"status,omitempty"`
+	Source        string `json:"source,omitempty"`
+	Pinned        bool   `json:"pinned,omitempty"`
+	ProjectID     string `json:"projectId,omitempty"`
+	ProjectName   string `json:"projectName,omitempty"`
+	ProjectCwd    string `json:"projectCwd,omitempty"`
+	Projectless   bool   `json:"projectless,omitempty"`
 }
 
 // jsonl 行（只取需要字段）
@@ -773,6 +774,49 @@ func codexThreadCreatedMs(r codexThreadRow) int64 {
 	return 0
 }
 
+// codexLastOutputEndMs returns the latest completed-turn timestamp recorded in
+// the rollout. Reading only the tail keeps session listing cheap even for very
+// large conversations; task_complete is the final event of a completed turn.
+func codexLastOutputEndMs(path string) int64 {
+	if path == "" {
+		return 0
+	}
+	f, err := os.Open(path)
+	if err != nil {
+		return 0
+	}
+	defer f.Close()
+	info, err := f.Stat()
+	if err != nil {
+		return 0
+	}
+	const tailSize int64 = 256 * 1024
+	start := info.Size() - tailSize
+	if start < 0 {
+		start = 0
+	}
+	b := make([]byte, info.Size()-start)
+	if _, err := f.ReadAt(b, start); err != nil && err != io.EOF {
+		return 0
+	}
+	lines := bytes.Split(b, []byte{'\n'})
+	for i := len(lines) - 1; i >= 0; i-- {
+		if !bytes.Contains(lines[i], []byte(`"type":"task_complete"`)) {
+			continue
+		}
+		var row struct {
+			Timestamp string `json:"timestamp"`
+			Payload   struct {
+				Type string `json:"type"`
+			} `json:"payload"`
+		}
+		if json.Unmarshal(lines[i], &row) == nil && row.Payload.Type == "task_complete" {
+			return parseTimeMs(row.Timestamp)
+		}
+	}
+	return 0
+}
+
 func codexThreadHasRealActivity(r codexThreadRow) bool {
 	if strings.TrimSpace(r.Preview) != "" {
 		return true
@@ -834,7 +878,7 @@ func codexSessionFromThreadRow(r codexThreadRow, idx map[string]codexIdx) (Sessi
 	}
 	return Session{
 		SessionID: r.ID, Assistant: "codex", Cwd: r.Cwd, Title: codexThreadTitle(r, idx),
-		GitBranch: r.GitBranch, Mtime: mt, Live: codexThreadHasRealActivity(r),
+		GitBranch: r.GitBranch, Mtime: mt, OutputEndedAt: codexLastOutputEndMs(r.RolloutPath), Live: codexThreadHasRealActivity(r),
 	}, true
 }
 
@@ -1072,7 +1116,7 @@ func scanCodexSessions() []Session {
 			title = "(无标题)"
 		}
 		if cur, ok := best[id]; !ok || mt > cur.Mtime {
-			best[id] = Session{SessionID: id, Assistant: "codex", Cwd: cwd, Title: title, Mtime: mt, Live: true}
+			best[id] = Session{SessionID: id, Assistant: "codex", Cwd: cwd, Title: title, Mtime: mt, OutputEndedAt: codexLastOutputEndMs(f), Live: true}
 		}
 	}
 	out := make([]Session, 0, len(best))

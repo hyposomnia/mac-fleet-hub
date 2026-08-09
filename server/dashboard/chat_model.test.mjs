@@ -530,11 +530,13 @@ test('session rows remove redundant device, assistant, and idle labels', () => {
     const selectedDevice = sessionRow({
       sessionId: 'thread-selected-device', macId: 'm1', assistant: 'codex',
       title: 'Audit PWA', cwd: '/repo/mac-fleet-hub', mtime: fixedAppNowMs - 11 * 60e3,
+      outputEndedAt: fixedAppNowMs - 20e3,
       status: 'idle',
     });
     assert.equal(nodesWithClass(selectedDevice, 'session-device-name').length, 0);
     assert.equal(nodesWithClass(selectedDevice, 'session-project-name').length, 0);
     assert.equal(nodesWithClass(selectedDevice, 'ses-status')[0]?.textContent, '');
+    assert.equal(nodesWithClass(selectedDevice, 'ses-time')[0]?.textContent, '刚刚');
     assert.equal(sessionStatus({ status: 'idle' }).text, '');
     assert.doesNotMatch(nodeText(selectedDevice), /Codex/);
     assert.match(

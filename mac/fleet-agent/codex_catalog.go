@@ -227,8 +227,12 @@ func (b *codexChatBackend) ListThreads(ctx context.Context, opts codexThreadList
 		}
 	}
 	pins := readCodexThreadPins()
+	rollouts := codexRolloutPaths()
 	for index := range page.Sessions {
 		page.Sessions[index].Pinned = pins[page.Sessions[index].SessionID]
+		// 列表时间展示「会话输出结束时间」：state DB 的 recency 在 turn 结束后不更新，
+		// 取 rollout 末条 task_complete 的时间戳；无 rollout（首轮前/已归档）时为 0，前端回退 mtime。
+		page.Sessions[index].OutputEndedAt = codexLastOutputEndMs(rollouts[page.Sessions[index].SessionID])
 	}
 	sort.SliceStable(page.Sessions, func(left, right int) bool {
 		if page.Sessions[left].Pinned != page.Sessions[right].Pinned {
