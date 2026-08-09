@@ -537,6 +537,9 @@ test('session rows remove redundant device, assistant, and idle labels', () => {
     assert.equal(nodesWithClass(selectedDevice, 'session-project-name').length, 0);
     assert.equal(nodesWithClass(selectedDevice, 'ses-status')[0]?.textContent, '');
     assert.equal(nodesWithClass(selectedDevice, 'ses-time')[0]?.textContent, '刚刚');
+    // 保持连接的会话不再画空心圈，改由标题加粗表示（CSS 契约）。
+    assert.equal(nodesWithClass(selectedDevice, 'chat-cache-status').length, 0);
+    assert.match(styleCSS, /\.ses\.chat-connected \.ses-top \.t \{ font-weight: 600; \}/);
     assert.equal(sessionStatus({ status: 'idle' }).text, '');
     assert.doesNotMatch(nodeText(selectedDevice), /Codex/);
     assert.match(

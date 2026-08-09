@@ -578,11 +578,8 @@ svg.ic.fill { fill: currentColor; stroke: none; }
 .ses-top .stopbtn:hover { background: var(--danger-soft); border-color: var(--danger); }
 .ses-top .stopbtn:hover::before { opacity: 0; }
 .ses-top .stopbtn:hover svg { opacity: 1; }
-/* 自绘会话仅保持 SSE 时用中性空心点；真正运行时由文字状态取代。 */
-.ses-top .chat-cache-status { width: 25px; height: 25px; flex: none; display: none; place-items: center; }
-.ses-top .chat-cache-status::before { content: ''; width: 7px; height: 7px; border-radius: 50%; border: 1.5px solid var(--text-3); }
-.ses.chat-connected .chat-cache-status { display: grid; }
-.ses.session-running .chat-cache-status { display: none; }
+/* 自绘会话保持连接不再画空心圈（占位宽），标题加粗表示连接态。 */
+.ses.chat-connected .ses-top .t { font-weight: 600; }
 .ses-pin { display: grid; place-items: center; width: 22px; height: 25px; flex: none; color: var(--text-2); }
 .ses-pin .ic { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
 .ses-menu-wrap { position: relative; flex: none; }

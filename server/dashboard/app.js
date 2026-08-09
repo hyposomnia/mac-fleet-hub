@@ -1107,7 +1107,6 @@ function sessionRow(s) {
     // 紧凑化：不再单起一行显示分支/路径，仅在同行标题后跟相对时间
     h('span', { class: 'ses-time', text: relTime(s.outputEndedAt || s.mtime) }),
     h('span', { class: `ses-status${status.className ? ' ' + status.className : ''}`, text: status.text }),
-    h('span', { class: 'chat-cache-status', title: '自绘会话保持连接', 'aria-label': '自绘会话保持连接' }),
     pin,
     stop,
     menu,
