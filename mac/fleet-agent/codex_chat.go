@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -85,6 +86,7 @@ type codexChatBackend struct {
 	connectMu           sync.Mutex
 	turnProcessMu       sync.Mutex
 	threadLoadMu        sync.Mutex
+	subscriptionMu      sync.Mutex
 	restartOnce         sync.Once
 	mu                  sync.Mutex
 	rpc                 codexRPCConn
@@ -2714,6 +2716,8 @@ func (b *codexChatBackend) Events(ctx context.Context, assistant, sessionID stri
 	if err != nil {
 		return nil, err
 	}
+	b.subscriptionMu.Lock()
+	defer b.subscriptionMu.Unlock()
 	if err := b.ensureThreadLoaded(ctx, rpc, sessionID); err != nil {
 		return nil, err
 	}
@@ -2750,9 +2754,14 @@ func (b *codexChatBackend) Events(ctx context.Context, assistant, sessionID stri
 	b.mu.Unlock()
 	go func() {
 		<-ctx.Done()
+		b.subscriptionMu.Lock()
+		defer b.subscriptionMu.Unlock()
 		b.mu.Lock()
-		b.removeSubscriberLocked(sessionID, ch)
+		lastSubscriber := b.removeSubscriberLocked(sessionID, ch)
 		b.mu.Unlock()
+		if lastSubscriber {
+			b.unsubscribeThreadLocked(rpc, sessionID)
+		}
 	}()
 	return ch, nil
 }
@@ -2893,8 +2902,39 @@ func (b *codexChatBackend) publishLocked(ev ChatEvent) {
 		select {
 		case ch <- ev:
 		default:
-			b.removeSubscriberLocked(ev.SessionID, ch)
+			if b.removeSubscriberLocked(ev.SessionID, ch) {
+				rpc := b.rpc
+				go b.unsubscribeThreadIfUnused(rpc, ev.SessionID)
+			}
 		}
+	}
+}
+
+func (b *codexChatBackend) unsubscribeThreadIfUnused(rpc codexRPCConn, sessionID string) {
+	b.subscriptionMu.Lock()
+	defer b.subscriptionMu.Unlock()
+	b.mu.Lock()
+	unused := len(b.subs[sessionID]) == 0
+	b.mu.Unlock()
+	if unused {
+		b.unsubscribeThreadLocked(rpc, sessionID)
+	}
+}
+
+// unsubscribeThreadLocked releases only this app-server connection's live
+// subscription. It does not interrupt an active turn. subscriptionMu prevents
+// a reconnecting browser from racing the unsubscribe after it has resumed.
+func (b *codexChatBackend) unsubscribeThreadLocked(rpc codexRPCConn, sessionID string) {
+	b.mu.Lock()
+	delete(b.loadedThreads, sessionID)
+	b.mu.Unlock()
+	if rpc == nil {
+		return
+	}
+	unsubscribeCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if _, err := rpc.call(unsubscribeCtx, "thread/unsubscribe", map[string]string{"threadId": sessionID}); err != nil {
+		log.Printf("Codex thread/unsubscribe failed for %s: %v", sessionID, err)
 	}
 }
 
@@ -2910,8 +2950,9 @@ func (b *codexChatBackend) removeSubscriberLocked(sessionID string, ch chan Chat
 		if current := b.syncers[sessionID]; current != nil {
 			current.cancel()
 		}
+		return true
 	}
-	return true
+	return false
 }
 
 func rpcIDKey(raw json.RawMessage) string {

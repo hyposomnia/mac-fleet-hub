@@ -1560,12 +1560,20 @@ func TestCodexChatBackendConnectedSyncStopsWithLastSubscriber(t *testing.T) {
 	for {
 		b.mu.Lock()
 		_, running := b.syncers["thread-1"]
+		loaded := b.loadedThreads["thread-1"]
 		b.mu.Unlock()
-		if !running {
+		unsubscribed := false
+		for _, call := range rpc.calls {
+			if call.method == "thread/unsubscribe" {
+				unsubscribed = true
+				break
+			}
+		}
+		if !running && !loaded && unsubscribed {
 			break
 		}
 		if time.Now().After(deadline) {
-			t.Fatal("connected sync did not stop after subscriber cancellation")
+			t.Fatalf("last subscriber cleanup incomplete: sync=%v loaded=%v calls=%v", running, loaded, methods(rpc.calls))
 		}
 		time.Sleep(time.Millisecond)
 	}
@@ -1596,6 +1604,11 @@ func TestCodexChatBackendConnectedSyncSurvivesOtherSubscriberDisconnect(t *testi
 		if subscriberCount == 1 {
 			if !running {
 				t.Fatal("sync stopped while another subscriber remained connected")
+			}
+			for _, call := range rpc.calls {
+				if call.method == "thread/unsubscribe" {
+					t.Fatal("thread unsubscribed while another browser subscriber remained")
+				}
 			}
 			break
 		}

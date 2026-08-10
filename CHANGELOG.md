@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-08-10
+
+- 修复 Codex 会话在最后一个网页观察者离开后仍被 fleet-agent 永久订阅的问题：现在会调用 app-server `thread/unsubscribe` 释放该连接的占用，正在执行的 turn 不受影响；网页与 Codex Desktop 同时打开时仍保持共同订阅，可继续协同操作同一会话。
+
 mac-fleet-hub 变更记录（日期为本地时间）。
 
 ## 2026-08-07
