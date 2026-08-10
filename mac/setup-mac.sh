@@ -42,9 +42,14 @@ fi
 CODEX_HOME_DIR="${FLEET_CODEX_HOME:-$HOME/.codex}"
 CODEX_APPSERVER_MODE="${FLEET_CODEX_APPSERVER_MODE:-auto}"
 CODEX_APPSERVER_SOCK="${FLEET_CODEX_APPSERVER_SOCK:-}"
+CODEX_DESKTOP_SHARED_DAEMON="${FLEET_CODEX_DESKTOP_SHARED_DAEMON:-1}"
 case "$CODEX_APPSERVER_MODE" in
   auto|daemon|stdio) ;;
   *) echo "非法 FLEET_CODEX_APPSERVER_MODE=$CODEX_APPSERVER_MODE（应为 auto/daemon/stdio）" >&2; exit 1 ;;
+esac
+case "$CODEX_DESKTOP_SHARED_DAEMON" in
+  0|1) ;;
+  *) echo "非法 FLEET_CODEX_DESKTOP_SHARED_DAEMON=$CODEX_DESKTOP_SHARED_DAEMON（应为 0/1）" >&2; exit 1 ;;
 esac
 
 # --- 1. Tailscale 客户端 + （可选）入网 Headscale ---
@@ -83,6 +88,23 @@ if [[ "$CODEX_APPSERVER_MODE" != "stdio" && -x "$CODEX_BIN" ]]; then
   else
     echo "警告：Codex daemon 不可用，fleet-agent 将回退独立 stdio；更新 agent 仍可能中断活动 turn。" >&2
   fi
+fi
+
+# Codex Desktop 已内置共享本机 daemon 的启动开关。写入当前 GUI launchd
+# 环境后，后续启动的 Codex.app 与 fleet-agent 会连接同一 Unix socket，
+# 同一 thread 只有一个 app-server writer；已经运行的 App 需手动重启一次。
+DEFAULT_CODEX_HOME="$HOME/.codex"
+DEFAULT_CODEX_SOCK="$DEFAULT_CODEX_HOME/app-server-control/app-server-control.sock"
+if [[ "$CODEX_DESKTOP_SHARED_DAEMON" == "1" && "$CODEX_APPSERVER_MODE" != "stdio" && \
+      "$CODEX_HOME_DIR" == "$DEFAULT_CODEX_HOME" && \
+      ( -z "$CODEX_APPSERVER_SOCK" || "$CODEX_APPSERVER_SOCK" == "$DEFAULT_CODEX_SOCK" ) ]]; then
+  if launchctl setenv CODEX_APP_SERVER_USE_LOCAL_DAEMON 1; then
+    echo "Codex.app 已配置为在下次启动时复用 managed daemon"
+  else
+    echo "警告：无法写入 Codex.app GUI 环境；fleet-agent 启动后会重试。" >&2
+  fi
+else
+  launchctl unsetenv CODEX_APP_SERVER_USE_LOCAL_DAEMON 2>/dev/null || true
 fi
 
 # --- 3. 安装 fleet-agent / filebrowser 二进制 + ttyd 附着脚本 ---
@@ -168,6 +190,7 @@ render() { # src dst
       -e "s#__CODEX_HOME__#${CODEX_HOME_DIR}#g" \
       -e "s#__CODEX_APPSERVER_MODE__#${CODEX_APPSERVER_MODE}#g" \
       -e "s#__CODEX_APPSERVER_SOCK__#${CODEX_APPSERVER_SOCK}#g" \
+      -e "s#__CODEX_DESKTOP_SHARED_DAEMON__#${CODEX_DESKTOP_SHARED_DAEMON}#g" \
       "$1" > "$2"
 }
 PORT="$TTYD_PORT" render "$SCRIPT_DIR/com.macfleet.ttyd.plist"        "$LA/com.macfleet.ttyd.plist"

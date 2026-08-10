@@ -105,6 +105,7 @@ curl -I https://<FLEET_HOST>[:GATEWAY_PORT]/auth    # 期望 200
 | `FLEET_CODEX_HOME`/`FLEET_CODEX_BIN` | Codex 会话库与命令路径 | 默认 `~/.codex` / 自动发现 `codex` |
 | `FLEET_CODEX_APPSERVER_MODE` | Codex app-server 连接模式：`auto` 优先复用现有 control socket，不可用时启动 managed daemon，最后回退 stdio；`daemon` 禁止回退；`stdio` 保留旧行为 | `auto` |
 | `FLEET_CODEX_APPSERVER_SOCK` | 指定 managed app-server Unix socket；留空由 Codex 选择默认 control socket | （空） |
+| `FLEET_CODEX_DESKTOP_SHARED_DAEMON` | 让后续启动的本机 Codex.app 复用默认 managed daemon，与 Fleet 对同一 thread 实时共控；自定义 Codex home/socket 或 `stdio` 模式会自动关闭 | `1` |
 | `FLEET_REPLACE_TAILNET` | 当前已连接其他 Tailscale 控制面时，明确允许退出并切换到 Fleet mesh | `0` | 仅确认可以替换当前 tailnet 时设为 `1` |
 
 ### 执行（二选一）
@@ -120,7 +121,7 @@ curl -fsSL https://<网关地址>/enroll/mac-bundle.tar.gz | tar xz
 LOGIN_SERVER=https://<网关地址>:8443 AUTHKEY=<预授权密钥> bash mac/install.sh
 #   网关用高位端口/封 443 时把 :8443 换成 Headscale 对外端口（如 :28443）
 ```
-两者都会装 Tailscale、入网 Headscale（需 sudo 密码）、起 ttyd / filebrowser / fleet-agent，并用 `codex app-server daemon bootstrap --remote-control` 配置独立的 Codex app-server pid-backed daemon。remote control 只通过当前用户私有的 Unix control socket 开放，不新增公网监听。`auto` 模式会先直接握手目标机器上已有的兼容 control socket（例如 Codex 客户端已启动的 app-server）；没有可用 socket 时才启动 managed daemon。fleet-agent 在该 socket 上建立 WebSocket，不经过子 app-server 或 proxy。控制台的「会话」页可在 Claude / Codex 之间切换；Claude 使用本机 `~/.claude` 与 `claude`，Codex 使用本机 `~/.codex` 与 `codex`。网页关闭或 fleet-agent 更新/重启时只会断开 socket 客户端，正在执行的 Codex turn 继续由独立 app-server 运行；网页重连后会重新 `thread/resume` 并继续接收事件。旧版 Codex 不支持 control socket/daemon 时，默认 `auto` 模式才回退 stdio。
+两者都会装 Tailscale、入网 Headscale（需 sudo 密码）、起 ttyd / filebrowser / fleet-agent，并用 `codex app-server daemon bootstrap --remote-control` 配置独立的 Codex app-server pid-backed daemon。remote control 只通过当前用户私有的 Unix control socket 开放，不新增公网监听。`auto` 模式会先直接握手目标机器上已有的兼容 control socket（例如 Codex 客户端已启动的 app-server）；没有可用 socket 时才启动 managed daemon。fleet-agent 在该 socket 上建立 WebSocket，不经过子 app-server 或 proxy。默认还会给 macOS GUI 会话设置 Codex Desktop 自带的 `CODEX_APP_SERVER_USE_LOCAL_DAEMON=1` 开关；**重启一次已经运行的 Codex.app 后**，App 与 Fleet 会连接同一 daemon，同一 thread 由 daemon 保持唯一 writer，多入口各自订阅并实时接收事件，不再出现两个独立 app-server 互相报“其他位置运行”。控制台的「会话」页可在 Claude / Codex 之间切换；Claude 使用本机 `~/.claude` 与 `claude`，Codex 使用本机 `~/.codex` 与 `codex`。网页关闭或 fleet-agent 更新/重启时只会断开 socket 客户端，正在执行的 Codex turn 继续由独立 app-server 运行；网页重连后会重新 `thread/resume` 并继续接收事件。旧版 Codex Desktop/CLI 不支持共享本机 daemon 时会继续使用 stdio；此时只能做单 writer 交接，不能安全实时共控。
 AI 执行 B 时：用 env 把 LOGIN_SERVER/AUTHKEY/MAC_INDEX 传入即可非交互；编号自行按现有数量 +1，别问用户。
 
 ### 验证

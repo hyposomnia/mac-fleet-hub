@@ -33,6 +33,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strconv"
 	"strings"
@@ -44,21 +45,22 @@ import (
 
 // ---------------- 配置 ----------------
 type Config struct {
-	Listen       string // 绑定地址，如 100.x.x.x:7682
-	FileRoot     string // Fleet 文件预览许可访问的根目录（与 filebrowser root 一致）
-	ClaudeHome   string // ~/.claude
-	ClaudeBin    string // claude 可执行文件
-	CodexHome    string // ~/.codex
-	CodexBin     string // codex 可执行文件
-	CodexMode    string // app-server 连接模式：auto / daemon / stdio
-	CodexSock    string // managed app-server unix socket（空则使用 Codex 默认）
-	MacIndex     string // 1/2/3 → 终端入口 /m{idx}/term
-	IdleSec      int64  // 空闲回收秒数（默认 1800）
-	AutoCmdR     bool   // 会话结束自动给 Desktop 发 Cmd+R
-	DesktopApp   string // osascript 目标应用名（默认 Claude）
-	ProxyFile    string // 代理配置持久化文件（~/.macfleet-proxy.json）
-	DesktopStore string // Claude Desktop 会话库目录（一次数据源）
-	TmuxConf     string // 自管理 tmux 配置（~/.macfleet-tmux.conf），经 tmux -f 在 server 启动时加载
+	Listen            string // 绑定地址，如 100.x.x.x:7682
+	FileRoot          string // Fleet 文件预览许可访问的根目录（与 filebrowser root 一致）
+	ClaudeHome        string // ~/.claude
+	ClaudeBin         string // claude 可执行文件
+	CodexHome         string // ~/.codex
+	CodexBin          string // codex 可执行文件
+	CodexMode         string // app-server 连接模式：auto / daemon / stdio
+	CodexSock         string // managed app-server unix socket（空则使用 Codex 默认）
+	CodexDesktopShare bool   // 让 Codex.app 与 Fleet 连接同一个 managed daemon
+	MacIndex          string // 1/2/3 → 终端入口 /m{idx}/term
+	IdleSec           int64  // 空闲回收秒数（默认 1800）
+	AutoCmdR          bool   // 会话结束自动给 Desktop 发 Cmd+R
+	DesktopApp        string // osascript 目标应用名（默认 Claude）
+	ProxyFile         string // 代理配置持久化文件（~/.macfleet-proxy.json）
+	DesktopStore      string // Claude Desktop 会话库目录（一次数据源）
+	TmuxConf          string // 自管理 tmux 配置（~/.macfleet-tmux.conf），经 tmux -f 在 server 启动时加载
 }
 
 // 代理配置：Web 端可设，按会话注入到 claude 的环境（HTTP(S)_PROXY）。
@@ -120,21 +122,22 @@ func loadConfig() Config {
 	home, _ := os.UserHomeDir()
 	idle, _ := strconv.ParseInt(envOr("FLEET_IDLE_SEC", "1800"), 10, 64)
 	return Config{
-		Listen:       envOr("FLEET_LISTEN", "127.0.0.1:7682"),
-		FileRoot:     envOr("FLEET_FILE_ROOT", home),
-		ClaudeHome:   envOr("FLEET_CLAUDE_HOME", filepath.Join(home, ".claude")),
-		ClaudeBin:    envOr("FLEET_CLAUDE_BIN", "claude"),
-		CodexHome:    envOr("FLEET_CODEX_HOME", filepath.Join(home, ".codex")),
-		CodexBin:     envOr("FLEET_CODEX_BIN", "codex"),
-		CodexMode:    envOr("FLEET_CODEX_APPSERVER_MODE", "auto"),
-		CodexSock:    strings.TrimSpace(os.Getenv("FLEET_CODEX_APPSERVER_SOCK")),
-		MacIndex:     envOr("FLEET_MAC_INDEX", "1"),
-		IdleSec:      idle,
-		AutoCmdR:     envOr("FLEET_AUTO_CMDR", "1") == "1",
-		DesktopApp:   envOr("FLEET_DESKTOP_APP", "Claude"),
-		ProxyFile:    envOr("FLEET_PROXY_FILE", filepath.Join(home, ".macfleet-proxy.json")),
-		DesktopStore: envOr("FLEET_DESKTOP_STORE", filepath.Join(home, "Library", "Application Support", "Claude", "claude-code-sessions")),
-		TmuxConf:     envOr("FLEET_TMUX_CONF", filepath.Join(home, ".macfleet-tmux.conf")),
+		Listen:            envOr("FLEET_LISTEN", "127.0.0.1:7682"),
+		FileRoot:          envOr("FLEET_FILE_ROOT", home),
+		ClaudeHome:        envOr("FLEET_CLAUDE_HOME", filepath.Join(home, ".claude")),
+		ClaudeBin:         envOr("FLEET_CLAUDE_BIN", "claude"),
+		CodexHome:         envOr("FLEET_CODEX_HOME", filepath.Join(home, ".codex")),
+		CodexBin:          envOr("FLEET_CODEX_BIN", "codex"),
+		CodexMode:         envOr("FLEET_CODEX_APPSERVER_MODE", "auto"),
+		CodexSock:         strings.TrimSpace(os.Getenv("FLEET_CODEX_APPSERVER_SOCK")),
+		CodexDesktopShare: envOr("FLEET_CODEX_DESKTOP_SHARED_DAEMON", "1") == "1",
+		MacIndex:          envOr("FLEET_MAC_INDEX", "1"),
+		IdleSec:           idle,
+		AutoCmdR:          envOr("FLEET_AUTO_CMDR", "1") == "1",
+		DesktopApp:        envOr("FLEET_DESKTOP_APP", "Claude"),
+		ProxyFile:         envOr("FLEET_PROXY_FILE", filepath.Join(home, ".macfleet-proxy.json")),
+		DesktopStore:      envOr("FLEET_DESKTOP_STORE", filepath.Join(home, "Library", "Application Support", "Claude", "claude-code-sessions")),
+		TmuxConf:          envOr("FLEET_TMUX_CONF", filepath.Join(home, ".macfleet-tmux.conf")),
 	}
 }
 
@@ -1869,6 +1872,10 @@ func main() {
 
 func runServer() {
 	cfg = loadConfig()
+	home, _ := os.UserHomeDir()
+	if err := configureCodexDesktopSharedDaemon(cfg, home, runtime.GOOS); err != nil {
+		log.Printf("配置 Codex.app 共享 daemon 失败；重启 App 后可能仍使用独立 stdio：%v", err)
+	}
 	agentChatBackend = newAgentChatBackend()
 	loadProxy()
 	writeTmuxConf()
