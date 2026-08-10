@@ -136,6 +136,7 @@ codex app-server daemon version                   # 期望返回本机 CLI / dae
 
 ## 给 AI 的收尾准则
 
+- **提交/部署前必须运行项目验证入口 `bash scripts/verify.sh` 并贴出真实输出**（按序执行 mac/fleet-agent 的 `go test ./...`、server/dashboard 的 `node --test chat_model.test.mjs`、tests/tailscale-utils_test.sh 三个测试层；任一失败则先修复再继续）。
 - 安装后跑上面的「验证」命令，把真实输出贴给用户。
 - Mac 入网后，提醒/协助把它的 mesh IP 追加到网关 `server/.env` 的 `MAC_IPS` 并重跑 `setup-server.sh`（除非网关已实现自动回填）。
 - 真实密钥 / 证书 / 密码不要打印到共享日志或写进提交。

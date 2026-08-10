@@ -443,6 +443,11 @@ test('session pagination loads automatically near the scroll boundary', () => {
   assert.match(appSrc, /loadSessions\(\{\s*append:\s*true\s*\}\)/);
 });
 
+test('recent session polling reconciles keyed rows without rebuilding the list', () => {
+  assert.match(appSrc, /function reconcileRecentSessionRows\(\)[\s\S]*?existing = new Map[\s\S]*?row\.replaceWith\(replacement\)[\s\S]*?list\.insertBefore\(row, position\)/);
+  assert.match(appSrc, /if \(state\.sessionView === 'recent'\)[\s\S]*?reconcileRecentSessionRows\(\);[\s\S]*?return;/);
+});
+
 test('mobile layout follows viewport width regardless of pointer type', () => {
   const query = '@media (max-width: 860px)';
   assert.equal(styleCSS.split(query).length - 1, 2);
@@ -475,7 +480,7 @@ test('session list aggregates online devices while row actions retain their sour
   assert.match(appSrc, /MACS\.filter\(\(m\) => state\.nodes\[m\.id\]\)/);
   assert.match(appSrc, /Promise\.all\(targets\.map\(async \(macId\)/);
   assert.match(appSrc, /macId,\s*assistant:\s*session\.assistant \|\| state\.assistant/);
-  assert.match(appSrc, /dataset:\s*\{\s*sid,\s*mac:\s*macId,\s*assistant\s*\}/);
+  assert.match(appSrc, /dataset:\s*\{\s*sid,\s*mac:\s*macId,\s*assistant,\s*renderSignature:/);
   assert.match(appSrc, /api\(session\.macId,\s*'sessions\/action'/);
   assert.match(appSrc, /termSes\(sid,\s*s\.title,\s*macId,\s*assistant\)/);
   assert.match(appSrc, /query\.set\('archived',\s*String\(state\.scope === 'all'\)\)/);
@@ -525,11 +530,16 @@ test('session rows remove redundant device, assistant, and idle labels', () => {
     const selectedDevice = sessionRow({
       sessionId: 'thread-selected-device', macId: 'm1', assistant: 'codex',
       title: 'Audit PWA', cwd: '/repo/mac-fleet-hub', mtime: fixedAppNowMs - 11 * 60e3,
+      outputEndedAt: fixedAppNowMs - 20e3,
       status: 'idle',
     });
     assert.equal(nodesWithClass(selectedDevice, 'session-device-name').length, 0);
     assert.equal(nodesWithClass(selectedDevice, 'session-project-name').length, 0);
     assert.equal(nodesWithClass(selectedDevice, 'ses-status')[0]?.textContent, '');
+    assert.equal(nodesWithClass(selectedDevice, 'ses-time')[0]?.textContent, '刚刚');
+    // 保持连接的会话不再画空心圈，改由标题加粗表示（CSS 契约）。
+    assert.equal(nodesWithClass(selectedDevice, 'chat-cache-status').length, 0);
+    assert.match(styleCSS, /\.ses\.chat-connected \.ses-top \.t \{ font-weight: 600; \}/);
     assert.equal(sessionStatus({ status: 'idle' }).text, '');
     assert.doesNotMatch(nodeText(selectedDevice), /Codex/);
     assert.match(
@@ -798,6 +808,12 @@ test('jump-to-bottom control uses an accessible inline SVG icon', () => {
   assert.doesNotMatch(indexHTML, />跳到底部<\/button>/);
 });
 
+test('jump-to-bottom glass is not trapped inside the composer backdrop root', () => {
+  assert.match(styleCSS, /#chat-composer\s*\{[^}]*background:\s*transparent;[^}]*backdrop-filter:\s*none;/s);
+  assert.match(styleCSS, /#chat-composer::before\s*\{[^}]*backdrop-filter:\s*blur\(18px\);/s);
+  assert.match(styleCSS, /#chat-jump\s*\{[^}]*backdrop-filter:\s*blur\(18px\);/s);
+});
+
 test('chat cache evicts the earliest updated non-current session', () => {
   const oldest = { updatedAt: 100, lastUsed: 999 };
   const newest = { updatedAt: 300, lastUsed: 1 };
@@ -848,6 +864,17 @@ test('vendored markdown parser formats common assistant response blocks', () => 
   assert.match(html, /<h2>变更<\/h2>/);
   assert.match(html, /<li><strong>安全<\/strong>链接<\/li>/);
   assert.match(html, /<pre><code class="language-sh">node --test/);
+});
+
+test('chat code blocks wrap, show line numbers, syntax color, and copy feedback', () => {
+  assert.match(markdownSrc, /chunk\.querySelectorAll\('pre'\)\.forEach\(enhanceCodeBlock\)/);
+  assert.match(markdownSrc, /CODE_MODE_BY_LANGUAGE/);
+  assert.match(markdownSrc, /chat-code-line-number/);
+  assert.match(markdownSrc, /navigator\?\.clipboard\?\.writeText/);
+  assert.match(markdownSrc, /copy\.replaceChildren\(copySuccessIcon\(\)\)/);
+  assert.match(markdownSrc, /createElementNS\('http:\/\/www\.w3\.org\/2000\/svg', 'svg'\)/);
+  assert.match(styleCSS, /\.chat-code-line-content\s*\{[^}]*white-space:\s*pre-wrap;[^}]*overflow-wrap:\s*anywhere;/s);
+  assert.match(styleCSS, /\.chat-code-lines \.cm-keyword\s*\{[^}]*var\(--syntax-keyword\)/s);
 });
 
 test('Codex git directives are parsed as structured status blocks', () => {
@@ -1095,7 +1122,8 @@ test('self-drawn composer contains native stop control and follow-up queue', () 
   assert.match(styleCSS, /\.chat-send \.chat-stop-icon\s*\{\s*display:\s*none/);
   assert.match(styleCSS, /chat-send\[data-action="interrupt"\]/);
   assert.equal((styleCSS.match(/\.chat-send\s*\{\s*width:\s*36px;\s*height:\s*36px;/g) || []).length, 2);
-  assert.match(styleCSS, /#chat-composer\s*\{\s*padding:\s*8px 10px max\(12px,\s*env\(safe-area-inset-bottom,\s*0px\)\);\s*background:\s*transparent;\s*backdrop-filter:\s*none;/);
+  assert.match(styleCSS, /#chat-composer\s*\{\s*padding:\s*8px 10px max\(12px,\s*env\(safe-area-inset-bottom,\s*0px\)\);\s*\}/);
+  assert.match(styleCSS, /#chat-composer::before\s*\{\s*content:\s*none;\s*\}/);
   assert.match(styleCSS, /html\.visual-keyboard-open #chat-composer\s*\{\s*padding-bottom:\s*4px;/);
 });
 

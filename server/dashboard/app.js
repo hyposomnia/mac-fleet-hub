@@ -751,6 +751,16 @@ function sessionKey(session) {
   return `${session?.macId || ''}\n${session?.assistant || state.assistant}\n${session?.sessionId || ''}`;
 }
 
+function sessionRenderSignature(session) {
+  return JSON.stringify({
+    title: session?.title || '', cwd: session?.cwd || '', projectId: session?.projectId || '',
+    projectName: session?.projectName || '', projectCwd: session?.projectCwd || '',
+    projectless: !!session?.projectless, mtime: Number(session?.mtime) || 0,
+    pinned: !!session?.pinned, pty: !!session?.pty, waiting: !!session?.waiting,
+    status: session?.status || '', live: !!session?.live,
+  });
+}
+
 function sessionTargetMacs({ append = false } = {}) {
   let ids;
   if (state.sessionMacId === 'all') {
@@ -847,6 +857,39 @@ function renderSessionResults(opts = {}) {
     wrap.append(h('div', { class: 'session-partial-note', text: `${failed.map(macName).join('、')} 暂时无法连接` }));
   }
   if (opts.preserveScroll) wrap.scrollTop = previousScrollTop;
+  requestAnimationFrame(maybeLoadMoreSessions);
+}
+
+// “最近”视图由稳定的会话 key 驱动：后台刷新只替换内容发生变化的行，
+// 新增/删除/换位也只操作对应节点，不清空列表容器，因此不会丢滚动位置或整列闪烁。
+function reconcileRecentSessionRows() {
+  const wrap = $('#session-groups');
+  const list = $('.recent-session-list', wrap);
+  if (!list) {
+    renderSessionResults({ preserveScroll: true });
+    return;
+  }
+  const sessions = [...state.sessionResults].sort((a, b) =>
+    (Number(b.pinned) - Number(a.pinned)) || (Number(b.mtime) - Number(a.mtime)));
+  const existing = new Map($$('.ses', list).map((row) => [
+    `${row.dataset.mac}\n${row.dataset.assistant}\n${row.dataset.sid}`, row,
+  ]));
+  let index = 0;
+  for (const session of sessions) {
+    const key = sessionKey(session);
+    const signature = sessionRenderSignature(session);
+    let row = existing.get(key);
+    if (!row || row.dataset.renderSignature !== signature) {
+      const replacement = sessionRow(session);
+      if (row) row.replaceWith(replacement);
+      row = replacement;
+    }
+    existing.delete(key);
+    const position = list.children[index] || null;
+    if (row !== position) list.insertBefore(row, position);
+    index += 1;
+  }
+  for (const row of existing.values()) row.remove();
   requestAnimationFrame(maybeLoadMoreSessions);
 }
 
@@ -973,6 +1016,26 @@ async function refreshSessionsSoft() {
     return complete && state.sessionResults.some((session) =>
       session.macId === macId && !freshByKey.has(sessionKey(session)));
   });
+  if (state.sessionView === 'recent') {
+    const nextByKey = new Map(state.sessionResults.map((session) => [sessionKey(session), session]));
+    for (const macId of targets) {
+      const page = freshByMac[macId];
+      if (!page) continue;
+      for (const session of page.sessions) nextByKey.set(sessionKey(session), session);
+      const complete = assistant === 'claude' || (!state.sessionCursors[macId] && !page.nextCursor);
+      if (complete) {
+        const present = new Set(page.sessions.map(sessionKey));
+        for (const [key, session] of nextByKey) {
+          if (session.macId === macId && !present.has(key)) nextByKey.delete(key);
+        }
+      }
+    }
+    state.sessionResults = [...nextByKey.values()];
+    for (const session of fresh) updateCachedChatFromSession(session.macId, session);
+    reconcileRecentSessionRows();
+    syncSessionRuntimeIndicators();
+    return;
+  }
   if (structuralChange) {
     loadSessions();
     return;
@@ -983,6 +1046,7 @@ async function refreshSessionsSoft() {
     if (current) {
       Object.assign(current, {
         live: session.live, waiting: session.waiting, status: session.status, mtime: session.mtime,
+        outputEndedAt: session.outputEndedAt,
       });
     }
     updateCachedChatFromSession(session.macId, session);
@@ -992,7 +1056,7 @@ async function refreshSessionsSoft() {
     if (!session) continue;
     el.classList.toggle('session-waiting', !!session.waiting);
     const tEl = el.querySelector('.ses-time');
-    if (tEl) tEl.textContent = relTime(session.mtime);
+    if (tEl) tEl.textContent = relTime(session.outputEndedAt || session.mtime);
     const status = el.querySelector('.ses-status');
     if (status) {
       const value = sessionStatus(session);
@@ -1041,9 +1105,8 @@ function sessionRow(s) {
   const top = h('div', { class: 'ses-top' },
     h('span', { class: 't', text: s.title || '(无标题)' }),
     // 紧凑化：不再单起一行显示分支/路径，仅在同行标题后跟相对时间
-    h('span', { class: 'ses-time', text: relTime(s.mtime) }),
+    h('span', { class: 'ses-time', text: relTime(s.outputEndedAt || s.mtime) }),
     h('span', { class: `ses-status${status.className ? ' ' + status.className : ''}`, text: status.text }),
-    h('span', { class: 'chat-cache-status', title: '自绘会话保持连接', 'aria-label': '自绘会话保持连接' }),
     pin,
     stop,
     menu,
@@ -1068,7 +1131,7 @@ function sessionRow(s) {
   const row = h('div', {
     class: 'ses' + (s.pty ? ' conn' : '') + (sessionRunning ? ' session-running' : '') +
       (s.waiting ? ' session-waiting' : '') + (chatConnected ? ' chat-connected' : '') + (selected ? ' sel' : ''),
-    dataset: { sid, mac: macId, assistant },
+    dataset: { sid, mac: macId, assistant, renderSignature: sessionRenderSignature(s) },
   }, top, meta, acts);
   // 池内 → poolShow 瞬时切换；有进程未在池 → 直接重新 attach；冷会话 → 仅高亮 + 展开三按钮。
   row.onclick = () => {
