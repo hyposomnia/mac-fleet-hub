@@ -428,6 +428,7 @@ func TestWriteChatErrMapsRecoveryStates(t *testing.T) {
 		{name: "timeout", err: errAppServerTimeout, status: http.StatusGatewayTimeout, code: "appserver_timeout"},
 		{name: "recovered", err: errAppServerRecovered, status: http.StatusServiceUnavailable, code: "appserver_recovered"},
 		{name: "restarting", err: errAgentRestarting, status: http.StatusServiceUnavailable, code: "agent_restarting"},
+		{name: "read only", err: errThreadReadOnly, status: http.StatusConflict, code: "thread_read_only"},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {

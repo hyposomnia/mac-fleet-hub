@@ -248,6 +248,7 @@ var errUnsupportedChatAssistant = errors.New("unsupported_assistant")
 var errNoActiveChatTurn = errors.New("no_active_turn")
 var errChatRequestNotFound = errors.New("chat_request_not_found")
 var errInvalidChatSkill = errors.New("invalid_chat_skill")
+var errThreadReadOnly = errors.New("thread_read_only")
 
 type ChatStartResult struct {
 	SessionID    string            `json:"sessionId"`
@@ -270,6 +271,8 @@ type ChatResumeResult struct {
 	ServiceTier  string            `json:"serviceTier,omitempty"`
 	ApprovalMode string            `json:"approvalMode,omitempty"`
 	Models       []ChatModelOption `json:"models,omitempty"`
+	AccessMode   string            `json:"accessMode,omitempty"`
+	AccessReason string            `json:"accessReason,omitempty"`
 }
 
 type ChatHistoryPage struct {
@@ -404,6 +407,10 @@ func writeChatErr(w http.ResponseWriter, err error) {
 	}
 	if errors.Is(err, errNoActiveChatTurn) {
 		writeErr(w, http.StatusConflict, "no_active_turn", "当前没有可引导的运行中任务。")
+		return
+	}
+	if errors.Is(err, errThreadReadOnly) {
+		writeErr(w, http.StatusConflict, "thread_read_only", "该会话正由其他 Codex 客户端控制，Fleet 当前为只读同步。")
 		return
 	}
 	if errors.Is(err, errChatRequestNotFound) {

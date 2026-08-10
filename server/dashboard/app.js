@@ -2734,17 +2734,53 @@ function updateChatComposerState() {
   const send = $('#chat-send');
   if (!send) return;
   const attachments = state.chat?.attachments || [];
+  const readOnly = state.chat?.accessMode === 'read-only';
   const blocked = attachments.some((att) => att.uploading || att.error || (!att.id && !att.pendingUpload));
   const hasContent = Boolean(input?.value.trim()) || attachments.length > 0;
   const action = chatComposerAction(state.chat, hasContent);
   send.dataset.action = action;
-  send.disabled = !state.chat || !!state.chat.starting || (action === 'interrupt'
+  send.disabled = !state.chat || readOnly || !!state.chat.starting || (action === 'interrupt'
     ? !!state.chat.interrupting
     : (!hasContent || blocked));
-  send.title = action === 'interrupt'
+  send.title = readOnly ? '只读同步中' : action === 'interrupt'
     ? '停止生成'
     : (blocked ? '等待图片上传完成' : (action === 'queue' ? '加入队列' : '发送'));
   send.setAttribute('aria-label', send.title);
+}
+
+function applyChatAccessMode(chat, source = {}) {
+  if (!chat) return;
+  if (source.accessMode) chat.accessMode = source.accessMode;
+  if (Object.prototype.hasOwnProperty.call(source, 'accessReason')) chat.accessReason = source.accessReason || '';
+  const readOnly = chat.accessMode === 'read-only';
+  const current = state.chat === chat;
+  if (!current) return;
+  const notice = $('#chat-readonly');
+  const acquire = $('#chat-acquire-writer');
+  const input = $('#chat-input');
+  const attach = $('#chat-attach');
+  const file = $('#chat-file');
+  const options = $('#chat-options-trigger');
+  if (notice) notice.hidden = !readOnly;
+  if (acquire) {
+    acquire.disabled = !!chat.acquiringWriter;
+    acquire.textContent = chat.acquiringWriter ? '正在尝试…' : '尝试获取控制权';
+  }
+  $('.chat-composer-shell')?.classList.toggle('read-only', readOnly);
+  if (input) {
+    input.disabled = readOnly;
+    input.placeholder = readOnly ? '该会话当前为只读' : '给 Codex 发送消息…';
+  }
+  if (attach) attach.disabled = readOnly;
+  if (file) file.disabled = readOnly;
+  if (options) options.disabled = readOnly;
+  setChatApprovalEnabled(chat, !readOnly && chat.historyReady);
+  if (readOnly) {
+    closeChatApproval();
+    closeChatOptions();
+    closeChatSkillMenu();
+  }
+  updateChatComposerState();
 }
 
 function mergeChatComposerText(failedText, currentText) {
@@ -2934,6 +2970,7 @@ async function openChatSession(s) {
       models: [], efforts: [], serviceTiers: [], selectedModel: '', selectedEffort: '', selectedServiceTier: '',
       modelDirty: false, serviceTierDirty: false,
       approvalMode: 'on-request', approvalConfirmedMode: 'on-request',
+      accessMode: 'read-write', accessReason: '', acquiringWriter: false,
       approvalUpdateChain: Promise.resolve(),
     };
     state.chatCache.set(key, chat);
@@ -2974,6 +3011,7 @@ async function openChatSession(s) {
     closeChatApproval();
     closeChatOptions();
   }
+  applyChatAccessMode(chat);
   renderChat({ forceBottom: true });
   updateChatComposerState();
   if (chat.pendingStart) return;
@@ -2999,6 +3037,7 @@ async function openChatSession(s) {
       chat.historyReady = true;
       chat.loading = false;
       configureChatOptions(chat, resumed);
+      applyChatAccessMode(chat, resumed);
       applyChatMetadataDefaults(chat);
       startChatEvents(chat);
     }
@@ -3015,6 +3054,36 @@ async function openChatSession(s) {
       chat.model = FleetChatModel.reduceChatEvent(chat.model, { type: 'error', data: { message: e.message } });
       renderChat();
     }
+  }
+}
+
+async function acquireChatWriter() {
+  const chat = state.chat;
+  if (!chat || chat.accessMode !== 'read-only' || chat.acquiringWriter) return;
+  chat.acquiringWriter = true;
+  applyChatAccessMode(chat);
+  try {
+    const resumed = await api(chat.macId, 'chat/resume', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ assistant: 'codex', sessionId: chat.sessionId, mode: 'default' }),
+    });
+    if (state.chatCache.get(chat.cacheKey) !== chat) return;
+    acknowledgeChatFollowups(chat, resumed.history?.events);
+    chat.model = FleetChatModel.prependHistory(chat.model, resumed.history?.events || []);
+    chat.model = FleetChatModel.reduceChatEvent(chat.model, {
+      type: 'thread_status', data: { status: resumed.status, activeTurnId: resumed.activeTurnId },
+    });
+    chat.historyCursor = resumed.history?.nextCursor || chat.historyCursor || '';
+    configureChatOptions(chat, resumed);
+    applyChatAccessMode(chat, resumed);
+    if (chat.accessMode === 'read-write') toast('已获取会话控制权', 'ok');
+    else toast('其他 Codex 客户端仍在控制该会话');
+    if (state.chat === chat) renderChat();
+  } catch (e) {
+    toast('获取控制权失败：' + (e.message || '未知错误'), 'err');
+  } finally {
+    chat.acquiringWriter = false;
+    applyChatAccessMode(chat);
   }
 }
 
@@ -3373,6 +3442,11 @@ function startChatEvents(chat = state.chat) {
     try {
       const ev = JSON.parse(e.data);
       updateChatUpdatedAt(chat, Date.now());
+      if (ev.type === 'access_mode') {
+        applyChatAccessMode(chat, {
+          accessMode: ev.data?.mode || 'read-write', accessReason: ev.data?.reason || '',
+        });
+      }
       const wasRunning = isChatRunning(chat);
       acknowledgeChatFollowups(chat, [ev]);
       chat.model = FleetChatModel.reduceChatEvent(chat.model, ev);
@@ -3416,6 +3490,7 @@ async function restoreChatAfterForeground(chat = state.chat) {
         data: { status: resumed.status, activeTurnId: resumed.activeTurnId },
       });
       chat.historyCursor = resumed.history?.nextCursor || chat.historyCursor || '';
+      applyChatAccessMode(chat, resumed);
       applyChatMetadataDefaults(chat);
       updateChatUpdatedAt(chat, Date.now());
       if (state.chat === chat) {
@@ -5585,6 +5660,7 @@ function init() {
     if (e.isPrimary !== false && document.activeElement === $('#chat-input')) e.preventDefault();
   });
   $('#chat-attach').onclick = () => $('#chat-file').click();
+  $('#chat-acquire-writer').onclick = acquireChatWriter;
   $('#chat-file').addEventListener('change', (e) => { addChatFiles(e.target.files); e.target.value = ''; });
   $('#chat-input').addEventListener('input', () => {
     saveChatDraft(); resizeChatInput(); updateChatComposerState(); updateChatSkillMenu();

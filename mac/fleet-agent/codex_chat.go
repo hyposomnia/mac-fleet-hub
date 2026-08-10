@@ -92,6 +92,7 @@ type codexChatBackend struct {
 	rpc                 codexRPCConn
 	cleanup             func()
 	loadedThreads       map[string]bool
+	readOnlyThreads     map[string]bool
 	subs                map[string]map[chan ChatEvent]struct{}
 	lastTurn            map[string]string
 	approvalModes       map[string]string
@@ -121,6 +122,7 @@ func newCodexChatBackend(connect codexConnector) *codexChatBackend {
 		connect:             connect,
 		restart:             scheduleFleetAgentRestart,
 		loadedThreads:       map[string]bool{},
+		readOnlyThreads:     map[string]bool{},
 		subs:                map[string]map[chan ChatEvent]struct{}{},
 		lastTurn:            map[string]string{},
 		approvalModes:       map[string]string{},
@@ -198,6 +200,21 @@ func (b *codexChatBackend) resetRPC() {
 
 func codexThreadNotFound(err error) bool {
 	return err != nil && strings.Contains(strings.ToLower(err.Error()), "thread not found")
+}
+
+func codexThreadHasExternalWriter(err error) bool {
+	if err == nil {
+		return false
+	}
+	message := strings.ToLower(err.Error())
+	return strings.Contains(message, "already has an active writer") &&
+		strings.Contains(message, "thread")
+}
+
+func (b *codexChatBackend) threadReadOnly(sessionID string) bool {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.readOnlyThreads[sessionID]
 }
 
 type codexHistoryItemEntry struct {
@@ -399,6 +416,7 @@ func (b *codexChatBackend) Resume(ctx context.Context, assistant, sessionID, mod
 	if err != nil {
 		return ChatResumeResult{}, err
 	}
+	wasReadOnly := b.threadReadOnly(sessionID)
 	b.beginResume(sessionID)
 	resumeFinished := false
 	defer func() {
@@ -413,7 +431,8 @@ func (b *codexChatBackend) Resume(ctx context.Context, assistant, sessionID, mod
 		"threadId": sessionID, "includeTurns": false,
 	})
 	res, err := b.resumeThread(ctx, rpc, sessionID)
-	if err != nil {
+	readOnly := codexThreadHasExternalWriter(err)
+	if err != nil && !readOnly {
 		return ChatResumeResult{}, err
 	}
 	threadID := res.Thread.ID
@@ -426,7 +445,32 @@ func (b *codexChatBackend) Resume(ctx context.Context, assistant, sessionID, mod
 		return ChatResumeResult{}, err
 	}
 	b.rememberSyncEvents(sessionID, history.Events)
-	status, activeTurnID := b.rememberResumedThread(ctx, rpc, sessionID, res)
+	status, activeTurnID := "idle", ""
+	if readOnly {
+		if stamp, ok := b.rolloutStamp(sessionID); ok {
+			var taskState codexRolloutTaskState
+			if updateCodexRolloutTaskState(stamp, &taskState) == nil && taskState.turnID != "" && !taskState.terminal {
+				status, activeTurnID = "active", taskState.turnID
+				b.mu.Lock()
+				b.lastTurn[sessionID] = taskState.turnID
+				b.mu.Unlock()
+			}
+		}
+		b.mu.Lock()
+		b.readOnlyThreads[sessionID] = true
+		delete(b.loadedThreads, sessionID)
+		b.mu.Unlock()
+	} else {
+		status, activeTurnID = b.rememberResumedThread(ctx, rpc, sessionID, res)
+		b.mu.Lock()
+		delete(b.readOnlyThreads, sessionID)
+		b.mu.Unlock()
+		if wasReadOnly {
+			b.publish(newChatEvent("access_mode", "codex", sessionID, "", "", map[string]string{
+				"mode": "read-write",
+			}))
+		}
+	}
 	b.finishResume(sessionID)
 	resumeFinished = true
 	sandboxPolicy := res.SandboxPolicy
@@ -437,12 +481,18 @@ func (b *codexChatBackend) Resume(ctx context.Context, assistant, sessionID, mod
 	if rolloutMode := codexApprovalModeFromRollout(jsonlPathFor("codex", sessionID)); rolloutMode != "" {
 		approvalMode = rolloutMode
 	}
-	b.applyApprovalMode(rpc, sessionID, approvalMode)
+	if !readOnly {
+		b.applyApprovalMode(rpc, sessionID, approvalMode)
+	}
+	accessMode, accessReason := "read-write", ""
+	if readOnly {
+		accessMode, accessReason = "read-only", "external_writer"
+	}
 	return ChatResumeResult{
 		SessionID: sessionID, ThreadID: threadID, Status: status, ActiveTurnID: activeTurnID,
 		History: history, Model: res.Model, Effort: res.ReasoningEffort, ServiceTier: res.ServiceTier,
 		ApprovalMode: approvalMode,
-		Models:       b.modelOptions(ctx, rpc),
+		Models:       b.modelOptions(ctx, rpc), AccessMode: accessMode, AccessReason: accessReason,
 	}, nil
 }
 
@@ -996,7 +1046,7 @@ func (b *codexChatBackend) runConnectedSync(ctx context.Context, sessionID strin
 					if reconcileErr == nil {
 						last = stamp
 						haveLast = true
-						if completed {
+						if completed && !b.threadReadOnly(sessionID) {
 							return
 						}
 					}
@@ -1709,6 +1759,9 @@ func (b *codexChatBackend) Input(ctx context.Context, assistant, sessionID, text
 	if assistant != "codex" {
 		return ChatInputResult{}, errUnsupportedChatAssistant
 	}
+	if b.threadReadOnly(sessionID) {
+		return ChatInputResult{}, errThreadReadOnly
+	}
 	rpc, err := b.ensure(ctx)
 	if err != nil {
 		return ChatInputResult{}, err
@@ -1788,6 +1841,9 @@ func (b *codexChatBackend) Input(ctx context.Context, assistant, sessionID, text
 func (b *codexChatBackend) Steer(ctx context.Context, assistant, sessionID, clientMessageID, text string, images []ChatAttachment, skills []ChatSkill) (ChatInputResult, error) {
 	if assistant != "codex" {
 		return ChatInputResult{}, errUnsupportedChatAssistant
+	}
+	if b.threadReadOnly(sessionID) {
+		return ChatInputResult{}, errThreadReadOnly
 	}
 	rpc, err := b.ensure(ctx)
 	if err != nil {
@@ -1929,6 +1985,9 @@ func codexApprovalSettingsParams(approvalMode string) map[string]interface{} {
 func (b *codexChatBackend) Settings(ctx context.Context, assistant, sessionID, approvalMode string) error {
 	if assistant != "codex" {
 		return errUnsupportedChatAssistant
+	}
+	if b.threadReadOnly(sessionID) {
+		return errThreadReadOnly
 	}
 	rpc, err := b.ensure(ctx)
 	if err != nil {
@@ -2718,8 +2777,10 @@ func (b *codexChatBackend) Events(ctx context.Context, assistant, sessionID stri
 	}
 	b.subscriptionMu.Lock()
 	defer b.subscriptionMu.Unlock()
-	if err := b.ensureThreadLoaded(ctx, rpc, sessionID); err != nil {
-		return nil, err
+	if !b.threadReadOnly(sessionID) {
+		if err := b.ensureThreadLoaded(ctx, rpc, sessionID); err != nil {
+			return nil, err
+		}
 	}
 	b.mu.Lock()
 	backlog := append([]ChatEvent(nil), b.backlog[sessionID]...)
@@ -2770,6 +2831,9 @@ func (b *codexChatBackend) Interrupt(ctx context.Context, assistant, sessionID s
 	if assistant != "codex" {
 		return errUnsupportedChatAssistant
 	}
+	if b.threadReadOnly(sessionID) {
+		return errThreadReadOnly
+	}
 	rpc, err := b.ensure(ctx)
 	if err != nil {
 		return err
@@ -2810,6 +2874,9 @@ func (b *codexChatBackend) Interrupt(ctx context.Context, assistant, sessionID s
 func (b *codexChatBackend) Respond(ctx context.Context, assistant, sessionID, requestID string, response json.RawMessage) error {
 	if assistant != "codex" {
 		return errUnsupportedChatAssistant
+	}
+	if b.threadReadOnly(sessionID) {
+		return errThreadReadOnly
 	}
 	rpc, err := b.ensure(ctx)
 	if err != nil {

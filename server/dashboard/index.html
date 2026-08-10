@@ -17,7 +17,7 @@
        内联以避免首屏闪烁。 -->
   <script>(function () { var t; try { t = localStorage.getItem('fleet-theme'); } catch (e) {} if (t !== 'light' && t !== 'dark') t = matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark'; document.documentElement.dataset.theme = t; document.querySelector('meta[name="theme-color"]').content = t === 'light' ? '#f6f7f9' : '#090c12'; })();</script>
   <link rel="stylesheet" href="vendor/codemirror/lib/codemirror.css?v=5.65.20" />
-  <link rel="stylesheet" href="style.css?v=102" />
+  <link rel="stylesheet" href="style.css?v=103" />
 </head>
 <body>
   <div id="network-status" class="network-status" role="status" hidden>
@@ -270,6 +270,10 @@
             <input id="chat-file" type="file" accept="image/*" multiple hidden />
             <div class="chat-composer-shell">
               <div id="chat-followups" hidden></div>
+              <div id="chat-readonly" class="chat-readonly" hidden>
+                <span>其他 Codex 客户端正在控制，当前为只读同步</span>
+                <button id="chat-acquire-writer" type="button">尝试获取控制权</button>
+              </div>
               <div class="chat-composer-inner">
                 <div id="chat-attachments" hidden></div>
                 <div id="chat-skill-menu" class="chat-skill-menu" role="listbox" aria-label="Skills" hidden></div>
@@ -495,9 +499,9 @@
   <script src="vendor/codemirror/mode/yaml/yaml.js?v=5.65.20"></script>
   <script src="vendor/codemirror/mode/toml/toml.js?v=5.65.20"></script>
   <script src="vendor/codemirror/mode/properties/properties.js?v=5.65.20"></script>
-  <script src="markdown.js?v=102"></script>
-  <script src="preview.js?v=102"></script>
-  <script src="chat_model.js?v=102"></script>
-  <script src="app.js?v=102"></script>
+  <script src="markdown.js?v=103"></script>
+  <script src="preview.js?v=103"></script>
+  <script src="chat_model.js?v=103"></script>
+  <script src="app.js?v=103"></script>
 </body>
 </html>

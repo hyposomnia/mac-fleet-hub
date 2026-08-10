@@ -175,6 +175,117 @@ func TestCodexChatBackendResumeUsesThreadResume(t *testing.T) {
 	}
 }
 
+func TestCodexChatBackendResumeFallsBackToReadOnlyForExternalWriter(t *testing.T) {
+	rpc := newFakeRPCConn()
+	rpc.errs["thread/resume"] = []error{errors.New("JSON-RPC -32600: thread thread-1 already has an active writer")}
+	rpc.reply["thread/items/list"] = json.RawMessage(`{"data":[
+		{"turnId":"turn-1","item":{"id":"msg-1","type":"agentMessage","text":"live output"}}
+	]}`)
+	b := newCodexChatBackend(func(ctx context.Context) (codexRPCConn, func(), error) {
+		return rpc, func() {}, nil
+	})
+
+	res, err := b.Resume(context.Background(), "codex", "thread-1", "default")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.AccessMode != "read-only" || res.AccessReason != "external_writer" {
+		t.Fatalf("read-only access missing: %+v", res)
+	}
+	if len(res.History.Events) != 1 || chatEventAssistantText(res.History.Events[0]) != "live output" {
+		t.Fatalf("read-only history missing: %+v", res.History)
+	}
+	if got := methods(rpc.calls); !reflect.DeepEqual(got, []string{
+		"thread/read", "thread/resume", "thread/items/list", "model/list",
+	}) {
+		t.Fatalf("read-only resume calls got %v", got)
+	}
+}
+
+func TestCodexChatBackendResumeDoesNotHideOtherErrorsAsReadOnly(t *testing.T) {
+	rpc := newFakeRPCConn()
+	rpc.errs["thread/resume"] = []error{errors.New("JSON-RPC -32600: invalid thread metadata")}
+	b := newCodexChatBackend(func(ctx context.Context) (codexRPCConn, func(), error) {
+		return rpc, func() {}, nil
+	})
+
+	if _, err := b.Resume(context.Background(), "codex", "thread-1", "default"); err == nil ||
+		!strings.Contains(err.Error(), "invalid thread metadata") {
+		t.Fatalf("non-writer error should be preserved, got %v", err)
+	}
+}
+
+func TestCodexChatBackendReadOnlyThreadRejectsWrites(t *testing.T) {
+	rpc := newFakeRPCConn()
+	b := newCodexChatBackend(func(ctx context.Context) (codexRPCConn, func(), error) {
+		return rpc, func() {}, nil
+	})
+	b.readOnlyThreads["thread-1"] = true
+
+	if _, err := b.Input(context.Background(), "codex", "thread-1", "hello", nil, nil, ChatTurnOptions{}); !errors.Is(err, errThreadReadOnly) {
+		t.Fatalf("read-only input got %v", err)
+	}
+	if _, err := b.Steer(context.Background(), "codex", "thread-1", "client-1", "guide", nil, nil); !errors.Is(err, errThreadReadOnly) {
+		t.Fatalf("read-only steer got %v", err)
+	}
+	if err := b.Interrupt(context.Background(), "codex", "thread-1"); !errors.Is(err, errThreadReadOnly) {
+		t.Fatalf("read-only interrupt got %v", err)
+	}
+	if err := b.Settings(context.Background(), "codex", "thread-1", "full-access"); !errors.Is(err, errThreadReadOnly) {
+		t.Fatalf("read-only settings got %v", err)
+	}
+	if err := b.Respond(context.Background(), "codex", "thread-1", "42", json.RawMessage(`{"decision":"accept"}`)); !errors.Is(err, errThreadReadOnly) {
+		t.Fatalf("read-only response got %v", err)
+	}
+	if len(rpc.calls) != 0 {
+		t.Fatalf("read-only writes reached app-server: %+v", rpc.calls)
+	}
+}
+
+func TestCodexChatBackendReadOnlyEventsDoNotResumeThread(t *testing.T) {
+	rpc := newFakeRPCConn()
+	b := newCodexChatBackend(func(ctx context.Context) (codexRPCConn, func(), error) {
+		return rpc, func() {}, nil
+	})
+	b.readOnlyThreads["thread-1"] = true
+	ctx, cancel := context.WithCancel(context.Background())
+	events, err := b.Events(ctx, "codex", "thread-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cancel()
+	for range events {
+	}
+	for _, method := range methods(rpc.calls) {
+		if method == "thread/resume" {
+			t.Fatalf("read-only event subscription resumed writer: %v", methods(rpc.calls))
+		}
+	}
+}
+
+func TestCodexChatBackendReadOnlyResumeAcquiresWriterAndNotifiesSubscribers(t *testing.T) {
+	rpc := newFakeRPCConn()
+	rpc.reply["thread/resume"] = json.RawMessage(`{"thread":{"id":"thread-1"}}`)
+	b := newCodexChatBackend(func(ctx context.Context) (codexRPCConn, func(), error) {
+		return rpc, func() {}, nil
+	})
+	b.readOnlyThreads["thread-1"] = true
+	ch := make(chan ChatEvent, 2)
+	b.subs["thread-1"] = map[chan ChatEvent]struct{}{ch: {}}
+
+	res, err := b.Resume(context.Background(), "codex", "thread-1", "default")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.AccessMode != "read-write" || b.threadReadOnly("thread-1") {
+		t.Fatalf("writer was not acquired: result=%+v readOnly=%v", res, b.threadReadOnly("thread-1"))
+	}
+	event := receiveChatEvents(t, ch, 1)[0]
+	if event.Type != "access_mode" || !strings.Contains(string(event.Data), `"mode":"read-write"`) {
+		t.Fatalf("access notification got %+v", event)
+	}
+}
+
 func TestCodexChatBackendResumeRestoresActiveTurnFromThread(t *testing.T) {
 	rpc := newFakeRPCConn()
 	rpc.reply["thread/resume"] = json.RawMessage(`{

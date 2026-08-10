@@ -585,6 +585,16 @@ test('session state uses one right-side text label without leading or running do
   assert.doesNotMatch(styleCSS, /\.ses-status\.running\s*\{\s*display:\s*none;\s*\}/);
 });
 
+test('external Codex writer renders a read-only composer with explicit acquire action', () => {
+  assert.match(indexHTML, /id="chat-readonly"[^>]*hidden/);
+  assert.match(indexHTML, /id="chat-acquire-writer"[^>]*>\s*尝试获取控制权\s*<\/button>/);
+  assert.match(appSrc, /accessMode:\s*'read-write'/);
+  assert.match(appSrc, /chat\.accessMode\s*===\s*'read-only'/);
+  assert.match(appSrc, /chat-acquire-writer/);
+  assert.match(appSrc, /chat\/resume/);
+  assert.match(styleCSS, /\.chat-readonly/);
+});
+
 test('custom file browser stays on one device and shares the protected preview route', () => {
   for (const id of [
     'file-browser', 'file-locations', 'file-breadcrumbs',

@@ -2,6 +2,7 @@
 
 ## 2026-08-10
 
+- 增加 Codex 外部 writer 只读模式：当 Desktop、VS Code 或另一 app-server 正在控制会话时，Fleet 不再显示原始 resume 错误，而是继续展示并同步历史与运行输出；输入、附件、审批和模型设置明确禁用，并提供“尝试获取控制权”操作，writer 释放后可原地恢复读写。
 - 修复 Fleet 与本机 Codex.app 通过两个独立 app-server 抢占同一 thread writer 的问题：安装和 fleet-agent 启动会启用 Codex Desktop 内置的本机 daemon 连接开关，App 重启后与 Fleet 共享默认 Unix control socket；已用两个独立 WebSocket 客户端验证同一 daemon 可同时 resume 同一会话。自定义 Codex home/socket 与显式 `stdio` 模式保持隔离，并可通过 `FLEET_CODEX_DESKTOP_SHARED_DAEMON=0` 关闭。
 - 修复 Codex 会话在最后一个网页观察者离开后仍被 fleet-agent 永久订阅的问题：现在会调用 app-server `thread/unsubscribe` 释放该连接的占用，正在执行的 turn 不受影响；网页与 Codex Desktop 同时打开时仍保持共同订阅，可继续协同操作同一会话。
 - 修复聊天「跳到底部」悬浮球只有半透明、没有真实毛玻璃的问题：解除输入区对它的 backdrop 隔离，让球体能实际模糊背后的聊天内容；桌面 hover 仅轻微上浮 1px 并略微加深。
