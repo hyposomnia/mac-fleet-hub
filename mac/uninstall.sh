@@ -9,7 +9,7 @@ bold() { printf "\033[1m%s\033[0m\n" "$1"; }
 bold "== mac-fleet-hub 卸载 =="
 
 LA="$HOME/Library/LaunchAgents"
-for svc in com.macfleet.ttyd com.macfleet.filebrowser com.macfleet.fleet-agent; do
+for svc in com.macfleet.ttyd com.macfleet.filebrowser com.macfleet.fleet-agent com.macfleet.codex-app-server; do
   launchctl unload "$LA/$svc.plist" 2>/dev/null && echo "  停服务 $svc" || true
   rm -f "$LA/$svc.plist"
 done
@@ -22,7 +22,8 @@ if command -v tmux >/dev/null 2>&1; then
 fi
 
 rm -f "$HOME/.local/bin/fleet-agent" "$HOME/.local/bin/fleet-attach" "$HOME/.local/bin/filebrowser"
-rm -f "$HOME/.macfleet-filebrowser.db" "$HOME/.macfleet-proxy.json"
+rm -f "$HOME/.macfleet-filebrowser.db" "$HOME/.macfleet-proxy.json" "$HOME/.macfleet/codex-app-server.sock"
+launchctl unsetenv CODEX_APP_SERVER_USE_LOCAL_DAEMON 2>/dev/null || true
 echo "  已移除二进制与配置"
 
 read -r -p "是否退出 Headscale 网络并卸载 tailscaled?（需要 sudo）[y/N] > " yn < /dev/tty || yn=N

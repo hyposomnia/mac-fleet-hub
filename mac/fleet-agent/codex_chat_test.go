@@ -175,13 +175,14 @@ func TestCodexChatBackendResumeUsesThreadResume(t *testing.T) {
 	}
 }
 
-func TestCodexChatBackendResumeFallsBackToReadOnlyForExternalWriter(t *testing.T) {
+func TestCodexChatBackendIsolatedResumeStaysReadOnly(t *testing.T) {
+	previousCfg := cfg
+	t.Cleanup(func() { cfg = previousCfg })
+	cfg.CodexMode = "isolated"
 	rpc := newFakeRPCConn()
-	rpc.errs["thread/resume"] = []error{errors.New("JSON-RPC -32600: thread thread-1 already has an active writer")}
-	rpc.reply["thread/items/list"] = json.RawMessage(`{"data":[
-		{"turnId":"turn-1","item":{"id":"msg-1","type":"agentMessage","text":"live output"}}
-	]}`)
-	b := newCodexChatBackend(func(ctx context.Context) (codexRPCConn, func(), error) {
+	rpc.reply["thread/read"] = json.RawMessage(`{"thread":{"id":"thread-1"}}`)
+	rpc.reply["thread/items/list"] = json.RawMessage(`{"data":[]}`)
+	b := newCodexChatBackend(func(context.Context) (codexRPCConn, func(), error) {
 		return rpc, func() {}, nil
 	})
 
@@ -189,100 +190,73 @@ func TestCodexChatBackendResumeFallsBackToReadOnlyForExternalWriter(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
-	if res.AccessMode != "read-only" || res.AccessReason != "external_writer" {
-		t.Fatalf("read-only access missing: %+v", res)
+	if res.WriterOwner != "" || b.loadedThreads["thread-1"] {
+		t.Fatalf("read-only resume claimed writer: result=%+v loaded=%v", res, b.loadedThreads["thread-1"])
 	}
-	if len(res.History.Events) != 1 || chatEventAssistantText(res.History.Events[0]) != "live output" {
-		t.Fatalf("read-only history missing: %+v", res.History)
-	}
-	if got := methods(rpc.calls); !reflect.DeepEqual(got, []string{
-		"thread/read", "thread/resume", "thread/items/list", "model/list",
-	}) {
-		t.Fatalf("read-only resume calls got %v", got)
+	if got := methods(rpc.calls); !reflect.DeepEqual(got, []string{"thread/read", "thread/items/list", "model/list"}) {
+		t.Fatalf("isolated resume must not call thread/resume: %v", got)
 	}
 }
 
-func TestCodexChatBackendResumeDoesNotHideOtherErrorsAsReadOnly(t *testing.T) {
+func TestCodexChatBackendIsolatedInputWaitsForDesktopWriterThenClaims(t *testing.T) {
+	previousCfg := cfg
+	t.Cleanup(func() { cfg = previousCfg })
+	cfg.CodexMode = "isolated"
 	rpc := newFakeRPCConn()
-	rpc.errs["thread/resume"] = []error{errors.New("JSON-RPC -32600: invalid thread metadata")}
-	b := newCodexChatBackend(func(ctx context.Context) (codexRPCConn, func(), error) {
-		return rpc, func() {}, nil
-	})
-
-	if _, err := b.Resume(context.Background(), "codex", "thread-1", "default"); err == nil ||
-		!strings.Contains(err.Error(), "invalid thread metadata") {
-		t.Fatalf("non-writer error should be preserved, got %v", err)
-	}
-}
-
-func TestCodexChatBackendReadOnlyThreadRejectsWrites(t *testing.T) {
-	rpc := newFakeRPCConn()
-	b := newCodexChatBackend(func(ctx context.Context) (codexRPCConn, func(), error) {
-		return rpc, func() {}, nil
-	})
-	b.readOnlyThreads["thread-1"] = true
-
-	if _, err := b.Input(context.Background(), "codex", "thread-1", "hello", nil, nil, ChatTurnOptions{}); !errors.Is(err, errThreadReadOnly) {
-		t.Fatalf("read-only input got %v", err)
-	}
-	if _, err := b.Steer(context.Background(), "codex", "thread-1", "client-1", "guide", nil, nil); !errors.Is(err, errThreadReadOnly) {
-		t.Fatalf("read-only steer got %v", err)
-	}
-	if err := b.Interrupt(context.Background(), "codex", "thread-1"); !errors.Is(err, errThreadReadOnly) {
-		t.Fatalf("read-only interrupt got %v", err)
-	}
-	if err := b.Settings(context.Background(), "codex", "thread-1", "full-access"); !errors.Is(err, errThreadReadOnly) {
-		t.Fatalf("read-only settings got %v", err)
-	}
-	if err := b.Respond(context.Background(), "codex", "thread-1", "42", json.RawMessage(`{"decision":"accept"}`)); !errors.Is(err, errThreadReadOnly) {
-		t.Fatalf("read-only response got %v", err)
-	}
-	if len(rpc.calls) != 0 {
-		t.Fatalf("read-only writes reached app-server: %+v", rpc.calls)
-	}
-}
-
-func TestCodexChatBackendReadOnlyEventsDoNotResumeThread(t *testing.T) {
-	rpc := newFakeRPCConn()
-	b := newCodexChatBackend(func(ctx context.Context) (codexRPCConn, func(), error) {
-		return rpc, func() {}, nil
-	})
-	b.readOnlyThreads["thread-1"] = true
-	ctx, cancel := context.WithCancel(context.Background())
-	events, err := b.Events(ctx, "codex", "thread-1")
-	if err != nil {
-		t.Fatal(err)
-	}
-	cancel()
-	for range events {
-	}
-	for _, method := range methods(rpc.calls) {
-		if method == "thread/resume" {
-			t.Fatalf("read-only event subscription resumed writer: %v", methods(rpc.calls))
-		}
-	}
-}
-
-func TestCodexChatBackendReadOnlyResumeAcquiresWriterAndNotifiesSubscribers(t *testing.T) {
-	rpc := newFakeRPCConn()
+	rpc.errs["thread/resume"] = []error{errors.New("thread thread-1 already has an active writer")}
 	rpc.reply["thread/resume"] = json.RawMessage(`{"thread":{"id":"thread-1"}}`)
-	b := newCodexChatBackend(func(ctx context.Context) (codexRPCConn, func(), error) {
+	rpc.reply["turn/start"] = json.RawMessage(`{"turn":{"id":"turn-fleet"}}`)
+	b := newCodexChatBackend(func(context.Context) (codexRPCConn, func(), error) {
 		return rpc, func() {}, nil
 	})
-	b.readOnlyThreads["thread-1"] = true
-	ch := make(chan ChatEvent, 2)
-	b.subs["thread-1"] = map[chan ChatEvent]struct{}{ch: {}}
 
-	res, err := b.Resume(context.Background(), "codex", "thread-1", "default")
+	if _, err := b.Input(context.Background(), "codex", "thread-1", "queued", nil, nil, ChatTurnOptions{}); !errors.Is(err, errExternalChatTurn) {
+		t.Fatalf("Desktop writer conflict got %v", err)
+	}
+	res, err := b.Input(context.Background(), "codex", "thread-1", "queued", nil, nil, ChatTurnOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if res.AccessMode != "read-write" || b.threadReadOnly("thread-1") {
-		t.Fatalf("writer was not acquired: result=%+v readOnly=%v", res, b.threadReadOnly("thread-1"))
+	if res.TurnID != "turn-fleet" || b.writerOwners["thread-1"] != "fleet" {
+		t.Fatalf("Fleet did not claim released writer: result=%+v owner=%q", res, b.writerOwners["thread-1"])
 	}
-	event := receiveChatEvents(t, ch, 1)[0]
-	if event.Type != "access_mode" || !strings.Contains(string(event.Data), `"mode":"read-write"`) {
-		t.Fatalf("access notification got %+v", event)
+	if got := methods(rpc.calls); !reflect.DeepEqual(got, []string{"thread/resume", "thread/resume", "turn/start"}) {
+		t.Fatalf("queued retry calls got %v", got)
+	}
+}
+
+func TestCodexChatBackendIsolatedTurnCompletionReleasesWriter(t *testing.T) {
+	previousCfg := cfg
+	t.Cleanup(func() { cfg = previousCfg })
+	cfg.CodexMode = "isolated"
+	rpc := newFakeRPCConn()
+	b := newCodexChatBackend(func(context.Context) (codexRPCConn, func(), error) {
+		return rpc, func() {}, nil
+	})
+	if _, err := b.ensure(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	b.mu.Lock()
+	b.loadedThreads["thread-1"] = true
+	b.writerOwners["thread-1"] = "fleet"
+	b.lastTurn["thread-1"] = "turn-1"
+	b.turnOwners["thread-1"] = "fleet"
+	b.mu.Unlock()
+	rpc.notes <- rpcNotification{Method: "turn/completed", Params: json.RawMessage(`{"threadId":"thread-1","turn":{"id":"turn-1","status":"completed"}}`)}
+
+	deadline := time.Now().Add(time.Second)
+	for {
+		b.mu.Lock()
+		loaded := b.loadedThreads["thread-1"]
+		owner := b.writerOwners["thread-1"]
+		b.mu.Unlock()
+		if !loaded && owner == "" && reflect.DeepEqual(methods(rpc.calls), []string{"thread/unsubscribe"}) {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("Fleet writer not released: loaded=%v owner=%q calls=%v", loaded, owner, methods(rpc.calls))
+		}
+		time.Sleep(time.Millisecond)
 	}
 }
 
@@ -388,6 +362,22 @@ func TestCodexChatBackendResumeHydratesHistoryAndOptions(t *testing.T) {
 	params := mapFromParams(t, rpc.calls[2].params)
 	if params["sortDirection"] != "desc" || params["limit"] != float64(chatHistoryPageSize) {
 		t.Fatalf("initial page params: %#v", params)
+	}
+}
+
+func TestCodexChatOptionsFromRolloutUsesLatestTurnContext(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "rollout.jsonl")
+	body := strings.Join([]string{
+		`{"type":"turn_context","payload":{"model":"gpt-old","effort":"medium","service_tier":"default"}}`,
+		`{"type":"event_msg","payload":{"type":"task_started","turn_id":"turn-1"}}`,
+		`{"type":"turn_context","payload":{"model":"gpt-new","effort":"high","service_tier":"priority"}}`,
+	}, "\n") + "\n"
+	if err := os.WriteFile(path, []byte(body), 0600); err != nil {
+		t.Fatal(err)
+	}
+	model, effort, tier := codexChatOptionsFromRollout(path)
+	if model != "gpt-new" || effort != "high" || tier != "priority" {
+		t.Fatalf("latest rollout options got model=%q effort=%q tier=%q", model, effort, tier)
 	}
 }
 
@@ -1687,6 +1677,49 @@ func TestCodexChatBackendConnectedSyncStopsWithLastSubscriber(t *testing.T) {
 			t.Fatalf("last subscriber cleanup incomplete: sync=%v loaded=%v calls=%v", running, loaded, methods(rpc.calls))
 		}
 		time.Sleep(time.Millisecond)
+	}
+}
+
+func TestCodexChatBackendDesktopTurnCannotBeSteered(t *testing.T) {
+	rpc := newFakeRPCConn()
+	b := newCodexChatBackend(func(context.Context) (codexRPCConn, func(), error) {
+		return rpc, func() {}, nil
+	})
+	b.lastTurn["thread-1"] = "turn-desktop"
+	b.turnOwners["thread-1"] = "desktop"
+	_, err := b.Steer(context.Background(), "codex", "thread-1", "client-1", "change it", nil, nil)
+	if !errors.Is(err, errExternalChatTurn) {
+		t.Fatalf("desktop steer got %v", err)
+	}
+	if len(rpc.calls) != 0 {
+		t.Fatalf("desktop turn reached Fleet app-server: %v", methods(rpc.calls))
+	}
+}
+
+func TestCodexChatBackendDesktopTurnBlocksNewFleetTurn(t *testing.T) {
+	previousCfg := cfg
+	t.Cleanup(func() { cfg = previousCfg })
+	cfg.CodexHome = t.TempDir()
+	sessionID := "11111111-2222-4333-8444-555555555555"
+	dir := filepath.Join(cfg.CodexHome, "sessions", "2026", "08", "11")
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	rollout := filepath.Join(dir, "rollout-2026-08-11T00-00-00-"+sessionID+".jsonl")
+	if err := os.WriteFile(rollout, []byte(
+		`{"type":"event_msg","payload":{"type":"task_started","turn_id":"turn-desktop"}}`+"\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	rpc := newFakeRPCConn()
+	b := newCodexChatBackend(func(context.Context) (codexRPCConn, func(), error) {
+		return rpc, func() {}, nil
+	})
+	_, err := b.Input(context.Background(), "codex", sessionID, "do not race", nil, nil, ChatTurnOptions{})
+	if !errors.Is(err, errExternalChatTurn) {
+		t.Fatalf("new Fleet turn while Desktop runs got %v", err)
+	}
+	if len(rpc.calls) != 0 {
+		t.Fatalf("blocked Fleet input reached sidecar: %v", methods(rpc.calls))
 	}
 }
 

@@ -51,8 +51,8 @@ type Config struct {
 	ClaudeBin         string // claude 可执行文件
 	CodexHome         string // ~/.codex
 	CodexBin          string // codex 可执行文件
-	CodexMode         string // app-server 连接模式：auto / daemon / stdio
-	CodexSock         string // managed app-server unix socket（空则使用 Codex 默认）
+	CodexMode         string // app-server 连接模式：isolated / shared / auto / stdio
+	CodexSock         string // Fleet 独立 app-server unix socket
 	CodexDesktopShare bool   // 让 Codex.app 与 Fleet 连接同一个 managed daemon
 	MacIndex          string // 1/2/3 → 终端入口 /m{idx}/term
 	IdleSec           int64  // 空闲回收秒数（默认 1800）
@@ -128,9 +128,9 @@ func loadConfig() Config {
 		ClaudeBin:         envOr("FLEET_CLAUDE_BIN", "claude"),
 		CodexHome:         envOr("FLEET_CODEX_HOME", filepath.Join(home, ".codex")),
 		CodexBin:          envOr("FLEET_CODEX_BIN", "codex"),
-		CodexMode:         envOr("FLEET_CODEX_APPSERVER_MODE", "auto"),
+		CodexMode:         envOr("FLEET_CODEX_APPSERVER_MODE", "isolated"),
 		CodexSock:         strings.TrimSpace(os.Getenv("FLEET_CODEX_APPSERVER_SOCK")),
-		CodexDesktopShare: envOr("FLEET_CODEX_DESKTOP_SHARED_DAEMON", "1") == "1",
+		CodexDesktopShare: envOr("FLEET_CODEX_DESKTOP_SHARED_DAEMON", "0") == "1",
 		MacIndex:          envOr("FLEET_MAC_INDEX", "1"),
 		IdleSec:           idle,
 		AutoCmdR:          envOr("FLEET_AUTO_CMDR", "1") == "1",
@@ -1874,7 +1874,7 @@ func runServer() {
 	cfg = loadConfig()
 	home, _ := os.UserHomeDir()
 	if err := configureCodexDesktopSharedDaemon(cfg, home, runtime.GOOS); err != nil {
-		log.Printf("配置 Codex.app 共享 daemon 失败；重启 App 后可能仍使用独立 stdio：%v", err)
+		log.Printf("配置 Codex.app app-server 隔离策略失败；重启 App 后连接模式可能未更新：%v", err)
 	}
 	agentChatBackend = newAgentChatBackend()
 	loadProxy()

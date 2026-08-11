@@ -103,9 +103,9 @@ curl -I https://<FLEET_HOST>[:GATEWAY_PORT]/auth    # 期望 200
 | `TTYD_PORT`/`FB_PORT`/`AGENT_PORT`/`FB_ROOT` | 服务端口 / 文件管理根目录 | 默认即可（FB_ROOT 默认整个 home） |
 | `FLEET_CLAUDE_HOME`/`FLEET_CLAUDE_BIN` | Claude 会话库与命令路径 | 默认 `~/.claude` / 自动发现 `claude` |
 | `FLEET_CODEX_HOME`/`FLEET_CODEX_BIN` | Codex 会话库与命令路径 | 默认 `~/.codex` / 自动发现 `codex` |
-| `FLEET_CODEX_APPSERVER_MODE` | Codex app-server 连接模式：`auto` 优先复用现有 control socket，不可用时启动 managed daemon，最后回退 stdio；`daemon` 禁止回退；`stdio` 保留旧行为 | `auto` |
-| `FLEET_CODEX_APPSERVER_SOCK` | 指定 managed app-server Unix socket；留空由 Codex 选择默认 control socket | （空） |
-| `FLEET_CODEX_DESKTOP_SHARED_DAEMON` | 让后续启动的本机 Codex.app 复用默认 managed daemon，与 Fleet 对同一 thread 实时共控；自定义 Codex home/socket 或 `stdio` 模式会自动关闭 | `1` |
+| `FLEET_CODEX_APPSERVER_MODE` | Codex app-server 连接模式：`isolated` 使用 Fleet 专属常驻 sidecar、与 Desktop 进程隔离；`shared` 显式复用默认 daemon；`auto` 为旧兼容回退；`stdio` 为应急旧行为 | `isolated` |
+| `FLEET_CODEX_APPSERVER_SOCK` | Fleet sidecar Unix socket；`isolated` 留空时使用 `~/.macfleet/codex-app-server.sock` | （自动） |
+| `FLEET_CODEX_DESKTOP_SHARED_DAEMON` | 仅 `shared` 模式下允许后续启动的 Codex.app 复用默认 daemon；`isolated` 始终取消该 GUI 环境开关，保证 Desktop 最高优先级 | `0` |
 | `FLEET_REPLACE_TAILNET` | 当前已连接其他 Tailscale 控制面时，明确允许退出并切换到 Fleet mesh | `0` | 仅确认可以替换当前 tailnet 时设为 `1` |
 
 ### 执行（二选一）
@@ -121,7 +121,7 @@ curl -fsSL https://<网关地址>/enroll/mac-bundle.tar.gz | tar xz
 LOGIN_SERVER=https://<网关地址>:8443 AUTHKEY=<预授权密钥> bash mac/install.sh
 #   网关用高位端口/封 443 时把 :8443 换成 Headscale 对外端口（如 :28443）
 ```
-两者都会装 Tailscale、入网 Headscale（需 sudo 密码）、起 ttyd / filebrowser / fleet-agent，并用 `codex app-server daemon bootstrap --remote-control` 配置独立的 Codex app-server pid-backed daemon。remote control 只通过当前用户私有的 Unix control socket 开放，不新增公网监听。`auto` 模式会先直接握手目标机器上已有的兼容 control socket（例如 Codex 客户端已启动的 app-server）；没有可用 socket 时才启动 managed daemon。fleet-agent 在该 socket 上建立 WebSocket，不经过子 app-server 或 proxy。默认还会给 macOS GUI 会话设置 Codex Desktop 自带的 `CODEX_APP_SERVER_USE_LOCAL_DAEMON=1` 开关；**重启一次已经运行的 Codex.app 后**，App 与 Fleet 会连接同一 daemon，同一 thread 由 daemon 保持唯一 writer，多入口各自订阅并实时接收事件，不再出现两个独立 app-server 互相报“其他位置运行”。控制台的「会话」页可在 Claude / Codex 之间切换；Claude 使用本机 `~/.claude` 与 `claude`，Codex 使用本机 `~/.codex` 与 `codex`。网页关闭或 fleet-agent 更新/重启时只会断开 socket 客户端，正在执行的 Codex turn 继续由独立 app-server 运行；网页重连后会重新 `thread/resume` 并继续接收事件。旧版 Codex Desktop/CLI 不支持共享本机 daemon 时会继续使用 stdio；此时只能做单 writer 交接，不能安全实时共控。
+两者都会装 Tailscale、入网 Headscale（需 sudo 密码）、起 ttyd / filebrowser / fleet-agent，并额外安装 `com.macfleet.codex-app-server`：它以同一个 `~/.codex` 为会话库，但使用 Fleet 专属进程和 `~/.macfleet/codex-app-server.sock`，不与 Codex Desktop 共享 app-server 或 thread 订阅。socket 仅当前用户可访问，不新增 TCP / 公网监听。安装会取消 GUI 环境中的 `CODEX_APP_SERVER_USE_LOCAL_DAEMON`；**完全退出再重开一次已经运行的 Codex.app 后**，Desktop 恢复自己的 app-server。Fleet 浏览会话时只读 rollout / history，不调用 `thread/resume`，因此不会抢占 Desktop writer。Desktop turn 由 Fleet 增量对账显示；Desktop 持有该 thread 时，Fleet 输入需二次确认并进入浏览器本地持久化队列，等 Desktop 切换或关闭该会话、writer 真正释放后才自动作为下一轮发送，不能跨 app-server steer / stop / 审批。Fleet 真正发送时才尝试取得 writer，自己的 turn 可 steer、停止和处理审批，并在 turn 完成后立即 `thread/unsubscribe` 释放 writer。Desktop 始终最高优先，Fleet 检测到 writer 冲突时保守退让。
 AI 执行 B 时：用 env 把 LOGIN_SERVER/AUTHKEY/MAC_INDEX 传入即可非交互；编号自行按现有数量 +1，别问用户。
 
 ### 验证
@@ -130,6 +130,8 @@ AI 执行 B 时：用 env 把 LOGIN_SERVER/AUTHKEY/MAC_INDEX 传入即可非交�
 tailscale ip -4                                   # 拿到 100.x mesh IP = 入网成功
 curl -s http://<本机meshIP>:7682/api/health       # 期望 ok
 codex app-server daemon version                   # 期望返回本机 CLI / daemon 版本 JSON
+test -S ~/.macfleet/codex-app-server.sock         # 期望 Fleet 专属 sidecar socket 存在
+launchctl getenv CODEX_APP_SERVER_USE_LOCAL_DAEMON # 期望为空（Desktop 不共享 Fleet daemon）
 ```
 回到手机/浏览器打开网关入口 → 登录 → 应能看到这台 Mac 并进入它的终端 / 文件。
 

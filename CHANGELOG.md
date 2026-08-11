@@ -1,5 +1,12 @@
 # Changelog
 
+## 2026-08-11
+
+- 将 Codex Desktop 设为同一 thread 的最高优先入口：Fleet 默认改用独立常驻 app-server sidecar，浏览与实时同步仅读取 history / rollout，不再通过 `thread/resume` 抢占 Desktop writer。
+- Desktop 持有 writer 时，Fleet 明确显示只读状态；用户输入需二次确认并持久化排队，等 Desktop 切换或关闭会话后自动重试。Fleet 不跨 app-server steer、停止或审批 Desktop turn。
+- Fleet 仅在真正发送时尝试取得 writer；自己的 turn 结束后立即 `thread/unsubscribe` 释放。安装脚本同步部署私有 Unix socket sidecar，并关闭 Desktop 共享 daemon 环境开关。
+- Dashboard PWA 缓存升级到 v103；补充隔离连接、writer 冲突、只读恢复、队列交互和完成即释放的回归测试，并重建 Darwin amd64/arm64 agent。
+
 ## 2026-08-10
 
 - 增加 Codex 外部 writer 只读模式：当 Desktop、VS Code 或另一 app-server 正在控制会话时，Fleet 不再显示原始 resume 错误，而是继续展示并同步历史与运行输出；输入、附件、审批和模型设置明确禁用，并提供“尝试获取控制权”操作，writer 释放后可原地恢复读写。

@@ -248,6 +248,7 @@ var errUnsupportedChatAssistant = errors.New("unsupported_assistant")
 var errNoActiveChatTurn = errors.New("no_active_turn")
 var errChatRequestNotFound = errors.New("chat_request_not_found")
 var errInvalidChatSkill = errors.New("invalid_chat_skill")
+var errExternalChatTurn = errors.New("external_turn_running")
 var errThreadReadOnly = errors.New("thread_read_only")
 
 type ChatStartResult struct {
@@ -265,14 +266,14 @@ type ChatResumeResult struct {
 	ThreadID     string            `json:"threadId"`
 	Status       string            `json:"status"`
 	ActiveTurnID string            `json:"activeTurnId,omitempty"`
+	TurnOwner    string            `json:"turnOwner,omitempty"`
+	WriterOwner  string            `json:"writerOwner,omitempty"`
 	History      ChatHistoryPage   `json:"history"`
 	Model        string            `json:"model,omitempty"`
 	Effort       string            `json:"effort,omitempty"`
 	ServiceTier  string            `json:"serviceTier,omitempty"`
 	ApprovalMode string            `json:"approvalMode,omitempty"`
 	Models       []ChatModelOption `json:"models,omitempty"`
-	AccessMode   string            `json:"accessMode,omitempty"`
-	AccessReason string            `json:"accessReason,omitempty"`
 }
 
 type ChatHistoryPage struct {
@@ -407,6 +408,10 @@ func writeChatErr(w http.ResponseWriter, err error) {
 	}
 	if errors.Is(err, errNoActiveChatTurn) {
 		writeErr(w, http.StatusConflict, "no_active_turn", "当前没有可引导的运行中任务。")
+		return
+	}
+	if errors.Is(err, errExternalChatTurn) {
+		writeErr(w, http.StatusConflict, "external_turn_running", "Codex Desktop 正在使用此会话；Fleet 已保持只读，请等待 Desktop 切换或关闭会话。")
 		return
 	}
 	if errors.Is(err, errThreadReadOnly) {
