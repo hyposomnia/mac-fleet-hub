@@ -17,12 +17,21 @@ func TestCodexDesktopSharedDaemonLaunchctlArgs(t *testing.T) {
 		want   []string
 	}{
 		{
-			name: "auto default paths enables shared daemon",
+			name: "auto default paths keeps Desktop independent",
 			goos: "darwin",
 			config: Config{
 				CodexHome: defaultHome, CodexMode: "auto", CodexDesktopShare: true,
 			},
-			want: []string{"setenv", codexDesktopLocalDaemonEnv, "1"},
+			want: []string{"unsetenv", codexDesktopLocalDaemonEnv},
+		},
+		{
+			name: "isolated sidecar keeps Desktop independent",
+			goos: "darwin",
+			config: Config{
+				CodexHome: defaultHome, CodexMode: "isolated", CodexSock: home + "/.macfleet/codex-app-server.sock",
+				CodexDesktopShare: true,
+			},
+			want: []string{"unsetenv", codexDesktopLocalDaemonEnv},
 		},
 		{
 			name: "daemon explicit default socket enables shared daemon",
@@ -90,7 +99,7 @@ func TestConfigureCodexDesktopSharedDaemon(t *testing.T) {
 		got = append([]string(nil), args...)
 		return nil, nil
 	}
-	config := Config{CodexHome: "/Users/tester/.codex", CodexMode: "auto", CodexDesktopShare: true}
+	config := Config{CodexHome: "/Users/tester/.codex", CodexMode: "shared", CodexDesktopShare: true}
 	if err := configureCodexDesktopSharedDaemon(config, "/Users/tester", "darwin"); err != nil {
 		t.Fatal(err)
 	}

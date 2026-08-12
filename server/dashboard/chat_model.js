@@ -3,7 +3,7 @@
 
   function createChatState() {
     return {
-      phase: 'idle', activeTurnId: '', turnProgress: '', messages: [], items: {},
+      phase: 'idle', activeTurnId: '', turnOwner: '', turnProgress: '', messages: [], items: {},
       requests: {}, approvals: {}, turnUsage: {}, error: null,
     };
   }
@@ -12,6 +12,7 @@
     return {
       phase: state.phase || 'idle',
       activeTurnId: state.activeTurnId || '',
+      turnOwner: state.turnOwner || '',
       turnProgress: state.turnProgress || '',
       messages: (state.messages || []).slice(),
       items: { ...(state.items || {}) },
@@ -342,6 +343,7 @@
           return next;
         }
         next.phase = phase;
+        if (data.turnOwner || data.turn_owner) next.turnOwner = firstString(data.turnOwner, data.turn_owner);
         if (phase === 'running') {
           next.activeTurnId = firstString(data.activeTurnId, data.active_turn_id, next.activeTurnId);
           if (next.activeTurnId && next.activeTurnId !== previousTurnId) next.turnProgress = '';
@@ -352,6 +354,7 @@
           }
         } else {
           next.activeTurnId = '';
+          next.turnOwner = '';
           next.turnProgress = '';
         }
         return next;
@@ -359,6 +362,7 @@
       case 'turn_started': {
         const previousTurnId = next.activeTurnId;
         next.phase = 'running';
+        if (data.turnOwner || data.turn_owner) next.turnOwner = firstString(data.turnOwner, data.turn_owner);
         next.activeTurnId = firstString(ev && ev.turnId, data.turnId, data.turn_id, asObject(data.turn).id, next.activeTurnId);
         if (next.activeTurnId !== previousTurnId) next.turnProgress = '';
         return next;
@@ -574,6 +578,7 @@
         if (!turnId || !next.activeTurnId || turnId === next.activeTurnId) {
           next.phase = 'idle';
           next.activeTurnId = '';
+          next.turnOwner = '';
           next.turnProgress = '';
         }
         if (turnId) delete next.turnUsage[turnId];

@@ -92,9 +92,10 @@ type codexChatBackend struct {
 	rpc                 codexRPCConn
 	cleanup             func()
 	loadedThreads       map[string]bool
-	readOnlyThreads     map[string]bool
 	subs                map[string]map[chan ChatEvent]struct{}
 	lastTurn            map[string]string
+	turnOwners          map[string]string
+	writerOwners        map[string]string
 	approvalModes       map[string]string
 	pending             map[string]pendingCodexRequest
 	resuming            map[string]bool
@@ -122,9 +123,10 @@ func newCodexChatBackend(connect codexConnector) *codexChatBackend {
 		connect:             connect,
 		restart:             scheduleFleetAgentRestart,
 		loadedThreads:       map[string]bool{},
-		readOnlyThreads:     map[string]bool{},
 		subs:                map[string]map[chan ChatEvent]struct{}{},
 		lastTurn:            map[string]string{},
+		turnOwners:          map[string]string{},
+		writerOwners:        map[string]string{},
 		approvalModes:       map[string]string{},
 		pending:             map[string]pendingCodexRequest{},
 		resuming:            map[string]bool{},
@@ -192,6 +194,7 @@ func (b *codexChatBackend) resetRPC() {
 	b.rpc = nil
 	b.cleanup = nil
 	b.loadedThreads = map[string]bool{}
+	b.writerOwners = map[string]string{}
 	b.mu.Unlock()
 	if cleanup != nil {
 		cleanup()
@@ -202,19 +205,12 @@ func codexThreadNotFound(err error) bool {
 	return err != nil && strings.Contains(strings.ToLower(err.Error()), "thread not found")
 }
 
-func codexThreadHasExternalWriter(err error) bool {
-	if err == nil {
-		return false
-	}
-	message := strings.ToLower(err.Error())
-	return strings.Contains(message, "already has an active writer") &&
-		strings.Contains(message, "thread")
+func codexThreadWriterConflict(err error) bool {
+	return err != nil && strings.Contains(strings.ToLower(err.Error()), "already has an active writer")
 }
 
-func (b *codexChatBackend) threadReadOnly(sessionID string) bool {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	return b.readOnlyThreads[sessionID]
+func codexUsesIsolatedSidecar() bool {
+	return normalizeCodexAppServerMode(cfg.CodexMode) == codexAppServerModeIsolated
 }
 
 type codexHistoryItemEntry struct {
@@ -336,6 +332,7 @@ func (b *codexChatBackend) Start(ctx context.Context, assistant, cwd, mode strin
 	b.mu.Lock()
 	b.freshThreads[sessionID] = true
 	b.loadedThreads[sessionID] = true
+	b.writerOwners[sessionID] = "fleet"
 	b.approvalModes[sessionID] = approvalMode
 	b.mu.Unlock()
 	return ChatStartResult{
@@ -374,9 +371,12 @@ func (b *codexChatBackend) rememberResumedThread(ctx context.Context, rpc codexR
 	}
 	if activeTurnID != "" {
 		b.lastTurn[sessionID] = activeTurnID
+		b.turnOwners[sessionID] = "fleet"
 	} else if !codexStatusIsRunning(status) {
 		delete(b.lastTurn, sessionID)
+		delete(b.turnOwners, sessionID)
 	}
+	b.writerOwners[sessionID] = "fleet"
 	b.mu.Unlock()
 	return status, activeTurnID
 }
@@ -390,6 +390,13 @@ func (b *codexChatBackend) ensureThreadLoaded(ctx context.Context, rpc codexRPCC
 	if loaded {
 		return nil
 	}
+	// An isolated Fleet sidecar must not call thread/resume merely because a
+	// browser is watching. Resuming claims the process-wide writer and can lock
+	// Codex Desktop out even while Fleet is idle. Input is the only path that
+	// claims the writer in isolated mode.
+	if codexUsesIsolatedSidecar() {
+		return nil
+	}
 
 	b.beginResume(sessionID)
 	finished := false
@@ -400,6 +407,19 @@ func (b *codexChatBackend) ensureThreadLoaded(ctx context.Context, rpc codexRPCC
 	}()
 	res, err := b.resumeThread(ctx, rpc, sessionID)
 	if err != nil {
+		if codexThreadWriterConflict(err) {
+			b.mu.Lock()
+			b.loadedThreads[sessionID] = true
+			b.writerOwners[sessionID] = "desktop"
+			if state, ok := codexCurrentRolloutTaskState(sessionID); ok && state.turnID != "" && !state.terminal {
+				b.lastTurn[sessionID] = state.turnID
+				b.turnOwners[sessionID] = "desktop"
+			}
+			b.mu.Unlock()
+			b.finishResume(sessionID)
+			finished = true
+			return nil
+		}
 		return err
 	}
 	b.rememberResumedThread(ctx, rpc, sessionID, res)
@@ -416,7 +436,6 @@ func (b *codexChatBackend) Resume(ctx context.Context, assistant, sessionID, mod
 	if err != nil {
 		return ChatResumeResult{}, err
 	}
-	wasReadOnly := b.threadReadOnly(sessionID)
 	b.beginResume(sessionID)
 	resumeFinished := false
 	defer func() {
@@ -427,13 +446,18 @@ func (b *codexChatBackend) Resume(ctx context.Context, assistant, sessionID, mod
 	// Match the Desktop lifecycle: read persisted metadata without loading the
 	// transcript, then resume and reconcile paginated history with notifications
 	// that arrived during hydration.
-	_, _ = rpc.call(ctx, "thread/read", map[string]interface{}{
+	readRaw, _ := rpc.call(ctx, "thread/read", map[string]interface{}{
 		"threadId": sessionID, "includeTurns": false,
 	})
-	res, err := b.resumeThread(ctx, rpc, sessionID)
-	readOnly := codexThreadHasExternalWriter(err)
-	if err != nil && !readOnly {
-		return ChatResumeResult{}, err
+	var res codexResumeWire
+	_ = json.Unmarshal(readRaw, &res)
+	externalWriter := false
+	if !codexUsesIsolatedSidecar() {
+		res, err = b.resumeThread(ctx, rpc, sessionID)
+		externalWriter = codexThreadWriterConflict(err)
+		if err != nil && !externalWriter {
+			return ChatResumeResult{}, err
+		}
 	}
 	threadID := res.Thread.ID
 	if threadID == "" {
@@ -445,31 +469,37 @@ func (b *codexChatBackend) Resume(ctx context.Context, assistant, sessionID, mod
 		return ChatResumeResult{}, err
 	}
 	b.rememberSyncEvents(sessionID, history.Events)
-	status, activeTurnID := "idle", ""
-	if readOnly {
-		if stamp, ok := b.rolloutStamp(sessionID); ok {
-			var taskState codexRolloutTaskState
-			if updateCodexRolloutTaskState(stamp, &taskState) == nil && taskState.turnID != "" && !taskState.terminal {
-				status, activeTurnID = "active", taskState.turnID
-				b.mu.Lock()
-				b.lastTurn[sessionID] = taskState.turnID
-				b.mu.Unlock()
-			}
-		}
+	status, activeTurnID, turnOwner := "idle", "", ""
+	writerOwner := ""
+	if !codexUsesIsolatedSidecar() && !externalWriter {
+		writerOwner = "fleet"
+		status, activeTurnID = b.rememberResumedThread(ctx, rpc, sessionID, res)
+	} else if externalWriter {
+		writerOwner = "desktop"
 		b.mu.Lock()
-		b.readOnlyThreads[sessionID] = true
-		delete(b.loadedThreads, sessionID)
+		b.writerOwners[sessionID] = "desktop"
+		b.mu.Unlock()
+	}
+	if rolloutState, ok := codexCurrentRolloutTaskState(sessionID); ok && rolloutState.turnID != "" && !rolloutState.terminal {
+		b.mu.Lock()
+		if b.lastTurn[sessionID] != rolloutState.turnID || b.turnOwners[sessionID] != "fleet" {
+			status = "running"
+			activeTurnID = rolloutState.turnID
+			b.lastTurn[sessionID] = activeTurnID
+			b.turnOwners[sessionID] = "desktop"
+			b.writerOwners[sessionID] = "desktop"
+		}
+		turnOwner = b.turnOwners[sessionID]
+		writerOwner = b.writerOwners[sessionID]
 		b.mu.Unlock()
 	} else {
-		status, activeTurnID = b.rememberResumedThread(ctx, rpc, sessionID, res)
 		b.mu.Lock()
-		delete(b.readOnlyThreads, sessionID)
-		b.mu.Unlock()
-		if wasReadOnly {
-			b.publish(newChatEvent("access_mode", "codex", sessionID, "", "", map[string]string{
-				"mode": "read-write",
-			}))
+		turnOwner = b.turnOwners[sessionID]
+		if codexUsesIsolatedSidecar() && turnOwner != "fleet" {
+			delete(b.writerOwners, sessionID)
 		}
+		writerOwner = b.writerOwners[sessionID]
+		b.mu.Unlock()
 	}
 	b.finishResume(sessionID)
 	resumeFinished = true
@@ -478,21 +508,26 @@ func (b *codexChatBackend) Resume(ctx context.Context, assistant, sessionID, mod
 		sandboxPolicy = res.Sandbox
 	}
 	approvalMode := codexApprovalMode(res.ApprovalPolicy, sandboxPolicy)
-	if rolloutMode := codexApprovalModeFromRollout(jsonlPathFor("codex", sessionID)); rolloutMode != "" {
+	rolloutPath := jsonlPathFor("codex", sessionID)
+	if rolloutMode := codexApprovalModeFromRollout(rolloutPath); rolloutMode != "" {
 		approvalMode = rolloutMode
 	}
-	if !readOnly {
-		b.applyApprovalMode(rpc, sessionID, approvalMode)
+	rolloutModel, rolloutEffort, rolloutServiceTier := codexChatOptionsFromRollout(rolloutPath)
+	if res.Model == "" {
+		res.Model = rolloutModel
 	}
-	accessMode, accessReason := "read-write", ""
-	if readOnly {
-		accessMode, accessReason = "read-only", "external_writer"
+	if res.ReasoningEffort == "" {
+		res.ReasoningEffort = rolloutEffort
 	}
+	if res.ServiceTier == "" {
+		res.ServiceTier = rolloutServiceTier
+	}
+	b.applyApprovalMode(rpc, sessionID, approvalMode)
 	return ChatResumeResult{
-		SessionID: sessionID, ThreadID: threadID, Status: status, ActiveTurnID: activeTurnID,
+		SessionID: sessionID, ThreadID: threadID, Status: status, ActiveTurnID: activeTurnID, TurnOwner: turnOwner, WriterOwner: writerOwner,
 		History: history, Model: res.Model, Effort: res.ReasoningEffort, ServiceTier: res.ServiceTier,
 		ApprovalMode: approvalMode,
-		Models:       b.modelOptions(ctx, rpc), AccessMode: accessMode, AccessReason: accessReason,
+		Models:       b.modelOptions(ctx, rpc),
 	}, nil
 }
 
@@ -548,7 +583,7 @@ func (b *codexChatBackend) History(ctx context.Context, assistant, sessionID, cu
 		return ChatHistoryPage{}, err
 	}
 	page, err := b.listHistory(ctx, rpc, sessionID, cursor)
-	if err != nil && codexThreadNotFound(err) {
+	if err != nil && codexThreadNotFound(err) && !codexUsesIsolatedSidecar() {
 		res, resumeErr := b.resumeThread(ctx, rpc, sessionID)
 		if resumeErr != nil {
 			return ChatHistoryPage{}, resumeErr
@@ -715,6 +750,10 @@ func codexSessionRolloutStamp(sessionID string) (codexRolloutStamp, bool) {
 		return codexRolloutStamp{}, false
 	}
 	return codexRolloutStamp{path: path, size: info.Size(), modTime: info.ModTime().UnixNano()}, true
+}
+
+func codexCurrentRolloutTaskState(sessionID string) (codexRolloutTaskState, bool) {
+	return codexRolloutRuntimeState(jsonlPathFor("codex", sessionID))
 }
 
 // codexRolloutRuntimeState keeps list polling cheap: the first request parses
@@ -988,11 +1027,16 @@ func (b *codexChatBackend) reconcileConnectedSession(ctx context.Context, rpc co
 	if state.turnID != "" && !state.terminal {
 		b.mu.Lock()
 		previous := b.lastTurn[sessionID]
+		owner := b.turnOwners[sessionID]
+		if previous != state.turnID || owner != "fleet" {
+			owner = "desktop"
+			b.turnOwners[sessionID] = owner
+		}
 		b.lastTurn[sessionID] = state.turnID
 		b.mu.Unlock()
 		if previous != state.turnID {
 			b.publish(newChatEvent("turn_started", "codex", sessionID, state.turnID, "", map[string]interface{}{
-				"turn": map[string]string{"id": state.turnID, "status": state.status},
+				"turn": map[string]string{"id": state.turnID, "status": state.status}, "turnOwner": owner,
 			}))
 		}
 	}
@@ -1010,14 +1054,20 @@ func (b *codexChatBackend) reconcileConnectedSession(ctx context.Context, rpc co
 	}
 	b.mu.Lock()
 	wasActive := b.lastTurn[sessionID] == state.turnID
+	releaseFleetWriter := wasActive && codexUsesIsolatedSidecar() &&
+		b.turnOwners[sessionID] == "fleet" && b.writerOwners[sessionID] == "fleet"
 	if wasActive {
 		delete(b.lastTurn, sessionID)
+		delete(b.turnOwners, sessionID)
 	}
 	b.mu.Unlock()
 	if wasActive {
 		b.publish(newChatEvent("turn_done", "codex", sessionID, state.turnID, "", map[string]interface{}{
 			"turn": map[string]string{"id": state.turnID, "status": state.status},
 		}))
+	}
+	if releaseFleetWriter {
+		b.releaseFleetWriter(rpc, sessionID)
 	}
 	return true, nil
 }
@@ -1046,7 +1096,7 @@ func (b *codexChatBackend) runConnectedSync(ctx context.Context, sessionID strin
 					if reconcileErr == nil {
 						last = stamp
 						haveLast = true
-						if completed && !b.threadReadOnly(sessionID) {
+						if completed {
 							return
 						}
 					}
@@ -1759,12 +1809,17 @@ func (b *codexChatBackend) Input(ctx context.Context, assistant, sessionID, text
 	if assistant != "codex" {
 		return ChatInputResult{}, errUnsupportedChatAssistant
 	}
-	if b.threadReadOnly(sessionID) {
-		return ChatInputResult{}, errThreadReadOnly
-	}
 	rpc, err := b.ensure(ctx)
 	if err != nil {
 		return ChatInputResult{}, err
+	}
+	if rolloutState, ok := codexCurrentRolloutTaskState(sessionID); ok && rolloutState.turnID != "" && !rolloutState.terminal {
+		b.mu.Lock()
+		owned := b.lastTurn[sessionID] == rolloutState.turnID && b.turnOwners[sessionID] == "fleet"
+		b.mu.Unlock()
+		if !owned {
+			return ChatInputResult{}, errExternalChatTurn
+		}
 	}
 	b.mu.Lock()
 	fresh := b.freshThreads[sessionID]
@@ -1772,6 +1827,12 @@ func (b *codexChatBackend) Input(ctx context.Context, assistant, sessionID, text
 	if !fresh {
 		var resumed codexResumeWire
 		resumed, err = b.resumeThread(ctx, rpc, sessionID)
+		if codexThreadWriterConflict(err) {
+			b.mu.Lock()
+			b.writerOwners[sessionID] = "desktop"
+			b.mu.Unlock()
+			return ChatInputResult{}, errExternalChatTurn
+		}
 		if err == nil {
 			b.rememberResumedThread(ctx, rpc, sessionID, resumed)
 		}
@@ -1834,6 +1895,8 @@ func (b *codexChatBackend) Input(ctx context.Context, assistant, sessionID, text
 	b.mu.Lock()
 	delete(b.freshThreads, sessionID)
 	b.lastTurn[sessionID] = res.Turn.ID
+	b.turnOwners[sessionID] = "fleet"
+	b.writerOwners[sessionID] = "fleet"
 	b.mu.Unlock()
 	return ChatInputResult{TurnID: res.Turn.ID}, nil
 }
@@ -1842,16 +1905,18 @@ func (b *codexChatBackend) Steer(ctx context.Context, assistant, sessionID, clie
 	if assistant != "codex" {
 		return ChatInputResult{}, errUnsupportedChatAssistant
 	}
-	if b.threadReadOnly(sessionID) {
-		return ChatInputResult{}, errThreadReadOnly
-	}
 	rpc, err := b.ensure(ctx)
 	if err != nil {
 		return ChatInputResult{}, err
 	}
 	b.mu.Lock()
 	turnID := b.lastTurn[sessionID]
+	owner := b.turnOwners[sessionID]
+	writerOwner := b.writerOwners[sessionID]
 	b.mu.Unlock()
+	if owner == "desktop" || writerOwner == "desktop" {
+		return ChatInputResult{}, errExternalChatTurn
+	}
 	if turnID == "" {
 		return ChatInputResult{}, errNoActiveChatTurn
 	}
@@ -1934,6 +1999,7 @@ func (b *codexChatBackend) reconcileInactiveTurn(sessionID, observedTurnID strin
 		return false
 	}
 	delete(b.lastTurn, sessionID)
+	delete(b.turnOwners, sessionID)
 	b.mu.Unlock()
 	b.publish(newChatEvent("thread_status", "codex", sessionID, "", "", map[string]interface{}{
 		"status": "idle", "reconciledTurnId": observedTurnID,
@@ -1986,8 +2052,11 @@ func (b *codexChatBackend) Settings(ctx context.Context, assistant, sessionID, a
 	if assistant != "codex" {
 		return errUnsupportedChatAssistant
 	}
-	if b.threadReadOnly(sessionID) {
-		return errThreadReadOnly
+	b.mu.Lock()
+	external := b.turnOwners[sessionID] == "desktop" || b.writerOwners[sessionID] == "desktop"
+	b.mu.Unlock()
+	if external {
+		return errExternalChatTurn
 	}
 	rpc, err := b.ensure(ctx)
 	if err != nil {
@@ -2157,6 +2226,44 @@ func codexApprovalModeFromRollout(path string) string {
 		}
 	}
 	return mode
+}
+
+func codexChatOptionsFromRollout(path string) (model, effort, serviceTier string) {
+	if path == "" {
+		return "", "", ""
+	}
+	f, err := os.Open(path)
+	if err != nil {
+		return "", "", ""
+	}
+	defer f.Close()
+
+	sc := bufio.NewScanner(f)
+	sc.Buffer(make([]byte, 1024*1024), 16*1024*1024)
+	for sc.Scan() {
+		var row struct {
+			Type    string `json:"type"`
+			Payload struct {
+				Model           string `json:"model"`
+				Effort          string `json:"effort"`
+				ReasoningEffort string `json:"reasoning_effort"`
+				ServiceTier     string `json:"service_tier"`
+			} `json:"payload"`
+		}
+		if json.Unmarshal(sc.Bytes(), &row) != nil || row.Type != "turn_context" {
+			continue
+		}
+		if row.Payload.Model != "" {
+			model = row.Payload.Model
+		}
+		if current := firstNonEmpty(row.Payload.Effort, row.Payload.ReasoningEffort); current != "" {
+			effort = current
+		}
+		if row.Payload.ServiceTier != "" {
+			serviceTier = row.Payload.ServiceTier
+		}
+	}
+	return model, effort, serviceTier
 }
 
 func (b *codexChatBackend) modelOptions(ctx context.Context, rpc codexRPCConn) []ChatModelOption {
@@ -2777,10 +2884,8 @@ func (b *codexChatBackend) Events(ctx context.Context, assistant, sessionID stri
 	}
 	b.subscriptionMu.Lock()
 	defer b.subscriptionMu.Unlock()
-	if !b.threadReadOnly(sessionID) {
-		if err := b.ensureThreadLoaded(ctx, rpc, sessionID); err != nil {
-			return nil, err
-		}
+	if err := b.ensureThreadLoaded(ctx, rpc, sessionID); err != nil {
+		return nil, err
 	}
 	b.mu.Lock()
 	backlog := append([]ChatEvent(nil), b.backlog[sessionID]...)
@@ -2831,9 +2936,6 @@ func (b *codexChatBackend) Interrupt(ctx context.Context, assistant, sessionID s
 	if assistant != "codex" {
 		return errUnsupportedChatAssistant
 	}
-	if b.threadReadOnly(sessionID) {
-		return errThreadReadOnly
-	}
 	rpc, err := b.ensure(ctx)
 	if err != nil {
 		return err
@@ -2842,7 +2944,12 @@ func (b *codexChatBackend) Interrupt(ctx context.Context, assistant, sessionID s
 	defer b.turnProcessMu.Unlock()
 	b.mu.Lock()
 	turnID := b.lastTurn[sessionID]
+	owner := b.turnOwners[sessionID]
+	writerOwner := b.writerOwners[sessionID]
 	b.mu.Unlock()
+	if owner == "desktop" || writerOwner == "desktop" {
+		return errExternalChatTurn
+	}
 	if turnID == "" {
 		b.reconcileInactiveTurn(sessionID, "")
 		return errNoActiveChatTurn
@@ -2874,9 +2981,6 @@ func (b *codexChatBackend) Interrupt(ctx context.Context, assistant, sessionID s
 func (b *codexChatBackend) Respond(ctx context.Context, assistant, sessionID, requestID string, response json.RawMessage) error {
 	if assistant != "codex" {
 		return errUnsupportedChatAssistant
-	}
-	if b.threadReadOnly(sessionID) {
-		return errThreadReadOnly
 	}
 	rpc, err := b.ensure(ctx)
 	if err != nil {
@@ -2932,14 +3036,21 @@ func (b *codexChatBackend) dispatch(rpc codexRPCConn, notes <-chan rpcNotificati
 			if ev.Type == "turn_started" && ev.SessionID != "" && ev.TurnID != "" {
 				b.mu.Lock()
 				b.lastTurn[ev.SessionID] = ev.TurnID
+				b.turnOwners[ev.SessionID] = "fleet"
 				b.mu.Unlock()
 			}
 			if ev.Type == "turn_done" && ev.SessionID != "" {
+				releaseFleetWriter := false
 				b.mu.Lock()
+				releaseFleetWriter = codexUsesIsolatedSidecar() && b.writerOwners[ev.SessionID] == "fleet"
 				if ev.TurnID == "" || b.lastTurn[ev.SessionID] == ev.TurnID {
 					delete(b.lastTurn, ev.SessionID)
+					delete(b.turnOwners, ev.SessionID)
 				}
 				b.mu.Unlock()
+				if releaseFleetWriter {
+					b.releaseFleetWriter(rpc, ev.SessionID)
+				}
 			}
 			b.mu.Lock()
 			if b.resuming[ev.SessionID] {
@@ -2993,9 +3104,13 @@ func (b *codexChatBackend) unsubscribeThreadIfUnused(rpc codexRPCConn, sessionID
 // a reconnecting browser from racing the unsubscribe after it has resumed.
 func (b *codexChatBackend) unsubscribeThreadLocked(rpc codexRPCConn, sessionID string) {
 	b.mu.Lock()
+	loaded := b.loadedThreads[sessionID]
 	delete(b.loadedThreads, sessionID)
+	if b.writerOwners[sessionID] == "fleet" {
+		delete(b.writerOwners, sessionID)
+	}
 	b.mu.Unlock()
-	if rpc == nil {
+	if rpc == nil || !loaded {
 		return
 	}
 	unsubscribeCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -3003,6 +3118,15 @@ func (b *codexChatBackend) unsubscribeThreadLocked(rpc codexRPCConn, sessionID s
 	if _, err := rpc.call(unsubscribeCtx, "thread/unsubscribe", map[string]string{"threadId": sessionID}); err != nil {
 		log.Printf("Codex thread/unsubscribe failed for %s: %v", sessionID, err)
 	}
+}
+
+// releaseFleetWriter gives Codex Desktop the thread immediately after a Fleet
+// turn finishes. Browser subscribers remain connected and continue receiving
+// rollout-backed history/status updates without holding the app-server writer.
+func (b *codexChatBackend) releaseFleetWriter(rpc codexRPCConn, sessionID string) {
+	b.subscriptionMu.Lock()
+	defer b.subscriptionMu.Unlock()
+	b.unsubscribeThreadLocked(rpc, sessionID)
 }
 
 func (b *codexChatBackend) removeSubscriberLocked(sessionID string, ch chan ChatEvent) bool {

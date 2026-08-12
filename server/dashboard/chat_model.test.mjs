@@ -585,14 +585,16 @@ test('session state uses one right-side text label without leading or running do
   assert.doesNotMatch(styleCSS, /\.ses-status\.running\s*\{\s*display:\s*none;\s*\}/);
 });
 
-test('external Codex writer renders a read-only composer with explicit acquire action', () => {
-  assert.match(indexHTML, /id="chat-readonly"[^>]*hidden/);
-  assert.match(indexHTML, /id="chat-acquire-writer"[^>]*>\s*尝试获取控制权\s*<\/button>/);
-  assert.match(appSrc, /accessMode:\s*'read-write'/);
-  assert.match(appSrc, /chat\.accessMode\s*===\s*'read-only'/);
-  assert.match(appSrc, /chat-acquire-writer/);
+test('external Codex writer keeps Fleet visible and queues confirmed input without acquire takeover', () => {
+  assert.doesNotMatch(indexHTML, /id="chat-acquire-writer"/);
+  assert.doesNotMatch(appSrc, /acquireChatWriter/);
+  assert.match(appSrc, /writerOwner:\s*''/);
+  assert.match(appSrc, /isDesktopChatOwned/);
+  assert.match(appSrc, /Codex Desktop 已打开此会话/);
+  assert.match(appSrc, /enqueueChatFollowup/);
+  assert.match(appSrc, /external_turn_running/);
   assert.match(appSrc, /chat\/resume/);
-  assert.match(styleCSS, /\.chat-readonly/);
+  assert.match(styleCSS, /\.chat-desktop-running/);
 });
 
 test('custom file browser stays on one device and shares the protected preview route', () => {
@@ -932,6 +934,18 @@ test('Codex object status and turn lifecycle drive the running phase', () => {
   assert.equal(state.activeTurnId, '');
 });
 
+test('Desktop turn ownership survives progress and clears on completion', () => {
+  let state = reduceChatEvent(createChatState(), {
+    type: 'turn_started', turnId: 'turn-desktop',
+    data: { turn: { id: 'turn-desktop' }, turnOwner: 'desktop' },
+  });
+  assert.equal(state.turnOwner, 'desktop');
+  state = reduceChatEvent(state, { type: 'assistant_delta', turnId: 'turn-desktop', itemId: 'a1', data: { delta: 'x' } });
+  assert.equal(state.turnOwner, 'desktop');
+  state = reduceChatEvent(state, { type: 'turn_done', turnId: 'turn-desktop', data: { status: 'completed' } });
+  assert.equal(state.turnOwner, '');
+});
+
 test('stale inactive events cannot clear a newer active turn', () => {
   let state = reduceChatEvent(createChatState(), {
     type: 'turn_started', turnId: 'turn-new', data: { turn: { id: 'turn-new' } },
@@ -973,12 +987,22 @@ test('follow-up queue is FIFO and removing one item preserves the others', () =>
 test('composer sends running input to the follow-up queue and only stops when empty', () => {
   const idle = { model: { phase: 'idle' } };
   const running = { model: { phase: 'running' } };
+  const desktopIdle = { writerOwner: 'desktop', model: { phase: 'idle' } };
+  const desktopRunning = { writerOwner: 'desktop', model: { phase: 'running', turnOwner: 'desktop' } };
 
   assert.equal(chatComposerAction(idle, false), 'send');
   assert.equal(chatComposerAction(idle, true), 'send');
   assert.equal(chatComposerAction(running, false), 'interrupt');
   assert.equal(chatComposerAction(running, true), 'queue');
+  assert.equal(chatComposerAction(desktopIdle, false), 'wait-desktop');
+  assert.equal(chatComposerAction(desktopIdle, true), 'queue-desktop');
+  assert.equal(chatComposerAction(desktopRunning, true), 'queue-desktop');
   assert.match(appSrc, /submitChatInput\(\{ forceQueue: action === 'queue' \}\)/);
+  assert.match(appSrc, /Codex Desktop 正在输出/);
+  assert.match(appSrc, /chatComposerAction[\s\S]*queue-desktop/);
+  assert.match(appSrc, /persistChatFollowups\(chat\)/);
+  assert.match(appSrc, /e\?\.code === 'external_turn_running'/);
+  assert.match(appSrc, /chat\.writerOwner === 'desktop'.*flushChatFollowups/s);
 });
 
 test('command enter steers the running turn before the skill menu handles enter', () => {

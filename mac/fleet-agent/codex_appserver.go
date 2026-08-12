@@ -84,9 +84,11 @@ type codexServerInfo struct {
 }
 
 const (
-	codexAppServerModeAuto   = "auto"
-	codexAppServerModeDaemon = "daemon"
-	codexAppServerModeStdio  = "stdio"
+	codexAppServerModeIsolated = "isolated"
+	codexAppServerModeShared   = "shared"
+	codexAppServerModeAuto     = "auto"
+	codexAppServerModeDaemon   = "daemon"
+	codexAppServerModeStdio    = "stdio"
 )
 
 type codexProcessConnector func(context.Context, string, ...string) (codexRPCConn, func(), error)
@@ -406,8 +408,10 @@ func (c *codexRPCClient) initialize(ctx context.Context, version string) error {
 
 func normalizeCodexAppServerMode(mode string) string {
 	switch strings.ToLower(strings.TrimSpace(mode)) {
-	case codexAppServerModeDaemon:
-		return codexAppServerModeDaemon
+	case codexAppServerModeIsolated:
+		return codexAppServerModeIsolated
+	case codexAppServerModeShared, codexAppServerModeDaemon:
+		return codexAppServerModeShared
 	case codexAppServerModeStdio:
 		return codexAppServerModeStdio
 	default:
@@ -460,6 +464,17 @@ func connectCodexAppServer(ctx context.Context) (codexRPCConn, func(), error) {
 		codexBin = "codex"
 	}
 	mode := normalizeCodexAppServerMode(cfg.CodexMode)
+	if mode == codexAppServerModeIsolated {
+		socketPath, socketErr := codexAppServerSocketPath()
+		if socketErr != nil {
+			return nil, nil, socketErr
+		}
+		rpc, cleanup, err := connectCodexSocket(ctx, socketPath)
+		if err != nil {
+			return nil, nil, fmt.Errorf("connect isolated Codex app-server: %w", err)
+		}
+		return rpc, cleanup, nil
+	}
 	if mode != codexAppServerModeStdio {
 		socketPath, socketErr := codexAppServerSocketPath()
 		if socketErr == nil {
@@ -480,12 +495,12 @@ func connectCodexAppServer(ctx context.Context) (codexRPCConn, func(), error) {
 					socketErr = err
 				}
 			}
-			if mode == codexAppServerModeDaemon {
+			if mode == codexAppServerModeShared {
 				return nil, nil, fmt.Errorf("connect managed Codex app-server: %w", socketErr)
 			}
 			log.Printf("managed Codex app-server socket unavailable; falling back to stdio: %v", socketErr)
 		} else {
-			if mode == codexAppServerModeDaemon {
+			if mode == codexAppServerModeShared {
 				return nil, nil, startErr
 			}
 			log.Printf("Codex app-server socket and managed daemon unavailable; falling back to stdio: %v", startErr)
@@ -505,6 +520,9 @@ func codexAppServerSocketPath() (string, error) {
 			return "", err
 		}
 		codexHome = filepath.Join(home, ".codex")
+	}
+	if normalizeCodexAppServerMode(cfg.CodexMode) == codexAppServerModeIsolated {
+		return filepath.Join(filepath.Dir(codexHome), ".macfleet", "codex-app-server.sock"), nil
 	}
 	return filepath.Join(codexHome, "app-server-control", "app-server-control.sock"), nil
 }

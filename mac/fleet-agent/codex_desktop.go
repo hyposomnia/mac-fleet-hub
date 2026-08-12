@@ -25,7 +25,7 @@ func codexDesktopSharedDaemonLaunchctlArgs(config Config, home, goos string) []s
 	defaultSocket := filepath.Join(defaultCodexHome, "app-server-control", "app-server-control.sock")
 	mode := normalizeCodexAppServerMode(config.CodexMode)
 	compatibleSocket := strings.TrimSpace(config.CodexSock) == "" || filepath.Clean(config.CodexSock) == defaultSocket
-	compatible := config.CodexDesktopShare && mode != codexAppServerModeStdio &&
+	compatible := config.CodexDesktopShare && mode == codexAppServerModeShared &&
 		filepath.Clean(config.CodexHome) == defaultCodexHome && compatibleSocket
 	if compatible {
 		return []string{"setenv", codexDesktopLocalDaemonEnv, "1"}

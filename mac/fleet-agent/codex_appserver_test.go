@@ -454,6 +454,35 @@ func TestCodexAppServerAutoReusesExistingSocket(t *testing.T) {
 	}
 }
 
+func TestCodexAppServerIsolatedUsesOnlyDedicatedSocket(t *testing.T) {
+	started, sockets, processes := installCodexLauncherFakes(t, "isolated", "/tmp/macfleet/codex.sock")
+	_, cleanup, err := connectCodexAppServer(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	cleanup()
+	if !reflect.DeepEqual(*sockets, []string{"/tmp/macfleet/codex.sock"}) {
+		t.Fatalf("isolated socket attempts got %v", *sockets)
+	}
+	if len(*started) != 0 || len(*processes) != 0 {
+		t.Fatalf("isolated mode must not start shared daemon or stdio: starts=%v processes=%v", *started, *processes)
+	}
+}
+
+func TestCodexAppServerIsolatedFailsClosed(t *testing.T) {
+	started, sockets, processes := installCodexLauncherFakes(t, "isolated", "/tmp/macfleet/codex.sock")
+	connectCodexSocket = func(_ context.Context, socketPath string) (codexRPCConn, func(), error) {
+		*sockets = append(*sockets, socketPath)
+		return nil, nil, errors.New("socket unavailable")
+	}
+	if _, _, err := connectCodexAppServer(context.Background()); err == nil || !strings.Contains(err.Error(), "isolated") {
+		t.Fatalf("isolated socket failure got %v", err)
+	}
+	if len(*started) != 0 || len(*processes) != 0 {
+		t.Fatalf("isolated failure fell back: starts=%v processes=%v", *started, *processes)
+	}
+}
+
 func TestCodexAppServerStartsManagedDaemonAfterSocketFailure(t *testing.T) {
 	started, sockets, processes := installCodexLauncherFakes(t, "auto", "")
 	attempts := 0

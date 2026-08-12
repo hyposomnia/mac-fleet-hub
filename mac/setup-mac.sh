@@ -40,13 +40,16 @@ else
   CODEX_BIN="$BREW_PREFIX/bin/codex"
 fi
 CODEX_HOME_DIR="${FLEET_CODEX_HOME:-$HOME/.codex}"
-CODEX_APPSERVER_MODE="${FLEET_CODEX_APPSERVER_MODE:-auto}"
+CODEX_APPSERVER_MODE="${FLEET_CODEX_APPSERVER_MODE:-isolated}"
 CODEX_APPSERVER_SOCK="${FLEET_CODEX_APPSERVER_SOCK:-}"
-CODEX_DESKTOP_SHARED_DAEMON="${FLEET_CODEX_DESKTOP_SHARED_DAEMON:-1}"
+CODEX_DESKTOP_SHARED_DAEMON="${FLEET_CODEX_DESKTOP_SHARED_DAEMON:-0}"
 case "$CODEX_APPSERVER_MODE" in
-  auto|daemon|stdio) ;;
-  *) echo "非法 FLEET_CODEX_APPSERVER_MODE=$CODEX_APPSERVER_MODE（应为 auto/daemon/stdio）" >&2; exit 1 ;;
+  isolated|shared|auto|daemon|stdio) ;;
+  *) echo "非法 FLEET_CODEX_APPSERVER_MODE=$CODEX_APPSERVER_MODE（应为 isolated/shared/auto/stdio）" >&2; exit 1 ;;
 esac
+if [[ "$CODEX_APPSERVER_MODE" == "isolated" && -z "$CODEX_APPSERVER_SOCK" ]]; then
+  CODEX_APPSERVER_SOCK="$HOME/.macfleet/codex-app-server.sock"
+fi
 case "$CODEX_DESKTOP_SHARED_DAEMON" in
   0|1) ;;
   *) echo "非法 FLEET_CODEX_DESKTOP_SHARED_DAEMON=$CODEX_DESKTOP_SHARED_DAEMON（应为 0/1）" >&2; exit 1 ;;
@@ -68,17 +71,21 @@ brew install ttyd tmux
 [[ -x "$BREW_PREFIX/bin/ttyd" ]] || { echo "ttyd 安装失败：$BREW_PREFIX/bin/ttyd 不存在。" >&2; exit 1; }
 [[ -x "$BREW_PREFIX/bin/tmux" ]] || { echo "tmux 安装失败：$BREW_PREFIX/bin/tmux 不存在。" >&2; exit 1; }
 
-# Codex daemon 独立于 fleet-agent 常驻。fleet-agent 只连接私有 Unix WebSocket，更新自身时不会终止正在运行的 turn。
+# Fleet sidecar 独立于 fleet-agent 常驻。isolated 模式只连接专用 Unix WebSocket，
+# 不复用 Desktop 的默认 daemon，更新 fleet-agent 时也不会终止由 sidecar 运行的 turn。
+MANAGED_CODEX="$CODEX_HOME_DIR/packages/standalone/current/codex"
 if [[ "$CODEX_APPSERVER_MODE" != "stdio" && -x "$CODEX_BIN" ]]; then
   echo "配置 Codex app-server daemon ..."
-  MANAGED_CODEX="$CODEX_HOME_DIR/packages/standalone/current/codex"
   if [[ ! -x "$MANAGED_CODEX" ]]; then
     # daemon 固定从 managed 路径启动。目标机已有 Codex CLI 时复用该签名二进制，
     # 后续 bootstrap updater 仍可按 Codex 官方安装器正常更新此路径。
     install -d -m 0700 "$(dirname "$MANAGED_CODEX")"
     install -m 0755 "$CODEX_BIN" "$MANAGED_CODEX"
   fi
-  if CODEX_HOME="$CODEX_HOME_DIR" "$CODEX_BIN" app-server daemon bootstrap --remote-control >/dev/null 2>&1; then
+  if [[ "$CODEX_APPSERVER_MODE" == "isolated" ]]; then
+    install -d -m 0700 "$(dirname "$CODEX_APPSERVER_SOCK")"
+    echo "Fleet 独立 Codex app-server 将使用 $CODEX_APPSERVER_SOCK"
+  elif CODEX_HOME="$CODEX_HOME_DIR" "$CODEX_BIN" app-server daemon bootstrap --remote-control >/dev/null 2>&1; then
     echo "Codex app-server daemon 已就绪"
   elif [[ "$CODEX_APPSERVER_MODE" == "daemon" ]]; then
     echo "Codex app-server daemon bootstrap 失败；daemon 模式无法继续，请更新 Codex 后重试。" >&2
@@ -90,12 +97,11 @@ if [[ "$CODEX_APPSERVER_MODE" != "stdio" && -x "$CODEX_BIN" ]]; then
   fi
 fi
 
-# Codex Desktop 已内置共享本机 daemon 的启动开关。写入当前 GUI launchd
-# 环境后，后续启动的 Codex.app 与 fleet-agent 会连接同一 Unix socket，
-# 同一 thread 只有一个 app-server writer；已经运行的 App 需手动重启一次。
+# 默认取消 Codex Desktop 的共享 daemon 开关，保证 Desktop 使用自己的 app-server。
+# 只有显式 shared 兼容模式才允许两个入口复用默认 Unix socket。
 DEFAULT_CODEX_HOME="$HOME/.codex"
 DEFAULT_CODEX_SOCK="$DEFAULT_CODEX_HOME/app-server-control/app-server-control.sock"
-if [[ "$CODEX_DESKTOP_SHARED_DAEMON" == "1" && "$CODEX_APPSERVER_MODE" != "stdio" && \
+if [[ "$CODEX_DESKTOP_SHARED_DAEMON" == "1" && ( "$CODEX_APPSERVER_MODE" == "shared" || "$CODEX_APPSERVER_MODE" == "daemon" ) && \
       "$CODEX_HOME_DIR" == "$DEFAULT_CODEX_HOME" && \
       ( -z "$CODEX_APPSERVER_SOCK" || "$CODEX_APPSERVER_SOCK" == "$DEFAULT_CODEX_SOCK" ) ]]; then
   if launchctl setenv CODEX_APP_SERVER_USE_LOCAL_DAEMON 1; then
@@ -153,7 +159,7 @@ fi
 # --- 4. filebrowser DB：建用户 + noauth + baseURL（鉴权交给 Headscale ACL）---
 # 重跑场景：先卸载已在运行的服务，否则 filebrowser config set 会因 DB 被占而超时。
 LA_EARLY="$HOME/Library/LaunchAgents"
-for svc in com.macfleet.ttyd com.macfleet.filebrowser com.macfleet.fleet-agent; do
+for svc in com.macfleet.ttyd com.macfleet.filebrowser com.macfleet.fleet-agent com.macfleet.codex-app-server; do
   launchctl unload "$LA_EARLY/$svc.plist" 2>/dev/null || true
 done
 if [[ ! -f "$FB_DB" ]]; then
@@ -187,6 +193,7 @@ render() { # src dst
       -e "s#__MAC_INDEX__#${MAC_INDEX}#g" \
       -e "s#__CLAUDE_BIN__#${CLAUDE_BIN}#g" \
       -e "s#__CODEX_BIN__#${CODEX_BIN}#g" \
+      -e "s#__MANAGED_CODEX_BIN__#${MANAGED_CODEX}#g" \
       -e "s#__CODEX_HOME__#${CODEX_HOME_DIR}#g" \
       -e "s#__CODEX_APPSERVER_MODE__#${CODEX_APPSERVER_MODE}#g" \
       -e "s#__CODEX_APPSERVER_SOCK__#${CODEX_APPSERVER_SOCK}#g" \
@@ -196,8 +203,14 @@ render() { # src dst
 PORT="$TTYD_PORT" render "$SCRIPT_DIR/com.macfleet.ttyd.plist"        "$LA/com.macfleet.ttyd.plist"
 PORT="$FB_PORT"   render "$SCRIPT_DIR/com.macfleet.filebrowser.plist" "$LA/com.macfleet.filebrowser.plist"
                   render "$SCRIPT_DIR/com.macfleet.fleet-agent.plist" "$LA/com.macfleet.fleet-agent.plist"
+if [[ "$CODEX_APPSERVER_MODE" == "isolated" ]]; then
+                  render "$SCRIPT_DIR/com.macfleet.codex-app-server.plist" "$LA/com.macfleet.codex-app-server.plist"
+fi
 
-for svc in com.macfleet.ttyd com.macfleet.filebrowser com.macfleet.fleet-agent; do
+SERVICES=(com.macfleet.ttyd com.macfleet.filebrowser)
+if [[ "$CODEX_APPSERVER_MODE" == "isolated" ]]; then SERVICES+=(com.macfleet.codex-app-server); fi
+SERVICES+=(com.macfleet.fleet-agent)
+for svc in "${SERVICES[@]}"; do
   launchctl unload "$LA/$svc.plist" 2>/dev/null || true
   launchctl load  "$LA/$svc.plist"
   echo "已加载服务: $svc"

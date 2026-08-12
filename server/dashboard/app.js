@@ -1588,6 +1588,14 @@ function isChatRunning(chat) {
   return !!chat && (chat.model?.phase === 'running' || chat.submitting === true);
 }
 
+function isDesktopChatRunning(chat) {
+  return isChatRunning(chat) && chat.model?.turnOwner === 'desktop';
+}
+
+function isDesktopChatOwned(chat) {
+  return !!chat && (chat.writerOwner === 'desktop' || isDesktopChatRunning(chat));
+}
+
 function isNoActiveTurnError(error) {
   return error?.code === 'no_active_turn'
     || /no active turn to (?:steer|interrupt)/i.test(String(error?.message || ''));
@@ -1620,6 +1628,7 @@ function enqueueChatFollowup(chat, text, images, id, skills, displayText) {
     skills: Array.isArray(skills) ? skills.map((skill) => ({ id: skill.id, name: skill.name })) : [],
   };
   chat.followups.push(item);
+  persistChatFollowups(chat);
   return item;
 }
 
@@ -1627,7 +1636,38 @@ function removeChatFollowup(chat, id) {
   if (!chat?.followups) return null;
   const index = chat.followups.findIndex((item) => item.id === id);
   if (index < 0) return null;
-  return chat.followups.splice(index, 1)[0];
+  const removed = chat.followups.splice(index, 1)[0];
+  persistChatFollowups(chat);
+  return removed;
+}
+
+function chatFollowupStorageKey(chat) {
+  if (!chat?.macId || !chat?.sessionId) return '';
+  return `macfleet:codex-followups:${chat.macId}:${chat.sessionId}`;
+}
+
+function persistChatFollowups(chat) {
+  const key = chatFollowupStorageKey(chat);
+  if (!key) return;
+  try {
+    const items = (chat.followups || []).map((item) => ({
+      id: item.id, text: item.text || '', displayText: item.displayText || '',
+      images: (item.images || []).map(({ id, name, mime, size, url }) => ({ id, name, mime, size, url })),
+      skills: (item.skills || []).map(({ id, name }) => ({ id, name })),
+    }));
+    if (items.length) localStorage.setItem(key, JSON.stringify(items));
+    else localStorage.removeItem(key);
+  } catch (_) {}
+}
+
+function loadChatFollowups(macId, sessionId) {
+  try {
+    const raw = localStorage.getItem(`macfleet:codex-followups:${macId}:${sessionId}`);
+    const items = raw ? JSON.parse(raw) : [];
+    return Array.isArray(items) ? items.filter((item) => item?.id && (item.text || item.images?.length || item.skills?.length)) : [];
+  } catch (_) {
+    return [];
+  }
 }
 
 function acknowledgeChatFollowups(chat, events) {
@@ -1822,6 +1862,14 @@ function renderChat({ preserveScroll = false, forceBottom = false } = {}) {
   }
   if (chat.loading) stack.append(chatRow(h('div', { class: 'chat-card muted', text: '正在连接 Codex app-server…' })));
   const model = chat.model || FleetChatModel.createChatState();
+  if (isDesktopChatOwned(chat)) {
+    const running = model.phase === 'running' && model.turnOwner === 'desktop';
+    stack.append(h('div', { class: 'chat-desktop-running' },
+      h('strong', { text: running ? 'Codex Desktop 正在输出' : 'Codex Desktop 已打开此会话' }),
+      h('span', { text: running
+        ? 'Fleet 会保持同步。现在提交的内容会排队等待 Desktop 释放会话，Desktop 始终优先。'
+        : 'Fleet 当前保持只读。提交内容需再次确认，并会在 Desktop 切换或关闭此会话后自动发送。' })));
+  }
   const metaVisible = chatMessageMetaVisibility(model);
   const entries = model.messages
     .map((id) => ({ id, item: model.items[id] }))
@@ -2725,6 +2773,7 @@ function resizeChatInput() {
 }
 
 function chatComposerAction(chat, hasContent) {
+  if (isDesktopChatOwned(chat)) return hasContent ? 'queue-desktop' : 'wait-desktop';
   if (!isChatRunning(chat)) return 'send';
   return hasContent ? 'queue' : 'interrupt';
 }
@@ -2734,53 +2783,18 @@ function updateChatComposerState() {
   const send = $('#chat-send');
   if (!send) return;
   const attachments = state.chat?.attachments || [];
-  const readOnly = state.chat?.accessMode === 'read-only';
   const blocked = attachments.some((att) => att.uploading || att.error || (!att.id && !att.pendingUpload));
   const hasContent = Boolean(input?.value.trim()) || attachments.length > 0;
   const action = chatComposerAction(state.chat, hasContent);
   send.dataset.action = action;
-  send.disabled = !state.chat || readOnly || !!state.chat.starting || (action === 'interrupt'
+  send.disabled = !state.chat || !!state.chat.starting || action === 'wait-desktop' || (action === 'interrupt'
     ? !!state.chat.interrupting
     : (!hasContent || blocked));
-  send.title = readOnly ? '只读同步中' : action === 'interrupt'
+  send.title = action === 'interrupt'
     ? '停止生成'
-    : (blocked ? '等待图片上传完成' : (action === 'queue' ? '加入队列' : '发送'));
+    : (action === 'wait-desktop' ? 'Codex Desktop 正在使用此会话' :
+      (blocked ? '等待图片上传完成' : (action === 'queue' || action === 'queue-desktop' ? '结束后发送' : '发送')));
   send.setAttribute('aria-label', send.title);
-}
-
-function applyChatAccessMode(chat, source = {}) {
-  if (!chat) return;
-  if (source.accessMode) chat.accessMode = source.accessMode;
-  if (Object.prototype.hasOwnProperty.call(source, 'accessReason')) chat.accessReason = source.accessReason || '';
-  const readOnly = chat.accessMode === 'read-only';
-  const current = state.chat === chat;
-  if (!current) return;
-  const notice = $('#chat-readonly');
-  const acquire = $('#chat-acquire-writer');
-  const input = $('#chat-input');
-  const attach = $('#chat-attach');
-  const file = $('#chat-file');
-  const options = $('#chat-options-trigger');
-  if (notice) notice.hidden = !readOnly;
-  if (acquire) {
-    acquire.disabled = !!chat.acquiringWriter;
-    acquire.textContent = chat.acquiringWriter ? '正在尝试…' : '尝试获取控制权';
-  }
-  $('.chat-composer-shell')?.classList.toggle('read-only', readOnly);
-  if (input) {
-    input.disabled = readOnly;
-    input.placeholder = readOnly ? '该会话当前为只读' : '给 Codex 发送消息…';
-  }
-  if (attach) attach.disabled = readOnly;
-  if (file) file.disabled = readOnly;
-  if (options) options.disabled = readOnly;
-  setChatApprovalEnabled(chat, !readOnly && chat.historyReady);
-  if (readOnly) {
-    closeChatApproval();
-    closeChatOptions();
-    closeChatSkillMenu();
-  }
-  updateChatComposerState();
 }
 
 function mergeChatComposerText(failedText, currentText) {
@@ -2835,9 +2849,9 @@ function renderChatFollowups() {
       h('span', { class: 'chat-followup-text', text: label, title: label }),
       item.images.length ? h('span', { class: 'chat-followup-images', text: `+${item.images.length} 图` }) : null,
       h('div', { class: 'chat-followup-actions' },
-        h('button', { type: 'button', class: 'chat-followup-guide', title: item.guiding ? '正在引导' : '引导当前任务',
+        !isDesktopChatOwned(chat) ? h('button', { type: 'button', class: 'chat-followup-guide', title: item.guiding ? '正在引导' : '引导当前任务',
           disabled: item.guiding ? '' : null, onclick: () => guideChatFollowup(item.id) },
-          svgIconParts('ic', [{ tag: 'path', attrs: { d: 'M4 5v6a4 4 0 0 0 4 4h11M15 11l4 4-4 4' } }]), '引导'),
+          svgIconParts('ic', [{ tag: 'path', attrs: { d: 'M4 5v6a4 4 0 0 0 4 4h11M15 11l4 4-4 4' } }]), '引导') : h('span', { class: 'chat-followup-waiting', text: '等待 Desktop' }),
         h('button', { type: 'button', class: 'iconbtn bare', title: '编辑追问', 'aria-label': '编辑追问', onclick: () => editChatFollowup(item.id) },
           svgIconParts('ic', [{ tag: 'path', attrs: { d: 'M12 20h9M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z' } }])),
         h('button', { type: 'button', class: 'iconbtn bare', title: '删除追问', 'aria-label': '删除追问', onclick: () => { removeChatFollowup(chat, item.id); renderChatFollowups(); } },
@@ -2963,19 +2977,20 @@ async function openChatSession(s) {
       model: FleetChatModel.createChatState(), loading: true, events: null, resumePromise: null,
       pendingStart: !!s.pendingStart, unscoped: !!s.unscoped, startPromise: null,
       attachments: [], objectUrls: [], draft: '', updatedAt: Number(s.mtime) || Date.now(),
-      followups: [], sendingFollowup: false, interrupting: false,
+      followups: loadChatFollowups(macId, s.sessionId), sendingFollowup: false, interrupting: false,
       skills: [], skillsLoaded: false, skillsPromise: null, skillsError: '',
       skillsCwd: s.cwd || '', skillMenu: null, skillPreferences: {},
       historyReady: false, historyLoading: false, historyCursor: '',
       models: [], efforts: [], serviceTiers: [], selectedModel: '', selectedEffort: '', selectedServiceTier: '',
       modelDirty: false, serviceTierDirty: false,
       approvalMode: 'on-request', approvalConfirmedMode: 'on-request',
-      accessMode: 'read-write', accessReason: '', acquiringWriter: false,
+      writerOwner: '',
       approvalUpdateChain: Promise.resolve(),
     };
     state.chatCache.set(key, chat);
   }
   state.chat = chat;
+  if (typeof chat.writerOwner !== 'string') chat.writerOwner = '';
   if (!Array.isArray(chat.skills)) chat.skills = [];
   if (typeof chat.skillsLoaded !== 'boolean') chat.skillsLoaded = false;
   if (!chat.skillPreferences || typeof chat.skillPreferences !== 'object') chat.skillPreferences = {};
@@ -3011,7 +3026,6 @@ async function openChatSession(s) {
     closeChatApproval();
     closeChatOptions();
   }
-  applyChatAccessMode(chat);
   renderChat({ forceBottom: true });
   updateChatComposerState();
   if (chat.pendingStart) return;
@@ -3031,13 +3045,13 @@ async function openChatSession(s) {
       chat.model = FleetChatModel.prependHistory(chat.model, resumed.history?.events || []);
       chat.model = FleetChatModel.reduceChatEvent(chat.model, {
         type: 'thread_status',
-        data: { status: resumed.status, activeTurnId: resumed.activeTurnId },
+        data: { status: resumed.status, activeTurnId: resumed.activeTurnId, turnOwner: resumed.turnOwner },
       });
+      chat.writerOwner = resumed.writerOwner || '';
       chat.historyCursor = resumed.history?.nextCursor || '';
       chat.historyReady = true;
       chat.loading = false;
       configureChatOptions(chat, resumed);
-      applyChatAccessMode(chat, resumed);
       applyChatMetadataDefaults(chat);
       startChatEvents(chat);
     }
@@ -3054,36 +3068,6 @@ async function openChatSession(s) {
       chat.model = FleetChatModel.reduceChatEvent(chat.model, { type: 'error', data: { message: e.message } });
       renderChat();
     }
-  }
-}
-
-async function acquireChatWriter() {
-  const chat = state.chat;
-  if (!chat || chat.accessMode !== 'read-only' || chat.acquiringWriter) return;
-  chat.acquiringWriter = true;
-  applyChatAccessMode(chat);
-  try {
-    const resumed = await api(chat.macId, 'chat/resume', {
-      method: 'POST', headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ assistant: 'codex', sessionId: chat.sessionId, mode: 'default' }),
-    });
-    if (state.chatCache.get(chat.cacheKey) !== chat) return;
-    acknowledgeChatFollowups(chat, resumed.history?.events);
-    chat.model = FleetChatModel.prependHistory(chat.model, resumed.history?.events || []);
-    chat.model = FleetChatModel.reduceChatEvent(chat.model, {
-      type: 'thread_status', data: { status: resumed.status, activeTurnId: resumed.activeTurnId },
-    });
-    chat.historyCursor = resumed.history?.nextCursor || chat.historyCursor || '';
-    configureChatOptions(chat, resumed);
-    applyChatAccessMode(chat, resumed);
-    if (chat.accessMode === 'read-write') toast('已获取会话控制权', 'ok');
-    else toast('其他 Codex 客户端仍在控制该会话');
-    if (state.chat === chat) renderChat();
-  } catch (e) {
-    toast('获取控制权失败：' + (e.message || '未知错误'), 'err');
-  } finally {
-    chat.acquiringWriter = false;
-    applyChatAccessMode(chat);
   }
 }
 
@@ -3442,14 +3426,13 @@ function startChatEvents(chat = state.chat) {
     try {
       const ev = JSON.parse(e.data);
       updateChatUpdatedAt(chat, Date.now());
-      if (ev.type === 'access_mode') {
-        applyChatAccessMode(chat, {
-          accessMode: ev.data?.mode || 'read-write', accessReason: ev.data?.reason || '',
-        });
-      }
       const wasRunning = isChatRunning(chat);
+      const previousTurnOwner = chat.model?.turnOwner || '';
       acknowledgeChatFollowups(chat, [ev]);
       chat.model = FleetChatModel.reduceChatEvent(chat.model, ev);
+      const eventTurnOwner = ev?.data?.turnOwner || ev?.turnOwner || '';
+      if (ev.type === 'turn_started' && eventTurnOwner) chat.writerOwner = eventTurnOwner;
+      if (ev.type === 'turn_done' && previousTurnOwner === 'fleet') chat.writerOwner = '';
       applyChatMetadataDefaults(chat);
       syncSessionRuntimeIndicators();
       if (state.chat === chat) {
@@ -3487,10 +3470,10 @@ async function restoreChatAfterForeground(chat = state.chat) {
       chat.model = FleetChatModel.prependHistory(chat.model, resumed.history?.events || []);
       chat.model = FleetChatModel.reduceChatEvent(chat.model, {
         type: 'thread_status',
-        data: { status: resumed.status, activeTurnId: resumed.activeTurnId },
+        data: { status: resumed.status, activeTurnId: resumed.activeTurnId, turnOwner: resumed.turnOwner },
       });
+      chat.writerOwner = resumed.writerOwner || '';
       chat.historyCursor = resumed.history?.nextCursor || chat.historyCursor || '';
-      applyChatAccessMode(chat, resumed);
       applyChatMetadataDefaults(chat);
       updateChatUpdatedAt(chat, Date.now());
       if (state.chat === chat) {
@@ -3527,6 +3510,11 @@ function wireChatPageLifecycle() {
   addEventListener('pageshow', (event) => {
     if (event.persisted) restoreChatAfterForeground();
   });
+  setInterval(() => {
+    for (const chat of state.chatCache.values()) {
+      if (chat.writerOwner === 'desktop' && chat.followups?.length && !isChatRunning(chat)) flushChatFollowups(chat);
+    }
+  }, 3000);
 }
 
 async function ensurePendingChatStarted(chat) {
@@ -3649,6 +3637,16 @@ async function submitChatInput({ forceQueue = false } = {}) {
     text, displayText: raw.trim(), images,
     skills: parsed.skills.map((skill) => ({ id: skill.id, name: skill.name })),
   };
+  if (isDesktopChatOwned(chat)) {
+    const confirmed = confirm('Codex Desktop 正在使用此会话。\n\nFleet 不会抢占或插入 Desktop 当前任务。确认后，这条消息会排队，并在 Desktop 切换或关闭此会话后自动发送。');
+    if (!confirmed) {
+      restoreChatComposerItem(chat, item);
+      return;
+    }
+    enqueueChatFollowup(chat, item.text, item.images, item.id, item.skills, item.displayText);
+    renderChatFollowups();
+    return;
+  }
   if (isChatRunning(chat)) {
     if (forceQueue) {
       enqueueChatFollowup(chat, item.text, item.images, item.id, item.skills, item.displayText);
@@ -3666,7 +3664,19 @@ async function submitChatInput({ forceQueue = false } = {}) {
     }
     return;
   }
-  await sendChatTurn(chat, item);
+  const sent = await sendChatTurn(chat, item, { restoreOnFailure: false });
+  if (sent) return;
+  if (item.externalWriter) {
+    const confirmed = confirm('Codex Desktop 已打开此会话。\n\nFleet 当前只能同步查看。确认后，这条消息会保留在队列，并在 Desktop 释放会话后自动发送。');
+    if (confirmed) {
+      enqueueChatFollowup(chat, item.text, item.images, item.id, item.skills, item.displayText);
+      renderChatFollowups();
+    } else {
+      restoreChatComposerItem(chat, item);
+    }
+    return;
+  }
+  restoreChatComposerItem(chat, item);
 }
 
 function chatTurnOptions(chat) {
@@ -3691,6 +3701,7 @@ async function sendChatTurn(chat, item, { restoreOnFailure = true } = {}) {
     updateChatComposerState();
   }
   try {
+    item.externalWriter = false;
     const started = await api(chat.macId, 'chat/input', {
       method: 'POST', headers: { 'content-type': 'application/json' },
       body: JSON.stringify({
@@ -3702,12 +3713,18 @@ async function sendChatTurn(chat, item, { restoreOnFailure = true } = {}) {
     if (!started || typeof started.turnId !== 'string' || !started.turnId.trim()) {
       throw new Error('Codex 未返回有效的任务 ID，消息未发送。');
     }
-    chat.model = FleetChatModel.reduceChatEvent(chat.model, { type: 'turn_started', turnId: started.turnId, data: { turnId: started.turnId } });
+    chat.model = FleetChatModel.reduceChatEvent(chat.model, { type: 'turn_started', turnId: started.turnId, data: { turnId: started.turnId, turnOwner: 'fleet' } });
+    chat.writerOwner = 'fleet';
     loadSessions();
     return true;
   } catch (e) {
     chat.model = FleetChatModel.removeMessage(chat.model, optimisticId);
-    chat.model = FleetChatModel.reduceChatEvent(chat.model, { type: 'error', data: { message: e.message } });
+    if (e?.code === 'external_turn_running') {
+      item.externalWriter = true;
+      chat.writerOwner = 'desktop';
+    } else {
+      chat.model = FleetChatModel.reduceChatEvent(chat.model, { type: 'error', data: { message: e.message } });
+    }
     if (restoreOnFailure) restoreChatComposerItem(chat, item);
     if (state.chat === chat) {
       renderChat();
@@ -3772,7 +3789,7 @@ async function flushChatFollowups(chat) {
 async function guideChatFollowup(id) {
   const chat = state.chat;
   const item = chat?.followups?.find((entry) => entry.id === id);
-  if (!chat || !item || item.guiding || !isChatRunning(chat)) return;
+  if (!chat || !item || item.guiding || !isChatRunning(chat) || isDesktopChatOwned(chat)) return;
   item.guiding = true;
   renderChatFollowups();
   try {
@@ -3806,7 +3823,7 @@ async function guideChatFollowup(id) {
 
 async function interruptChat() {
   const chat = state.chat;
-  if (!chat || !isChatRunning(chat) || chat.interrupting) return;
+  if (!chat || !isChatRunning(chat) || isDesktopChatOwned(chat) || chat.interrupting) return;
   const observedTurnId = chat.model.activeTurnId;
   chat.interrupting = true;
   updateChatComposerState();
@@ -5660,7 +5677,6 @@ function init() {
     if (e.isPrimary !== false && document.activeElement === $('#chat-input')) e.preventDefault();
   });
   $('#chat-attach').onclick = () => $('#chat-file').click();
-  $('#chat-acquire-writer').onclick = acquireChatWriter;
   $('#chat-file').addEventListener('change', (e) => { addChatFiles(e.target.files); e.target.value = ''; });
   $('#chat-input').addEventListener('input', () => {
     saveChatDraft(); resizeChatInput(); updateChatComposerState(); updateChatSkillMenu();
