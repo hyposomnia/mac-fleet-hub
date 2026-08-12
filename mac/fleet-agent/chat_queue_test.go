@@ -17,7 +17,7 @@ func TestChatQueuePersistsAndDeduplicatesClientMessage(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	in := ChatQueueItem{ClientMessageID: "client-1", Assistant: "codex", SessionID: "thread-1", Text: "hello"}
+	in := ChatQueueItem{ClientMessageID: "client-1", Assistant: "codex", SessionID: "thread-1", Text: "hello", WriterOwner: "fleet"}
 	one, err := q.Enqueue(in)
 	if err != nil {
 		t.Fatal(err)
@@ -34,7 +34,7 @@ func TestChatQueuePersistsAndDeduplicatesClientMessage(t *testing.T) {
 		t.Fatal(err)
 	}
 	items := reloaded.List("codex", "thread-1")
-	if len(items) != 1 || items[0].Text != "hello" {
+	if len(items) != 1 || items[0].Text != "hello" || items[0].WriterOwner != "fleet" {
 		t.Fatalf("reloaded=%+v", items)
 	}
 }
@@ -78,7 +78,7 @@ func TestChatQueueWorkerPersistsWaitingAndSendsWithoutBrowser(t *testing.T) {
 	w := newChatQueueWorker(q, sender)
 	w.processOne()
 	got, _ := q.get(item.ID)
-	if got.Status != chatQueueWaitingWriter {
+	if got.Status != chatQueueWaitingWriter || got.WriterOwner != "desktop" {
 		t.Fatalf("status=%q", got.Status)
 	}
 	sender.err = nil
@@ -105,7 +105,7 @@ func TestChatQueueWaitsForFleetTurnWithoutOfferingTakeoverState(t *testing.T) {
 	worker := newChatQueueWorker(q, sender)
 	worker.processOne()
 	got, _ := q.get(item.ID)
-	if got.Status != chatQueueWaitingTurn {
+	if got.Status != chatQueueWaitingTurn || got.WriterOwner != "fleet" {
 		t.Fatalf("Fleet-owned turn became external writer state: %+v", got)
 	}
 	sender.err = nil

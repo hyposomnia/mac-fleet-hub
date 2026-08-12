@@ -611,6 +611,23 @@ test('external writer messages use the agent queue and render takeover actions b
   assert.doesNotMatch(appSrc, /Codex Desktop 正在使用此会话。\\n\\nFleet 不会抢占/);
 });
 
+test('Fleet-owned turn queue reuses the composer follow-up stack instead of transcript cards', () => {
+  const queueCard = appSrc.slice(appSrc.indexOf('function queueStatusCard'), appSrc.indexOf('function acknowledgeChatFollowups'));
+  const followups = appSrc.slice(appSrc.indexOf('function renderChatFollowups'), appSrc.indexOf('function editChatFollowup'));
+  assert.doesNotMatch(queueCard, /status === 'queued' \|\| status === 'waiting_turn'/);
+  assert.match(appSrc, /function isFleetQueueFollowup/);
+  assert.match(appSrc, /item\?\.writerOwner/);
+  assert.match(appSrc, /!isFleetQueueFollowup\(queued\)/);
+  assert.match(followups, /isFleetQueueFollowup\(item\)/);
+  assert.match(followups, /结束后发送/);
+  assert.match(followups, /decideServerChatQueue\(item, 'cancel'\)/);
+  assert.match(followups, /disabled: item\.decisionPending \? '' : null/);
+  assert.match(appSrc, /decisionPending: currentQueue\.get\(item\.id\)\?\.decisionPending \|\| ''/);
+  assert.match(appSrc, /if \(transcript\) chat\.model = FleetChatModel\.appendUserMessage/);
+  assert.match(appSrc, /enqueueServerChatMessage\(chat, item, \{ transcript: true \}\)/);
+  assert.match(appSrc, /chat\.model = FleetChatModel\.removeMessage\(chat\.model, item\.clientMessageId\)/);
+});
+
 test('agent-owned queue is excluded from legacy browser persistence and direct flushing', () => {
   assert.match(appSrc, /filter\(\(item\) => !item\.clientMessageId\)\.map/);
   assert.match(appSrc, /const item = chat\.followups\?\.find\(\(entry\) => !entry\.clientMessageId\)/);
@@ -629,9 +646,18 @@ test('refresh restores only actionable queue items, not sent or cancelled histor
 test('takeover is offered only for an external writer, never the current Fleet turn', () => {
   const queueCard = appSrc.slice(appSrc.indexOf('function queueStatusCard'), appSrc.indexOf('function acknowledgeChatFollowups'));
   assert.match(queueCard, /if \(status === 'waiting_writer'\)/);
-  assert.match(queueCard, /status === 'queued' \|\| status === 'waiting_turn'/);
-  assert.match(queueCard, /当前 Fleet 任务仍在运行/);
+  assert.doesNotMatch(queueCard, /status === 'queued' \|\| status === 'waiting_turn'/);
   assert.doesNotMatch(queueCard, /status === 'queued' \|\| status === 'waiting_writer'/);
+});
+
+test('waiting reply label is suppressed after an opened chat proves there is no actionable request', () => {
+  assert.equal(sessionStatus({ waiting: true, waitingVisible: false, status: 'active' }).text, '正在进行');
+  assert.equal(sessionStatus({ waiting: true, waitingVisible: true, status: 'active' }).text, '等待回复');
+  assert.match(appSrc, /for \(const event of resumed\.pendingEvents \|\| \[\]\)/);
+  assert.match(appSrc, /function pendingChatRequestCount/);
+  assert.match(appSrc, /request\?\.status === 'pending'/);
+  assert.match(appSrc, /session\.waitingVisible = pendingChatRequestCount\(chat\) > 0/);
+  assert.match(appSrc, /chat\.pendingRequestCount = pendingChatRequestCount\(chat\)/);
 });
 
 test('custom file browser stays on one device and shares the protected preview route', () => {

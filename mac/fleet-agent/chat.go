@@ -263,18 +263,20 @@ type ChatStartResult struct {
 }
 
 type ChatResumeResult struct {
-	SessionID    string            `json:"sessionId"`
-	ThreadID     string            `json:"threadId"`
-	Status       string            `json:"status"`
-	ActiveTurnID string            `json:"activeTurnId,omitempty"`
-	TurnOwner    string            `json:"turnOwner,omitempty"`
-	WriterOwner  string            `json:"writerOwner,omitempty"`
-	History      ChatHistoryPage   `json:"history"`
-	Model        string            `json:"model,omitempty"`
-	Effort       string            `json:"effort,omitempty"`
-	ServiceTier  string            `json:"serviceTier,omitempty"`
-	ApprovalMode string            `json:"approvalMode,omitempty"`
-	Models       []ChatModelOption `json:"models,omitempty"`
+	SessionID       string            `json:"sessionId"`
+	ThreadID        string            `json:"threadId"`
+	Status          string            `json:"status"`
+	ActiveTurnID    string            `json:"activeTurnId,omitempty"`
+	TurnOwner       string            `json:"turnOwner,omitempty"`
+	WriterOwner     string            `json:"writerOwner,omitempty"`
+	PendingRequests int               `json:"pendingRequests,omitempty"`
+	PendingEvents   []ChatEvent       `json:"pendingEvents,omitempty"`
+	History         ChatHistoryPage   `json:"history"`
+	Model           string            `json:"model,omitempty"`
+	Effort          string            `json:"effort,omitempty"`
+	ServiceTier     string            `json:"serviceTier,omitempty"`
+	ApprovalMode    string            `json:"approvalMode,omitempty"`
+	Models          []ChatModelOption `json:"models,omitempty"`
 }
 
 type ChatHistoryPage struct {

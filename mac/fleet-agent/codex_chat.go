@@ -583,12 +583,36 @@ func (b *codexChatBackend) Resume(ctx context.Context, assistant, sessionID, mod
 		res.ServiceTier = rolloutServiceTier
 	}
 	b.applyApprovalMode(rpc, sessionID, approvalMode)
+	b.mu.Lock()
+	pendingEvents := b.pendingEventsLocked(sessionID)
+	b.mu.Unlock()
 	return ChatResumeResult{
 		SessionID: sessionID, ThreadID: threadID, Status: status, ActiveTurnID: activeTurnID, TurnOwner: turnOwner, WriterOwner: writerOwner,
+		PendingRequests: len(pendingEvents), PendingEvents: pendingEvents,
 		History: history, Model: res.Model, Effort: res.ReasoningEffort, ServiceTier: res.ServiceTier,
 		ApprovalMode: approvalMode,
 		Models:       b.modelOptions(ctx, rpc),
 	}, nil
+}
+
+// pendingEventsLocked returns the actual unresolved app-server requests that
+// this Fleet process can render and answer. The caller must hold b.mu.
+func (b *codexChatBackend) pendingEventsLocked(sessionID string) []ChatEvent {
+	pendingKeys := make([]string, 0)
+	for key, request := range b.pending {
+		if request.sessionID == sessionID {
+			pendingKeys = append(pendingKeys, key)
+		}
+	}
+	sort.Strings(pendingKeys)
+	pendingEvents := make([]ChatEvent, 0, len(pendingKeys))
+	for _, key := range pendingKeys {
+		request := b.pending[key]
+		pendingEvents = append(pendingEvents, mapCodexServerRequest(rpcNotification{
+			ID: request.id, Method: request.method, Params: request.params,
+		}))
+	}
+	return pendingEvents
 }
 
 func (b *codexChatBackend) latestTurns(ctx context.Context, rpc codexRPCConn, sessionID string) []struct {
@@ -2955,14 +2979,7 @@ func (b *codexChatBackend) Events(ctx context.Context, assistant, sessionID stri
 	}
 	b.mu.Lock()
 	backlog := append([]ChatEvent(nil), b.backlog[sessionID]...)
-	for _, request := range b.pending {
-		if request.sessionID != sessionID {
-			continue
-		}
-		backlog = append(backlog, mapCodexServerRequest(rpcNotification{
-			ID: request.id, Method: request.method, Params: request.params,
-		}))
-	}
+	backlog = append(backlog, b.pendingEventsLocked(sessionID)...)
 	bufferSize := 64
 	if required := len(backlog) + 32; required > bufferSize {
 		bufferSize = required

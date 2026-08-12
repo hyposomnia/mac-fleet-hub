@@ -2057,6 +2057,38 @@ func TestCodexChatBackendReplaysPendingRequestToReconnectedEvents(t *testing.T) 
 	waitForCodexSyncStop(t, b, "thread-1")
 }
 
+func TestCodexChatBackendResumeReportsOnlyActionablePendingRequests(t *testing.T) {
+	rpc := newFakeRPCConn()
+	b := newCodexChatBackend(func(ctx context.Context) (codexRPCConn, func(), error) {
+		return rpc, func() {}, nil
+	})
+	b.pending["request-1"] = pendingCodexRequest{
+		id: json.RawMessage(`61`), method: "item/tool/requestUserInput", sessionID: "thread-1",
+		params: json.RawMessage(`{"threadId":"thread-1","questions":[{"id":"q1","question":"Continue?"}]}`),
+	}
+
+	res, err := b.Resume(context.Background(), "codex", "thread-1", "default")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.PendingRequests != 1 {
+		t.Fatalf("pendingRequests=%d want 1", res.PendingRequests)
+	}
+	if len(res.PendingEvents) != 1 || res.PendingEvents[0].Type != "interaction_request" ||
+		!strings.Contains(string(res.PendingEvents[0].Data), `"question":"Continue?"`) {
+		t.Fatalf("pending event was not recoverable from resume: %+v", res.PendingEvents)
+	}
+
+	delete(b.pending, "request-1")
+	res, err = b.Resume(context.Background(), "codex", "thread-1", "default")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.PendingRequests != 0 || len(res.PendingEvents) != 0 {
+		t.Fatalf("stale thread waiting flag leaked as pending request: %+v", res)
+	}
+}
+
 func methods(calls []recordedCall) []string {
 	out := make([]string, 0, len(calls))
 	for _, c := range calls {

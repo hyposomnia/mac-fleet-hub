@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"os"
 	"os/exec"
@@ -379,6 +380,11 @@ func TestCodexOpenedPtyIsActiveEvenWhenHistoryDormant(t *testing.T) {
 }
 
 func TestCodexRolloutLifecycleDrivesSessionListRuntime(t *testing.T) {
+	previousBackend := agentChatBackend
+	agentChatBackend = newCodexChatBackend(func(context.Context) (codexRPCConn, func(), error) {
+		return nil, nil, errAppServerUnavailable
+	})
+	t.Cleanup(func() { agentChatBackend = previousBackend })
 	path := filepath.Join(t.TempDir(), "rollout.jsonl")
 	if err := os.WriteFile(path, []byte(
 		`{"type":"event_msg","payload":{"type":"task_started","turn_id":"turn-live"}}`+"\n"), 0644); err != nil {
@@ -410,5 +416,25 @@ func TestCodexRolloutLifecycleDrivesSessionListRuntime(t *testing.T) {
 	markSessionRuntime("codex", idle, nil, paths)
 	if idle[0].Live || idle[0].Status != "idle" || idle[0].Waiting {
 		t.Fatalf("completed rollout should return the session list to idle: %+v", idle[0])
+	}
+}
+
+func TestCodexSessionWaitingRequiresActionableFleetRequest(t *testing.T) {
+	previousBackend := agentChatBackend
+	backend := newCodexChatBackend(func(context.Context) (codexRPCConn, func(), error) {
+		return nil, nil, errAppServerUnavailable
+	})
+	agentChatBackend = backend
+	t.Cleanup(func() { agentChatBackend = previousBackend })
+
+	all := []Session{{SessionID: "thread-1", Assistant: "codex", Waiting: true, Status: "active"}}
+	markSessionRuntime("codex", all, nil, nil)
+	if all[0].Waiting {
+		t.Fatalf("thread flag without a renderable Fleet request must not show waiting: %+v", all[0])
+	}
+	backend.pending["request-1"] = pendingCodexRequest{id: json.RawMessage(`61`), sessionID: "thread-1"}
+	markSessionRuntime("codex", all, nil, nil)
+	if !all[0].Waiting {
+		t.Fatalf("actionable Fleet request must show waiting: %+v", all[0])
 	}
 }

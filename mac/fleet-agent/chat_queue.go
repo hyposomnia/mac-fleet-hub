@@ -49,6 +49,7 @@ type ChatQueueItem struct {
 	Images          []ChatAttachment     `json:"images,omitempty"`
 	Skills          []ChatSkill          `json:"skills,omitempty"`
 	Options         ChatTurnOptions      `json:"options,omitempty"`
+	WriterOwner     string               `json:"writerOwner,omitempty"`
 	Status          string               `json:"status"`
 	Decision        string               `json:"decision,omitempty"`
 	AuditVersion    string               `json:"auditVersion,omitempty"`
@@ -161,14 +162,14 @@ func (w *chatQueueWorker) processOne() {
 		turnID, err := w.sender.Send(item)
 		if errors.Is(err, errFleetChatTurnRunning) {
 			_, _ = w.queue.update(item.ID, func(current *ChatQueueItem) error {
-				current.Status, current.Error = chatQueueWaitingTurn, ""
+				current.Status, current.WriterOwner, current.Error = chatQueueWaitingTurn, "fleet", ""
 				return nil
 			})
 			return
 		}
 		if (errors.Is(err, errExternalChatTurn) || errors.Is(err, errThreadReadOnly)) && item.Decision != "force" && item.Decision != "confirm-force" {
 			_, _ = w.queue.update(item.ID, func(current *ChatQueueItem) error {
-				current.Status, current.Error = chatQueueWaitingWriter, ""
+				current.Status, current.WriterOwner, current.Error = chatQueueWaitingWriter, "desktop", ""
 				return nil
 			})
 			return
