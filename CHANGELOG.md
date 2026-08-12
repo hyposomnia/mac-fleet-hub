@@ -2,6 +2,7 @@
 
 ## 2026-08-12
 
+- 修复 fleet-agent 更新或重启后把 Fleet sidecar 正在执行的 turn 误报成“目标 Mac 本地 Codex 占用”：现在按 `thread-writer-locks` 的实际持锁进程和 Unix socket 恢复 writer 归属，Fleet 自己的任务继续支持 steer/停止，只有默认 daemon 持锁才进入外部占用队列。
 - 修复强制接管后被陈旧 rollout 运行态挡住、又静默退回等待的问题：已授权接管的队列可直接使用 Fleet sidecar 已取得的 writer；再次冲突则显示明确失败并允许重新尝试。处理期间立即禁用全部操作按钮，状态文案明确说明会话在目标 Mac 本地被占用。
 - Codex 追问与 writer 冲突消息改由目标 Mac 的 fleet-agent 持久化排队和后台投递；关闭浏览器、切换终端或刷新页面不会丢失或中断队列，旧 localStorage 队列会幂等迁移。
 - 用户消息下方新增服务器状态卡，可继续排队、取消、重试或请求强制接管。若目标机器存在活跃任务，首次操作只展示影响清单，二次确认后才允许中断该机器默认 daemon 上全部受影响任务。

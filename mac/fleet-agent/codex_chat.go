@@ -12,6 +12,7 @@ import (
 	"io"
 	"log"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"sort"
@@ -211,6 +212,49 @@ func codexThreadWriterConflict(err error) bool {
 
 func codexUsesIsolatedSidecar() bool {
 	return normalizeCodexAppServerMode(cfg.CodexMode) == codexAppServerModeIsolated
+}
+
+var codexThreadWriterProcessOwner = systemCodexThreadWriterProcessOwner
+
+// systemCodexThreadWriterProcessOwner recovers writer ownership after the
+// fleet-agent reconnects or restarts. The writer lock belongs to app-server,
+// so in-memory turn ownership alone is not durable enough.
+func systemCodexThreadWriterProcessOwner(sessionID string) string {
+	if strings.TrimSpace(sessionID) == "" || strings.ContainsAny(sessionID, "/\r\n\x00") {
+		return ""
+	}
+	lockPath := filepath.Join(cfg.CodexHome, "thread-writer-locks", sessionID+".lock")
+	out, err := exec.Command("lsof", "-t", lockPath).Output()
+	if err != nil {
+		return ""
+	}
+	for _, pid := range strings.Fields(string(out)) {
+		command, commandErr := exec.Command("ps", "-p", pid, "-o", "command=").Output()
+		if commandErr != nil {
+			continue
+		}
+		line := strings.TrimSpace(string(command))
+		if strings.Contains(line, "codex app-server --remote-control --listen unix://") {
+			if strings.Contains(line, "/.macfleet/codex-app-server.sock") ||
+				(cfg.CodexSock != "" && strings.Contains(line, cfg.CodexSock)) {
+				return "fleet"
+			}
+			return "desktop"
+		}
+	}
+	return ""
+}
+
+func (b *codexChatBackend) restoreFleetTurnOwner(sessionID, turnID string) bool {
+	if !codexUsesIsolatedSidecar() || codexThreadWriterProcessOwner(sessionID) != "fleet" {
+		return false
+	}
+	b.mu.Lock()
+	b.lastTurn[sessionID] = turnID
+	b.turnOwners[sessionID] = "fleet"
+	b.writerOwners[sessionID] = "fleet"
+	b.mu.Unlock()
+	return true
 }
 
 type codexHistoryItemEntry struct {
@@ -481,8 +525,15 @@ func (b *codexChatBackend) Resume(ctx context.Context, assistant, sessionID, mod
 		b.mu.Unlock()
 	}
 	if rolloutState, ok := codexCurrentRolloutTaskState(sessionID); ok && rolloutState.turnID != "" && !rolloutState.terminal {
+		fleetProcessOwner := b.restoreFleetTurnOwner(sessionID, rolloutState.turnID)
 		b.mu.Lock()
-		if b.lastTurn[sessionID] != rolloutState.turnID || b.turnOwners[sessionID] != "fleet" {
+		if fleetProcessOwner {
+			status = "running"
+			activeTurnID = rolloutState.turnID
+			b.lastTurn[sessionID] = activeTurnID
+			b.turnOwners[sessionID] = "fleet"
+			b.writerOwners[sessionID] = "fleet"
+		} else if b.lastTurn[sessionID] != rolloutState.turnID || b.turnOwners[sessionID] != "fleet" {
 			status = "running"
 			activeTurnID = rolloutState.turnID
 			b.lastTurn[sessionID] = activeTurnID
@@ -1817,6 +1868,9 @@ func (b *codexChatBackend) Input(ctx context.Context, assistant, sessionID, text
 		b.mu.Lock()
 		owned := b.lastTurn[sessionID] == rolloutState.turnID && b.turnOwners[sessionID] == "fleet"
 		b.mu.Unlock()
+		if !owned {
+			owned = b.restoreFleetTurnOwner(sessionID, rolloutState.turnID)
+		}
 		if !owned {
 			return ChatInputResult{}, errExternalChatTurn
 		}

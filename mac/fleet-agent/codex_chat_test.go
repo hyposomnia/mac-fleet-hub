@@ -225,6 +225,31 @@ func TestCodexChatBackendIsolatedInputWaitsForDesktopWriterThenClaims(t *testing
 	}
 }
 
+func TestCodexChatBackendRestoresFleetOwnedTurnAfterAgentRestart(t *testing.T) {
+	previousCfg := cfg
+	previousOwner := codexThreadWriterProcessOwner
+	t.Cleanup(func() { cfg = previousCfg; codexThreadWriterProcessOwner = previousOwner })
+	cfg.CodexMode = "isolated"
+	codexThreadWriterProcessOwner = func(sessionID string) string {
+		if sessionID == "thread-1" {
+			return "fleet"
+		}
+		return ""
+	}
+	rpc := newFakeRPCConn()
+	rpc.reply["thread/resume"] = json.RawMessage(`{"thread":{"id":"thread-1"}}`)
+	rpc.reply["turn/start"] = json.RawMessage(`{"turn":{"id":"turn-next"}}`)
+	b := newCodexChatBackend(func(context.Context) (codexRPCConn, func(), error) {
+		return rpc, func() {}, nil
+	})
+	if !b.restoreFleetTurnOwner("thread-1", "turn-live") {
+		t.Fatal("Fleet sidecar lock was not restored")
+	}
+	if b.lastTurn["thread-1"] != "turn-live" || b.turnOwners["thread-1"] != "fleet" || b.writerOwners["thread-1"] != "fleet" {
+		t.Fatalf("ownership not restored: last=%q turn=%q writer=%q", b.lastTurn["thread-1"], b.turnOwners["thread-1"], b.writerOwners["thread-1"])
+	}
+}
+
 func TestCodexChatBackendIsolatedTurnCompletionReleasesWriter(t *testing.T) {
 	previousCfg := cfg
 	t.Cleanup(func() { cfg = previousCfg })
