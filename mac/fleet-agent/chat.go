@@ -249,6 +249,7 @@ var errNoActiveChatTurn = errors.New("no_active_turn")
 var errChatRequestNotFound = errors.New("chat_request_not_found")
 var errInvalidChatSkill = errors.New("invalid_chat_skill")
 var errExternalChatTurn = errors.New("external_turn_running")
+var errFleetChatTurnRunning = errors.New("fleet_turn_running")
 var errThreadReadOnly = errors.New("thread_read_only")
 
 type ChatStartResult struct {

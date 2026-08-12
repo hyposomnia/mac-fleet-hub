@@ -19,6 +19,7 @@ import (
 const (
 	chatQueueQueued               = "queued"
 	chatQueueWaitingWriter        = "waiting_writer"
+	chatQueueWaitingTurn          = "waiting_turn"
 	chatQueueTakeoverCheck        = "takeover_check"
 	chatQueueTakeoverConfirmation = "takeover_confirmation_required"
 	chatQueueTakingOver           = "taking_over"
@@ -150,7 +151,7 @@ func (w *chatQueueWorker) Run(ctx context.Context) {
 func (w *chatQueueWorker) processOne() {
 	items := w.queue.List("", "")
 	for _, item := range items {
-		if item.Status != chatQueueQueued && item.Status != chatQueueWaitingWriter {
+		if item.Status != chatQueueQueued && item.Status != chatQueueWaitingWriter && item.Status != chatQueueWaitingTurn {
 			continue
 		}
 		_, _ = w.queue.update(item.ID, func(current *ChatQueueItem) error {
@@ -158,6 +159,13 @@ func (w *chatQueueWorker) processOne() {
 			return nil
 		})
 		turnID, err := w.sender.Send(item)
+		if errors.Is(err, errFleetChatTurnRunning) {
+			_, _ = w.queue.update(item.ID, func(current *ChatQueueItem) error {
+				current.Status, current.Error = chatQueueWaitingTurn, ""
+				return nil
+			})
+			return
+		}
 		if (errors.Is(err, errExternalChatTurn) || errors.Is(err, errThreadReadOnly)) && item.Decision != "force" && item.Decision != "confirm-force" {
 			_, _ = w.queue.update(item.ID, func(current *ChatQueueItem) error {
 				current.Status, current.Error = chatQueueWaitingWriter, ""
@@ -199,7 +207,7 @@ func handleChatQueue(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "bad request", http.StatusBadRequest)
 			return
 		}
-		writeJSON(w, map[string]interface{}{"items": agentChatQueue.List(assistant, sessionID)})
+		writeJSON(w, map[string]interface{}{"items": agentChatQueue.ListVisible(assistant, sessionID)})
 	case http.MethodPost:
 		var item ChatQueueItem
 		if json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&item) != nil {
@@ -310,6 +318,17 @@ func (q *chatQueue) List(assistant, sessionID string) []ChatQueueItem {
 	}
 	sort.Slice(items, func(i, j int) bool { return items[i].CreatedAt < items[j].CreatedAt })
 	return items
+}
+
+func (q *chatQueue) ListVisible(assistant, sessionID string) []ChatQueueItem {
+	items := q.List(assistant, sessionID)
+	visible := items[:0]
+	for _, item := range items {
+		if item.Status != chatQueueSent && item.Status != chatQueueCancelled {
+			visible = append(visible, item)
+		}
+	}
+	return visible
 }
 
 func (q *chatQueue) RequireTakeoverConfirmation(id, audit string, affected []ChatTakeoverImpact) (ChatQueueItem, error) {

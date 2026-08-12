@@ -1883,6 +1883,7 @@ func (b *codexChatBackend) Input(ctx context.Context, assistant, sessionID, text
 		if !owned {
 			return ChatInputResult{}, errExternalChatTurn
 		}
+		return ChatInputResult{}, errFleetChatTurnRunning
 	}
 	b.mu.Lock()
 	fresh := b.freshThreads[sessionID]

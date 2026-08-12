@@ -621,6 +621,19 @@ test('successfully sent queue items do not render a redundant status card', () =
   assert.match(appSrc, /queued && queued\.status !== 'sent'/);
 });
 
+test('refresh restores only actionable queue items, not sent or cancelled history', () => {
+  assert.match(appSrc, /filter\(\(item\) => item\.status !== 'sent' && item\.status !== 'cancelled'\)/);
+  assert.match(appSrc, /for \(const item of visibleQueue\)/);
+});
+
+test('takeover is offered only for an external writer, never the current Fleet turn', () => {
+  const queueCard = appSrc.slice(appSrc.indexOf('function queueStatusCard'), appSrc.indexOf('function acknowledgeChatFollowups'));
+  assert.match(queueCard, /if \(status === 'waiting_writer'\)/);
+  assert.match(queueCard, /status === 'queued' \|\| status === 'waiting_turn'/);
+  assert.match(queueCard, /当前 Fleet 任务仍在运行/);
+  assert.doesNotMatch(queueCard, /status === 'queued' \|\| status === 'waiting_writer'/);
+});
+
 test('custom file browser stays on one device and shares the protected preview route', () => {
   for (const id of [
     'file-browser', 'file-locations', 'file-breadcrumbs',

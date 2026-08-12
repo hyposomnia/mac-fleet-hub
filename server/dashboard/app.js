@@ -1675,8 +1675,10 @@ async function loadServerChatQueue(chat) {
   try {
     const result = await api(chat.macId, `chat/queue?assistant=codex&sessionId=${encodeURIComponent(chat.sessionId)}`);
     const legacy = (chat.followups || []).filter((item) => !item.clientMessageId);
-    chat.followups = [...legacy, ...(Array.isArray(result?.items) ? result.items : [])];
-    for (const item of chat.followups) {
+    const visibleQueue = (Array.isArray(result?.items) ? result.items : [])
+      .filter((item) => item.status !== 'sent' && item.status !== 'cancelled');
+    chat.followups = [...legacy, ...visibleQueue];
+    for (const item of visibleQueue) {
       if (!chat.model?.items?.[item.clientMessageId]) {
         chat.model = FleetChatModel.appendUserMessage(chat.model, (item.displayText || item.text || '').trim(), item.clientMessageId, item.images || []);
       }
@@ -1728,17 +1730,19 @@ async function decideServerChatQueue(item, action) {
 
 function queueStatusCard(item) {
   const status = item?.status || 'queued';
-  const labels = { queued: '消息已保存，等待发送', waiting_writer: '该会话正在目标 Mac 的本地 Codex 中使用，Fleet 正在等待控制权', takeover_check: '正在检查目标 Mac 上受影响的任务…', takeover_confirmation_required: '强制接管会中断目标 Mac 上以下任务', taking_over: '正在强制接管目标 Mac 上的会话…', sending: '正在发送…', sent: '已发送', failed: item.error || '发送失败，请重新尝试', cancelled: '已取消' };
+  const labels = { queued: '消息已保存，等待当前任务结束后发送', waiting_turn: '当前 Fleet 任务仍在运行，消息将在结束后发送', waiting_writer: '该会话正在目标 Mac 的本地 Codex 中使用，Fleet 正在等待控制权', takeover_check: '正在检查目标 Mac 上受影响的任务…', takeover_confirmation_required: '强制接管会中断目标 Mac 上以下任务', taking_over: '正在强制接管目标 Mac 上的会话…', sending: '正在发送…', sent: '已发送', failed: item.error || '发送失败，请重新尝试', cancelled: '已取消' };
   const pending = !!item.decisionPending;
   const actions = [];
-  if (status === 'queued' || status === 'waiting_writer') {
+  if (status === 'waiting_writer') {
     actions.push(h('button', { type: 'button', class: 'btn sm danger', disabled: pending ? '' : null, onclick: () => decideServerChatQueue(item, 'force') }, pending && item.decisionPending === 'force' ? '正在接管…' : '强制接管'));
     actions.push(h('button', { type: 'button', class: 'btn sm', disabled: pending ? '' : null, onclick: () => decideServerChatQueue(item, 'wait') }, '继续排队'));
+  } else if (status === 'queued' || status === 'waiting_turn') {
+    actions.push(h('button', { type: 'button', class: 'btn sm bare', disabled: pending ? '' : null, onclick: () => decideServerChatQueue(item, 'cancel') }, '取消排队'));
   } else if (status === 'takeover_confirmation_required') {
     actions.push(h('button', { type: 'button', class: 'btn sm danger', disabled: pending ? '' : null, onclick: () => decideServerChatQueue(item, 'confirm-force') }, pending ? '正在接管…' : '中断全部并接管'));
     actions.push(h('button', { type: 'button', class: 'btn sm', disabled: pending ? '' : null, onclick: () => decideServerChatQueue(item, 'wait') }, '继续排队'));
   } else if (status === 'failed') actions.push(h('button', { type: 'button', class: 'btn sm', disabled: pending ? '' : null, onclick: () => decideServerChatQueue(item, 'retry') }, pending ? '正在重试…' : '重新尝试'));
-  if (!['sent', 'cancelled', 'sending', 'taking_over', 'takeover_check'].includes(status)) actions.push(h('button', { type: 'button', class: 'btn sm bare', disabled: pending ? '' : null, onclick: () => decideServerChatQueue(item, 'cancel') }, '取消'));
+  if (status === 'waiting_writer') actions.push(h('button', { type: 'button', class: 'btn sm bare', disabled: pending ? '' : null, onclick: () => decideServerChatQueue(item, 'cancel') }, '取消'));
   return h('section', { class: `chat-queue-status ${status}` },
     h('div', { class: 'chat-queue-status-title', text: labels[status] || status }),
     status === 'takeover_confirmation_required' ? h('p', { class: 'chat-queue-warning', text: '再次确认将立即中断目标机器上以下全部运行中任务，并把会话控制权交给 Fleet。' }) : null,
