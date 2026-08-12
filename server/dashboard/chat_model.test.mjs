@@ -603,6 +603,10 @@ test('external writer messages use the agent queue and render takeover actions b
   assert.match(appSrc, /enqueueServerChatMessage/);
   assert.match(appSrc, /中断全部并接管/);
   assert.match(appSrc, /继续排队/);
+  assert.match(appSrc, /该会话正在目标 Mac 的本地 Codex 中使用/);
+  assert.match(appSrc, /item\.decisionPending = action/);
+  assert.match(appSrc, /disabled: pending \? '' : null/);
+  assert.match(appSrc, /重新尝试/);
   assert.match(styleCSS, /\.chat-queue-status/);
   assert.doesNotMatch(appSrc, /Codex Desktop 正在使用此会话。\\n\\nFleet 不会抢占/);
 });

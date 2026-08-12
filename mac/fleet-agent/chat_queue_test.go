@@ -42,14 +42,27 @@ func TestChatQueuePersistsAndDeduplicatesClientMessage(t *testing.T) {
 type fakeChatQueueSender struct {
 	calls int
 	err   error
+	last  ChatQueueItem
 }
 
-func (f *fakeChatQueueSender) Send(_ ChatQueueItem) (string, error) {
+func (f *fakeChatQueueSender) Send(item ChatQueueItem) (string, error) {
 	f.calls++
+	f.last = item
 	if f.err != nil {
 		return "", f.err
 	}
 	return "turn-1", nil
+}
+
+func TestChatQueueForcedDeliveryFailsInsteadOfReturningToWait(t *testing.T) {
+	q, _ := openChatQueue(filepath.Join(t.TempDir(), "queue.json"))
+	item, _ := q.Enqueue(ChatQueueItem{ClientMessageID: "client-1", Assistant: "codex", SessionID: "thread-1", Text: "hello", Decision: "force"})
+	sender := &fakeChatQueueSender{err: errExternalChatTurn}
+	newChatQueueWorker(q, sender).processOne()
+	got, _ := q.get(item.ID)
+	if got.Status != chatQueueFailed || got.Error == "" {
+		t.Fatalf("forced item silently returned to waiting: %+v", got)
+	}
 }
 
 func TestChatQueueWorkerPersistsWaitingAndSendsWithoutBrowser(t *testing.T) {

@@ -309,6 +309,7 @@ type ChatTurnOptions struct {
 	ServiceTier         *string `json:"serviceTier,omitempty"`
 	ApprovalMode        string  `json:"approvalMode,omitempty"`
 	ClientUserMessageID string  `json:"-"`
+	ForceTakeover       bool    `json:"-"`
 }
 
 type ChatAttachment struct {

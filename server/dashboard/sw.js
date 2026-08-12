@@ -1,5 +1,5 @@
 // PWA 外壳缓存。终端、API 与用户文件必须实时，明确不进入 Cache Storage。
-const CACHE = 'fleet-shell-v105';
+const CACHE = 'fleet-shell-v106';
 const FILE_TYPE_ICONS = [
   'audio', 'c', 'console', 'cpp', 'csharp', 'css', 'dart', 'database', 'docker',
   'document', 'exe', 'font', 'git', 'go', 'html', 'image', 'java', 'javascript',

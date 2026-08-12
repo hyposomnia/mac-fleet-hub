@@ -1813,7 +1813,7 @@ func (b *codexChatBackend) Input(ctx context.Context, assistant, sessionID, text
 	if err != nil {
 		return ChatInputResult{}, err
 	}
-	if rolloutState, ok := codexCurrentRolloutTaskState(sessionID); ok && rolloutState.turnID != "" && !rolloutState.terminal {
+	if rolloutState, ok := codexCurrentRolloutTaskState(sessionID); !opts.ForceTakeover && ok && rolloutState.turnID != "" && !rolloutState.terminal {
 		b.mu.Lock()
 		owned := b.lastTurn[sessionID] == rolloutState.turnID && b.turnOwners[sessionID] == "fleet"
 		b.mu.Unlock()

@@ -112,6 +112,7 @@ func (s backendChatQueueSender) Send(item ChatQueueItem) (string, error) {
 	skills = append(skills, resolved...)
 	options := item.Options
 	options.ClientUserMessageID = item.ClientMessageID
+	options.ForceTakeover = item.Decision == "force" || item.Decision == "confirm-force"
 	result, err := s.backend.Input(ctx, item.Assistant, item.SessionID, item.Text, images, skills, options)
 	return result.TurnID, err
 }
@@ -157,7 +158,7 @@ func (w *chatQueueWorker) processOne() {
 			return nil
 		})
 		turnID, err := w.sender.Send(item)
-		if errors.Is(err, errExternalChatTurn) || errors.Is(err, errThreadReadOnly) {
+		if (errors.Is(err, errExternalChatTurn) || errors.Is(err, errThreadReadOnly)) && item.Decision != "force" && item.Decision != "confirm-force" {
 			_, _ = w.queue.update(item.ID, func(current *ChatQueueItem) error {
 				current.Status, current.Error = chatQueueWaitingWriter, ""
 				return nil
@@ -167,6 +168,9 @@ func (w *chatQueueWorker) processOne() {
 		if err != nil {
 			_, _ = w.queue.update(item.ID, func(current *ChatQueueItem) error {
 				current.Status, current.Error = chatQueueFailed, err.Error()
+				if current.Decision == "force" || current.Decision == "confirm-force" {
+					current.Error = "强制接管后仍无法取得该会话控制权，请重新尝试。"
+				}
 				return nil
 			})
 			return
