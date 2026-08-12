@@ -3796,7 +3796,7 @@ async function submitChatInput({ forceQueue = false } = {}) {
     skills: parsed.skills.map((skill) => ({ id: skill.id, name: skill.name })),
   };
   if (isDesktopChatOwned(chat)) {
-    await enqueueServerChatMessage(chat, item);
+    await enqueueServerChatMessage(chat, item, { transcript: true });
     return;
   }
   if (isChatRunning(chat)) {
