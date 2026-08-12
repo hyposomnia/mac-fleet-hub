@@ -1963,7 +1963,7 @@ function renderChat({ preserveScroll = false, forceBottom = false } = {}) {
     }
     if (unit.entries.length === 1 && unit.entries[0].item.type === 'user') {
       const queued = (chat.followups || []).find((item) => item.clientMessageId === unit.entries[0].id);
-      if (queued) stack.append(chatRow(queueStatusCard(queued), 'user queue-status-row'));
+      if (queued && queued.status !== 'sent') stack.append(chatRow(queueStatusCard(queued), 'user queue-status-row'));
     }
     const lastId = unit.entries[unit.entries.length - 1].id;
     const turnMeta = metaVisible.get(lastId);

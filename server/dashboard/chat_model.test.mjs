@@ -617,6 +617,10 @@ test('agent-owned queue is excluded from legacy browser persistence and direct f
   assert.match(appSrc, /loadServerChatQueue\(chat\)\.then\(\(\) => migrateLocalChatFollowups\(chat\)\)/);
 });
 
+test('successfully sent queue items do not render a redundant status card', () => {
+  assert.match(appSrc, /queued && queued\.status !== 'sent'/);
+});
+
 test('custom file browser stays on one device and shares the protected preview route', () => {
   for (const id of [
     'file-browser', 'file-locations', 'file-breadcrumbs',

@@ -948,6 +948,49 @@ func TestCodexChatBackendSettingsUpdatesApprovalImmediately(t *testing.T) {
 	}
 }
 
+func TestCodexChatBackendOperationsRecoverFleetOwnershipBeforeRejecting(t *testing.T) {
+	previousCfg := cfg
+	previousOwner := codexThreadWriterProcessOwner
+	previousState := codexActiveRolloutTaskState
+	t.Cleanup(func() {
+		cfg = previousCfg
+		codexThreadWriterProcessOwner = previousOwner
+		codexActiveRolloutTaskState = previousState
+	})
+	cfg.CodexMode = "isolated"
+	codexThreadWriterProcessOwner = func(string) string { return "fleet" }
+	codexActiveRolloutTaskState = func(string) (codexRolloutTaskState, bool) {
+		return codexRolloutTaskState{turnID: "turn-live"}, true
+	}
+	rpc := newFakeRPCConn()
+	rpc.reply["thread/settings/update"] = json.RawMessage(`{}`)
+	rpc.reply["turn/steer"] = json.RawMessage(`{"turnId":"turn-live"}`)
+	rpc.reply["turn/interrupt"] = json.RawMessage(`{}`)
+	b := newCodexChatBackend(func(context.Context) (codexRPCConn, func(), error) {
+		return rpc, func() {}, nil
+	})
+	for _, operation := range []struct {
+		name string
+		run  func() error
+	}{
+		{"settings", func() error { return b.Settings(context.Background(), "codex", "thread-1", "full-access") }},
+		{"steer", func() error {
+			_, err := b.Steer(context.Background(), "codex", "thread-1", "client-1", "next", nil, nil)
+			return err
+		}},
+		{"interrupt", func() error { return b.Interrupt(context.Background(), "codex", "thread-1") }},
+	} {
+		b.mu.Lock()
+		b.lastTurn["thread-1"] = "turn-live"
+		b.turnOwners["thread-1"] = "desktop"
+		b.writerOwners["thread-1"] = "desktop"
+		b.mu.Unlock()
+		if err := operation.run(); errors.Is(err, errExternalChatTurn) {
+			t.Fatalf("%s rejected Fleet-owned turn as Desktop: %v", operation.name, err)
+		}
+	}
+}
+
 func TestCodexChatBackendFullAccessAutoApprovesCurrentTurnRequests(t *testing.T) {
 	rpc := newFakeRPCConn()
 	rpc.reply["thread/settings/update"] = json.RawMessage(`{}`)

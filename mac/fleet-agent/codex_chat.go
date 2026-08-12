@@ -215,6 +215,7 @@ func codexUsesIsolatedSidecar() bool {
 }
 
 var codexThreadWriterProcessOwner = systemCodexThreadWriterProcessOwner
+var codexActiveRolloutTaskState = codexCurrentRolloutTaskState
 
 // systemCodexThreadWriterProcessOwner recovers writer ownership after the
 // fleet-agent reconnects or restarts. The writer lock belongs to app-server,
@@ -255,6 +256,14 @@ func (b *codexChatBackend) restoreFleetTurnOwner(sessionID, turnID string) bool 
 	b.writerOwners[sessionID] = "fleet"
 	b.mu.Unlock()
 	return true
+}
+
+func (b *codexChatBackend) refreshActiveTurnOwnership(sessionID string) {
+	state, active := codexActiveRolloutTaskState(sessionID)
+	if !active || state.turnID == "" || state.terminal {
+		return
+	}
+	_ = b.restoreFleetTurnOwner(sessionID, state.turnID)
 }
 
 type codexHistoryItemEntry struct {
@@ -1963,6 +1972,7 @@ func (b *codexChatBackend) Steer(ctx context.Context, assistant, sessionID, clie
 	if err != nil {
 		return ChatInputResult{}, err
 	}
+	b.refreshActiveTurnOwnership(sessionID)
 	b.mu.Lock()
 	turnID := b.lastTurn[sessionID]
 	owner := b.turnOwners[sessionID]
@@ -2106,6 +2116,7 @@ func (b *codexChatBackend) Settings(ctx context.Context, assistant, sessionID, a
 	if assistant != "codex" {
 		return errUnsupportedChatAssistant
 	}
+	b.refreshActiveTurnOwnership(sessionID)
 	b.mu.Lock()
 	external := b.turnOwners[sessionID] == "desktop" || b.writerOwners[sessionID] == "desktop"
 	b.mu.Unlock()
@@ -2994,6 +3005,7 @@ func (b *codexChatBackend) Interrupt(ctx context.Context, assistant, sessionID s
 	if err != nil {
 		return err
 	}
+	b.refreshActiveTurnOwnership(sessionID)
 	b.turnProcessMu.Lock()
 	defer b.turnProcessMu.Unlock()
 	b.mu.Lock()
