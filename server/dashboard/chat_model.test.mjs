@@ -1454,7 +1454,7 @@ test('generic tool updates preserve kind, summary, status, and details', () => {
 
 test('tool activity rows mirror Codex inline summaries', () => {
   assert.match(appSrc, /function chatToolActivityLabel\(item, status, duration\)/);
-  assert.match(appSrc, /function renderChatActivityGroup\(items\)/);
+  assert.match(appSrc, /function renderChatActivityGroup\(items,/);
   assert.match(appSrc, /class:\s*'chat-tool-verb'/);
   assert.match(appSrc, /class:\s*'chat-tool-command mono'/);
   assert.match(appSrc, /'chat-tool-path mono'/);
@@ -1478,6 +1478,21 @@ test('tool-only activity summaries keep the existing compatibility fallback', ()
   assert.equal(group.className, 'chat-row tool activity-group');
   assert.match(nodeText(group), /已读取文件运行了一个命令已搜索网页/);
   assert.match(nodeText(group), /npm test/);
+});
+
+test('manually expanded activity groups stay open across live rerenders', () => {
+  const items = [
+    { type: 'diff', files: [{ path: 'app.js' }], status: 'completed' },
+    { type: 'tool', kind: 'commandExecution', summary: 'npm test', status: 'inProgress' },
+  ];
+  const expanded = new Set(['tool-1']);
+  const group = renderChatActivityGroup(items, 'tool-1', expanded);
+  const details = nodesWithClass(group, 'chat-activity-group')[0];
+  assert.equal(details.attributes.open, '');
+  assert.equal(typeof details.ontoggle, 'function');
+  details.open = false;
+  details.ontoggle({ currentTarget: details });
+  assert.equal(expanded.has('tool-1'), false);
 });
 
 test('Codex activity traces omit internal reasoning items', () => {

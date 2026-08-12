@@ -1959,7 +1959,11 @@ function renderChat({ preserveScroll = false, forceBottom = false } = {}) {
     .filter((entry) => entry.item && !isInternalChatTool(entry.item));
   for (const unit of chatRenderUnits(entries)) {
     const rows = unit.kind === 'trace'
-      ? renderChatActivityRun(unit.entries.map((entry) => entry.item))
+      ? renderChatActivityRun(
+        unit.entries.map((entry) => entry.item),
+        unit.entries.map((entry) => entry.id),
+        chat.expandedActivityGroups,
+      )
       : [renderChatItem(unit.entries[0].item,
         unit.entries[0].item.type === 'user' && metaVisible.has(unit.entries[0].id))];
     for (const row of rows) {
@@ -2478,21 +2482,30 @@ function chatActivityGroupIconKind(items) {
   return items[0]?.kind || 'tool';
 }
 
-function renderChatActivityGroup(items) {
+function renderChatActivityGroup(items, groupKey = '', expandedGroups = null) {
   const segments = chatActivityActiveSummarySegments(chatActivityActiveItem(items)) || chatActivityGroupSummarySegments(items);
   const header = h('span', { class: 'chat-tool-summary chat-activity-group-summary' },
     h('span', { class: 'chat-tool-icon' }, chatToolIcon(chatActivityGroupIconKind(items))),
     h('span', { class: 'chat-tool-label' }, segments.map((segment) => h('span', { class: 'chat-tool-verb', text: segment }))),
     h('span', { class: 'chat-tool-aside' }, svgIcon('chat-tool-chevron', 'M6 9l6 6 6-6')));
-  return chatRow(h('details', { class: 'chat-activity-group chat-tool compact' },
+  const expanded = !!groupKey && expandedGroups?.has(groupKey);
+  const details = h('details', {
+    class: 'chat-activity-group chat-tool compact', open: expanded ? '' : null,
+    ontoggle: (event) => {
+      if (!groupKey || !expandedGroups) return;
+      if (event.currentTarget.open) expandedGroups.add(groupKey);
+      else expandedGroups.delete(groupKey);
+    },
+  },
     h('summary', {}, header),
     h('div', { class: 'chat-activity-group-body' }, items.map((item) => (
       item.type === 'diff' ? renderChatDiffSurface(item, 'grouped') : renderChatToolSurface(item, 'grouped')
-    )))),
+    ))));
+  return chatRow(details,
   'tool activity-group');
 }
 
-function renderChatActivityRun(items) {
+function renderChatActivityRun(items, itemIDs = [], expandedGroups = null) {
   const visibleItems = items.filter((item) => item.type !== 'reasoning');
   const rows = [];
   for (let i = 0; i < visibleItems.length; i += 1) {
@@ -2506,7 +2519,11 @@ function renderChatActivityRun(items) {
       group.push(visibleItems[i + 1]);
       i += 1;
     }
-    rows.push(group.length > 1 ? renderChatActivityGroup(group) : renderChatItem(item, false));
+    const groupEnd = i;
+    const groupStart = groupEnd - group.length + 1;
+    // The group grows while a turn streams, so its first item ID is the stable identity.
+    const groupKey = group.length > 1 ? (itemIDs[groupStart] || '') : '';
+    rows.push(group.length > 1 ? renderChatActivityGroup(group, groupKey, expandedGroups) : renderChatItem(item, false));
   }
   return rows.filter(Boolean);
 }
@@ -3065,6 +3082,7 @@ async function openChatSession(s) {
       pendingStart: !!s.pendingStart, unscoped: !!s.unscoped, startPromise: null,
       attachments: [], objectUrls: [], draft: '', updatedAt: Number(s.mtime) || Date.now(),
       followups: loadChatFollowups(macId, s.sessionId), sendingFollowup: false, interrupting: false,
+      expandedActivityGroups: new Set(),
       skills: [], skillsLoaded: false, skillsPromise: null, skillsError: '',
       skillsCwd: s.cwd || '', skillMenu: null, skillPreferences: {},
       historyReady: false, historyLoading: false, historyCursor: '',
@@ -3077,6 +3095,7 @@ async function openChatSession(s) {
     state.chatCache.set(key, chat);
   }
   state.chat = chat;
+  if (!(chat.expandedActivityGroups instanceof Set)) chat.expandedActivityGroups = new Set();
   if (typeof chat.writerOwner !== 'string') chat.writerOwner = '';
   if (!Array.isArray(chat.skills)) chat.skills = [];
   if (typeof chat.skillsLoaded !== 'boolean') chat.skillsLoaded = false;
