@@ -1650,7 +1650,7 @@ function persistChatFollowups(chat) {
   const key = chatFollowupStorageKey(chat);
   if (!key) return;
   try {
-    const items = (chat.followups || []).map((item) => ({
+    const items = (chat.followups || []).filter((item) => !item.clientMessageId).map((item) => ({
       id: item.id, text: item.text || '', displayText: item.displayText || '',
       images: (item.images || []).map(({ id, name, mime, size, url }) => ({ id, name, mime, size, url })),
       skills: (item.skills || []).map(({ id, name }) => ({ id, name })),
@@ -1670,11 +1670,79 @@ function loadChatFollowups(macId, sessionId) {
   }
 }
 
+async function loadServerChatQueue(chat) {
+  if (!chat || chat.pendingStart) return;
+  try {
+    const result = await api(chat.macId, `chat/queue?assistant=codex&sessionId=${encodeURIComponent(chat.sessionId)}`);
+    const legacy = (chat.followups || []).filter((item) => !item.clientMessageId);
+    chat.followups = [...legacy, ...(Array.isArray(result?.items) ? result.items : [])];
+    for (const item of chat.followups) {
+      if (!chat.model?.items?.[item.clientMessageId]) {
+        chat.model = FleetChatModel.appendUserMessage(chat.model, (item.displayText || item.text || '').trim(), item.clientMessageId, item.images || []);
+      }
+    }
+    if (state.chat === chat) renderChat();
+  } catch (_) {}
+}
+
+async function migrateLocalChatFollowups(chat) {
+  const legacy = (chat?.followups || []).filter((item) => !item.clientMessageId);
+  if (!legacy.length) return;
+  for (const item of legacy) {
+    const queued = await saveServerChatQueueItem(chat, item);
+    if (!queued) return;
+    const index = chat.followups.findIndex((entry) => entry.id === item.id && !entry.clientMessageId);
+    if (index >= 0) chat.followups.splice(index, 1);
+    chat.followups.push(queued);
+    persistChatFollowups(chat);
+  }
+  if (state.chat === chat) renderChat();
+}
+
+function startServerChatQueueSync(chat) {
+  if (!chat || chat.queueTimer) return;
+  chat.queueTimer = setInterval(() => loadServerChatQueue(chat), 3000);
+}
+
+async function decideServerChatQueue(item, action) {
+  const chat = state.chat;
+  if (!chat || !item) return;
+  try {
+    const updated = await api(chat.macId, 'chat/queue/decision', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ id: item.id, action, auditVersion: item.auditVersion || '' }),
+    });
+    const index = chat.followups.findIndex((entry) => entry.id === item.id);
+    if (index >= 0) chat.followups[index] = updated;
+    renderChat();
+  } catch (error) { toast(error.message, 'err'); }
+}
+
+function queueStatusCard(item) {
+  const status = item?.status || 'queued';
+  const labels = { queued: '消息已保存，等待发送', waiting_writer: '等待会话控制权', takeover_check: '正在检查受影响任务…', takeover_confirmation_required: '强制接管会中断以下任务', taking_over: '正在强制接管…', sending: '正在发送…', sent: '已发送', failed: item.error || '发送失败', cancelled: '已取消' };
+  const actions = [];
+  if (status === 'queued' || status === 'waiting_writer') {
+    actions.push(h('button', { type: 'button', class: 'btn sm danger', onclick: () => decideServerChatQueue(item, 'force') }, '强制接管'));
+    actions.push(h('button', { type: 'button', class: 'btn sm', onclick: () => decideServerChatQueue(item, 'wait') }, '继续排队'));
+  } else if (status === 'takeover_confirmation_required') {
+    actions.push(h('button', { type: 'button', class: 'btn sm danger', onclick: () => decideServerChatQueue(item, 'confirm-force') }, '中断全部并接管'));
+    actions.push(h('button', { type: 'button', class: 'btn sm', onclick: () => decideServerChatQueue(item, 'wait') }, '继续排队'));
+  } else if (status === 'failed') actions.push(h('button', { type: 'button', class: 'btn sm', onclick: () => decideServerChatQueue(item, 'retry') }, '重试'));
+  if (!['sent', 'cancelled', 'sending', 'taking_over', 'takeover_check'].includes(status)) actions.push(h('button', { type: 'button', class: 'btn sm bare', onclick: () => decideServerChatQueue(item, 'cancel') }, '取消'));
+  return h('section', { class: `chat-queue-status ${status}` },
+    h('div', { class: 'chat-queue-status-title', text: labels[status] || status }),
+    status === 'takeover_confirmation_required' ? h('p', { class: 'chat-queue-warning', text: '再次确认将立即中断目标机器上以下全部运行中任务，并把会话控制权交给 Fleet。' }) : null,
+    item.affected?.length ? h('div', { class: 'chat-queue-affected' }, ...item.affected.map((impact) => h('div', { text: `${impact.active ? '运行中' : '占用中'} · ${impact.title || impact.sessionId}` }))) : null,
+    actions.length ? h('div', { class: 'chat-queue-actions' }, ...actions) : null);
+}
+
 function acknowledgeChatFollowups(chat, events) {
   let changed = false;
   for (const ev of events || []) {
     const id = FleetChatModel.followupAckId(ev);
-    if (id && removeChatFollowup(chat, id)) changed = true;
+    const item = id && chat?.followups?.find((entry) => entry.id === id);
+    if (item && !item.clientMessageId && removeChatFollowup(chat, id)) changed = true;
   }
   return changed;
 }
@@ -1683,6 +1751,8 @@ function disposeChat(chat) {
   if (!chat) return;
   if (chat.events) { try { chat.events.close(); } catch (_) {} }
   chat.events = null;
+  if (chat.queueTimer) clearInterval(chat.queueTimer);
+  chat.queueTimer = null;
   if (chat.objectUrls) for (const u of chat.objectUrls) { try { URL.revokeObjectURL(u); } catch (_) {} }
   chat.objectUrls = [];
   syncSessionRuntimeIndicators();
@@ -1881,6 +1951,10 @@ function renderChat({ preserveScroll = false, forceBottom = false } = {}) {
         unit.entries[0].item.type === 'user' && metaVisible.has(unit.entries[0].id))];
     for (const row of rows) {
       if (row) stack.append(row);
+    }
+    if (unit.entries.length === 1 && unit.entries[0].item.type === 'user') {
+      const queued = (chat.followups || []).find((item) => item.clientMessageId === unit.entries[0].id);
+      if (queued) stack.append(chatRow(queueStatusCard(queued), 'user queue-status-row'));
     }
     const lastId = unit.entries[unit.entries.length - 1].id;
     const turnMeta = metaVisible.get(lastId);
@@ -2834,7 +2908,7 @@ function renderChatFollowups() {
   const chat = state.chat;
   if (!box) return;
   clear(box);
-  const items = chat?.followups || [];
+  const items = (chat?.followups || []).filter((item) => !item.clientMessageId);
   box.hidden = items.length === 0;
   for (const item of items) {
     const label = item.displayText || item.text
@@ -3012,6 +3086,8 @@ async function openChatSession(s) {
   resizeChatInput();
   renderChatAttachments();
   renderChatFollowups();
+  loadServerChatQueue(chat).then(() => migrateLocalChatFollowups(chat));
+  startServerChatQueueSync(chat);
   closeChatSkillMenu();
   if (!chat.pendingStart) loadChatSkills(chat).catch(() => {});
   if (chat.pendingStart) {
@@ -3638,23 +3714,16 @@ async function submitChatInput({ forceQueue = false } = {}) {
     skills: parsed.skills.map((skill) => ({ id: skill.id, name: skill.name })),
   };
   if (isDesktopChatOwned(chat)) {
-    const confirmed = confirm('Codex Desktop 正在使用此会话。\n\nFleet 不会抢占或插入 Desktop 当前任务。确认后，这条消息会排队，并在 Desktop 切换或关闭此会话后自动发送。');
-    if (!confirmed) {
-      restoreChatComposerItem(chat, item);
-      return;
-    }
-    enqueueChatFollowup(chat, item.text, item.images, item.id, item.skills, item.displayText);
-    renderChatFollowups();
+    await enqueueServerChatMessage(chat, item);
     return;
   }
   if (isChatRunning(chat)) {
     if (forceQueue) {
-      enqueueChatFollowup(chat, item.text, item.images, item.id, item.skills, item.displayText);
-      renderChatFollowups();
+      await enqueueServerChatMessage(chat, item);
     } else {
       const steered = await sendChatSteer(chat, item);
       if (!steered) {
-        enqueueChatFollowup(chat, item.text, item.images, item.id, item.skills, item.displayText);
+        await enqueueServerChatMessage(chat, item);
         if (state.chat === chat) {
           renderChatFollowups();
           toast(item.steerNoActive ? '当前任务已结束，追问将作为下一轮发送。' : '追问未能插入当前任务，已保留到下一轮。', item.steerNoActive ? '' : 'err');
@@ -3667,16 +3736,42 @@ async function submitChatInput({ forceQueue = false } = {}) {
   const sent = await sendChatTurn(chat, item, { restoreOnFailure: false });
   if (sent) return;
   if (item.externalWriter) {
-    const confirmed = confirm('Codex Desktop 已打开此会话。\n\nFleet 当前只能同步查看。确认后，这条消息会保留在队列，并在 Desktop 释放会话后自动发送。');
-    if (confirmed) {
-      enqueueChatFollowup(chat, item.text, item.images, item.id, item.skills, item.displayText);
-      renderChatFollowups();
-    } else {
-      restoreChatComposerItem(chat, item);
-    }
+    await enqueueServerChatMessage(chat, item);
     return;
   }
   restoreChatComposerItem(chat, item);
+}
+
+async function enqueueServerChatMessage(chat, item) {
+  chat.model = FleetChatModel.appendUserMessage(chat.model, (item.displayText || item.text).trim(), item.id, item.images);
+  const queued = await saveServerChatQueueItem(chat, item);
+  if (queued) {
+    chat.followups = chat.followups || [];
+    const index = chat.followups.findIndex((entry) => entry.id === queued.id);
+    if (index >= 0) chat.followups[index] = queued; else chat.followups.push(queued);
+    renderChat();
+    return;
+  }
+  chat.model = FleetChatModel.removeMessage(chat.model, item.id);
+  restoreChatComposerItem(chat, item);
+  renderChat();
+}
+
+async function saveServerChatQueueItem(chat, item) {
+  try {
+    return await api(chat.macId, 'chat/queue', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        assistant: 'codex', sessionId: chat.sessionId, clientMessageId: item.id,
+        cwd: chat.cwd || '', text: item.text, displayText: item.displayText,
+        skills: item.skills || [], images: item.images.map(({ id, name, mime, size, url }) => ({ id, name, mime, size, url })),
+        options: chatTurnOptions(chat),
+      }),
+    });
+  } catch (error) {
+    toast('消息保存失败：' + error.message, 'err');
+    return null;
+  }
 }
 
 function chatTurnOptions(chat) {
@@ -3777,9 +3872,10 @@ async function sendChatSteer(chat, item) {
 }
 
 async function flushChatFollowups(chat) {
-  if (!chat || chat.sendingFollowup || isChatRunning(chat) || !chat.followups?.length) return;
+  if (!chat || chat.sendingFollowup || isChatRunning(chat)) return;
+  const item = chat.followups?.find((entry) => !entry.clientMessageId);
+  if (!item) return;
   chat.sendingFollowup = true;
-  const item = chat.followups[0];
   const sent = await sendChatTurn(chat, item, { restoreOnFailure: false });
   if (sent) removeChatFollowup(chat, item.id);
   chat.sendingFollowup = false;

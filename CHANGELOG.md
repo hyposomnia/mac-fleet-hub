@@ -1,5 +1,11 @@
 # Changelog
 
+## 2026-08-12
+
+- Codex 追问与 writer 冲突消息改由目标 Mac 的 fleet-agent 持久化排队和后台投递；关闭浏览器、切换终端或刷新页面不会丢失或中断队列，旧 localStorage 队列会幂等迁移。
+- 用户消息下方新增服务器状态卡，可继续排队、取消、重试或请求强制接管。若目标机器存在活跃任务，首次操作只展示影响清单，二次确认后才允许中断该机器默认 daemon 上全部受影响任务。
+- 强制接管在执行前重新核对审计版本，串行重启默认 app-server，并持久记录失败状态；Dashboard PWA 缓存升级到 v105。
+
 ## 2026-08-11
 
 - 将 Codex Desktop 设为同一 thread 的最高优先入口：Fleet 默认改用独立常驻 app-server sidecar，浏览与实时同步仅读取 history / rollout，不再通过 `thread/resume` 抢占 Desktop writer。

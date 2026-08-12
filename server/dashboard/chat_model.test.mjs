@@ -597,6 +597,22 @@ test('external Codex writer keeps Fleet visible and queues confirmed input witho
   assert.match(styleCSS, /\.chat-desktop-running/);
 });
 
+test('external writer messages use the agent queue and render takeover actions below the user message', () => {
+  assert.match(appSrc, /chat\/queue\?assistant=codex/);
+  assert.match(appSrc, /chat\/queue\/decision/);
+  assert.match(appSrc, /enqueueServerChatMessage/);
+  assert.match(appSrc, /中断全部并接管/);
+  assert.match(appSrc, /继续排队/);
+  assert.match(styleCSS, /\.chat-queue-status/);
+  assert.doesNotMatch(appSrc, /Codex Desktop 正在使用此会话。\\n\\nFleet 不会抢占/);
+});
+
+test('agent-owned queue is excluded from legacy browser persistence and direct flushing', () => {
+  assert.match(appSrc, /filter\(\(item\) => !item\.clientMessageId\)\.map/);
+  assert.match(appSrc, /const item = chat\.followups\?\.find\(\(entry\) => !entry\.clientMessageId\)/);
+  assert.match(appSrc, /loadServerChatQueue\(chat\)\.then\(\(\) => migrateLocalChatFollowups\(chat\)\)/);
+});
+
 test('custom file browser stays on one device and shares the protected preview route', () => {
   for (const id of [
     'file-browser', 'file-locations', 'file-breadcrumbs',
