@@ -2,6 +2,7 @@
 
 ## 2026-08-11
 
+- 修复从会话内打开文件预览后，顶部返回按钮错误跳到会话列表的问题；同站内打开时现在返回原会话，直接访问预览链接时仍回退到 Fleet 首页。Dashboard PWA 缓存升级到 v104。
 - 将 Codex Desktop 设为同一 thread 的最高优先入口：Fleet 默认改用独立常驻 app-server sidecar，浏览与实时同步仅读取 history / rollout，不再通过 `thread/resume` 抢占 Desktop writer。
 - Desktop 持有 writer 时，Fleet 明确显示只读状态；用户输入需二次确认并持久化排队，等 Desktop 切换或关闭会话后自动重试。Fleet 不跨 app-server steer、停止或审批 Desktop turn。
 - Fleet 仅在真正发送时尝试取得 writer；自己的 turn 结束后立即 `thread/unsubscribe` 释放。安装脚本同步部署私有 Unix socket sidecar，并关闭 Desktop 共享 daemon 环境开关。

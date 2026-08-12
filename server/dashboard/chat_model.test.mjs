@@ -101,11 +101,11 @@ const parseCodexDirective = directiveSandbox.globalThis.FleetMarkdown.parseCodex
 const splitCodexContent = directiveSandbox.globalThis.FleetMarkdown.splitCodexContent || (() => []);
 const previewSandbox = {
   globalThis: { location: { origin: 'https://fleet.example.test', pathname: '/', search: '' } },
-  URLSearchParams,
+  URL, URLSearchParams,
 };
 vm.createContext(previewSandbox);
 vm.runInContext(previewSrc, previewSandbox);
-const { resolveLocalLink, resourceURL, fileEndpoint, isPreviewRoute, previewRequest, isTextPreviewPath, textPreviewMode } = previewSandbox.globalThis.FleetPreview;
+const { resolveLocalLink, resourceURL, fileEndpoint, isPreviewRoute, previewRequest, isTextPreviewPath, textPreviewMode, canReturnFromPreview } = previewSandbox.globalThis.FleetPreview;
 
 test('chat model and app use the same versioned shell URLs', () => {
   const styleURL = indexHTML.match(/style\.css\?v=([a-zA-Z0-9_-]+)/);
@@ -171,6 +171,16 @@ test('preview helpers build protected media URLs and parse only /view routes', (
     { macId: 'm2', path: '/Users/test/plan.md', cwd: '/repo', embed: false },
   );
   assert.equal(previewRequest('?mac=m2&path=%2Ftmp%2Fnote.txt&embed=1').embed, true);
+});
+
+test('standalone file preview returns to its originating session when browser history allows it', () => {
+  assert.equal(canReturnFromPreview('https://fleet.example.test/', 2), true);
+  assert.equal(canReturnFromPreview('https://fleet.example.test/?mode=sessions', 3), true);
+  assert.equal(canReturnFromPreview('https://other.example.test/', 2), false);
+  assert.equal(canReturnFromPreview('', 2), false);
+  assert.equal(canReturnFromPreview('https://fleet.example.test/', 1), false);
+  assert.match(indexHTML, /class="iconbtn bare preview-close"[^>]*href="\/"/);
+  assert.match(previewSrc, /wirePreviewBack\(\)[\s\S]*?event\.preventDefault\(\);[\s\S]*?root\.history\.back\(\)/);
 });
 
 test('preview page keeps HTML in a scriptless sandbox and media in native controls', () => {

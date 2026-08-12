@@ -182,6 +182,21 @@
     return { macId, path, cwd: params.get('cwd') || '', embed: params.get('embed') === '1' };
   }
 
+  function canReturnFromPreview(referrer = root.document?.referrer || '', historyLength = root.history?.length || 0) {
+    if (historyLength <= 1 || !referrer || !root.location?.origin) return false;
+    try { return new URL(referrer).origin === root.location.origin; } catch (_) { return false; }
+  }
+
+  function wirePreviewBack() {
+    const close = root.document?.querySelector('.preview-close');
+    if (!close) return;
+    close.onclick = (event) => {
+      if (!canReturnFromPreview()) return;
+      event.preventDefault();
+      root.history.back();
+    };
+  }
+
   function setPreviewState(kind) {
     const stage = document.querySelector('#preview-stage');
     if (!stage) return;
@@ -342,6 +357,7 @@
       showPreviewError('预览链接缺少主机或文件路径。');
       return;
     }
+    wirePreviewBack();
     document.documentElement.dataset.previewEmbed = request.embed ? 'true' : 'false';
     const wrap = document.querySelector('#preview-wrap');
     if (wrap) {
@@ -365,6 +381,6 @@
   root.FleetPreview = {
     resolveLocalLink, resourceURL, fileEndpoint, formatBytes, isPreviewRoute, previewRequest,
     safeHTMLDocument, rewriteCSSURLs, isTextPreviewPath, textPreviewMode, textWrapEnabled,
-    updateTextWrapButton, setTextWrap, initRoute,
+    updateTextWrapButton, setTextWrap, canReturnFromPreview, wirePreviewBack, initRoute,
   };
 })(typeof globalThis !== 'undefined' ? globalThis : window);
