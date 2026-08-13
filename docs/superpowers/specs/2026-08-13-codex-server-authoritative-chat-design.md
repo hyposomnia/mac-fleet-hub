@@ -59,7 +59,8 @@ Fleet 目前同时存在三套会影响真实行为的状态：fleet-agent 内�
 - `accessMode`：持久化的 `read_write | read_only`。
 - `writerOwner`：从真实 writer lock 持锁进程判定的 `fleet | desktop | 空`；Fleet 私有 socket 之外的任何活持锁进程都视为外部客户端，不能依赖某个固定 Desktop 命令行形态。
 - `turnPhase`、`activeTurnId`、`turnOwner`：由 rollout、真实锁和服务端运行态共同核对；terminal rollout 必须清除陈旧内存 turn。
-- `items`：该 session 的完整可见队列投影。
+- `approvalMode`：服务端最后确认的线程审批模式；浏览器可以暂存尚未提交的选择，但不得把乐观值当作已生效状态。
+- `items`：该 session 的完整可见队列投影；每项带服务端派生的 `allowedActions`，浏览器不得按 `status` 维护第二套合法动作表。
 
 快照在 per-session operation lock 内生成，确保 access、运行态和队列来自同一串行观察点。浏览器只应用带 epoch/version 的完整快照；同一 epoch 按 `snapshotVersion` 拒绝旧响应，跨 agent epoch 则再用浏览器请求序号阻止旧进程的在途响应覆盖新进程状态。SSE 仅作为“状态可能变化”的唤醒信号，收到 `turn_started`、`turn_done`、`thread_status`、`user_done` 或 `control_changed` 后重新取快照，不直接推进 writer/turn/queue。
 
@@ -107,6 +108,7 @@ failed/uncertain -- retry --> queued
 
 worker 对 `auto` 项先调用服务端 `Steer`：
 
+- 队列项携带 `approvalMode` 时，worker 在同一个 per-session operation lock 内先应用 `thread/settings/update`，再 steer/start；浏览器 settings 请求与队列请求的到达顺序不得改变本条消息的权限语义。
 - 成功：记录 `delivery=steer`、`turnId`、`sent`。
 - `no_active_turn`：在同一次 worker 流程中改走 `Input`。
 - 外部 writer：进入确认/等待状态。
@@ -163,16 +165,17 @@ SSE 最后观察者离开只停止 rollout 增量同步并删除 channel，不�
 | `read_write`, no writer, idle | 仅标题 | 可输入 | 有内容“发送” |
 | Fleet writer + Fleet running | “会话已被 Fleet 占有，如果 Codex 操作受限，可先 释放会话” | 可输入 | 空输入“停止”；有内容默认 `auto` |
 | 外部 writer | “其他 Codex 客户端正在使用 · Fleet 只读同步” | 可输入并允许提交到服务端确认队列 | 无内容禁用；有内容“提交” |
-| `read_only` | “Fleet 只读，Codex 可接管 · 恢复 Fleet 写入” | 输入、附件、审批和模型设置全部禁用，placeholder“Fleet 已释放此会话” | 禁用 |
+| `read_only`, writer 已释放 | “Fleet 只读，Codex 可接管 · 恢复 Fleet 写入” | 输入、附件、审批和模型设置全部禁用，placeholder“Fleet 已释放此会话” | 禁用 |
+| `read_only`, Fleet writer 尚未释放 | “Fleet 已只读，writer 仍在释放或等待服务端回收 · 重试释放” | 全部禁用，不能恢复写入 | 禁用 |
 | release 请求中 | 原占用提示，链接变“释放中…” | 暂时禁用 | 禁用 |
 
-`read_only` 优先于 writer 展示；外部 writer 不冒充 Fleet 手动只读。
+`read_only` 与 writer 必须联合展示；只有 `writerOwner` 为空或属于外部客户端时才能宣称 Codex 可接管。外部 writer 不冒充 Fleet 手动只读。
 
 ### 消息与队列项
 
 | item status | 放置位置 | 文案 | 操作 |
 |---|---|---|---|
-| `queued` | 用户气泡下方短暂状态 | “消息已保存” | 无 |
+| `queued` | 用户气泡下方短暂状态 | “消息已保存” | 取消（仅当服务端 `allowedActions` 返回） |
 | `steering` | 用户气泡 meta | “正在插入当前任务…” | 无 |
 | `waiting_turn` | composer 上方 follow-up tray | “服务器已保存 · 当前任务结束后发送” | “引导当前任务”、取消 |
 | `sending` | 用户气泡 meta | “正在启动下一轮…” | 无 |
@@ -184,9 +187,11 @@ SSE 最后观察者离开只停止 rollout 增量同步并删除 channel，不�
 | `failed` | 用户气泡下方错误卡 | 服务端错误 | “重试”、取消 |
 | `sent/cancelled` | 不显示队列卡 | 由真实 Codex history / 移除结果接管 | 无 |
 
-所有按钮只调用服务端 decision/access API。浏览器可以做“按钮提交中”这种瞬时视觉反馈，但不得预先改写持久 status；响应或下一次服务端同步后再更新。
+所有按钮只调用服务端 decision/access API，并严格按队列项的 `allowedActions` 渲染。浏览器可以做“按钮提交中”这种瞬时视觉反馈，但不得预先改写持久 status；响应或下一次服务端同步后再更新。按钮在途状态绑定发起时的 `stateVersion`，收到更高版本快照或请求结束后必须清除，不能跨服务端状态残留。
 
 现有 session 在首个有效控制快照到达前显示“正在同步会话控制状态”，输入、附件、审批、设置与发送全部禁用；新建且尚未获得 session ID 的本地草稿例外为可写，因为此时服务端还不存在可竞争的 writer。
+
+浏览器可以维护 `lastControlAt` 作为纯传输层新鲜度。控制轮询连续失败且最后一个成功快照超过 10 秒后，必须把控制面标记为“状态不可确认”、禁用所有 mutation，并继续重试；不得无限期信任旧快照，也不得在失联时自行推断新的 writer/turn/access 值。
 
 ## UI 不变量
 
@@ -220,6 +225,11 @@ SSE 最后观察者离开只停止 rollout 增量同步并删除 channel，不�
 - 源码不包含 `chat/input`、`chat/steer`、`flushChatFollowups` 或 Codex follow-up localStorage key。
 - submit 只调用 queue API并携带 `deliveryMode`，不携带 `writerOwner/status`。
 - UI 矩阵逐态断言标题、composer、卡片文案和允许按钮。
+- 合法队列动作只来自服务端 `allowedActions`；未知或缺失动作默认不显示。
 - access、writer、turn 和 queue 只由带 epoch/version 的完整控制快照覆盖；乱序旧响应与不完整响应不得落地。
+- 控制快照超过新鲜度 TTL 后禁写，下一份有效快照恢复；失联不改写快照内的 writer/turn/access 值。
+- 成功的队列决定在新 `stateVersion` 到达后解除本地按钮锁；失败也解除，不依赖刷新。
+- `read_only + writerOwner=fleet` 显示等待回收/重试释放，不能宣称 Codex 已可接管或开放恢复写入。
+- settings 与紧随其后的队列消息乱序到达时，worker 仍在 steer/start 前应用该消息携带的审批模式。
 - SSE、historyReady、submitting 和本地 optimistic 消息不得直接改变 writer/turn/queue 状态。
 - 多次队列同步不会重复用户气泡。

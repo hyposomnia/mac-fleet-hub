@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"mime/multipart"
 	"net/http"
@@ -234,9 +235,13 @@ func TestChatQueueGetReturnsVersionedAuthoritativeControlSnapshot(t *testing.T) 
 			t.Fatalf("control args assistant=%q session=%q", assistant, sessionID)
 		}
 		return ChatRuntimeState{
-			Status: "running", ActiveTurnID: "turn-1", TurnOwner: "desktop", WriterOwner: "desktop",
+			Status: "running", ActiveTurnID: "turn-1", TurnOwner: "desktop", WriterOwner: "desktop", ApprovalMode: "full-access",
 		}, nil
 	}})
+	queued, err := agentChatQueue.Enqueue(ChatQueueItem{ClientMessageID: "queued", Assistant: "codex", SessionID: "s1", Text: "later"})
+	if err != nil {
+		t.Fatal(err)
+	}
 	if _, err := agentChatQueue.SetAccessMode("codex", "s1", chatAccessReadOnly); err != nil {
 		t.Fatal(err)
 	}
@@ -248,8 +253,23 @@ func TestChatQueueGetReturnsVersionedAuthoritativeControlSnapshot(t *testing.T) 
 		t.Fatalf("status=%d body=%s", rr.Code, rr.Body.String())
 	}
 	if got.ServerEpoch == "" || got.SnapshotVersion == 0 || got.AccessMode != chatAccessReadOnly ||
-		got.WriterOwner != "desktop" || got.TurnOwner != "desktop" || got.TurnPhase != "running" || got.ActiveTurnID != "turn-1" {
+		got.WriterOwner != "desktop" || got.TurnOwner != "desktop" || got.TurnPhase != "running" || got.ActiveTurnID != "turn-1" ||
+		got.ApprovalMode != "full-access" || len(got.Items) != 1 || got.Items[0].ID != queued.ID ||
+		strings.Join(got.Items[0].AllowedActions, ",") != "enable-write,cancel" {
 		t.Fatalf("bad control snapshot: %+v", got)
+	}
+}
+
+func TestChatQueueGetDefaultsInvalidBackendApprovalMode(t *testing.T) {
+	withChatBackend(t, fakeChatBackend{controlFn: func(context.Context, string, string) (ChatRuntimeState, error) {
+		return ChatRuntimeState{Status: "idle", ApprovalMode: "invalid-mode"}, nil
+	}})
+	req := httptest.NewRequest(http.MethodGet, "/api/chat/queue?assistant=codex&sessionId=s1", nil)
+	rr := httptest.NewRecorder()
+	handleChatQueue(rr, req)
+	var got ChatSessionControlSnapshot
+	if rr.Code != http.StatusOK || json.Unmarshal(rr.Body.Bytes(), &got) != nil || got.ApprovalMode != "on-request" {
+		t.Fatalf("status=%d control=%+v body=%s", rr.Code, got, rr.Body.String())
 	}
 }
 
@@ -327,6 +347,9 @@ func TestChatSettingsUpdatesApprovalMode(t *testing.T) {
 			}
 			return nil
 		},
+		controlFn: func(context.Context, string, string) (ChatRuntimeState, error) {
+			return ChatRuntimeState{Status: "idle", ApprovalMode: "full-access"}, nil
+		},
 	})
 	req := httptest.NewRequest(http.MethodPost, "/api/chat/settings", bytes.NewBufferString(
 		`{"assistant":"codex","sessionId":"s1","approvalMode":"full-access"}`,
@@ -335,8 +358,42 @@ func TestChatSettingsUpdatesApprovalMode(t *testing.T) {
 
 	handleChatSettings(rr, req)
 
-	if rr.Code != http.StatusOK || !strings.Contains(rr.Body.String(), `"approvalMode":"full-access"`) {
+	var control ChatSessionControlSnapshot
+	if rr.Code != http.StatusOK || json.Unmarshal(rr.Body.Bytes(), &control) != nil || control.ApprovalMode != "full-access" ||
+		control.ServerEpoch == "" || control.SnapshotVersion == 0 {
 		t.Fatalf("status=%d body=%s", rr.Code, rr.Body.String())
+	}
+}
+
+func TestChatQueueDecisionReturnsFreshControlSnapshot(t *testing.T) {
+	withChatBackend(t, fakeChatBackend{controlFn: func(context.Context, string, string) (ChatRuntimeState, error) {
+		return ChatRuntimeState{Status: "idle", ApprovalMode: "on-request"}, nil
+	}})
+	previousTakeover := agentChatTakeover
+	agentChatTakeover = newChatTakeoverService(agentChatQueue, &fakeTakeoverController{}, nil)
+	t.Cleanup(func() { agentChatTakeover = previousTakeover })
+	item, err := agentChatQueue.Enqueue(ChatQueueItem{
+		ClientMessageID: "client-1", Assistant: "codex", SessionID: "s1", Text: "later", DeliveryMode: chatDeliveryNext,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	item, err = agentChatQueue.updateExpected(item.ID, []string{chatQueueQueued}, func(current *ChatQueueItem) error {
+		current.Status = chatQueueWaitingTurn
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest(http.MethodPost, "/api/chat/queue/decision", bytes.NewBufferString(fmt.Sprintf(
+		`{"id":%q,"action":"steer","stateVersion":%d}`, item.ID, item.StateVersion,
+	)))
+	rr := httptest.NewRecorder()
+	handleChatQueueDecision(rr, req)
+	var control ChatSessionControlSnapshot
+	if rr.Code != http.StatusOK || json.Unmarshal(rr.Body.Bytes(), &control) != nil || control.ServerEpoch == "" || len(control.Items) != 1 ||
+		control.Items[0].ID != item.ID || control.Items[0].StateVersion <= item.StateVersion {
+		t.Fatalf("status=%d control=%+v body=%s", rr.Code, control, rr.Body.String())
 	}
 }
 

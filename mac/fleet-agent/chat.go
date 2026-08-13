@@ -283,14 +283,15 @@ type ChatResumeResult struct {
 	Control         *ChatSessionControlSnapshot `json:"control,omitempty"`
 }
 
-// ChatRuntimeState is the backend-owned writer/turn projection. It deliberately
-// excludes queue/access data so the HTTP control layer can combine both under
-// the per-session operation lock.
+// ChatRuntimeState is the backend-owned writer/turn/settings projection. It
+// deliberately excludes queue/access data so the HTTP control layer can combine
+// both under the per-session operation lock.
 type ChatRuntimeState struct {
 	Status       string `json:"status"`
 	ActiveTurnID string `json:"activeTurnId,omitempty"`
 	TurnOwner    string `json:"turnOwner,omitempty"`
 	WriterOwner  string `json:"writerOwner,omitempty"`
+	ApprovalMode string `json:"approvalMode,omitempty"`
 }
 
 // ChatSessionControlSnapshot is the only browser-facing source of truth for
@@ -304,7 +305,8 @@ type ChatSessionControlSnapshot struct {
 	TurnPhase       string          `json:"turnPhase"`
 	ActiveTurnID    string          `json:"activeTurnId,omitempty"`
 	TurnOwner       string          `json:"turnOwner,omitempty"`
-	Items           []ChatQueueItem `json:"items"`
+	ApprovalMode    string          `json:"approvalMode"`
+	Items           []ChatQueueView `json:"items"`
 }
 
 type ChatHistoryPage struct {
@@ -586,7 +588,12 @@ func handleChatSettings(w http.ResponseWriter, r *http.Request) {
 		writeChatErr(w, err)
 		return
 	}
-	writeJSON(w, map[string]string{"approvalMode": opts.ApprovalMode})
+	control, err := buildChatSessionControlSnapshotLocked(r.Context(), assistant, req.SessionID)
+	if err != nil {
+		writeChatErr(w, err)
+		return
+	}
+	writeJSON(w, control)
 }
 
 func handleChatInput(w http.ResponseWriter, r *http.Request) {

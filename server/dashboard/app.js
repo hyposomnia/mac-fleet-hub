@@ -1596,29 +1596,54 @@ function isDesktopChatOwned(chat) {
   return !!chat && (chat.writerOwner === 'desktop' || isDesktopChatRunning(chat));
 }
 
+function chatOwnershipPresentation(chat) {
+  if (!chat) return null;
+  if (!chat.controlReady) {
+    return chat.controlStale
+      ? { className: 'readonly', text: '会话控制状态不可确认 · 正在重连', action: '' }
+      : null;
+  }
+  if (chat.accessMode === 'read_only' && chat.writerOwner === 'fleet') {
+    return {
+      className: 'readonly',
+      text: 'Fleet 已只读，但 writer 仍由 Fleet 占用，正在等待服务端回收',
+      action: 'release', actionLabel: chat.releasingWriter ? '重试中…' : '重试释放',
+    };
+  }
+  if (chat.accessMode === 'read_only') {
+    return {
+      className: 'readonly',
+      text: chat.writerOwner === 'desktop' ? 'Fleet 只读，其他 Codex 客户端正在使用' : 'Fleet 只读，Codex 可接管',
+      action: 'enable-write', actionLabel: chat.changingAccess ? '恢复中…' : '恢复 Fleet 写入',
+    };
+  }
+  if (chat.writerOwner === 'fleet') {
+    return {
+      className: '', text: '会话已被 Fleet 占有，如果 Codex 操作受限，可先',
+      action: 'release', actionLabel: chat.releasingWriter ? '释放中…' : '释放会话',
+    };
+  }
+  if (isDesktopChatOwned(chat)) {
+    return { className: 'readonly', text: '其他 Codex 客户端正在使用 · Fleet 只读同步', action: '' };
+  }
+  return null;
+}
+
 function renderChatOwnershipHead(chat = state.chat) {
   if (!chat || state.chat !== chat) return;
   const tt = $('#win-title'); clear(tt);
   tt.append(h('span', { class: 'dot live' }), h('span', { class: 'ttl', text: chat.title || 'Codex 会话' }));
-  if (chat.accessMode === 'read_only') {
-    tt.append(h('span', { class: 'chat-writer-state readonly' },
-      h('span', { text: 'Fleet 只读，Codex 可接管' }),
-      h('button', {
-        type: 'button', class: 'chat-release-writer', text: chat.changingAccess ? '恢复中…' : '恢复 Fleet 写入',
-        disabled: chat.changingAccess ? '' : null,
-        onclick: enableChatWriter,
-      })));
-  } else if (chat.writerOwner === 'fleet') {
-    tt.append(h('span', { class: 'chat-writer-state' },
-      h('span', { text: '会话已被 Fleet 占有，如果 Codex 操作受限，可先' }),
-      h('button', {
-        type: 'button', class: 'chat-release-writer', text: chat.releasingWriter ? '释放中…' : '释放会话',
-        disabled: chat.releasingWriter ? '' : null,
-        onclick: releaseChatWriter,
-      })));
-  } else if (isDesktopChatOwned(chat)) {
-    tt.append(h('span', { class: 'chat-writer-state readonly', text: '其他 Codex 客户端正在使用 · Fleet 只读同步' }));
-  }
+  const presentation = chatOwnershipPresentation(chat);
+  if (!presentation) return;
+  const action = presentation.action === 'release' ? releaseChatWriter
+    : (presentation.action === 'enable-write' ? enableChatWriter : null);
+  tt.append(h('span', { class: `chat-writer-state${presentation.className ? ` ${presentation.className}` : ''}` },
+    h('span', { text: presentation.text }),
+    action ? h('button', {
+      type: 'button', class: 'chat-release-writer', text: presentation.actionLabel,
+      disabled: chat.releasingWriter || chat.changingAccess ? '' : null,
+      onclick: action,
+    }) : null));
 }
 
 function isNoActiveTurnError(error) {
@@ -1630,6 +1655,21 @@ function beginChatControlRequest(chat) {
   if (!chat) return 0;
   chat.controlRequestSeq = (Number(chat.controlRequestSeq) || 0) + 1;
   return chat.controlRequestSeq;
+}
+
+const CHAT_CONTROL_STALE_MS = 10000;
+
+function isChatControlFresh(chat, now = Date.now()) {
+  const syncedAt = Number(chat?.controlLastSyncedAt) || 0;
+  return syncedAt > 0 && Math.max(0, Number(now) - syncedAt) <= CHAT_CONTROL_STALE_MS;
+}
+
+function markChatControlSyncFailure(chat, now = Date.now()) {
+  if (!chat || chat.pendingStart || isChatControlFresh(chat, now)) return false;
+  const changed = chat.controlReady || !chat.controlStale;
+  chat.controlReady = false;
+  chat.controlStale = true;
+  return changed;
 }
 
 function isNewerChatControlSnapshot(chat, snapshot, requestSeq = 0) {
@@ -1649,8 +1689,10 @@ function isNewerChatControlSnapshot(chat, snapshot, requestSeq = 0) {
 function isCompleteChatControlSnapshot(snapshot) {
   return !!snapshot
     && ['read_write', 'read_only'].includes(snapshot.accessMode)
+    && ['untrusted', 'on-request', 'full-access'].includes(snapshot.approvalMode)
     && ['running', 'idle', 'unknown'].includes(snapshot.turnPhase)
-    && Array.isArray(snapshot.items);
+    && Array.isArray(snapshot.items)
+    && snapshot.items.every((item) => Array.isArray(item?.allowedActions));
 }
 
 function applyChatControlSnapshot(chat, source, requestSeq = 0) {
@@ -1660,7 +1702,10 @@ function applyChatControlSnapshot(chat, source, requestSeq = 0) {
   const currentQueue = new Map((chat.followups || []).map((item) => [item.id, item]));
   const visibleQueue = (Array.isArray(snapshot.items) ? snapshot.items : [])
     .filter((item) => chatQueuePresentation(item).placement !== 'hidden')
-    .map((item) => ({ ...item, decisionPending: currentQueue.get(item.id)?.decisionPending || '' }));
+    .map((item) => {
+      const previous = currentQueue.get(item.id);
+      return { ...item, decisionPending: previous?.stateVersion === item.stateVersion ? (previous.decisionPending || '') : '' };
+    });
   chat.controlEpoch = snapshot.serverEpoch;
   chat.controlVersion = Number(snapshot.snapshotVersion) || 0;
   chat.controlAppliedRequestSeq = Math.max(Number(chat.controlAppliedRequestSeq) || 0, Number(requestSeq) || 0);
@@ -1670,6 +1715,10 @@ function applyChatControlSnapshot(chat, source, requestSeq = 0) {
   chat.activeTurnId = snapshot.activeTurnId || '';
   chat.turnOwner = snapshot.turnOwner || '';
   chat.controlReady = chat.turnPhase !== 'unknown';
+  chat.controlStale = false;
+  chat.controlLastSyncedAt = Date.now();
+  chat.approvalConfirmedMode = normalizeChatApprovalMode(snapshot.approvalMode);
+  if (!chat.approvalUpdatePending) chat.approvalMode = chat.approvalConfirmedMode;
   chat.followups = visibleQueue;
   if (chat.controlReady) {
     chat.model = FleetChatModel.reduceChatEvent(chat.model, {
@@ -1692,32 +1741,51 @@ async function loadServerChatQueue(chat) {
   const requestSeq = beginChatControlRequest(chat);
   try {
     const result = await api(chat.macId, `chat/queue?assistant=codex&sessionId=${encodeURIComponent(chat.sessionId)}`);
-    if (!applyChatControlSnapshot(chat, result, requestSeq)) return;
+    if (!applyChatControlSnapshot(chat, result, requestSeq)) {
+      if (markChatControlSyncFailure(chat) && state.chat === chat) {
+        renderChatOwnershipHead(chat);
+        renderChat();
+        renderChatFollowups();
+        updateChatComposerState();
+      }
+      return false;
+    }
     if (state.chat === chat) {
       renderChat();
       renderChatFollowups();
       updateChatComposerState();
     }
-  } catch (_) {}
+    return true;
+  } catch (_) {
+    if (markChatControlSyncFailure(chat) && state.chat === chat) {
+      renderChatOwnershipHead(chat);
+      renderChat();
+      renderChatFollowups();
+      updateChatComposerState();
+    }
+    return false;
+  }
 }
 
 const CHAT_QUEUE_UI = Object.freeze({
-  queued: { placement: 'transcript', label: '消息已保存', actions: [] },
-  steering: { placement: 'transcript', label: '正在插入当前任务…', actions: [] },
-  waiting_turn: { placement: 'followup', label: '服务器已保存 · 当前任务结束后发送', actions: ['steer', 'cancel'] },
-  writer_confirmation_required: { placement: 'transcript', label: '此会话正在其他 Codex 客户端中使用。等待释放，或确认强制接管。', actions: ['wait', 'force', 'cancel'] },
-  waiting_writer: { placement: 'transcript', label: '已由服务器排队，等待其他 Codex 客户端释放会话。', actions: ['force', 'cancel'] },
-  waiting_access: { placement: 'transcript', label: 'Fleet 当前只读；恢复 Fleet 写入后才会发送。', actions: ['enable-write', 'cancel'] },
-  takeover_check: { placement: 'transcript', label: '正在检查目标 Mac 上受影响的任务…', actions: [] },
-  takeover_confirmation_required: { placement: 'transcript', label: '强制接管会中断目标 Mac 上以下任务', actions: ['confirm-force', 'wait', 'cancel'] },
-  taking_over: { placement: 'transcript', label: '正在强制接管目标 Mac 上的会话…', actions: [] },
-  sending: { placement: 'transcript', label: '正在启动下一轮…', actions: [] },
-  recovering: { placement: 'transcript', label: '服务已重启，正在核对这条消息是否已经投递…', actions: [] },
-  uncertain: { placement: 'transcript', label: '上次投递结果未知。请先核对会话历史，再决定重试或取消。', actions: ['retry', 'cancel'] },
-  failed: { placement: 'transcript', label: '发送失败，请重新尝试', actions: ['retry', 'cancel'] },
-  sent: { placement: 'hidden', label: '已发送', actions: [] },
-  cancelled: { placement: 'hidden', label: '已取消', actions: [] },
+  queued: { placement: 'transcript', label: '消息已保存' },
+  steering: { placement: 'transcript', label: '正在插入当前任务…' },
+  waiting_turn: { placement: 'followup', label: '服务器已保存 · 当前任务结束后发送' },
+  writer_confirmation_required: { placement: 'transcript', label: '此会话正在其他 Codex 客户端中使用。等待释放，或确认强制接管。' },
+  waiting_writer: { placement: 'transcript', label: '已由服务器排队，等待其他 Codex 客户端释放会话。' },
+  waiting_access: { placement: 'transcript', label: 'Fleet 当前只读；恢复 Fleet 写入后才会发送。' },
+  takeover_check: { placement: 'transcript', label: '正在检查目标 Mac 上受影响的任务…' },
+  takeover_confirmation_required: { placement: 'transcript', label: '强制接管会中断目标 Mac 上以下任务' },
+  taking_over: { placement: 'transcript', label: '正在强制接管目标 Mac 上的会话…' },
+  sending: { placement: 'transcript', label: '正在启动下一轮…' },
+  recovering: { placement: 'transcript', label: '服务已重启，正在核对这条消息是否已经投递…' },
+  uncertain: { placement: 'transcript', label: '上次投递结果未知。请先核对会话历史，再决定重试或取消。' },
+  failed: { placement: 'transcript', label: '发送失败，请重新尝试' },
+  sent: { placement: 'hidden', label: '已发送' },
+  cancelled: { placement: 'hidden', label: '已取消' },
 });
+
+const CHAT_QUEUE_ACTIONS = new Set(['steer', 'wait', 'force', 'confirm-force', 'retry', 'cancel', 'enable-write']);
 
 function chatQueuePresentation(item) {
   const status = item?.status || 'queued';
@@ -1727,7 +1795,7 @@ function chatQueuePresentation(item) {
     status,
     placement: configured.placement,
     label: status === 'failed' && item?.error ? item.error : configured.label,
-    actions: configured.actions.slice(),
+    actions: Array.isArray(item?.allowedActions) ? item.allowedActions.filter((action) => CHAT_QUEUE_ACTIONS.has(action)) : [],
   };
 }
 
@@ -1742,19 +1810,22 @@ function startServerChatQueueSync(chat) {
 
 async function decideServerChatQueue(item, action) {
   const chat = state.chat;
-  if (!chat || !item || item.decisionPending) return;
+  if (!chat || !item || item.decisionPending || !chat.controlReady) return;
+  if (!chatQueuePresentation(item).actions.includes(action)) return;
   item.decisionPending = action;
   renderChat();
   renderChatFollowups();
   try {
-    const updated = await api(chat.macId, 'chat/queue/decision', {
+    const requestSeq = beginChatControlRequest(chat);
+    const control = await api(chat.macId, 'chat/queue/decision', {
       method: 'POST', headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ id: item.id, action, auditVersion: item.auditVersion || '', stateVersion: item.stateVersion }),
     });
-    if (updated.status === 'cancelled') {
-      chat.model = FleetChatModel.removeMessage(chat.model, updated.clientMessageId);
+    if (action === 'cancel') chat.model = FleetChatModel.removeMessage(chat.model, item.clientMessageId);
+    if (!applyChatControlSnapshot(chat, control, requestSeq)) {
+      item.decisionPending = '';
+      await loadServerChatQueue(chat);
     }
-    await loadServerChatQueue(chat);
   } catch (error) {
     item.decisionPending = '';
     toast(`操作失败：${error.message}`, 'err');
@@ -1768,11 +1839,12 @@ function queueStatusCard(item) {
   const presentation = chatQueuePresentation(item);
   const status = presentation.status;
   const pending = !!item.decisionPending;
+  const controlBlocked = chatControlActionsBlocked();
   const actions = [];
   for (const action of presentation.actions) {
     if (action === 'steer') continue;
     if (action === 'enable-write') {
-      actions.push(h('button', { type: 'button', class: 'btn sm accent', disabled: chatAccessBusy() ? '' : null, onclick: enableChatWriter }, chatAccessBusy() ? '恢复中…' : '恢复 Fleet 写入'));
+      actions.push(h('button', { type: 'button', class: 'btn sm accent', disabled: chatAccessBusy() || controlBlocked ? '' : null, onclick: enableChatWriter }, chatAccessBusy() ? '恢复中…' : '恢复 Fleet 写入'));
       continue;
     }
     const danger = action === 'force' || action === 'confirm-force';
@@ -1786,7 +1858,7 @@ function queueStatusCard(item) {
     };
     actions.push(h('button', {
       type: 'button', class: `btn sm${danger ? ' danger' : ''}${bare ? ' bare' : ''}`,
-      disabled: pending ? '' : null, onclick: () => decideServerChatQueue(item, action),
+      disabled: pending || controlBlocked ? '' : null, onclick: () => decideServerChatQueue(item, action),
     }, labels[action] || action));
   }
   return h('section', { class: `chat-queue-status ${status}` },
@@ -2931,16 +3003,20 @@ function resizeChatInput() {
 }
 
 function chatComposerAction(chat, hasContent) {
-  if (chat?.releasingWriter || chat?.changingAccess) return 'transition';
-  if (chat?.accessMode === 'read_only') return 'readonly';
+  if (chat?.starting || chat?.releasingWriter || chat?.changingAccess) return 'transition';
   if (!chat?.controlReady) return 'loading';
+  if (chat?.accessMode === 'read_only') return 'readonly';
   if (isDesktopChatOwned(chat)) return hasContent ? 'queue-desktop' : 'wait-desktop';
   if (!isChatRunning(chat)) return 'send';
   return hasContent ? 'send' : 'interrupt';
 }
 
 function chatMutationsBlocked(chat = state.chat) {
-  return !chat || !chat.controlReady || chat.accessMode !== 'read_write' || chat.releasingWriter || chat.changingAccess;
+  return !chat || !chat.controlReady || chat.accessMode !== 'read_write' || chat.starting || chat.releasingWriter || chat.changingAccess;
+}
+
+function chatControlActionsBlocked(chat = state.chat) {
+  return !chat || !chat.controlReady || chat.starting || chat.releasingWriter || chat.changingAccess;
 }
 
 function updateChatComposerState() {
@@ -3038,9 +3114,9 @@ function renderChatFollowups() {
       h('div', { class: 'chat-followup-actions' },
         h('span', { class: 'chat-followup-waiting', text: chatQueuePresentation(item).label }),
         h('button', { type: 'button', class: 'chat-followup-guide', title: '改为引导当前任务',
-          disabled: item.decisionPending ? '' : null, onclick: () => decideServerChatQueue(item, 'steer') },
+          disabled: item.decisionPending || chatControlActionsBlocked() ? '' : null, onclick: () => decideServerChatQueue(item, 'steer') },
           svgIconParts('ic', [{ tag: 'path', attrs: { d: 'M4 5v6a4 4 0 0 0 4 4h11M15 11l4 4-4 4' } }]), item.decisionPending === 'steer' ? '引导中…' : '引导当前任务'),
-        h('button', { type: 'button', class: 'iconbtn bare', disabled: item.decisionPending ? '' : null, title: '取消排队', 'aria-label': '取消排队', onclick: () => decideServerChatQueue(item, 'cancel') },
+        h('button', { type: 'button', class: 'iconbtn bare', disabled: item.decisionPending || chatControlActionsBlocked() ? '' : null, title: '取消排队', 'aria-label': '取消排队', onclick: () => decideServerChatQueue(item, 'cancel') },
           svgIconParts('ic', [{ tag: 'path', attrs: { d: 'M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6M10 11v5M14 11v5' } }])))));
   }
 }
@@ -3159,9 +3235,10 @@ async function openChatSession(s) {
       writerOwner: '', pendingRequestCount: 0,
       accessMode: s.pendingStart ? 'read_write' : 'unknown', controlReady: !!s.pendingStart,
       controlEpoch: '', controlVersion: 0, controlRequestSeq: 0, controlAppliedRequestSeq: 0,
+      controlLastSyncedAt: s.pendingStart ? Date.now() : 0, controlStale: false,
       turnPhase: s.pendingStart ? 'idle' : 'unknown', activeTurnId: '', turnOwner: '',
       releasingWriter: false, changingAccess: false, approvalControlsEnabled: false,
-      approvalUpdateChain: Promise.resolve(),
+      approvalUpdateChain: Promise.resolve(), approvalUpdatePending: false, approvalUpdateSeq: 0,
     };
     state.chatCache.set(key, chat);
   }
@@ -3170,6 +3247,10 @@ async function openChatSession(s) {
   if (typeof chat.writerOwner !== 'string') chat.writerOwner = '';
   if (!['read_only', 'read_write', 'unknown'].includes(chat.accessMode)) chat.accessMode = 'unknown';
   if (typeof chat.controlReady !== 'boolean') chat.controlReady = !!chat.pendingStart;
+  if (!Number.isFinite(chat.controlLastSyncedAt)) chat.controlLastSyncedAt = chat.pendingStart ? Date.now() : 0;
+  if (typeof chat.controlStale !== 'boolean') chat.controlStale = false;
+  if (typeof chat.approvalUpdatePending !== 'boolean') chat.approvalUpdatePending = false;
+  if (!Number.isFinite(chat.approvalUpdateSeq)) chat.approvalUpdateSeq = 0;
   if (!Array.isArray(chat.skills)) chat.skills = [];
   if (typeof chat.skillsLoaded !== 'boolean') chat.skillsLoaded = false;
   if (!chat.skillPreferences || typeof chat.skillPreferences !== 'object') chat.skillPreferences = {};
@@ -3227,12 +3308,12 @@ async function openChatSession(s) {
       for (const event of resumed.pendingEvents || []) {
         chat.model = FleetChatModel.reduceChatEvent(chat.model, event);
       }
-      applyChatControlSnapshot(chat, resumed, controlRequestSeq);
+      configureChatOptions(chat, resumed);
+      if (!applyChatControlSnapshot(chat, resumed, controlRequestSeq)) throw new Error('服务端返回了无效的会话控制状态');
       chat.pendingRequestCount = pendingChatRequestCount(chat);
       chat.historyCursor = resumed.history?.nextCursor || '';
       chat.historyReady = true;
       chat.loading = false;
-      configureChatOptions(chat, resumed);
       applyChatMetadataDefaults(chat);
       startChatEvents(chat);
     }
@@ -3402,6 +3483,10 @@ async function selectChatApprovalMode(value) {
     chat.approvalConfirmedMode = approvalMode;
     return;
   }
+  const updateSeq = (Number(chat.approvalUpdateSeq) || 0) + 1;
+  chat.approvalUpdateSeq = updateSeq;
+  chat.approvalUpdatePending = true;
+  const controlRequestSeq = beginChatControlRequest(chat);
   const previousUpdate = chat.approvalUpdateChain || Promise.resolve();
   const update = previousUpdate.catch(() => {}).then(() => api(chat.macId, 'chat/settings', {
     method: 'POST', headers: { 'content-type': 'application/json' },
@@ -3410,8 +3495,11 @@ async function selectChatApprovalMode(value) {
   chat.approvalUpdateChain = update;
   try {
     const result = await update;
-    chat.approvalConfirmedMode = normalizeChatApprovalMode(result?.approvalMode || approvalMode);
-    if (chat.approvalUpdateChain === update) {
+    const latest = chat.approvalUpdateSeq === updateSeq;
+    if (latest) chat.approvalUpdatePending = false;
+    if (!isCompleteChatControlSnapshot(result?.control || result)) throw new Error('服务端返回了无效的权限状态');
+    applyChatControlSnapshot(chat, result, controlRequestSeq);
+    if (latest) {
       chat.approvalMode = chat.approvalConfirmedMode;
       if (state.chat === chat) renderChatApprovalMenu(chat);
       if (updatesRunningTurn && state.chat === chat) {
@@ -3421,7 +3509,8 @@ async function selectChatApprovalMode(value) {
       }
     }
   } catch (e) {
-    if (chat.approvalUpdateChain === update) {
+    if (chat.approvalUpdateSeq === updateSeq) {
+      chat.approvalUpdatePending = false;
       chat.approvalMode = normalizeChatApprovalMode(chat.approvalConfirmedMode);
       if (state.chat === chat) {
         renderChatApprovalMenu(chat);
@@ -3558,6 +3647,8 @@ function configureChatOptions(chat, resumed) {
   chat.approvalMode = normalizeChatApprovalMode(resumed.approvalMode);
   chat.approvalConfirmedMode = chat.approvalMode;
   chat.approvalUpdateChain = Promise.resolve();
+  chat.approvalUpdatePending = false;
+  chat.approvalUpdateSeq = Number(chat.approvalUpdateSeq) || 0;
 
   const models = Array.isArray(resumed.models) ? resumed.models.slice() : [];
   if (resumed.model && !models.some((m) => m.value === resumed.model)) {
@@ -3629,6 +3720,11 @@ function startChatEvents(chat = state.chat) {
     if (state.chatCache.get(chat.cacheKey) !== chat || chat.loading) return;
     // EventSource 会自动重连；瞬时断流不要写进消息流，否则会像真实回复一样污染历史。
     chat.streamState = 'reconnecting';
+    if (markChatControlSyncFailure(chat) && state.chat === chat) {
+      renderChatOwnershipHead(chat);
+      renderChatFollowups();
+      updateChatComposerState();
+    }
   };
 }
 
@@ -3733,14 +3829,30 @@ async function ensurePendingChatStarted(chat) {
     chat.controlReady = false;
     chat.accessMode = 'unknown';
     configureChatOptions(chat, started);
-    applyChatControlSnapshot(chat, started, controlRequestSeq);
+    if (!applyChatControlSnapshot(chat, started, controlRequestSeq)) throw new Error('服务端返回了无效的会话控制状态');
     chat.approvalMode = preferredApproval;
-    chat.approvalConfirmedMode = preferredApproval;
     state.chatCache.set(newKey, chat);
     state.selectedSid = sessionId;
     state.selectedSessionMacId = chat.macId;
     state.selectedSessionAssistant = 'codex';
     startChatEvents(chat);
+    if (preferredApproval !== chat.approvalConfirmedMode) {
+      chat.approvalUpdatePending = true;
+      const settingsRequestSeq = beginChatControlRequest(chat);
+      try {
+        const control = await api(chat.macId, 'chat/settings', {
+          method: 'POST', headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ assistant: 'codex', sessionId: chat.sessionId, approvalMode: preferredApproval }),
+        });
+        chat.approvalUpdatePending = false;
+        if (!applyChatControlSnapshot(chat, control, settingsRequestSeq)) throw new Error('服务端返回了无效的权限状态');
+        chat.approvalMode = chat.approvalConfirmedMode;
+      } catch (error) {
+        chat.approvalUpdatePending = false;
+        chat.approvalMode = chat.approvalConfirmedMode;
+        throw error;
+      }
+    }
     if (state.chat === chat) {
       showChatPane(chat.title, chat.cwd, { connected: true });
       renderChat({ forceBottom: true });
@@ -3772,7 +3884,7 @@ async function submitChatInput({ deliveryMode = 'auto' } = {}) {
     try {
       await ensurePendingChatStarted(chat);
     } catch (e) {
-      if (state.chat === chat) toast('新建失败：' + e.message, 'err');
+      if (state.chat === chat) toast('会话初始化失败：' + e.message, 'err');
       return;
     }
     if (state.chat !== chat) return;
@@ -3899,7 +4011,8 @@ async function interruptChat() {
 
 async function releaseChatWriter() {
   const chat = state.chat;
-  if (!chat || chat.accessMode === 'read_only' || chat.releasingWriter) return;
+  const retryingStuckRelease = chat?.accessMode === 'read_only' && chat?.writerOwner === 'fleet';
+  if (!chat || (chat.accessMode === 'read_only' && !retryingStuckRelease) || chat.releasingWriter || !chat.controlReady) return;
   chat.releasingWriter = true;
   renderChatOwnershipHead(chat);
   updateChatComposerState();
@@ -3909,6 +4022,7 @@ async function releaseChatWriter() {
       method: 'POST', headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ assistant: 'codex', sessionId: chat.sessionId, action: 'release' }),
     });
+    if (!isCompleteChatControlSnapshot(control?.control || control)) throw new Error('服务端返回了无效的会话控制状态');
     applyChatControlSnapshot(chat, control, controlRequestSeq);
     toast('会话已释放，Fleet 已切换为只读。');
   } catch (e) {
@@ -3929,7 +4043,7 @@ function chatAccessBusy() {
 
 async function enableChatWriter() {
   const chat = state.chat;
-  if (!chat || chat.accessMode !== 'read_only' || chat.changingAccess) return;
+  if (!chat || chat.accessMode !== 'read_only' || chat.writerOwner === 'fleet' || chat.changingAccess || !chat.controlReady) return;
   chat.changingAccess = true;
   renderChatOwnershipHead(chat);
   renderChat();
@@ -3940,6 +4054,7 @@ async function enableChatWriter() {
       method: 'POST', headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ assistant: 'codex', sessionId: chat.sessionId, action: 'enable-write' }),
     });
+    if (!isCompleteChatControlSnapshot(control?.control || control)) throw new Error('服务端返回了无效的会话控制状态');
     applyChatControlSnapshot(chat, control, controlRequestSeq);
     toast('Fleet 写入已恢复，排队消息将由服务器继续处理。');
   } catch (e) {

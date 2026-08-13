@@ -61,6 +61,40 @@ func TestChatQueueReadOnlyImmediatelyProjectsWaitingAccess(t *testing.T) {
 	}
 }
 
+func TestChatQueueAllowedActionsAreServerDerived(t *testing.T) {
+	cases := []struct {
+		status string
+		access string
+		want   string
+	}{
+		{chatQueueQueued, chatAccessReadWrite, "cancel"},
+		{chatQueueSteering, chatAccessReadWrite, ""},
+		{chatQueueWaitingTurn, chatAccessReadWrite, "steer,cancel"},
+		{chatQueueWaitingTurn, chatAccessReadOnly, "cancel"},
+		{chatQueueWriterConfirmation, chatAccessReadWrite, "wait,force,cancel"},
+		{chatQueueWriterConfirmation, chatAccessReadOnly, "wait,cancel"},
+		{chatQueueWaitingWriter, chatAccessReadWrite, "force,cancel"},
+		{chatQueueWaitingWriter, chatAccessReadOnly, "cancel"},
+		{chatQueueWaitingAccess, chatAccessReadOnly, "enable-write,cancel"},
+		{chatQueueTakeoverCheck, chatAccessReadWrite, ""},
+		{chatQueueTakeoverConfirmation, chatAccessReadWrite, "confirm-force,wait,cancel"},
+		{chatQueueTakeoverConfirmation, chatAccessReadOnly, "wait,cancel"},
+		{chatQueueTakingOver, chatAccessReadWrite, ""},
+		{chatQueueSending, chatAccessReadWrite, ""},
+		{chatQueueRecovering, chatAccessReadWrite, ""},
+		{chatQueueUncertain, chatAccessReadWrite, "retry,cancel"},
+		{chatQueueFailed, chatAccessReadWrite, "retry,cancel"},
+		{chatQueueFailed, chatAccessReadOnly, "cancel"},
+		{chatQueueSent, chatAccessReadWrite, ""},
+		{chatQueueCancelled, chatAccessReadWrite, ""},
+	}
+	for _, tc := range cases {
+		if got := strings.Join(chatQueueAllowedActions(tc.status, tc.access), ","); got != tc.want {
+			t.Errorf("status=%s access=%s actions=%q want=%q", tc.status, tc.access, got, tc.want)
+		}
+	}
+}
+
 func TestChatQueueRestartMovesInflightDeliveryToRecovering(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "queue.json")
 	q, _ := openChatQueue(path)
@@ -286,6 +320,35 @@ func TestBackendQueueSenderAutoSteersAndFallsBackToStartOnlyWhenInactive(t *test
 	})
 	if err != nil || result.Delivery != chatDeliveryStart || result.TurnID != "turn-next" {
 		t.Fatalf("fallback result=%+v err=%v", result, err)
+	}
+}
+
+func TestBackendQueueSenderAppliesApprovalModeBeforeSteer(t *testing.T) {
+	var calls []string
+	sender := backendChatQueueSender{backend: fakeChatBackend{
+		settingsFn: func(_ context.Context, assistant, sessionID, approvalMode string) error {
+			calls = append(calls, "settings:"+approvalMode)
+			if assistant != "codex" || sessionID != "thread-1" {
+				t.Fatalf("settings identity assistant=%q session=%q", assistant, sessionID)
+			}
+			return nil
+		},
+		steerFn: func(context.Context, string, string, string, string, []ChatAttachment, []ChatSkill) (ChatInputResult, error) {
+			calls = append(calls, "steer")
+			return ChatInputResult{TurnID: "turn-live"}, nil
+		},
+	}}
+
+	result, err := sender.Deliver(ChatQueueItem{
+		ClientMessageID: "auto-approval", Assistant: "codex", SessionID: "thread-1",
+		Text: "guide", DeliveryMode: chatDeliveryAuto,
+		Options: ChatTurnOptions{ApprovalMode: "on-request"},
+	})
+	if err != nil || result.Delivery != chatDeliverySteer {
+		t.Fatalf("deliver result=%+v err=%v", result, err)
+	}
+	if got, want := strings.Join(calls, ","), "settings:on-request,steer"; got != want {
+		t.Fatalf("call order=%q want=%q", got, want)
 	}
 }
 

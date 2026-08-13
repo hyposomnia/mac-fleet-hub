@@ -282,6 +282,7 @@ func (b *codexChatBackend) Control(ctx context.Context, assistant, sessionID str
 	}
 	physicalOwner := codexThreadWriterProcessOwner(sessionID)
 	rolloutState, rolloutKnown := codexActiveRolloutTaskState(sessionID)
+	approvalMode := b.currentApprovalMode(sessionID)
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
@@ -332,8 +333,28 @@ func (b *codexChatBackend) Control(ctx context.Context, assistant, sessionID str
 		delete(b.turnOwners, sessionID)
 	}
 	return ChatRuntimeState{
-		Status: status, ActiveTurnID: turnID, TurnOwner: turnOwner, WriterOwner: writerOwner,
+		Status: status, ActiveTurnID: turnID, TurnOwner: turnOwner, WriterOwner: writerOwner, ApprovalMode: approvalMode,
 	}, nil
+}
+
+func (b *codexChatBackend) currentApprovalMode(sessionID string) string {
+	b.mu.Lock()
+	mode := b.approvalModes[sessionID]
+	b.mu.Unlock()
+	if mode == "" {
+		mode = codexApprovalModeFromRollout(jsonlPathFor("codex", sessionID))
+	}
+	if mode == "" {
+		mode = "on-request"
+	}
+	b.mu.Lock()
+	if current := b.approvalModes[sessionID]; current != "" {
+		mode = current
+	} else {
+		b.approvalModes[sessionID] = mode
+	}
+	b.mu.Unlock()
+	return mode
 }
 
 func systemCodexFleetWriterSessions() []string {

@@ -78,6 +78,14 @@ type ChatQueueItem struct {
 	SentAt          int64                `json:"sentAt,omitempty"`
 }
 
+// ChatQueueView is the browser projection of a persisted queue item. Legal
+// actions are derived for each control snapshot and never persisted or trusted
+// from browser input.
+type ChatQueueView struct {
+	ChatQueueItem
+	AllowedActions []string `json:"allowedActions"`
+}
+
 type ChatSessionState struct {
 	AccessMode string `json:"accessMode"`
 	UpdatedAt  int64  `json:"updatedAt"`
@@ -152,6 +160,11 @@ func (s backendChatQueueSender) Deliver(item ChatQueueItem) (chatQueueDeliveryRe
 	images, skills, err := s.resolve(item)
 	if err != nil {
 		return chatQueueDeliveryResult{}, err
+	}
+	if item.Options.ApprovalMode != "" {
+		if err := s.backend.Settings(ctx, item.Assistant, item.SessionID, item.Options.ApprovalMode); err != nil {
+			return chatQueueDeliveryResult{}, err
+		}
 	}
 	if item.DeliveryMode == chatDeliveryAuto {
 		result, steerErr := s.backend.Steer(ctx, item.Assistant, item.SessionID, item.ClientMessageID, item.Text, images, skills)
@@ -255,14 +268,64 @@ func buildChatSessionControlSnapshotLocked(ctx context.Context, assistant, sessi
 	}
 	accessMode := agentChatQueue.AccessMode(assistant, sessionID)
 	items := agentChatQueue.ListVisible(assistant, sessionID)
+	views := make([]ChatQueueView, 0, len(items))
+	for _, item := range items {
+		views = append(views, ChatQueueView{ChatQueueItem: item, AllowedActions: chatQueueAllowedActions(item.Status, accessMode)})
+	}
+	approvalMode := runtimeState.ApprovalMode
+	if normalized, normalizeErr := normalizeChatTurnOptions(ChatTurnOptions{ApprovalMode: approvalMode}); normalizeErr == nil {
+		approvalMode = normalized.ApprovalMode
+	} else {
+		approvalMode = ""
+	}
+	if approvalMode == "" {
+		approvalMode = "on-request"
+	}
 	epoch, version := nextChatControlSnapshotVersion()
 	return ChatSessionControlSnapshot{
 		ServerEpoch: epoch, SnapshotVersion: version,
 		AccessMode:  accessMode,
 		WriterOwner: runtimeState.WriterOwner, TurnPhase: phase,
 		ActiveTurnID: runtimeState.ActiveTurnID, TurnOwner: runtimeState.TurnOwner,
-		Items: items,
+		ApprovalMode: approvalMode, Items: views,
 	}, nil
+}
+
+func chatQueueAllowedActions(status, accessMode string) []string {
+	readOnly := accessMode == chatAccessReadOnly
+	switch status {
+	case chatQueueQueued:
+		return []string{"cancel"}
+	case chatQueueWaitingTurn:
+		if readOnly {
+			return []string{"cancel"}
+		}
+		return []string{"steer", "cancel"}
+	case chatQueueWriterConfirmation:
+		if readOnly {
+			return []string{"wait", "cancel"}
+		}
+		return []string{"wait", "force", "cancel"}
+	case chatQueueWaitingWriter:
+		if readOnly {
+			return []string{"cancel"}
+		}
+		return []string{"force", "cancel"}
+	case chatQueueWaitingAccess:
+		return []string{"enable-write", "cancel"}
+	case chatQueueTakeoverConfirmation:
+		if readOnly {
+			return []string{"wait", "cancel"}
+		}
+		return []string{"confirm-force", "wait", "cancel"}
+	case chatQueueUncertain, chatQueueFailed:
+		if readOnly {
+			return []string{"cancel"}
+		}
+		return []string{"retry", "cancel"}
+	default:
+		return []string{}
+	}
 }
 
 func newChatQueueWorker(queue *chatQueue, sender chatQueueSender) *chatQueueWorker {
@@ -596,7 +659,12 @@ func handleChatQueueDecision(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 500, "takeover_failed", err.Error())
 		return
 	}
-	writeJSON(w, item)
+	control, err := buildChatSessionControlSnapshot(r.Context(), item.Assistant, item.SessionID)
+	if err != nil {
+		writeChatErr(w, err)
+		return
+	}
+	writeJSON(w, control)
 }
 
 func openChatQueue(path string) (*chatQueue, error) {
