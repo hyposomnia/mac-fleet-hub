@@ -198,6 +198,95 @@ func TestCodexChatBackendIsolatedResumeStaysReadOnly(t *testing.T) {
 	}
 }
 
+func TestCodexWriterProcessClassifierTreatsAnyNonFleetLockHolderAsExternal(t *testing.T) {
+	fleetSocket := "/Users/test/.macfleet/codex-app-server.sock"
+	for _, command := range []string{
+		"/Applications/ChatGPT.app/Contents/Resources/codex -c features.code_mode_host=true app-server --analytics-default-enabled",
+		"/opt/homebrew/bin/codex app-server",
+	} {
+		if got := codexWriterProcessCommandOwner(command, fleetSocket); got != "desktop" {
+			t.Fatalf("command %q owner=%q", command, got)
+		}
+	}
+	fleet := "/Users/test/.codex/packages/standalone/current/codex app-server --remote-control --listen unix://" + fleetSocket
+	if got := codexWriterProcessCommandOwner(fleet, fleetSocket); got != "fleet" {
+		t.Fatalf("Fleet sidecar owner=%q", got)
+	}
+}
+
+func TestCodexControlReportsIdleDesktopWriterFromPhysicalLock(t *testing.T) {
+	previousOwner := codexThreadWriterProcessOwner
+	previousState := codexActiveRolloutTaskState
+	t.Cleanup(func() {
+		codexThreadWriterProcessOwner = previousOwner
+		codexActiveRolloutTaskState = previousState
+	})
+	codexThreadWriterProcessOwner = func(string) string { return "desktop" }
+	codexActiveRolloutTaskState = func(string) (codexRolloutTaskState, bool) { return codexRolloutTaskState{}, false }
+	b := newCodexChatBackend(func(context.Context) (codexRPCConn, func(), error) { return newFakeRPCConn(), func() {}, nil })
+
+	got, err := b.Control(context.Background(), "codex", "thread-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Status != "idle" || got.WriterOwner != "desktop" || got.TurnOwner != "" || got.ActiveTurnID != "" {
+		t.Fatalf("physical Desktop lock was not authoritative: %+v", got)
+	}
+}
+
+func TestCodexControlClearsCachedTurnWhenRolloutIsTerminal(t *testing.T) {
+	previousOwner := codexThreadWriterProcessOwner
+	previousState := codexActiveRolloutTaskState
+	t.Cleanup(func() {
+		codexThreadWriterProcessOwner = previousOwner
+		codexActiveRolloutTaskState = previousState
+	})
+	codexThreadWriterProcessOwner = func(string) string { return "" }
+	codexActiveRolloutTaskState = func(string) (codexRolloutTaskState, bool) {
+		return codexRolloutTaskState{turnID: "turn-done", terminal: true}, true
+	}
+	b := newCodexChatBackend(func(context.Context) (codexRPCConn, func(), error) { return newFakeRPCConn(), func() {}, nil })
+	b.lastTurn["thread-1"] = "turn-done"
+	b.turnOwners["thread-1"] = "fleet"
+	b.writerOwners["thread-1"] = "fleet"
+
+	got, err := b.Control(context.Background(), "codex", "thread-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Status != "idle" || got.WriterOwner != "" || got.TurnOwner != "" || got.ActiveTurnID != "" {
+		t.Fatalf("terminal rollout did not clear cached control state: %+v", got)
+	}
+}
+
+func TestCodexControlPreservesFleetTurnOwnershipInSharedDaemon(t *testing.T) {
+	previousCfg := cfg
+	previousOwner := codexThreadWriterProcessOwner
+	previousState := codexActiveRolloutTaskState
+	t.Cleanup(func() {
+		cfg = previousCfg
+		codexThreadWriterProcessOwner = previousOwner
+		codexActiveRolloutTaskState = previousState
+	})
+	cfg.CodexMode = "shared"
+	codexThreadWriterProcessOwner = func(string) string { return "desktop" }
+	codexActiveRolloutTaskState = func(string) (codexRolloutTaskState, bool) {
+		return codexRolloutTaskState{turnID: "turn-live", terminal: false}, true
+	}
+	b := newCodexChatBackend(func(context.Context) (codexRPCConn, func(), error) { return newFakeRPCConn(), func() {}, nil })
+	b.lastTurn["thread-1"] = "turn-live"
+	b.turnOwners["thread-1"] = "fleet"
+	b.writerOwners["thread-1"] = "fleet"
+
+	got, err := b.Control(context.Background(), "codex", "thread-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Status != "running" || got.WriterOwner != "fleet" || got.TurnOwner != "fleet" || got.ActiveTurnID != "turn-live" {
+		t.Fatalf("shared daemon process identity overrode logical Fleet ownership: %+v", got)
+	}
+}
+
 func TestCodexChatBackendIsolatedInputWaitsForDesktopWriterThenClaims(t *testing.T) {
 	previousCfg := cfg
 	t.Cleanup(func() { cfg = previousCfg })

@@ -28,6 +28,14 @@ type fakeChatBackend struct {
 	interruptFn func(context.Context, string, string) error
 	releaseFn   func(context.Context, string, string) error
 	settingsFn  func(context.Context, string, string, string) error
+	controlFn   func(context.Context, string, string) (ChatRuntimeState, error)
+}
+
+func (f fakeChatBackend) Control(ctx context.Context, assistant, sessionID string) (ChatRuntimeState, error) {
+	if f.controlFn != nil {
+		return f.controlFn(ctx, assistant, sessionID)
+	}
+	return ChatRuntimeState{Status: "idle"}, nil
 }
 
 func (f fakeChatBackend) Start(ctx context.Context, assistant, cwd, mode string) (ChatStartResult, error) {
@@ -155,6 +163,9 @@ func TestChatStartCallsBackend(t *testing.T) {
 	if got.Model != "gpt-new" || got.Effort != "high" || len(got.Models) != 1 || got.Models[0].Value != "gpt-new" {
 		t.Fatalf("start options missing: %+v", got)
 	}
+	if got.Control == nil || got.Control.ServerEpoch == "" || got.Control.SnapshotVersion == 0 || got.Control.TurnPhase != "idle" || got.Control.AccessMode != chatAccessReadWrite {
+		t.Fatalf("start control snapshot missing: %+v", got.Control)
+	}
 }
 
 func TestChatStartRejectsClaude(t *testing.T) {
@@ -212,8 +223,59 @@ func TestChatResumeProjectsServerAccessMode(t *testing.T) {
 	rr := httptest.NewRecorder()
 	handleChatResume(rr, req)
 	var got ChatResumeResult
-	if rr.Code != http.StatusOK || json.Unmarshal(rr.Body.Bytes(), &got) != nil || got.AccessMode != chatAccessReadOnly {
+	if rr.Code != http.StatusOK || json.Unmarshal(rr.Body.Bytes(), &got) != nil || got.AccessMode != chatAccessReadOnly || got.Control == nil || got.Control.AccessMode != chatAccessReadOnly {
 		t.Fatalf("status=%d result=%+v body=%s", rr.Code, got, rr.Body.String())
+	}
+}
+
+func TestChatQueueGetReturnsVersionedAuthoritativeControlSnapshot(t *testing.T) {
+	withChatBackend(t, fakeChatBackend{controlFn: func(_ context.Context, assistant, sessionID string) (ChatRuntimeState, error) {
+		if assistant != "codex" || sessionID != "s1" {
+			t.Fatalf("control args assistant=%q session=%q", assistant, sessionID)
+		}
+		return ChatRuntimeState{
+			Status: "running", ActiveTurnID: "turn-1", TurnOwner: "desktop", WriterOwner: "desktop",
+		}, nil
+	}})
+	if _, err := agentChatQueue.SetAccessMode("codex", "s1", chatAccessReadOnly); err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest(http.MethodGet, "/api/chat/queue?assistant=codex&sessionId=s1", nil)
+	rr := httptest.NewRecorder()
+	handleChatQueue(rr, req)
+	var got ChatSessionControlSnapshot
+	if rr.Code != http.StatusOK || json.Unmarshal(rr.Body.Bytes(), &got) != nil {
+		t.Fatalf("status=%d body=%s", rr.Code, rr.Body.String())
+	}
+	if got.ServerEpoch == "" || got.SnapshotVersion == 0 || got.AccessMode != chatAccessReadOnly ||
+		got.WriterOwner != "desktop" || got.TurnOwner != "desktop" || got.TurnPhase != "running" || got.ActiveTurnID != "turn-1" {
+		t.Fatalf("bad control snapshot: %+v", got)
+	}
+}
+
+func TestChatUploadRejectsReadOnlySessionBeforeWritingFile(t *testing.T) {
+	withChatBackend(t, fakeChatBackend{})
+	if _, err := agentChatQueue.SetAccessMode("codex", "s1", chatAccessReadOnly); err != nil {
+		t.Fatal(err)
+	}
+	var body bytes.Buffer
+	mw := multipart.NewWriter(&body)
+	_ = mw.WriteField("assistant", "codex")
+	_ = mw.WriteField("sessionId", "s1")
+	fw, err := mw.CreateFormFile("file", "pixel.png")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _ = fw.Write([]byte("\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR"))
+	if err := mw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest(http.MethodPost, "/api/chat/upload", &body)
+	req.Header.Set("Content-Type", mw.FormDataContentType())
+	rr := httptest.NewRecorder()
+	handleChatUpload(rr, req)
+	if rr.Code != http.StatusConflict || !strings.Contains(rr.Body.String(), `"fleet_read_only"`) {
+		t.Fatalf("status=%d body=%s", rr.Code, rr.Body.String())
 	}
 }
 
@@ -474,7 +536,9 @@ func TestChatAccessReleasePersistsReadOnlyBeforeBackendRelease(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/api/chat/access", bytes.NewBufferString(`{"assistant":"codex","sessionId":"s1","action":"release"}`))
 	rr := httptest.NewRecorder()
 	handleChatAccess(rr, req)
-	if rr.Code != http.StatusOK || agentChatQueue.AccessMode("codex", "s1") != chatAccessReadOnly || !strings.Contains(rr.Body.String(), `"accessMode":"read_only"`) {
+	var control ChatSessionControlSnapshot
+	if rr.Code != http.StatusOK || json.Unmarshal(rr.Body.Bytes(), &control) != nil || agentChatQueue.AccessMode("codex", "s1") != chatAccessReadOnly ||
+		control.ServerEpoch == "" || control.SnapshotVersion == 0 || control.AccessMode != chatAccessReadOnly || control.TurnPhase != "idle" {
 		t.Fatalf("status=%d mode=%q body=%s", rr.Code, agentChatQueue.AccessMode("codex", "s1"), rr.Body.String())
 	}
 }
@@ -558,6 +622,47 @@ func TestChatAccessReleaseSerializesWithDirectWriteEndpoint(t *testing.T) {
 	<-accessDone
 	if inputRR.Code != http.StatusOK || accessRR.Code != http.StatusOK || agentChatQueue.AccessMode("codex", "s1") != chatAccessReadOnly {
 		t.Fatalf("input=%d access=%d mode=%q", inputRR.Code, accessRR.Code, agentChatQueue.AccessMode("codex", "s1"))
+	}
+}
+
+func TestChatAccessTransitionsSerializeThroughBackendRelease(t *testing.T) {
+	releaseEntered := make(chan struct{})
+	finishRelease := make(chan struct{})
+	withChatBackend(t, fakeChatBackend{releaseFn: func(context.Context, string, string) error {
+		close(releaseEntered)
+		<-finishRelease
+		return nil
+	}})
+	releaseReq := httptest.NewRequest(http.MethodPost, "/api/chat/access", bytes.NewBufferString(`{"assistant":"codex","sessionId":"s1","action":"release"}`))
+	releaseRR := httptest.NewRecorder()
+	releaseDone := make(chan struct{})
+	go func() {
+		handleChatAccess(releaseRR, releaseReq)
+		close(releaseDone)
+	}()
+	<-releaseEntered
+
+	enableReq := httptest.NewRequest(http.MethodPost, "/api/chat/access", bytes.NewBufferString(`{"assistant":"codex","sessionId":"s1","action":"enable-write"}`))
+	enableRR := httptest.NewRecorder()
+	enableDone := make(chan struct{})
+	go func() {
+		handleChatAccess(enableRR, enableReq)
+		close(enableDone)
+	}()
+	select {
+	case <-enableDone:
+		t.Fatal("enable-write crossed an in-flight backend release")
+	case <-time.After(20 * time.Millisecond):
+	}
+	if got := agentChatQueue.AccessMode("codex", "s1"); got != chatAccessReadOnly {
+		t.Fatalf("access mode changed during release: %q", got)
+	}
+
+	close(finishRelease)
+	<-releaseDone
+	<-enableDone
+	if releaseRR.Code != http.StatusOK || enableRR.Code != http.StatusOK || agentChatQueue.AccessMode("codex", "s1") != chatAccessReadWrite {
+		t.Fatalf("release=%d enable=%d mode=%q", releaseRR.Code, enableRR.Code, agentChatQueue.AccessMode("codex", "s1"))
 	}
 }
 

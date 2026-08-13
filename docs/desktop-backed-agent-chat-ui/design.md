@@ -2,6 +2,8 @@
 
 日期：2026-07-16 · 状态：PM 研究完成，待 `$dev` 实现 POC
 
+> 当前消息投递、writer、access 与队列生命周期已由 `../superpowers/specs/2026-08-13-codex-server-authoritative-chat-design.md` 取代；下文保留早期 UI/协议研究背景。
+
 ## 背景与问题
 
 当前 dashboard 的 Claude / Codex 会话交互走的是：
@@ -201,12 +203,11 @@ GET  /api/chat/events
 
 ### 运行态与追问队列
 
-- `thread/status/changed`、`turn/started`、流式 delta 和 `turn/completed` 共同驱动 `running / idle`；刷新后以 `thread/resume` 返回的 `thread.status` 恢复。
-- Codex Desktop 的默认 follow-up mode 是 `steer`。`running` 时按 Enter 通过 `/api/chat/steer` 插入当前 turn，携带 `expectedTurnId` 和 `clientUserMessageId`。
-- Cmd/Ctrl+Shift+Enter 显式把输入加入当前浏览器内、按会话隔离的 FIFO 下一轮队列。
-- steer 因 active-turn 竞态失败时撤回 optimistic 消息并恢复成 queue item；当前 turn 完成后自动发送队首，发送失败时保留该条。
-- queue item 的“引导”仍调用 `/api/chat/steer`；只有成功才移除，失败保留原项且不得复制。
-- 编辑会移除队列项并把文字和图片恢复到 composer；删除只移除指定项。
+- 浏览器只投影 fleet-agent 返回的完整控制快照；SSE 生命周期事件只触发重新取快照，不直接驱动 `running / idle` 或 writer。
+- Codex Desktop 的默认 follow-up mode 仍是 `steer`，但浏览器只向 `/api/chat/queue` 提交 `deliveryMode=auto`；由 agent 在活跃 Fleet turn 上 steer，否则 start。
+- Cmd/Ctrl+Shift+Enter 提交 `deliveryMode=next`，消息进入目标 Mac 服务端按 session 隔离的 FIFO 队列。
+- steer/start 竞态、失败恢复、client message 对账和 turn 完成后的续投都由 fleet-agent 处理；浏览器只保留 optimistic 气泡与按钮 pending 反馈。
+- queue item 的“引导”、取消、重试与接管全部调用服务端 decision API；返回服务端结果并重新同步后再更新 UI。
 
 完整协议和验收基线见 `codex-app-server-refactor.md`。
 

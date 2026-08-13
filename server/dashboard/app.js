@@ -1585,11 +1585,11 @@ function saveChatDraft(chat = state.chat) {
 }
 
 function isChatRunning(chat) {
-  return !!chat && (chat.model?.phase === 'running' || chat.submitting === true);
+  return !!chat?.controlReady && chat.turnPhase === 'running';
 }
 
 function isDesktopChatRunning(chat) {
-  return isChatRunning(chat) && chat.model?.turnOwner === 'desktop';
+  return isChatRunning(chat) && chat.turnOwner === 'desktop';
 }
 
 function isDesktopChatOwned(chat) {
@@ -1626,40 +1626,73 @@ function isNoActiveTurnError(error) {
     || /no active turn to (?:steer|interrupt)/i.test(String(error?.message || ''));
 }
 
-function reconcileChatInactiveTurn(chat, observedTurnId) {
-  if (!chat) return false;
-  const activeTurnId = chat.model?.activeTurnId || '';
-  if (observedTurnId && activeTurnId && observedTurnId !== activeTurnId) return false;
-  chat.model = FleetChatModel.reduceChatEvent(chat.model, {
-    type: 'thread_status',
-    data: { status: 'idle', reconciledTurnId: observedTurnId || '' },
-  });
-  syncSessionRuntimeIndicators();
-  if (state.chat === chat) {
-    renderChat();
-    updateChatComposerState();
+function beginChatControlRequest(chat) {
+  if (!chat) return 0;
+  chat.controlRequestSeq = (Number(chat.controlRequestSeq) || 0) + 1;
+  return chat.controlRequestSeq;
+}
+
+function isNewerChatControlSnapshot(chat, snapshot, requestSeq = 0) {
+  const epoch = String(snapshot?.serverEpoch || '');
+  const version = Number(snapshot?.snapshotVersion) || 0;
+  if (!chat || !epoch || version <= 0) return false;
+  if (chat.controlEpoch !== epoch) {
+    // Snapshot versions restart with the agent. Across epochs, a response from
+    // an earlier browser request must not overwrite a later request that has
+    // already observed the replacement process.
+    if (chat.controlEpoch && requestSeq > 0 && requestSeq < (Number(chat.controlAppliedRequestSeq) || 0)) return false;
+    return true;
+  }
+  return version >= (Number(chat.controlVersion) || 0);
+}
+
+function isCompleteChatControlSnapshot(snapshot) {
+  return !!snapshot
+    && ['read_write', 'read_only'].includes(snapshot.accessMode)
+    && ['running', 'idle', 'unknown'].includes(snapshot.turnPhase)
+    && Array.isArray(snapshot.items);
+}
+
+function applyChatControlSnapshot(chat, source, requestSeq = 0) {
+  const snapshot = source?.control || source;
+  if (!isCompleteChatControlSnapshot(snapshot)) return false;
+  if (!isNewerChatControlSnapshot(chat, snapshot, requestSeq)) return false;
+  const currentQueue = new Map((chat.followups || []).map((item) => [item.id, item]));
+  const visibleQueue = (Array.isArray(snapshot.items) ? snapshot.items : [])
+    .filter((item) => chatQueuePresentation(item).placement !== 'hidden')
+    .map((item) => ({ ...item, decisionPending: currentQueue.get(item.id)?.decisionPending || '' }));
+  chat.controlEpoch = snapshot.serverEpoch;
+  chat.controlVersion = Number(snapshot.snapshotVersion) || 0;
+  chat.controlAppliedRequestSeq = Math.max(Number(chat.controlAppliedRequestSeq) || 0, Number(requestSeq) || 0);
+  chat.accessMode = snapshot.accessMode === 'read_only' ? 'read_only' : 'read_write';
+  chat.writerOwner = snapshot.writerOwner || '';
+  chat.turnPhase = snapshot.turnPhase === 'running' ? 'running' : (snapshot.turnPhase === 'idle' ? 'idle' : 'unknown');
+  chat.activeTurnId = snapshot.activeTurnId || '';
+  chat.turnOwner = snapshot.turnOwner || '';
+  chat.controlReady = chat.turnPhase !== 'unknown';
+  chat.followups = visibleQueue;
+  if (chat.controlReady) {
+    chat.model = FleetChatModel.reduceChatEvent(chat.model, {
+      type: 'thread_status',
+      data: { status: chat.turnPhase, activeTurnId: chat.activeTurnId, turnOwner: chat.turnOwner },
+    });
+  }
+  for (const item of visibleQueue) {
+    if (isFleetQueueFollowup(item)) {
+      chat.model = FleetChatModel.removeMessage(chat.model, item.clientMessageId);
+    } else if (!chat.model?.items?.[item.clientMessageId]) {
+      chat.model = FleetChatModel.appendUserMessage(chat.model, (item.displayText || item.text || '').trim(), item.clientMessageId, item.images || []);
+    }
   }
   return true;
 }
 
 async function loadServerChatQueue(chat) {
   if (!chat || chat.pendingStart) return;
+  const requestSeq = beginChatControlRequest(chat);
   try {
     const result = await api(chat.macId, `chat/queue?assistant=codex&sessionId=${encodeURIComponent(chat.sessionId)}`);
-    const currentQueue = new Map((chat.followups || []).filter((item) => item.clientMessageId).map((item) => [item.id, item]));
-    const visibleQueue = (Array.isArray(result?.items) ? result.items : [])
-      .filter((item) => chatQueuePresentation(item).placement !== 'hidden')
-      .map((item) => ({ ...item, decisionPending: currentQueue.get(item.id)?.decisionPending || '' }));
-    chat.followups = visibleQueue;
-    chat.accessMode = result?.accessMode === 'read_only' ? 'read_only' : 'read_write';
-    if (visibleQueue.some((item) => item.writerOwner === 'desktop')) chat.writerOwner = 'desktop';
-    for (const item of visibleQueue) {
-      if (isFleetQueueFollowup(item)) {
-        chat.model = FleetChatModel.removeMessage(chat.model, item.clientMessageId);
-      } else if (!chat.model?.items?.[item.clientMessageId]) {
-        chat.model = FleetChatModel.appendUserMessage(chat.model, (item.displayText || item.text || '').trim(), item.clientMessageId, item.images || []);
-      }
-    }
+    if (!applyChatControlSnapshot(chat, result, requestSeq)) return;
     if (state.chat === chat) {
       renderChat();
       renderChatFollowups();
@@ -1718,13 +1751,10 @@ async function decideServerChatQueue(item, action) {
       method: 'POST', headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ id: item.id, action, auditVersion: item.auditVersion || '', stateVersion: item.stateVersion }),
     });
-    const index = chat.followups.findIndex((entry) => entry.id === item.id);
-    if (index >= 0) chat.followups[index] = updated;
-    if (updated.status === 'sent' || updated.status === 'cancelled') {
-      chat.followups = chat.followups.filter((entry) => entry.id !== updated.id);
+    if (updated.status === 'cancelled') {
+      chat.model = FleetChatModel.removeMessage(chat.model, updated.clientMessageId);
     }
-    renderChat();
-    renderChatFollowups();
+    await loadServerChatQueue(chat);
   } catch (error) {
     item.decisionPending = '';
     toast(`操作失败：${error.message}`, 'err');
@@ -1764,17 +1794,6 @@ function queueStatusCard(item) {
     status === 'takeover_confirmation_required' ? h('p', { class: 'chat-queue-warning', text: '再次确认将立即中断目标机器上以下全部运行中任务，并把会话控制权交给 Fleet。' }) : null,
     item.affected?.length ? h('div', { class: 'chat-queue-affected' }, ...item.affected.map((impact) => h('div', { text: `${impact.active ? '运行中' : '占用中'} · ${impact.title || impact.sessionId}` }))) : null,
     actions.length ? h('div', { class: 'chat-queue-actions' }, ...actions) : null);
-}
-
-function acknowledgeChatFollowups(chat, events) {
-  let changed = false;
-  for (const ev of events || []) {
-    const id = FleetChatModel.followupAckId(ev);
-    const before = chat?.followups?.length || 0;
-    if (id && chat?.followups) chat.followups = chat.followups.filter((entry) => entry.clientMessageId !== id);
-    if ((chat?.followups?.length || 0) !== before) changed = true;
-  }
-  return changed;
 }
 
 function disposeChat(chat) {
@@ -1848,8 +1867,8 @@ function isChatConnectionKept(macId, sessionId) {
 
 function isSessionRunning(session, macId = state.macId) {
   const chat = session?.sessionId ? state.chatCache.get(chatCacheKey(macId, session.sessionId)) : null;
-  // 已恢复过的自绘会话有实时 turn 状态，优先于列表轮询的旧快照。
-  if (chat && (chat.historyReady || chat.submitting)) return isChatRunning(chat);
+  // 只有服务端控制快照能覆盖列表轮询状态；本地 history/submitting 不是运行态证据。
+  if (chat?.controlReady) return isChatRunning(chat);
   return FleetChatModel.chatPhase(session?.status) === 'running';
 }
 
@@ -1977,7 +1996,7 @@ function renderChat({ preserveScroll = false, forceBottom = false } = {}) {
   const model = chat.model || FleetChatModel.createChatState();
   renderChatOwnershipHead(chat);
   if (isDesktopChatOwned(chat)) {
-    const running = model.phase === 'running' && model.turnOwner === 'desktop';
+    const running = isDesktopChatRunning(chat);
     stack.append(h('div', { class: 'chat-desktop-running' },
       h('strong', { text: running ? 'Codex Desktop 正在输出' : 'Codex Desktop 已打开此会话' }),
       h('span', { text: running
@@ -2914,13 +2933,14 @@ function resizeChatInput() {
 function chatComposerAction(chat, hasContent) {
   if (chat?.releasingWriter || chat?.changingAccess) return 'transition';
   if (chat?.accessMode === 'read_only') return 'readonly';
+  if (!chat?.controlReady) return 'loading';
   if (isDesktopChatOwned(chat)) return hasContent ? 'queue-desktop' : 'wait-desktop';
   if (!isChatRunning(chat)) return 'send';
-  return hasContent ? 'queue' : 'interrupt';
+  return hasContent ? 'send' : 'interrupt';
 }
 
 function chatMutationsBlocked(chat = state.chat) {
-  return !chat || chat.accessMode === 'read_only' || chat.releasingWriter || chat.changingAccess;
+  return !chat || !chat.controlReady || chat.accessMode !== 'read_write' || chat.releasingWriter || chat.changingAccess;
 }
 
 function updateChatComposerState() {
@@ -2931,11 +2951,13 @@ function updateChatComposerState() {
   const blocked = attachments.some((att) => att.uploading || att.error || (!att.id && !att.pendingUpload));
   const hasContent = Boolean(input?.value.trim()) || attachments.length > 0;
   const action = chatComposerAction(state.chat, hasContent);
-  const mutationBlocked = action === 'readonly' || action === 'transition';
+  const mutationBlocked = action === 'readonly' || action === 'transition' || action === 'loading';
   send.dataset.action = action;
   if (input) {
     input.disabled = mutationBlocked;
-    input.placeholder = action === 'readonly' ? 'Fleet 已释放此会话' : (action === 'transition' ? '正在切换会话访问状态…' : '给 Codex 发送消息…');
+    input.placeholder = action === 'readonly' ? 'Fleet 已释放此会话'
+      : (action === 'transition' ? '正在切换会话访问状态…'
+        : (action === 'loading' ? '正在同步会话控制状态…' : '给 Codex 发送消息…'));
   }
   const attach = $('#chat-attach');
   const options = $('#chat-options-trigger');
@@ -2953,10 +2975,11 @@ function updateChatComposerState() {
     : (!hasContent || blocked));
   send.title = action === 'readonly' ? 'Fleet 已释放会话并保持只读'
     : action === 'transition' ? '正在切换会话访问状态'
+    : action === 'loading' ? '正在同步服务端会话状态'
     : action === 'interrupt'
     ? '停止生成'
     : (action === 'wait-desktop' ? 'Codex Desktop 正在使用此会话' :
-      (blocked ? '等待图片上传完成' : (action === 'queue' || action === 'queue-desktop' ? '结束后发送' : '发送')));
+      (blocked ? '等待图片上传完成' : (action === 'queue-desktop' ? '提交到服务器队列' : '发送')));
   send.setAttribute('aria-label', send.title);
 }
 
@@ -3134,7 +3157,10 @@ async function openChatSession(s) {
       modelDirty: false, serviceTierDirty: false,
       approvalMode: 'on-request', approvalConfirmedMode: 'on-request',
       writerOwner: '', pendingRequestCount: 0,
-      accessMode: 'read_write', releasingWriter: false, changingAccess: false, approvalControlsEnabled: false,
+      accessMode: s.pendingStart ? 'read_write' : 'unknown', controlReady: !!s.pendingStart,
+      controlEpoch: '', controlVersion: 0, controlRequestSeq: 0, controlAppliedRequestSeq: 0,
+      turnPhase: s.pendingStart ? 'idle' : 'unknown', activeTurnId: '', turnOwner: '',
+      releasingWriter: false, changingAccess: false, approvalControlsEnabled: false,
       approvalUpdateChain: Promise.resolve(),
     };
     state.chatCache.set(key, chat);
@@ -3142,7 +3168,8 @@ async function openChatSession(s) {
   state.chat = chat;
   if (!(chat.expandedActivityGroups instanceof Set)) chat.expandedActivityGroups = new Set();
   if (typeof chat.writerOwner !== 'string') chat.writerOwner = '';
-  if (chat.accessMode !== 'read_only') chat.accessMode = 'read_write';
+  if (!['read_only', 'read_write', 'unknown'].includes(chat.accessMode)) chat.accessMode = 'unknown';
+  if (typeof chat.controlReady !== 'boolean') chat.controlReady = !!chat.pendingStart;
   if (!Array.isArray(chat.skills)) chat.skills = [];
   if (typeof chat.skillsLoaded !== 'boolean') chat.skillsLoaded = false;
   if (!chat.skillPreferences || typeof chat.skillPreferences !== 'object') chat.skillPreferences = {};
@@ -3189,23 +3216,18 @@ async function openChatSession(s) {
   }
   if (chat.resumePromise) return;
   try {
+    const controlRequestSeq = beginChatControlRequest(chat);
     chat.resumePromise = api(chat.macId, 'chat/resume', {
       method: 'POST', headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ assistant: 'codex', sessionId: chat.sessionId, mode: 'default' }),
     });
     const resumed = await chat.resumePromise;
     if (state.chatCache.get(chat.cacheKey) === chat) {
-      acknowledgeChatFollowups(chat, resumed.history?.events);
       chat.model = FleetChatModel.prependHistory(chat.model, resumed.history?.events || []);
       for (const event of resumed.pendingEvents || []) {
         chat.model = FleetChatModel.reduceChatEvent(chat.model, event);
       }
-      chat.model = FleetChatModel.reduceChatEvent(chat.model, {
-        type: 'thread_status',
-        data: { status: resumed.status, activeTurnId: resumed.activeTurnId, turnOwner: resumed.turnOwner },
-      });
-      chat.writerOwner = resumed.writerOwner || '';
-      chat.accessMode = resumed.accessMode === 'read_only' ? 'read_only' : 'read_write';
+      applyChatControlSnapshot(chat, resumed, controlRequestSeq);
       chat.pendingRequestCount = pendingChatRequestCount(chat);
       chat.historyCursor = resumed.history?.nextCursor || '';
       chat.historyReady = true;
@@ -3344,7 +3366,7 @@ function setChatApprovalEnabled(chat, enabled) {
     chat.approvalMode = normalizeChatApprovalMode(chat.approvalMode);
     chat.approvalControlsEnabled = !!enabled;
   }
-  trigger.disabled = !enabled || chat?.accessMode === 'read_only' || chat?.releasingWriter || chat?.changingAccess;
+  trigger.disabled = !enabled || chatMutationsBlocked(chat);
   if (!enabled) closeChatApproval();
   renderChatApprovalMenu(chat);
 }
@@ -3364,7 +3386,7 @@ function toggleChatApproval() {
 }
 
 async function selectChatApprovalMode(value) {
-  if (!state.chat) return;
+  if (!state.chat || chatMutationsBlocked(state.chat)) return;
   const chat = state.chat;
   const approvalMode = normalizeChatApprovalMode(value);
   if (approvalMode === chat.approvalMode) {
@@ -3562,7 +3584,6 @@ async function loadOlderChatHistory() {
   try {
     const page = await api(chat.macId, `chat/history?assistant=codex&sessionId=${encodeURIComponent(chat.sessionId)}&cursor=${encodeURIComponent(chat.historyCursor)}`);
     if (state.chat !== chat) return;
-    acknowledgeChatFollowups(chat, page.events);
     chat.model = FleetChatModel.prependHistory(chat.model, page.events || []);
     applyChatMetadataDefaults(chat);
     chat.historyCursor = page.nextCursor || '';
@@ -3588,19 +3609,10 @@ function startChatEvents(chat = state.chat) {
     try {
       const ev = JSON.parse(e.data);
       updateChatUpdatedAt(chat, Date.now());
-      const wasRunning = isChatRunning(chat);
-      const previousTurnOwner = chat.model?.turnOwner || '';
-      acknowledgeChatFollowups(chat, [ev]);
       chat.model = FleetChatModel.reduceChatEvent(chat.model, ev);
-      const eventTurnOwner = ev?.data?.turnOwner || ev?.turnOwner || '';
-      if (ev.type === 'turn_started' && eventTurnOwner) chat.writerOwner = eventTurnOwner;
-      if (ev.type === 'thread_status' && typeof ev?.data?.writerOwner === 'string') {
-        chat.writerOwner = ev.data.writerOwner;
-      }
       // EventSource reconnects replay unresolved requests. Derive this from the
       // reducer so the same request never creates a phantom waiting badge.
       chat.pendingRequestCount = pendingChatRequestCount(chat);
-      if (ev.type === 'turn_done' && previousTurnOwner === 'fleet') chat.writerOwner = '';
       applyChatMetadataDefaults(chat);
       syncSessionRuntimeIndicators();
       if (state.chat === chat) {
@@ -3608,7 +3620,9 @@ function startChatEvents(chat = state.chat) {
         updateChatComposerState();
         renderChatFollowups();
       }
-      if (wasRunning && !isChatRunning(chat)) loadServerChatQueue(chat);
+      if (['turn_started', 'turn_done', 'thread_status', 'control_changed', 'user_done'].includes(ev.type)) {
+        loadServerChatQueue(chat);
+      }
     } catch (_) {}
   };
   es.onerror = () => {
@@ -3629,22 +3643,17 @@ async function restoreChatAfterForeground(chat = state.chat) {
 
   const task = (async () => {
     try {
+      const controlRequestSeq = beginChatControlRequest(chat);
       const resumed = await api(chat.macId, 'chat/resume', {
         method: 'POST', headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ assistant: 'codex', sessionId: chat.sessionId, mode: 'default' }),
       });
       if (state.chatCache.get(chat.cacheKey) !== chat) return;
-      acknowledgeChatFollowups(chat, resumed.history?.events);
       chat.model = FleetChatModel.prependHistory(chat.model, resumed.history?.events || []);
       for (const event of resumed.pendingEvents || []) {
         chat.model = FleetChatModel.reduceChatEvent(chat.model, event);
       }
-      chat.model = FleetChatModel.reduceChatEvent(chat.model, {
-        type: 'thread_status',
-        data: { status: resumed.status, activeTurnId: resumed.activeTurnId, turnOwner: resumed.turnOwner },
-      });
-      chat.writerOwner = resumed.writerOwner || '';
-      chat.accessMode = resumed.accessMode === 'read_only' ? 'read_only' : 'read_write';
+      applyChatControlSnapshot(chat, resumed, controlRequestSeq);
       chat.pendingRequestCount = pendingChatRequestCount(chat);
       chat.historyCursor = resumed.history?.nextCursor || chat.historyCursor || '';
       applyChatMetadataDefaults(chat);
@@ -3701,6 +3710,7 @@ async function ensurePendingChatStarted(chat) {
       cwd = String(info.fileRoot || '').trim();
       if (!cwd) throw new Error('无法获取设备主目录');
     }
+    const controlRequestSeq = beginChatControlRequest(chat);
     const started = await api(chat.macId, 'chat/start', {
       method: 'POST', headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ assistant: 'codex', cwd, mode: 'default' }),
@@ -3720,7 +3730,10 @@ async function ensurePendingChatStarted(chat) {
     chat.unscoped = false;
     chat.historyReady = true;
     chat.loading = false;
+    chat.controlReady = false;
+    chat.accessMode = 'unknown';
     configureChatOptions(chat, started);
+    applyChatControlSnapshot(chat, started, controlRequestSeq);
     chat.approvalMode = preferredApproval;
     chat.approvalConfirmedMode = preferredApproval;
     state.chatCache.set(newKey, chat);
@@ -3750,11 +3763,11 @@ async function ensurePendingChatStarted(chat) {
   }
 }
 
-async function submitChatInput({ forceQueue = false } = {}) {
+async function submitChatInput({ deliveryMode = 'auto' } = {}) {
   const chat = state.chat;
   const input = $('#chat-input');
   let raw = typeof input.value === 'string' ? input.value : '';
-  if (!chat || chat.accessMode === 'read_only' || chat.releasingWriter || chat.changingAccess) return;
+  if (chatMutationsBlocked(chat)) return;
   if (chat.pendingStart) {
     try {
       await ensurePendingChatStarted(chat);
@@ -3805,7 +3818,7 @@ async function submitChatInput({ forceQueue = false } = {}) {
     text, displayText: raw.trim(), images,
     skills: parsed.skills.map((skill) => ({ id: skill.id, name: skill.name })),
   };
-  await enqueueServerChatMessage(chat, item, forceQueue ? 'next' : 'auto');
+  await enqueueServerChatMessage(chat, item, deliveryMode);
 }
 
 async function enqueueServerChatMessage(chat, item, deliveryMode) {
@@ -3818,9 +3831,6 @@ async function enqueueServerChatMessage(chat, item, deliveryMode) {
   }
   const queued = await saveServerChatQueueItem(chat, item, deliveryMode);
   if (queued) {
-    chat.followups = chat.followups || [];
-    const index = chat.followups.findIndex((entry) => entry.id === queued.id);
-    if (index >= 0) chat.followups[index] = queued; else chat.followups.push(queued);
     await loadServerChatQueue(chat);
   } else {
     chat.model = FleetChatModel.removeMessage(chat.model, item.id);
@@ -3867,7 +3877,6 @@ function chatTurnOptions(chat) {
 async function interruptChat() {
   const chat = state.chat;
   if (!chat || !isChatRunning(chat) || isDesktopChatOwned(chat) || chat.interrupting) return;
-  const observedTurnId = chat.model.activeTurnId;
   chat.interrupting = true;
   updateChatComposerState();
   try {
@@ -3877,7 +3886,6 @@ async function interruptChat() {
     });
   } catch (e) {
     if (isNoActiveTurnError(e)) {
-      reconcileChatInactiveTurn(chat, observedTurnId);
       toast('任务已结束，状态已同步。');
       await loadServerChatQueue(chat);
     } else {
@@ -3896,17 +3904,12 @@ async function releaseChatWriter() {
   renderChatOwnershipHead(chat);
   updateChatComposerState();
   try {
-    const result = await api(chat.macId, 'chat/access', {
+    const controlRequestSeq = beginChatControlRequest(chat);
+    const control = await api(chat.macId, 'chat/access', {
       method: 'POST', headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ assistant: 'codex', sessionId: chat.sessionId, action: 'release' }),
     });
-    chat.writerOwner = '';
-    chat.accessMode = result?.accessMode === 'read_only' ? 'read_only' : 'read_write';
-    chat.model = FleetChatModel.reduceChatEvent(chat.model, {
-      type: 'thread_status', data: { status: 'idle', reconciledTurnId: chat.model?.activeTurnId || '' },
-    });
-    syncSessionRuntimeIndicators();
-    renderChat();
+    applyChatControlSnapshot(chat, control, controlRequestSeq);
     toast('会话已释放，Fleet 已切换为只读。');
   } catch (e) {
     toast('释放会话失败：' + e.message, 'err');
@@ -3932,12 +3935,12 @@ async function enableChatWriter() {
   renderChat();
   updateChatComposerState();
   try {
-    const result = await api(chat.macId, 'chat/access', {
+    const controlRequestSeq = beginChatControlRequest(chat);
+    const control = await api(chat.macId, 'chat/access', {
       method: 'POST', headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ assistant: 'codex', sessionId: chat.sessionId, action: 'enable-write' }),
     });
-    chat.accessMode = result?.accessMode === 'read_only' ? 'read_only' : 'read_write';
-    await loadServerChatQueue(chat);
+    applyChatControlSnapshot(chat, control, controlRequestSeq);
     toast('Fleet 写入已恢复，排队消息将由服务器继续处理。');
   } catch (e) {
     toast('恢复 Fleet 写入失败：' + e.message, 'err');
@@ -5774,7 +5777,7 @@ function init() {
     e.preventDefault();
     const action = $('#chat-send').dataset.action;
     if (action === 'interrupt') interruptChat();
-    else submitChatInput({ forceQueue: action === 'queue' });
+    else submitChatInput();
   };
   // iOS 键盘展开时，默认 pointerdown 会先让 textarea 失焦并移动 VisualViewport，
   // 按钮可能在 click 产生前移出触点。保留焦点，让同一次轻点直接触发表单提交。
@@ -5793,7 +5796,7 @@ function init() {
   $('#chat-input').addEventListener('keydown', (e) => {
     if (e.key === 'Enter' && (e.metaKey || e.ctrlKey) && !isIMEComposing(e, chatIMEComposing)) {
       e.preventDefault();
-      submitChatInput({ forceQueue: e.shiftKey });
+      submitChatInput({ deliveryMode: e.shiftKey ? 'next' : 'auto' });
       return;
     }
     const menu = state.chat?.skillMenu;
@@ -5819,7 +5822,7 @@ function init() {
     if (e.key === 'Enter' && !isIMEComposing(e, chatIMEComposing)) {
       if (!e.shiftKey) {
         e.preventDefault();
-        submitChatInput({ forceQueue: $('#chat-send').dataset.action === 'queue' });
+        submitChatInput();
       }
     }
   });

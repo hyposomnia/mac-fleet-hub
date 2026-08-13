@@ -254,31 +254,57 @@ var errThreadReadOnly = errors.New("thread_read_only")
 var errFleetChatReadOnly = errors.New("fleet_read_only")
 
 type ChatStartResult struct {
-	SessionID    string            `json:"sessionId"`
-	Cwd          string            `json:"cwd"`
-	Model        string            `json:"model,omitempty"`
-	Effort       string            `json:"effort,omitempty"`
-	ServiceTier  string            `json:"serviceTier,omitempty"`
-	ApprovalMode string            `json:"approvalMode,omitempty"`
-	Models       []ChatModelOption `json:"models,omitempty"`
+	SessionID    string                      `json:"sessionId"`
+	Cwd          string                      `json:"cwd"`
+	Model        string                      `json:"model,omitempty"`
+	Effort       string                      `json:"effort,omitempty"`
+	ServiceTier  string                      `json:"serviceTier,omitempty"`
+	ApprovalMode string                      `json:"approvalMode,omitempty"`
+	Models       []ChatModelOption           `json:"models,omitempty"`
+	Control      *ChatSessionControlSnapshot `json:"control,omitempty"`
 }
 
 type ChatResumeResult struct {
-	SessionID       string            `json:"sessionId"`
-	ThreadID        string            `json:"threadId"`
-	Status          string            `json:"status"`
-	ActiveTurnID    string            `json:"activeTurnId,omitempty"`
-	TurnOwner       string            `json:"turnOwner,omitempty"`
-	WriterOwner     string            `json:"writerOwner,omitempty"`
-	AccessMode      string            `json:"accessMode"`
-	PendingRequests int               `json:"pendingRequests,omitempty"`
-	PendingEvents   []ChatEvent       `json:"pendingEvents,omitempty"`
-	History         ChatHistoryPage   `json:"history"`
-	Model           string            `json:"model,omitempty"`
-	Effort          string            `json:"effort,omitempty"`
-	ServiceTier     string            `json:"serviceTier,omitempty"`
-	ApprovalMode    string            `json:"approvalMode,omitempty"`
-	Models          []ChatModelOption `json:"models,omitempty"`
+	SessionID       string                      `json:"sessionId"`
+	ThreadID        string                      `json:"threadId"`
+	Status          string                      `json:"status"`
+	ActiveTurnID    string                      `json:"activeTurnId,omitempty"`
+	TurnOwner       string                      `json:"turnOwner,omitempty"`
+	WriterOwner     string                      `json:"writerOwner,omitempty"`
+	AccessMode      string                      `json:"accessMode"`
+	PendingRequests int                         `json:"pendingRequests,omitempty"`
+	PendingEvents   []ChatEvent                 `json:"pendingEvents,omitempty"`
+	History         ChatHistoryPage             `json:"history"`
+	Model           string                      `json:"model,omitempty"`
+	Effort          string                      `json:"effort,omitempty"`
+	ServiceTier     string                      `json:"serviceTier,omitempty"`
+	ApprovalMode    string                      `json:"approvalMode,omitempty"`
+	Models          []ChatModelOption           `json:"models,omitempty"`
+	Control         *ChatSessionControlSnapshot `json:"control,omitempty"`
+}
+
+// ChatRuntimeState is the backend-owned writer/turn projection. It deliberately
+// excludes queue/access data so the HTTP control layer can combine both under
+// the per-session operation lock.
+type ChatRuntimeState struct {
+	Status       string `json:"status"`
+	ActiveTurnID string `json:"activeTurnId,omitempty"`
+	TurnOwner    string `json:"turnOwner,omitempty"`
+	WriterOwner  string `json:"writerOwner,omitempty"`
+}
+
+// ChatSessionControlSnapshot is the only browser-facing source of truth for
+// session mutations. Epoch + version let the browser reject late HTTP replies
+// without inventing any writer/turn/queue transitions locally.
+type ChatSessionControlSnapshot struct {
+	ServerEpoch     string          `json:"serverEpoch"`
+	SnapshotVersion uint64          `json:"snapshotVersion"`
+	AccessMode      string          `json:"accessMode"`
+	WriterOwner     string          `json:"writerOwner,omitempty"`
+	TurnPhase       string          `json:"turnPhase"`
+	ActiveTurnID    string          `json:"activeTurnId,omitempty"`
+	TurnOwner       string          `json:"turnOwner,omitempty"`
+	Items           []ChatQueueItem `json:"items"`
 }
 
 type ChatHistoryPage struct {
@@ -355,6 +381,7 @@ type chatBackend interface {
 	Interrupt(ctx context.Context, assistant, sessionID string) error
 	Release(ctx context.Context, assistant, sessionID string) error
 	Settings(ctx context.Context, assistant, sessionID, approvalMode string) error
+	Control(ctx context.Context, assistant, sessionID string) (ChatRuntimeState, error)
 }
 
 var agentChatBackend chatBackend = unavailableChatBackend{}
@@ -393,6 +420,12 @@ func (unavailableChatBackend) Release(context.Context, string, string) error {
 }
 func (unavailableChatBackend) Settings(context.Context, string, string, string) error {
 	return errAppServerUnavailable
+}
+func (unavailableChatBackend) Control(context.Context, string, string) (ChatRuntimeState, error) {
+	// Queue/access state must remain readable while app-server is recovering.
+	// Unknown keeps every browser mutation disabled until a healthy backend can
+	// provide an authoritative writer/turn snapshot.
+	return ChatRuntimeState{Status: "unknown"}, nil
 }
 
 func writeChatErr(w http.ResponseWriter, err error) {
@@ -463,6 +496,12 @@ func handleChatStart(w http.ResponseWriter, r *http.Request) {
 		writeChatErr(w, err)
 		return
 	}
+	control, err := buildChatSessionControlSnapshot(r.Context(), assistant, res.SessionID)
+	if err != nil {
+		writeChatErr(w, err)
+		return
+	}
+	res.Control = &control
 	writeJSON(w, res)
 }
 
@@ -505,6 +544,13 @@ func handleChatResume(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	res.AccessMode = agentChatQueue.AccessMode(assistant, req.SessionID)
+	control, err := buildChatSessionControlSnapshot(r.Context(), assistant, req.SessionID)
+	if err != nil {
+		writeChatErr(w, err)
+		return
+	}
+	res.Status, res.ActiveTurnID, res.TurnOwner, res.WriterOwner = control.TurnPhase, control.ActiveTurnID, control.TurnOwner, control.WriterOwner
+	res.AccessMode, res.Control = control.AccessMode, &control
 	writeJSON(w, res)
 }
 
@@ -873,6 +919,10 @@ func handleChatUpload(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "bad request", http.StatusBadRequest)
 		return
 	}
+	defer lockChatSessionOperation(assistant, sessionID)()
+	if !requireChatWriteAccess(w, assistant, sessionID) {
+		return
+	}
 	file, header, err := r.FormFile("file")
 	if err != nil {
 		writeErr(w, http.StatusBadRequest, "bad_upload", "没有收到图片文件。")
@@ -1125,7 +1175,8 @@ func handleChatRelease(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusNotImplemented, "unsupported_assistant", "自绘界面暂只支持 Codex。")
 		return
 	}
-	if _, err := agentChatQueue.SetAccessMode(assistant, req.SessionID, chatAccessReadOnly); err != nil {
+	defer lockChatSessionOperation(assistant, req.SessionID)()
+	if _, err := agentChatQueue.setAccessModeLocked(assistant, strings.TrimSpace(req.SessionID), chatAccessReadOnly); err != nil {
 		writeErr(w, http.StatusInternalServerError, "access_state_failed", err.Error())
 		return
 	}
@@ -1158,9 +1209,11 @@ func handleChatAccess(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusNotImplemented, "unsupported_assistant", "自绘界面暂只支持 Codex。")
 		return
 	}
+	req.SessionID = strings.TrimSpace(req.SessionID)
+	defer lockChatSessionOperation(assistant, req.SessionID)()
 	switch req.Action {
 	case "release":
-		state, err := agentChatQueue.SetAccessMode(assistant, req.SessionID, chatAccessReadOnly)
+		_, err := agentChatQueue.setAccessModeLocked(assistant, req.SessionID, chatAccessReadOnly)
 		if err != nil {
 			writeErr(w, http.StatusInternalServerError, "access_state_failed", err.Error())
 			return
@@ -1169,9 +1222,14 @@ func handleChatAccess(w http.ResponseWriter, r *http.Request) {
 			writeChatErr(w, err)
 			return
 		}
-		writeJSON(w, state)
+		control, err := buildChatSessionControlSnapshotLocked(r.Context(), assistant, req.SessionID)
+		if err != nil {
+			writeChatErr(w, err)
+			return
+		}
+		writeJSON(w, control)
 	case "enable-write":
-		state, err := agentChatQueue.SetAccessMode(assistant, req.SessionID, chatAccessReadWrite)
+		_, err := agentChatQueue.setAccessModeLocked(assistant, req.SessionID, chatAccessReadWrite)
 		if err != nil {
 			writeErr(w, http.StatusInternalServerError, "access_state_failed", err.Error())
 			return
@@ -1179,7 +1237,12 @@ func handleChatAccess(w http.ResponseWriter, r *http.Request) {
 		if agentChatQueueWorker != nil {
 			agentChatQueueWorker.Wake()
 		}
-		writeJSON(w, state)
+		control, err := buildChatSessionControlSnapshotLocked(r.Context(), assistant, req.SessionID)
+		if err != nil {
+			writeChatErr(w, err)
+			return
+		}
+		writeJSON(w, control)
 	default:
 		writeErr(w, http.StatusBadRequest, "bad_access_action", "无效的会话访问操作。")
 	}

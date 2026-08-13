@@ -2,7 +2,7 @@
 
 日期：2026-07-24
 
-状态：Codex 自绘会话的当前实现基线。后续新增基础能力时先更新本文件和验收测试，再改实现。
+状态：Codex 自绘会话的 app-server 事件基线。消息投递、writer、access 与队列状态机以后续的 `../superpowers/specs/2026-08-13-codex-server-authoritative-chat-design.md` 为准。
 
 ## 目标
 
@@ -104,11 +104,11 @@ Desktop 默认 `followUpQueueMode = "steer"`，支持：
 - `queue`：排到下一轮。
 - `interrupt`：中断当前轮后处理新输入。
 
-VS Code 默认是 `queue`，但 Desktop 默认是 `steer`。Fleet 复刻 Desktop：
+VS Code 默认是 `queue`，但 Desktop 默认是 `steer`。Fleet 保留 Desktop 的交互语义，但 writer 选择只在服务端完成：
 
-- 运行中按 Enter：`turn/steer`
-- 运行中按 Cmd/Ctrl+Shift+Enter：显式排下一轮
-- idle 时按 Enter：`turn/start`
+- 运行中按 Enter：浏览器提交 `deliveryMode=auto`，fleet-agent 判定并调用 `turn/steer`
+- 运行中按 Cmd/Ctrl+Shift+Enter：浏览器提交 `deliveryMode=next`，服务端显式排下一轮
+- idle 时按 Enter：同一 `auto` 提交由 fleet-agent 调用 `turn/start`
 
 原生 steer 状态机：
 
@@ -122,16 +122,15 @@ optimistic steering message (pending)
 
 实现约束：
 
-- `expectedTurnId` 必须来自当前 active turn。
+- `expectedTurnId` 必须来自 fleet-agent 当前 active turn，浏览器不得自行提供。
 - 每条 optimistic 消息生成稳定的 `clientUserMessageId`。
 - 收到持久化 `userMessage.clientId` 时按该 ID 对账，不能按正文猜测。
 - app-server 返回 actual turn mismatch 时，按 Desktop 逻辑更新 active turn 并重试一次。
-- steer 失败时先撤回 optimistic 正文，再恢复成 queue item。
-- turn 已经结束时保留输入到 queue，不能静默丢失。
-- 从 queue 点“引导”失败时保留原 queue item，不能生成副本。
+- steer 失败、turn 已结束和下一轮续投都由服务端持久化状态机处理，不能静默丢失或重复投递。
+- 从 queue 点“引导”只提交 decision，失败时服务端保留原 item，不能生成副本。
 - `turn/steer` 不产生新的 `turn/started`，也不携带 model/cwd/sandbox 等 turn override。
 
-Fleet 的 queue 是显式“下一轮”和故障恢复能力，不是运行中输入的默认传输层。
+Fleet 的持久 queue 是所有普通输入的唯一浏览器写入口；`deliveryMode=auto` 仍保持 Desktop 默认 steer 的用户语义。
 
 ## Server Request
 

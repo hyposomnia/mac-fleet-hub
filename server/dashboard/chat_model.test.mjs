@@ -79,8 +79,8 @@ const appSandbox = {
   Date: FixedAppDate,
 };
 vm.createContext(appSandbox);
-vm.runInContext(`${appSrc}\n;globalThis.__chatCacheTest = { chatCacheVictim, isChatConnectionKept, isSessionRunning, updateChatUpdatedAt, formatChatDate, chatAssistantMetaText, chatUserMetaText, chatMessageMetaVisibility, applyChatMetadataDefaults, normalizeChatDraft, isNoActiveTurnError, createDeviceScopeButton, chatSkillTriggerAt, parseChatSkillInput, chatSkillTokenNames, mergeChatComposerText, mergeChatAttachments, chatComposerAction: typeof chatComposerAction === 'function' ? chatComposerAction : null, chatImageSrc, chatToolStatus, chatToolDuration, chatToolActivityLabel, chatToolHasExpandableBody, isChatActivityItem, isChatTraceItem: typeof isChatTraceItem === 'function' ? isChatTraceItem : null, chatRenderUnits: typeof chatRenderUnits === 'function' ? chatRenderUnits : null, renderChatTurnProgress: typeof renderChatTurnProgress === 'function' ? renderChatTurnProgress : null, chatActivityGroupSummaryText, chatActivityActiveSummarySegments, chatActivityGroupIconKind, renderChatActivityGroup, renderChatActivityRun: typeof renderChatActivityRun === 'function' ? renderChatActivityRun : null, renderChatItem: typeof renderChatItem === 'function' ? renderChatItem : null, sessionProjectInfo: typeof sessionProjectInfo === 'function' ? sessionProjectInfo : null, groupSessionsByProject: typeof groupSessionsByProject === 'function' ? groupSessionsByProject : null, sessionRow, sessionStatus, filterFileEntries, sortFileEntries: typeof sortFileEntries === 'function' ? sortFileEntries : null, normalizeFileView: typeof normalizeFileView === 'function' ? normalizeFileView : null, truncateFileColumns: typeof truncateFileColumns === 'function' ? truncateFileColumns : null, fileColumnRequestCurrent: typeof fileColumnRequestCurrent === 'function' ? fileColumnRequestCurrent : null, fileIconName: typeof fileIconName === 'function' ? fileIconName : null, activeFileLocationID: typeof activeFileLocationID === 'function' ? activeFileLocationID : null, applyTheme: typeof applyTheme === 'function' ? applyTheme : null, visualKeyboardInset: typeof visualKeyboardInset === 'function' ? visualKeyboardInset : null, sessionBackDragOffset: typeof sessionBackDragOffset === 'function' ? sessionBackDragOffset : null, isSessionBackSwipe: typeof isSessionBackSwipe === 'function' ? isSessionBackSwipe : null, ensurePendingChatStarted: typeof ensurePendingChatStarted === 'function' ? ensurePendingChatStarted : null, filePreviewTypeLabel, filePreviewLocation, chatTurnPinText: typeof chatTurnPinText === 'function' ? chatTurnPinText : () => '', isInternalChatTool: typeof isInternalChatTool === 'function' ? isInternalChatTool : () => false, state };`, appSandbox);
-const { chatCacheVictim, isChatConnectionKept, isSessionRunning, updateChatUpdatedAt, formatChatDate, chatAssistantMetaText, chatUserMetaText, chatMessageMetaVisibility, applyChatMetadataDefaults, normalizeChatDraft, isNoActiveTurnError, createDeviceScopeButton, chatSkillTriggerAt, parseChatSkillInput, chatSkillTokenNames, mergeChatComposerText, mergeChatAttachments, chatComposerAction, chatImageSrc, chatToolStatus, chatToolDuration, chatToolActivityLabel, chatToolHasExpandableBody, isChatActivityItem, isChatTraceItem, chatRenderUnits, renderChatTurnProgress, chatActivityGroupSummaryText, chatActivityActiveSummarySegments, chatActivityGroupIconKind, renderChatActivityGroup, renderChatActivityRun, renderChatItem, sessionProjectInfo, groupSessionsByProject, sessionRow, sessionStatus, filterFileEntries, sortFileEntries, normalizeFileView, truncateFileColumns, fileColumnRequestCurrent, fileIconName, activeFileLocationID, applyTheme, visualKeyboardInset, sessionBackDragOffset, isSessionBackSwipe, ensurePendingChatStarted, filePreviewTypeLabel, filePreviewLocation, chatTurnPinText, isInternalChatTool, state: appState } = appSandbox.__chatCacheTest;
+vm.runInContext(`${appSrc}\n;globalThis.__chatCacheTest = { chatCacheVictim, isChatConnectionKept, isSessionRunning, updateChatUpdatedAt, formatChatDate, chatAssistantMetaText, chatUserMetaText, chatMessageMetaVisibility, applyChatMetadataDefaults, normalizeChatDraft, isNoActiveTurnError, createDeviceScopeButton, chatSkillTriggerAt, parseChatSkillInput, chatSkillTokenNames, mergeChatComposerText, mergeChatAttachments, chatComposerAction: typeof chatComposerAction === 'function' ? chatComposerAction : null, isNewerChatControlSnapshot: typeof isNewerChatControlSnapshot === 'function' ? isNewerChatControlSnapshot : null, isCompleteChatControlSnapshot: typeof isCompleteChatControlSnapshot === 'function' ? isCompleteChatControlSnapshot : null, chatImageSrc, chatToolStatus, chatToolDuration, chatToolActivityLabel, chatToolHasExpandableBody, isChatActivityItem, isChatTraceItem: typeof isChatTraceItem === 'function' ? isChatTraceItem : null, chatRenderUnits: typeof chatRenderUnits === 'function' ? chatRenderUnits : null, renderChatTurnProgress: typeof renderChatTurnProgress === 'function' ? renderChatTurnProgress : null, chatActivityGroupSummaryText, chatActivityActiveSummarySegments, chatActivityGroupIconKind, renderChatActivityGroup, renderChatActivityRun: typeof renderChatActivityRun === 'function' ? renderChatActivityRun : null, renderChatItem: typeof renderChatItem === 'function' ? renderChatItem : null, sessionProjectInfo: typeof sessionProjectInfo === 'function' ? sessionProjectInfo : null, groupSessionsByProject: typeof groupSessionsByProject === 'function' ? groupSessionsByProject : null, sessionRow, sessionStatus, filterFileEntries, sortFileEntries: typeof sortFileEntries === 'function' ? sortFileEntries : null, normalizeFileView: typeof normalizeFileView === 'function' ? normalizeFileView : null, truncateFileColumns: typeof truncateFileColumns === 'function' ? truncateFileColumns : null, fileColumnRequestCurrent: typeof fileColumnRequestCurrent === 'function' ? fileColumnRequestCurrent : null, fileIconName: typeof fileIconName === 'function' ? fileIconName : null, activeFileLocationID: typeof activeFileLocationID === 'function' ? activeFileLocationID : null, applyTheme: typeof applyTheme === 'function' ? applyTheme : null, visualKeyboardInset: typeof visualKeyboardInset === 'function' ? visualKeyboardInset : null, sessionBackDragOffset: typeof sessionBackDragOffset === 'function' ? sessionBackDragOffset : null, isSessionBackSwipe: typeof isSessionBackSwipe === 'function' ? isSessionBackSwipe : null, ensurePendingChatStarted: typeof ensurePendingChatStarted === 'function' ? ensurePendingChatStarted : null, filePreviewTypeLabel, filePreviewLocation, chatTurnPinText: typeof chatTurnPinText === 'function' ? chatTurnPinText : () => '', isInternalChatTool: typeof isInternalChatTool === 'function' ? isInternalChatTool : () => false, state };`, appSandbox);
+const { chatCacheVictim, isChatConnectionKept, isSessionRunning, updateChatUpdatedAt, formatChatDate, chatAssistantMetaText, chatUserMetaText, chatMessageMetaVisibility, applyChatMetadataDefaults, normalizeChatDraft, isNoActiveTurnError, createDeviceScopeButton, chatSkillTriggerAt, parseChatSkillInput, chatSkillTokenNames, mergeChatComposerText, mergeChatAttachments, chatComposerAction, isNewerChatControlSnapshot, isCompleteChatControlSnapshot, chatImageSrc, chatToolStatus, chatToolDuration, chatToolActivityLabel, chatToolHasExpandableBody, isChatActivityItem, isChatTraceItem, chatRenderUnits, renderChatTurnProgress, chatActivityGroupSummaryText, chatActivityActiveSummarySegments, chatActivityGroupIconKind, renderChatActivityGroup, renderChatActivityRun, renderChatItem, sessionProjectInfo, groupSessionsByProject, sessionRow, sessionStatus, filterFileEntries, sortFileEntries, normalizeFileView, truncateFileColumns, fileColumnRequestCurrent, fileIconName, activeFileLocationID, applyTheme, visualKeyboardInset, sessionBackDragOffset, isSessionBackSwipe, ensurePendingChatStarted, filePreviewTypeLabel, filePreviewLocation, chatTurnPinText, isInternalChatTool, state: appState } = appSandbox.__chatCacheTest;
 vm.runInContext('globalThis.__updateChatSkillMenuTest = updateChatSkillMenu;', appSandbox);
 const updateChatSkillMenu = appSandbox.__updateChatSkillMenuTest;
 vm.runInContext('globalThis.__chatQueuePresentationTest = chatQueuePresentation;', appSandbox);
@@ -628,7 +628,9 @@ test('Dashboard is a server-authoritative chat shell with no local delivery stat
   assert.doesNotMatch(appSrc, /chat\/input/);
   assert.doesNotMatch(appSrc, /chat\/steer/);
   assert.doesNotMatch(appSrc, /writerOwner:\s*item\.externalWriter/);
-  assert.match(appSrc, /forceQueue \? 'next' : 'auto'/);
+  assert.match(appSrc, /submitChatInput\(\{ deliveryMode = 'auto' \} = \{\}\)/);
+  assert.match(appSrc, /applyChatControlSnapshot/);
+  assert.doesNotMatch(appSrc, /forceQueue/);
   assert.match(appSrc, /chat\/queue/);
   assert.match(appSrc, /accessMode/);
 });
@@ -716,7 +718,7 @@ test('external writer messages use the agent queue and render takeover actions b
 });
 
 test('Fleet-owned turn queue reuses the composer follow-up stack instead of transcript cards', () => {
-  const queueCard = appSrc.slice(appSrc.indexOf('function queueStatusCard'), appSrc.indexOf('function acknowledgeChatFollowups'));
+  const queueCard = appSrc.slice(appSrc.indexOf('function queueStatusCard'), appSrc.indexOf('function disposeChat'));
   const followups = appSrc.slice(appSrc.indexOf('function renderChatFollowups'), appSrc.indexOf('function renderChatAttachments'));
   assert.doesNotMatch(queueCard, /status === 'queued' \|\| status === 'waiting_turn'/);
   assert.match(appSrc, /function isFleetQueueFollowup/);
@@ -735,7 +737,30 @@ test('browser queue projection is replaced from the server without legacy persis
   assert.doesNotMatch(appSrc, /macfleet:codex-followups/);
   assert.doesNotMatch(appSrc, /migrateLocalChatFollowups|persistChatFollowups|loadChatFollowups/);
   assert.match(appSrc, /chat\.followups = visibleQueue/);
-  assert.match(appSrc, /chat\.accessMode = result\?\.accessMode/);
+  assert.match(appSrc, /applyChatControlSnapshot\(chat, result, requestSeq\)/);
+  assert.doesNotMatch(appSrc, /acknowledgeChatFollowups/);
+});
+
+test('browser applies only newer complete server control snapshots', () => {
+  const chat = { controlEpoch: '', controlVersion: 0, controlAppliedRequestSeq: 0 };
+  assert.equal(isNewerChatControlSnapshot(chat, { serverEpoch: 'epoch-a', snapshotVersion: 1 }), true);
+  chat.controlEpoch = 'epoch-a';
+  chat.controlVersion = 2;
+  assert.equal(isNewerChatControlSnapshot(chat, { serverEpoch: 'epoch-a', snapshotVersion: 1 }), false);
+  assert.equal(isNewerChatControlSnapshot(chat, { serverEpoch: 'epoch-a', snapshotVersion: 2 }), true);
+  assert.equal(isNewerChatControlSnapshot(chat, { serverEpoch: 'epoch-b', snapshotVersion: 1 }), true);
+  assert.equal(isNewerChatControlSnapshot(chat, { snapshotVersion: 3 }), false);
+  chat.controlEpoch = 'epoch-new';
+  chat.controlAppliedRequestSeq = 4;
+  assert.equal(isNewerChatControlSnapshot(chat, { serverEpoch: 'epoch-old', snapshotVersion: 99 }, 3), false);
+  assert.equal(isNewerChatControlSnapshot(chat, { serverEpoch: 'epoch-next', snapshotVersion: 1 }, 5), true);
+  assert.equal(isCompleteChatControlSnapshot({ serverEpoch: 'epoch-a', snapshotVersion: 1, accessMode: 'read_write', turnPhase: 'idle', items: [] }), true);
+  assert.equal(isCompleteChatControlSnapshot({ serverEpoch: 'epoch-a', snapshotVersion: 1, turnPhase: 'idle', items: [] }), false);
+  assert.equal(isCompleteChatControlSnapshot({ serverEpoch: 'epoch-a', snapshotVersion: 1, accessMode: 'read_write', turnPhase: 'idle' }), false);
+  assert.match(appSrc, /accessMode: s\.pendingStart \? 'read_write' : 'unknown'/);
+  assert.match(appSrc, /controlAppliedRequestSeq/);
+  assert.doesNotMatch(appSrc, /if \(ev\.type === 'turn_done'[^\n]*chat\.writerOwner = ''/);
+  assert.doesNotMatch(appSrc, /visibleQueue\.some\(\(item\) => item\.writerOwner === 'desktop'\)/);
 });
 
 test('successfully sent queue items do not render a redundant status card', () => {
@@ -1017,21 +1042,23 @@ test('chat cache update time is monotonic and green status follows EventSource s
   appState.chatCache.clear();
 });
 
-test('session running indicator prefers synchronized chat state and falls back to Desktop status', () => {
+test('session running indicator prefers server control and falls back to the session snapshot', () => {
   const session = { sessionId: 'thread-status', status: 'active' };
   assert.equal(isSessionRunning(session, 'm1'), true);
   assert.equal(isSessionRunning({ ...session, status: 'idle' }, 'm1'), false);
 
   const cacheKey = 'm1\nthread-status';
-  const chat = { historyReady: true, submitting: false, model: { phase: 'running' } };
+  const chat = { controlReady: true, turnPhase: 'running', submitting: false, model: { phase: 'running' } };
   appState.chatCache.set(cacheKey, chat);
   assert.equal(isSessionRunning({ ...session, status: 'idle' }, 'm1'), true);
 
-  chat.model.phase = 'idle';
+  chat.turnPhase = 'idle';
   assert.equal(isSessionRunning(session, 'm1'), false);
 
-  chat.historyReady = false;
+  chat.controlReady = false;
   assert.equal(isSessionRunning(session, 'm1'), true);
+  chat.submitting = true;
+  assert.equal(isSessionRunning({ ...session, status: 'idle' }, 'm1'), false);
   appState.chatCache.delete(cacheKey);
 });
 
@@ -1136,43 +1163,48 @@ test('no-active errors support structured and legacy agent responses', () => {
   assert.equal(isNoActiveTurnError({ code: 'chat_failed', message: 'connection reset' }), false);
 });
 
-test('composer sends running input to the follow-up queue and only stops when empty', () => {
-  const idle = { model: { phase: 'idle' } };
-  const running = { model: { phase: 'running' } };
-  const desktopIdle = { writerOwner: 'desktop', model: { phase: 'idle' } };
-  const desktopRunning = { writerOwner: 'desktop', model: { phase: 'running', turnOwner: 'desktop' } };
+test('composer lets the server route running input and only stops when empty', () => {
+  const unknown = { controlReady: false, accessMode: 'unknown', turnPhase: 'idle', model: { phase: 'idle' } };
+  const idle = { controlReady: true, accessMode: 'read_write', turnPhase: 'idle', model: { phase: 'idle' } };
+  const running = { controlReady: true, accessMode: 'read_write', turnPhase: 'running', turnOwner: 'fleet', model: { phase: 'running' } };
+  const desktopIdle = { controlReady: true, accessMode: 'read_write', writerOwner: 'desktop', turnPhase: 'idle', model: { phase: 'idle' } };
+  const desktopRunning = { controlReady: true, accessMode: 'read_write', writerOwner: 'desktop', turnPhase: 'running', turnOwner: 'desktop', model: { phase: 'running', turnOwner: 'desktop' } };
   const readOnly = { accessMode: 'read_only', model: { phase: 'idle' } };
-  const releasing = { releasingWriter: true, model: { phase: 'running' } };
+  const releasing = { controlReady: true, accessMode: 'read_write', releasingWriter: true, turnPhase: 'running', model: { phase: 'running' } };
 
+  assert.equal(chatComposerAction(unknown, true), 'loading');
   assert.equal(chatComposerAction(idle, false), 'send');
   assert.equal(chatComposerAction(idle, true), 'send');
   assert.equal(chatComposerAction(running, false), 'interrupt');
-  assert.equal(chatComposerAction(running, true), 'queue');
+  assert.equal(chatComposerAction(running, true), 'send');
   assert.equal(chatComposerAction(desktopIdle, false), 'wait-desktop');
   assert.equal(chatComposerAction(desktopIdle, true), 'queue-desktop');
   assert.equal(chatComposerAction(desktopRunning, true), 'queue-desktop');
   assert.equal(chatComposerAction(readOnly, true), 'readonly');
   assert.equal(chatComposerAction(releasing, true), 'transition');
-  assert.match(appSrc, /submitChatInput\(\{ forceQueue: action === 'queue' \}\)/);
+  assert.match(appSrc, /submitChatInput\(\)/);
   assert.match(appSrc, /Codex Desktop 正在输出/);
   assert.match(appSrc, /chatComposerAction[\s\S]*queue-desktop/);
-  assert.match(appSrc, /enqueueServerChatMessage\(chat, item, forceQueue \? 'next' : 'auto'\)/);
+  assert.match(appSrc, /enqueueServerChatMessage\(chat, item, deliveryMode\)/);
+  assert.match(appSrc, /submitChatInput\(\{ deliveryMode = 'auto' \} = \{\}\)/);
   assert.doesNotMatch(appSrc, /external_turn_running|flushChatFollowups/);
   assert.match(appSrc, /input\.placeholder = action === 'readonly' \? 'Fleet 已释放此会话'/);
   assert.match(appSrc, /attach\.disabled = mutationBlocked/);
   assert.match(appSrc, /approval\.disabled = mutationBlocked/);
   assert.match(appSrc, /function chatMutationsBlocked/);
+  assert.match(appSrc, /trigger\.disabled = !enabled \|\| chatMutationsBlocked\(chat\)/);
+  assert.match(appSrc, /if \(!state\.chat \|\| chatMutationsBlocked\(state\.chat\)\) return/);
   assert.match(appSrc, /disabled: chatMutationsBlocked\(\) \? '' : null/);
   assert.match(appSrc, /if \(chatMutationsBlocked\(chat\) \|\| !requestId/);
 });
 
-test('command enter steers the running turn before the skill menu handles enter', () => {
+test('command enter uses server auto routing and shift-command-enter explicitly queues next', () => {
   const commandEnter = appSrc.indexOf("if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)");
   const skillMenu = appSrc.indexOf('const menu = state.chat?.skillMenu;', commandEnter);
 
   assert.notEqual(commandEnter, -1);
   assert.ok(commandEnter < skillMenu);
-  assert.match(appSrc.slice(commandEnter, skillMenu), /submitChatInput\(\{ forceQueue: e\.shiftKey \}\);\s*return;/);
+  assert.match(appSrc.slice(commandEnter, skillMenu), /submitChatInput\(\{ deliveryMode: e\.shiftKey \? 'next' : 'auto' \}\);\s*return;/);
 });
 
 test('chat skill trigger recognizes dollar and slash only at token start', () => {
@@ -2221,7 +2253,7 @@ test('send and stop source contracts reject stale active state', () => {
   assert.match(appSrc, /restoreChatComposerItem\(chat, item\)/);
   assert.match(appSrc, /Skill 列表加载失败，消息未发送/);
   assert.match(appSrc, /isNoActiveTurnError\(e\)/);
-  assert.match(appSrc, /reconcileChatInactiveTurn\(chat, observedTurnId\)/);
+  assert.doesNotMatch(appSrc, /reconcileChatInactiveTurn/);
   assert.match(appSrc, /await loadServerChatQueue\(chat\)/);
 });
 

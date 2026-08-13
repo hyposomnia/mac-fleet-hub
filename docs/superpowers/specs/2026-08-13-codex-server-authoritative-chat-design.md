@@ -50,6 +50,19 @@ Fleet 目前同时存在三套会影响真实行为的状态：fleet-agent 内�
 
 浏览器不得提交 `writerOwner` 或 `status`。这两个值只能由服务端产生。
 
+## 统一控制快照
+
+`chat/start`、`chat/resume`、`GET /api/chat/queue` 和成功的 access 变更都返回完整的 `SessionControlSnapshot`，字段固定为：
+
+- `serverEpoch`：fleet-agent 本次进程生命周期的随机标识；agent 重启后变化。
+- `snapshotVersion`：同一进程内单调递增；浏览器不得用更旧版本覆盖新版本。
+- `accessMode`：持久化的 `read_write | read_only`。
+- `writerOwner`：从真实 writer lock 持锁进程判定的 `fleet | desktop | 空`；Fleet 私有 socket 之外的任何活持锁进程都视为外部客户端，不能依赖某个固定 Desktop 命令行形态。
+- `turnPhase`、`activeTurnId`、`turnOwner`：由 rollout、真实锁和服务端运行态共同核对；terminal rollout 必须清除陈旧内存 turn。
+- `items`：该 session 的完整可见队列投影。
+
+快照在 per-session operation lock 内生成，确保 access、运行态和队列来自同一串行观察点。浏览器只应用带 epoch/version 的完整快照；同一 epoch 按 `snapshotVersion` 拒绝旧响应，跨 agent epoch 则再用浏览器请求序号阻止旧进程的在途响应覆盖新进程状态。SSE 仅作为“状态可能变化”的唤醒信号，收到 `turn_started`、`turn_done`、`thread_status`、`user_done` 或 `control_changed` 后重新取快照，不直接推进 writer/turn/queue。
+
 ## 消息状态机
 
 ```text
@@ -104,8 +117,8 @@ worker 对 `auto` 项先调用服务端 `Steer`：
 - 默认 `read_write`。
 - `POST /api/chat/access {action:"release"}`：先持久化 `read_only`，再停止 Fleet turn并释放 writer。即使释放失败，也保持只读并返回错误，防止再次写入。
 - `POST /api/chat/access {action:"enable-write"}`：持久化 `read_write`，把该 session 的 `waiting_access` 重新置为 `queued` 并唤醒 worker；不预先 claim writer。
-- `chat/resume` 和 `GET chat/queue` 都返回 `accessMode`。
-- `/chat/input`、`/chat/steer`、`/chat/settings` 等写接口在服务端再次校验 access mode。
+- `chat/start`、`chat/resume`、`GET chat/queue` 和 access 变更都返回上述完整控制快照。
+- `/chat/input`、`/chat/steer`、`/chat/settings`、附件上传等写接口在服务端再次校验 access mode。
 
 ## Writer 租约与孤儿恢复
 
@@ -173,6 +186,8 @@ SSE 最后观察者离开只停止 rollout 增量同步并删除 channel，不�
 
 所有按钮只调用服务端 decision/access API。浏览器可以做“按钮提交中”这种瞬时视觉反馈，但不得预先改写持久 status；响应或下一次服务端同步后再更新。
 
+现有 session 在首个有效控制快照到达前显示“正在同步会话控制状态”，输入、附件、审批、设置与发送全部禁用；新建且尚未获得 session ID 的本地草稿例外为可写，因为此时服务端还不存在可竞争的 writer。
+
 ## UI 不变量
 
 1. Fleet 自己的 `waiting_turn` 永远不显示“强制接管”。
@@ -197,11 +212,14 @@ SSE 最后观察者离开只停止 rollout 增量同步并删除 channel，不�
 - stale turn_done 不释放较新的 Fleet writer。
 - map 为空但真实 Fleet lock存在时巡检仍能发现并回收。
 - unknown rollout 超过宽限期后回收孤儿锁，活跃 turn 不回收。
+- 实际 ChatGPT Desktop 命令行持锁识别为外部 writer；terminal rollout 清除陈旧内存 turn/writer。
+- `read_only` 时附件上传与其他写接口一致返回拒绝。
 
 ### Dashboard
 
 - 源码不包含 `chat/input`、`chat/steer`、`flushChatFollowups` 或 Codex follow-up localStorage key。
 - submit 只调用 queue API并携带 `deliveryMode`，不携带 `writerOwner/status`。
 - UI 矩阵逐态断言标题、composer、卡片文案和允许按钮。
-- access mode、queue item完全由 resume/queue/SSE响应覆盖；页面不自行推进持久状态。
+- access、writer、turn 和 queue 只由带 epoch/version 的完整控制快照覆盖；乱序旧响应与不完整响应不得落地。
+- SSE、historyReady、submitting 和本地 optimistic 消息不得直接改变 writer/turn/queue 状态。
 - 多次队列同步不会重复用户气泡。

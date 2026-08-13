@@ -206,6 +206,65 @@ var agentChatQueue = &chatQueue{items: map[string]ChatQueueItem{}, sessions: map
 var agentChatQueueWorker *chatQueueWorker
 var agentChatTakeover *chatTakeoverService
 
+var chatControlSnapshotClock = struct {
+	sync.Mutex
+	epoch   string
+	version uint64
+}{epoch: newChatControlEpoch()}
+
+func newChatControlEpoch() string {
+	var buf [12]byte
+	if _, err := rand.Read(buf[:]); err == nil {
+		return hex.EncodeToString(buf[:])
+	}
+	return fmt.Sprintf("%d", time.Now().UnixNano())
+}
+
+func nextChatControlSnapshotVersion() (string, uint64) {
+	chatControlSnapshotClock.Lock()
+	defer chatControlSnapshotClock.Unlock()
+	chatControlSnapshotClock.version++
+	return chatControlSnapshotClock.epoch, chatControlSnapshotClock.version
+}
+
+func buildChatSessionControlSnapshot(ctx context.Context, assistant, sessionID string) (ChatSessionControlSnapshot, error) {
+	assistant = normAssistant(assistant)
+	sessionID = strings.TrimSpace(sessionID)
+	if assistant != "codex" || sessionID == "" {
+		return ChatSessionControlSnapshot{}, errors.New("invalid chat control identity")
+	}
+	operation := agentChatQueue.sessionOperation(assistant, sessionID)
+	operation.Lock()
+	defer operation.Unlock()
+	return buildChatSessionControlSnapshotLocked(ctx, assistant, sessionID)
+}
+
+// buildChatSessionControlSnapshotLocked requires the session operation lock.
+// Access transitions use it so their persisted state, app-server side effects,
+// and returned browser projection are one indivisible operation.
+func buildChatSessionControlSnapshotLocked(ctx context.Context, assistant, sessionID string) (ChatSessionControlSnapshot, error) {
+	runtimeState, err := agentChatBackend.Control(ctx, assistant, sessionID)
+	if err != nil {
+		return ChatSessionControlSnapshot{}, err
+	}
+	phase := "unknown"
+	if runtimeState.Status == "running" || codexStatusIsRunning(runtimeState.Status) {
+		phase = "running"
+	} else if runtimeState.Status == "idle" {
+		phase = "idle"
+	}
+	accessMode := agentChatQueue.AccessMode(assistant, sessionID)
+	items := agentChatQueue.ListVisible(assistant, sessionID)
+	epoch, version := nextChatControlSnapshotVersion()
+	return ChatSessionControlSnapshot{
+		ServerEpoch: epoch, SnapshotVersion: version,
+		AccessMode:  accessMode,
+		WriterOwner: runtimeState.WriterOwner, TurnPhase: phase,
+		ActiveTurnID: runtimeState.ActiveTurnID, TurnOwner: runtimeState.TurnOwner,
+		Items: items,
+	}, nil
+}
+
 func newChatQueueWorker(queue *chatQueue, sender chatQueueSender) *chatQueueWorker {
 	return &chatQueueWorker{queue: queue, sender: sender, wake: make(chan struct{}, 1)}
 }
@@ -354,6 +413,12 @@ func (q *chatQueue) SetAccessMode(assistant, sessionID, mode string) (ChatSessio
 	operation := q.sessionOperation(assistant, sessionID)
 	operation.Lock()
 	defer operation.Unlock()
+	return q.setAccessModeLocked(assistant, sessionID, mode)
+}
+
+// setAccessModeLocked requires the per-session operation lock so callers can
+// serialize persistence with backend release and the response snapshot.
+func (q *chatQueue) setAccessModeLocked(assistant, sessionID, mode string) (ChatSessionState, error) {
 	q.mu.Lock()
 	defer q.mu.Unlock()
 	key := chatSessionStateKey(assistant, sessionID)
@@ -477,10 +542,12 @@ func handleChatQueue(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "bad request", http.StatusBadRequest)
 			return
 		}
-		writeJSON(w, map[string]interface{}{
-			"items":      agentChatQueue.ListVisible(assistant, sessionID),
-			"accessMode": agentChatQueue.AccessMode(assistant, sessionID),
-		})
+		snapshot, err := buildChatSessionControlSnapshot(r.Context(), assistant, sessionID)
+		if err != nil {
+			writeChatErr(w, err)
+			return
+		}
+		writeJSON(w, snapshot)
 	case http.MethodPost:
 		var item ChatQueueItem
 		if json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&item) != nil {

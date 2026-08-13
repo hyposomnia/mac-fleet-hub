@@ -238,21 +238,102 @@ func systemCodexThreadWriterProcessOwner(sessionID string) string {
 	if err != nil {
 		return ""
 	}
+	fleetOwner := false
 	for _, pid := range strings.Fields(string(out)) {
 		command, commandErr := exec.Command("ps", "-p", pid, "-o", "command=").Output()
 		if commandErr != nil {
 			continue
 		}
-		line := strings.TrimSpace(string(command))
-		if strings.Contains(line, "codex app-server --remote-control --listen unix://") {
-			if strings.Contains(line, "/.macfleet/codex-app-server.sock") ||
-				(cfg.CodexSock != "" && strings.Contains(line, cfg.CodexSock)) {
-				return "fleet"
-			}
-			return "desktop"
+		owner := codexWriterProcessCommandOwner(strings.TrimSpace(string(command)), cfg.CodexSock)
+		if owner == "desktop" {
+			return owner
+		}
+		if owner == "fleet" {
+			fleetOwner = true
 		}
 	}
+	if fleetOwner {
+		return "fleet"
+	}
 	return ""
+}
+
+// The Fleet sidecar has one configured private socket. Every other live
+// process holding the writer lock is external, even when Codex Desktop changes
+// its app-server command-line flags between releases.
+func codexWriterProcessCommandOwner(command, fleetSocket string) string {
+	command = strings.TrimSpace(command)
+	if command == "" {
+		return ""
+	}
+	if (fleetSocket != "" && strings.Contains(command, fleetSocket)) ||
+		strings.Contains(command, "/.macfleet/codex-app-server.sock") {
+		return "fleet"
+	}
+	return "desktop"
+}
+
+func (b *codexChatBackend) Control(ctx context.Context, assistant, sessionID string) (ChatRuntimeState, error) {
+	if assistant != "codex" {
+		return ChatRuntimeState{}, errUnsupportedChatAssistant
+	}
+	if err := ctx.Err(); err != nil {
+		return ChatRuntimeState{}, err
+	}
+	physicalOwner := codexThreadWriterProcessOwner(sessionID)
+	rolloutState, rolloutKnown := codexActiveRolloutTaskState(sessionID)
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	cachedTurnID := b.lastTurn[sessionID]
+	turnID := cachedTurnID
+	turnOwner := b.turnOwners[sessionID]
+	if rolloutKnown && rolloutState.turnID != "" && !rolloutState.terminal {
+		turnID = rolloutState.turnID
+		if physicalOwner != "" && (codexUsesIsolatedSidecar() || turnOwner == "" || cachedTurnID != turnID) {
+			// In shared mode Fleet and Desktop intentionally use one daemon, so
+			// the process identity cannot override ownership remembered for the
+			// same live turn. A new/unknown turn still defaults to external.
+			turnOwner = physicalOwner
+		} else if turnOwner == "" || cachedTurnID != turnID {
+			// An active persisted turn with no provable Fleet lock is external.
+			turnOwner = "desktop"
+		}
+		b.lastTurn[sessionID] = turnID
+		b.turnOwners[sessionID] = turnOwner
+	} else if rolloutKnown {
+		// A persisted terminal/no-active state is newer than the in-memory turn
+		// cache. Do not let a missed notification keep the session running.
+		turnID, turnOwner = "", ""
+		delete(b.lastTurn, sessionID)
+		delete(b.turnOwners, sessionID)
+		if physicalOwner == "" {
+			delete(b.writerOwners, sessionID)
+		}
+	}
+	status := "idle"
+	if turnID != "" {
+		status = "running"
+	}
+	writerOwner := physicalOwner
+	if !codexUsesIsolatedSidecar() && b.writerOwners[sessionID] != "" {
+		writerOwner = b.writerOwners[sessionID]
+	} else if writerOwner == "" && status == "running" {
+		writerOwner = turnOwner
+	}
+	if writerOwner == "" && status == "idle" {
+		delete(b.writerOwners, sessionID)
+	} else if writerOwner != "" {
+		b.writerOwners[sessionID] = writerOwner
+	}
+	if status == "idle" {
+		turnID, turnOwner = "", ""
+		delete(b.lastTurn, sessionID)
+		delete(b.turnOwners, sessionID)
+	}
+	return ChatRuntimeState{
+		Status: status, ActiveTurnID: turnID, TurnOwner: turnOwner, WriterOwner: writerOwner,
+	}, nil
 }
 
 func systemCodexFleetWriterSessions() []string {
@@ -3119,6 +3200,7 @@ func (b *codexChatBackend) Release(ctx context.Context, assistant, sessionID str
 	if assistant != "codex" {
 		return errUnsupportedChatAssistant
 	}
+	defer b.publish(newChatEvent("control_changed", "codex", sessionID, "", "", nil))
 	b.writerLeaseMu.Lock()
 	defer b.writerLeaseMu.Unlock()
 	rpc, err := b.ensure(ctx)
@@ -3351,6 +3433,7 @@ func (b *codexChatBackend) releaseCompletedFleetTurn(rpc codexRPCConn, sessionID
 	if err := b.releaseFleetWriter(rpc, sessionID); err != nil {
 		log.Printf("Codex completed writer release failed for %s: %v", sessionID, err)
 	}
+	b.publish(newChatEvent("control_changed", "codex", sessionID, turnID, "", nil))
 }
 
 func (b *codexChatBackend) publish(ev ChatEvent) {

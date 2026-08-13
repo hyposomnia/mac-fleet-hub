@@ -1,7 +1,7 @@
 # Codex Desktop 对话交互复刻验收矩阵
 
 日期：2026-07-24
-状态：基础交互验收矩阵。协议、session 目录和 follow-up 状态机以 `codex-app-server-refactor.md` 为准。
+状态：基础交互验收矩阵。当前消息投递、writer、access 与 follow-up 控制协议以 `../superpowers/specs/2026-08-13-codex-server-authoritative-chat-design.md` 为准。
 
 ## 原则
 
@@ -17,7 +17,7 @@
 | 加载历史 | 会话进入后先有可感知加载，不闪烁成空白 | `chat-pane` 显示加载态；失败显示 fallback，不创建 ttyd |
 | 历史回放 | 历史 item 按原时间/turn 顺序恢复 | POC 可先显示 app-server resume/read 返回的可用 turns；缺失类型用占位卡，不丢顺序 |
 | 用户输入 | 用户消息靠近 composer，提交后立即落入流 | `Enter` 发送，`Shift+Enter` 换行；发送后本地追加 user message，composer 清空 |
-| 运行中追问 | Desktop 默认 steer 当前 turn；可显式排下一轮 | `Enter` 调 `turn/steer`；Cmd/Ctrl+Shift+Enter 入 queue；用 `clientUserMessageId` 对账 |
+| 运行中追问 | Desktop 默认 steer 当前 turn；可显式排下一轮 | 浏览器统一提交服务端 queue：`Enter` 使用 `deliveryMode=auto` 由 agent 判断 steer/start；Cmd/Ctrl+Shift+Enter 入下一轮；用 `clientUserMessageId` 对账 |
 | Assistant streaming | 文本按 delta 合并为同一条 assistant message | 同一 `itemId` 的 `assistant_delta` 追加，不产生多条碎片 |
 | Assistant 完成 | 完成态不再闪烁；最终文本替换/校准流式文本 | 只有 `item/completed.item.type=="agentMessage"` 才触发 `assistant_done` |
 | Reasoning | 与 Codex Desktop 类似的折叠/轻量状态 | POC 若遇到 reasoning item，显示“思考中/摘要”折叠占位，不混进正文 |
