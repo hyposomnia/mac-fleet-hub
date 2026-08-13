@@ -932,18 +932,12 @@ func handleChatMedia(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	sniff := make([]byte, 512)
-	n, _ := file.Read(sniff)
-	contentType := http.DetectContentType(sniff[:n])
-	if !strings.HasPrefix(contentType, "image/") {
+	format, ok := previewFormatForPath(path)
+	if !ok || !format.Stream || (format.Kind != "image" && format.Kind != "audio" && format.Kind != "video") {
 		http.Error(w, "unsupported media type", http.StatusUnsupportedMediaType)
 		return
 	}
-	if _, err := file.Seek(0, io.SeekStart); err != nil {
-		http.NotFound(w, r)
-		return
-	}
-	w.Header().Set("Content-Type", contentType)
+	w.Header().Set("Content-Type", format.MIME)
 	w.Header().Set("Cache-Control", "private, max-age=60")
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	http.ServeContent(w, r, filepath.Base(path), info.ModTime(), file)

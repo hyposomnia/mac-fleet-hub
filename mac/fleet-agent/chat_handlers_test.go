@@ -569,7 +569,7 @@ func TestChatRespondCallsBackend(t *testing.T) {
 	}
 }
 
-func TestChatMediaServesOnlyRegularImages(t *testing.T) {
+func TestChatMediaServesOnlyRegularPreviewMedia(t *testing.T) {
 	dir := t.TempDir()
 	imagePath := filepath.Join(dir, "pixel.png")
 	// PNG signature plus IHDR marker is enough for net/http content sniffing.
@@ -581,6 +581,21 @@ func TestChatMediaServesOnlyRegularImages(t *testing.T) {
 	handleChatMedia(rr, req)
 	if rr.Code != http.StatusOK || rr.Header().Get("Content-Type") != "image/png" {
 		t.Fatalf("image response status=%d content-type=%q body=%q", rr.Code, rr.Header().Get("Content-Type"), rr.Body.String())
+	}
+
+	audioPath := filepath.Join(dir, "voice.wav")
+	if err := os.WriteFile(audioPath, []byte("RIFF\x24\x00\x00\x00WAVEfmt "), 0600); err != nil {
+		t.Fatal(err)
+	}
+	req = httptest.NewRequest(http.MethodGet, "/api/chat/media?path="+urlQueryEscape(audioPath), nil)
+	req.Header.Set("Range", "bytes=0-3")
+	rr = httptest.NewRecorder()
+	handleChatMedia(rr, req)
+	if rr.Code != http.StatusPartialContent || rr.Header().Get("Content-Type") != "audio/wav" || rr.Body.String() != "RIFF" {
+		t.Fatalf("audio response status=%d content-type=%q body=%q", rr.Code, rr.Header().Get("Content-Type"), rr.Body.String())
+	}
+	if rr.Header().Get("Accept-Ranges") != "bytes" || rr.Header().Get("X-Content-Type-Options") != "nosniff" {
+		t.Fatalf("audio response headers=%v", rr.Header())
 	}
 
 	textPath := filepath.Join(dir, "secret.txt")
