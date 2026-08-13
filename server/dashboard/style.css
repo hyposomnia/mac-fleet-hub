@@ -716,6 +716,8 @@ svg.ic.fill { fill: currentColor; stroke: none; }
 .chat-markdown th { background: var(--chat-surface-2); color: var(--chat-text); font-weight: 600; }
 .chat-markdown hr { margin: 1em 0; border: 0; border-top: 1px solid var(--chat-border); }
 .chat-markdown img { display: block; max-width: min(100%, 760px); max-height: 70vh; margin: .65em 0 .9em; border: 1px solid var(--chat-border); border-radius: 8px; object-fit: contain; cursor: zoom-in; }
+.chat-markdown audio { display: block; width: min(100%, 680px); margin: .65em 0 .9em; }
+.chat-markdown video { display: block; width: min(100%, 760px); max-height: 70vh; margin: .65em 0 .9em; border: 1px solid var(--chat-border); border-radius: 8px; background: #000; }
 .chat-directive {
   display: flex; align-items: center; gap: 7px; width: fit-content; max-width: 100%; min-height: 30px; margin: .55em 0;
   padding: 4px 9px 4px 7px; border: 1px solid var(--chat-border); border-radius: 8px;

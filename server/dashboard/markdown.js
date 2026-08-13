@@ -21,6 +21,19 @@
     ts: 'text/typescript', tsx: 'text/typescript-jsx', xml: 'application/xml',
     yaml: 'text/x-yaml', yml: 'text/x-yaml', zsh: 'text/x-sh',
   });
+  const AUDIO_EXTENSIONS = new Set(['.aac', '.flac', '.m4a', '.mp3', '.oga', '.ogg', '.opus', '.wav', '.weba']);
+  const VIDEO_EXTENSIONS = new Set(['.m4v', '.mov', '.mp4', '.ogv', '.webm']);
+
+  function mediaKindForSource(source) {
+    let value = String(source || '').trim().toLowerCase();
+    value = value.split(/[?#]/, 1)[0];
+    const basename = value.slice(value.lastIndexOf('/') + 1);
+    const dot = basename.lastIndexOf('.');
+    const extension = dot >= 0 ? basename.slice(dot) : '';
+    if (AUDIO_EXTENSIONS.has(extension)) return 'audio';
+    if (VIDEO_EXTENSIONS.has(extension)) return 'video';
+    return 'image';
+  }
 
   function languageOf(code) {
     const match = String(code.className || '').match(/(?:^|\s)language-([^\s]+)/i);
@@ -222,9 +235,20 @@
     });
     chunk.querySelectorAll('a:not([href])').forEach((link) => link.replaceWith(...link.childNodes));
     chunk.querySelectorAll('img[src]').forEach((img) => {
-      const resolved = typeof resolveMedia === 'function' ? resolveMedia(img.getAttribute('src')) : img.getAttribute('src');
+      const original = img.getAttribute('src');
+      const resolved = typeof resolveMedia === 'function' ? resolveMedia(original) : original;
       if (!resolved) {
         img.replaceWith(document.createTextNode(img.alt || '图片'));
+        return;
+      }
+      const kind = mediaKindForSource(original);
+      if (kind !== 'image') {
+        const media = document.createElement(kind);
+        media.src = resolved;
+        media.controls = true;
+        media.preload = 'metadata';
+        media.setAttribute('aria-label', img.alt || (kind === 'audio' ? '音频' : '视频'));
+        img.replaceWith(media);
         return;
       }
       img.src = resolved;
@@ -301,5 +325,5 @@
     return body;
   }
 
-  root.FleetMarkdown = { renderMarkdown, parseCodexDirective, splitCodexContent };
+  root.FleetMarkdown = { renderMarkdown, parseCodexDirective, splitCodexContent, mediaKindForSource };
 })(typeof globalThis !== 'undefined' ? globalThis : window);

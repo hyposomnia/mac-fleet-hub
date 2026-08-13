@@ -99,6 +99,7 @@ vm.createContext(directiveSandbox);
 vm.runInContext(markdownSrc, directiveSandbox);
 const parseCodexDirective = directiveSandbox.globalThis.FleetMarkdown.parseCodexDirective || (() => null);
 const splitCodexContent = directiveSandbox.globalThis.FleetMarkdown.splitCodexContent || (() => []);
+const mediaKindForSource = directiveSandbox.globalThis.FleetMarkdown.mediaKindForSource || (() => 'image');
 const previewSandbox = {
   globalThis: { location: { origin: 'https://fleet.example.test', pathname: '/', search: '' } },
   URL, URLSearchParams,
@@ -1126,6 +1127,16 @@ test('local user image path resolves through the selected Mac media endpoint', (
     chatImageSrc({ path: '/Users/test/Library/Caches/mac-fleet-hub/chat-uploads/session/image.png' }),
     '/m2/api/chat/media?path=%2FUsers%2Ftest%2FLibrary%2FCaches%2Fmac-fleet-hub%2Fchat-uploads%2Fsession%2Fimage.png',
   );
+});
+
+test('markdown media syntax renders audio and video files with native media controls', () => {
+  assert.equal(mediaKindForSource('/Users/test/generated/Odette.wav'), 'audio');
+  assert.equal(mediaKindForSource('https://example.test/voice.MP3?download=1'), 'audio');
+  assert.equal(mediaKindForSource('/Users/test/demo.mp4#preview'), 'video');
+  assert.equal(mediaKindForSource('/Users/test/frame.png'), 'image');
+  assert.match(markdownSrc, /const media = document\.createElement\(kind\);[\s\S]*?media\.controls = true;[\s\S]*?media\.preload = 'metadata';/);
+  assert.match(styleCSS, /\.chat-markdown audio\s*\{[^}]*width:\s*min\(100%, 680px\);/s);
+  assert.match(styleCSS, /\.chat-markdown video\s*\{[^}]*max-height:\s*70vh;/s);
 });
 
 test('failed steering removes the optimistic transcript item before queue recovery', () => {
