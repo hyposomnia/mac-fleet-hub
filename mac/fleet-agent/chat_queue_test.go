@@ -2,14 +2,292 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
+
+func TestChatQueuePersistsServerAuthoritativeAccessMode(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "queue.json")
+	q, err := openChatQueue(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := q.AccessMode("codex", "thread-1"); got != chatAccessReadWrite {
+		t.Fatalf("default access = %q", got)
+	}
+	if _, err := q.SetAccessMode("codex", "thread-1", chatAccessReadOnly); err != nil {
+		t.Fatal(err)
+	}
+	reloaded, err := openChatQueue(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := reloaded.AccessMode("codex", "thread-1"); got != chatAccessReadOnly {
+		t.Fatalf("reloaded access = %q", got)
+	}
+}
+
+func TestChatQueueReadOnlyImmediatelyProjectsWaitingAccess(t *testing.T) {
+	q, _ := openChatQueue(filepath.Join(t.TempDir(), "queue.json"))
+	existing, _ := q.Enqueue(ChatQueueItem{
+		ClientMessageID: "existing", Assistant: "codex", SessionID: "thread-1", Text: "one",
+	})
+	if _, err := q.SetAccessMode("codex", "thread-1", chatAccessReadOnly); err != nil {
+		t.Fatal(err)
+	}
+	blocked, _ := q.get(existing.ID)
+	if blocked.Status != chatQueueWaitingAccess {
+		t.Fatalf("existing status=%q", blocked.Status)
+	}
+	created, err := q.Enqueue(ChatQueueItem{
+		ClientMessageID: "new", Assistant: "codex", SessionID: "thread-1", Text: "two",
+	})
+	if err != nil || created.Status != chatQueueWaitingAccess {
+		t.Fatalf("new item=%+v err=%v", created, err)
+	}
+	service := newChatTakeoverService(q, &fakeTakeoverController{}, nil)
+	if _, err := service.Decide(created.ID, "retry", "", created.StateVersion); !errors.Is(err, errFleetChatReadOnly) {
+		t.Fatalf("read-only decision err=%v", err)
+	}
+	if _, err := service.Decide(created.ID, "cancel", "", created.StateVersion); err != nil {
+		t.Fatalf("read-only cancel err=%v", err)
+	}
+}
+
+func TestChatQueueRestartMovesInflightDeliveryToRecovering(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "queue.json")
+	q, _ := openChatQueue(path)
+	item, _ := q.Enqueue(ChatQueueItem{
+		ClientMessageID: "client-1", Assistant: "codex", SessionID: "thread-1",
+		Text: "hello", DeliveryMode: chatDeliveryAuto,
+	})
+	_, err := q.updateExpected(item.ID, []string{chatQueueQueued}, func(current *ChatQueueItem) error {
+		current.Status = chatQueueSteering
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	reloaded, err := openChatQueue(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, _ := reloaded.get(item.ID)
+	if got.Status != chatQueueRecovering {
+		t.Fatalf("inflight restart status = %q", got.Status)
+	}
+}
+
+func TestChatQueueRestartDoesNotLeaveTakeoverCheckStuck(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "queue.json")
+	q, _ := openChatQueue(path)
+	item, _ := q.Enqueue(ChatQueueItem{
+		ClientMessageID: "client-1", Assistant: "codex", SessionID: "thread-1", Text: "hello",
+	})
+	if _, err := q.updateExpected(item.ID, []string{chatQueueQueued}, func(current *ChatQueueItem) error {
+		current.Status = chatQueueTakeoverCheck
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	reloaded, err := openChatQueue(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, _ := reloaded.get(item.ID)
+	if got.Status != chatQueueFailed || got.Error == "" {
+		t.Fatalf("stuck takeover recovery=%+v", got)
+	}
+}
+
+func TestChatQueueEnqueueStripsBrowserOwnedState(t *testing.T) {
+	q, _ := openChatQueue(filepath.Join(t.TempDir(), "queue.json"))
+	item, err := q.Enqueue(ChatQueueItem{
+		ID: "browser-id", ClientMessageID: "client-1", Assistant: "codex", SessionID: "thread-1", Text: "hello",
+		WriterOwner: "desktop", Status: chatQueueSent, StateVersion: 99, Decision: "confirm-force",
+		AuditVersion: "forged", Affected: []ChatTakeoverImpact{{SessionID: "victim", Active: true}},
+		TurnID: "forged-turn", Error: "forged", CreatedAt: 1, UpdatedAt: 2, AttemptedAt: 3, SentAt: 4,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if item.ID == "browser-id" || item.WriterOwner != "" || item.Status != chatQueueQueued || item.StateVersion != 1 ||
+		item.Decision != "" || item.AuditVersion != "" || len(item.Affected) != 0 || item.TurnID != "" || item.Error != "" ||
+		item.CreatedAt <= 4 || item.AttemptedAt != 0 || item.SentAt != 0 {
+		t.Fatalf("browser state was trusted: %+v", item)
+	}
+}
+
+func TestChatQueueRejectsEmptyOrInvalidPersistentMessages(t *testing.T) {
+	q, _ := openChatQueue(filepath.Join(t.TempDir(), "queue.json"))
+	for _, item := range []ChatQueueItem{
+		{ClientMessageID: "empty", Assistant: "codex", SessionID: "thread-1", Text: "  "},
+		{ClientMessageID: "bad-image", Assistant: "codex", SessionID: "thread-1", Images: []ChatAttachment{{ID: ""}}},
+	} {
+		if _, err := q.Enqueue(item); err == nil {
+			t.Fatalf("invalid item accepted: %+v", item)
+		}
+	}
+	if got := q.List("codex", "thread-1"); len(got) != 0 {
+		t.Fatalf("invalid items were persisted: %+v", got)
+	}
+}
+
+type blockingChatQueueSender struct {
+	entered chan struct{}
+	release chan struct{}
+}
+
+func (s *blockingChatQueueSender) Deliver(ChatQueueItem) (chatQueueDeliveryResult, error) {
+	close(s.entered)
+	<-s.release
+	return chatQueueDeliveryResult{TurnID: "turn-1", Delivery: chatDeliveryStart}, nil
+}
+func (*blockingChatQueueSender) Recover(ChatQueueItem) (chatQueueDeliveryResult, bool, error) {
+	return chatQueueDeliveryResult{}, false, nil
+}
+
+func TestChatQueueAccessTransitionSerializesWithDelivery(t *testing.T) {
+	q, _ := openChatQueue(filepath.Join(t.TempDir(), "queue.json"))
+	item, _ := q.Enqueue(ChatQueueItem{
+		ClientMessageID: "client-1", Assistant: "codex", SessionID: "thread-1", Text: "hello", DeliveryMode: chatDeliveryNext,
+	})
+	sender := &blockingChatQueueSender{entered: make(chan struct{}), release: make(chan struct{})}
+	workerDone := make(chan struct{})
+	go func() {
+		newChatQueueWorker(q, sender).processOne()
+		close(workerDone)
+	}()
+	<-sender.entered
+	accessDone := make(chan error, 1)
+	go func() {
+		_, err := q.SetAccessMode("codex", "thread-1", chatAccessReadOnly)
+		accessDone <- err
+	}()
+	select {
+	case err := <-accessDone:
+		t.Fatalf("access transition passed in-flight delivery: %v", err)
+	case <-time.After(20 * time.Millisecond):
+	}
+	close(sender.release)
+	<-workerDone
+	if err := <-accessDone; err != nil {
+		t.Fatal(err)
+	}
+	got, _ := q.get(item.ID)
+	if got.Status != chatQueueSent || q.AccessMode("codex", "thread-1") != chatAccessReadOnly {
+		t.Fatalf("item=%+v access=%q", got, q.AccessMode("codex", "thread-1"))
+	}
+}
+
+func TestChatQueueClaimUsesAccessModeAndCAS(t *testing.T) {
+	q, _ := openChatQueue(filepath.Join(t.TempDir(), "queue.json"))
+	first, _ := q.Enqueue(ChatQueueItem{
+		ClientMessageID: "first", Assistant: "codex", SessionID: "thread-1",
+		Text: "one", DeliveryMode: chatDeliveryAuto,
+	})
+	_, _ = q.SetAccessMode("codex", "thread-1", chatAccessReadOnly)
+	if _, ok, err := q.ClaimNext(); err != nil || ok {
+		t.Fatalf("read-only claim ok=%v err=%v", ok, err)
+	}
+	blocked, _ := q.get(first.ID)
+	if blocked.Status != chatQueueWaitingAccess {
+		t.Fatalf("read-only status = %q", blocked.Status)
+	}
+	if _, err := q.SetAccessMode("codex", "thread-1", chatAccessReadWrite); err != nil {
+		t.Fatal(err)
+	}
+	claimed, ok, err := q.ClaimNext()
+	if err != nil || !ok || claimed.Status != chatQueueSteering {
+		t.Fatalf("claim=%+v ok=%v err=%v", claimed, ok, err)
+	}
+	if _, err := q.updateExpected(first.ID, []string{chatQueueQueued}, func(*ChatQueueItem) error { return nil }); !errors.Is(err, errChatQueueStateConflict) {
+		t.Fatalf("stale transition err=%v", err)
+	}
+}
+
+func TestChatQueueDecisionRejectsCancelOnceDeliveryClaimed(t *testing.T) {
+	q, _ := openChatQueue(filepath.Join(t.TempDir(), "queue.json"))
+	item, _ := q.Enqueue(ChatQueueItem{
+		ClientMessageID: "client-1", Assistant: "codex", SessionID: "thread-1",
+		Text: "hello", DeliveryMode: chatDeliveryNext,
+	})
+	claimed, ok, err := q.ClaimNext()
+	if err != nil || !ok || claimed.Status != chatQueueSending {
+		t.Fatalf("claim=%+v ok=%v err=%v", claimed, ok, err)
+	}
+	service := newChatTakeoverService(q, &fakeTakeoverController{}, nil)
+	if _, err := service.Decide(item.ID, "cancel", "", item.StateVersion); !errors.Is(err, errChatQueueStateConflict) {
+		t.Fatalf("cancel claimed delivery err=%v", err)
+	}
+}
+
+func TestChatQueueDecisionRejectsStaleBrowserStateVersion(t *testing.T) {
+	q, _ := openChatQueue(filepath.Join(t.TempDir(), "queue.json"))
+	item, _ := q.Enqueue(ChatQueueItem{
+		ClientMessageID: "client-1", Assistant: "codex", SessionID: "thread-1", Text: "hello",
+	})
+	current, err := q.updateExpected(item.ID, []string{chatQueueQueued}, func(current *ChatQueueItem) error {
+		current.Status = chatQueueWaitingTurn
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	service := newChatTakeoverService(q, &fakeTakeoverController{}, nil)
+	if _, err := service.Decide(item.ID, "cancel", "", item.StateVersion); !errors.Is(err, errChatQueueStateConflict) {
+		t.Fatalf("stale version accepted: current=%d stale=%d err=%v", current.StateVersion, item.StateVersion, err)
+	}
+	got, _ := q.get(item.ID)
+	if got.Status != chatQueueWaitingTurn {
+		t.Fatalf("stale action mutated item: %+v", got)
+	}
+}
+
+func TestBackendQueueSenderAutoSteersAndFallsBackToStartOnlyWhenInactive(t *testing.T) {
+	steerCalls, inputCalls := 0, 0
+	sender := backendChatQueueSender{backend: fakeChatBackend{
+		steerFn: func(context.Context, string, string, string, string, []ChatAttachment, []ChatSkill) (ChatInputResult, error) {
+			steerCalls++
+			return ChatInputResult{TurnID: "turn-live"}, nil
+		},
+		inputFn: func(context.Context, string, string, string, []ChatAttachment, []ChatSkill, ChatTurnOptions) (ChatInputResult, error) {
+			inputCalls++
+			return ChatInputResult{TurnID: "turn-next"}, nil
+		},
+	}}
+	result, err := sender.Deliver(ChatQueueItem{
+		ClientMessageID: "auto-1", Assistant: "codex", SessionID: "thread-1",
+		Text: "guide", DeliveryMode: chatDeliveryAuto,
+	})
+	if err != nil || result.Delivery != chatDeliverySteer || result.TurnID != "turn-live" || steerCalls != 1 || inputCalls != 0 {
+		t.Fatalf("steer result=%+v err=%v calls=%d/%d", result, err, steerCalls, inputCalls)
+	}
+
+	sender.backend = fakeChatBackend{
+		steerFn: func(context.Context, string, string, string, string, []ChatAttachment, []ChatSkill) (ChatInputResult, error) {
+			return ChatInputResult{}, errNoActiveChatTurn
+		},
+		inputFn: func(context.Context, string, string, string, []ChatAttachment, []ChatSkill, ChatTurnOptions) (ChatInputResult, error) {
+			return ChatInputResult{TurnID: "turn-next"}, nil
+		},
+	}
+	result, err = sender.Deliver(ChatQueueItem{
+		ClientMessageID: "auto-2", Assistant: "codex", SessionID: "thread-1",
+		Text: "next", DeliveryMode: chatDeliveryAuto,
+	})
+	if err != nil || result.Delivery != chatDeliveryStart || result.TurnID != "turn-next" {
+		t.Fatalf("fallback result=%+v err=%v", result, err)
+	}
+}
 
 func TestChatQueuePersistsAndDeduplicatesClientMessage(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "queue.json")
@@ -34,29 +312,57 @@ func TestChatQueuePersistsAndDeduplicatesClientMessage(t *testing.T) {
 		t.Fatal(err)
 	}
 	items := reloaded.List("codex", "thread-1")
-	if len(items) != 1 || items[0].Text != "hello" || items[0].WriterOwner != "fleet" {
+	if len(items) != 1 || items[0].Text != "hello" || items[0].WriterOwner != "" {
 		t.Fatalf("reloaded=%+v", items)
 	}
 }
 
 type fakeChatQueueSender struct {
-	calls int
-	err   error
-	last  ChatQueueItem
+	calls      int
+	err        error
+	recoverErr error
+	last       ChatQueueItem
 }
 
-func (f *fakeChatQueueSender) Send(item ChatQueueItem) (string, error) {
+func (f *fakeChatQueueSender) Deliver(item ChatQueueItem) (chatQueueDeliveryResult, error) {
 	f.calls++
 	f.last = item
 	if f.err != nil {
-		return "", f.err
+		return chatQueueDeliveryResult{}, f.err
 	}
-	return "turn-1", nil
+	return chatQueueDeliveryResult{TurnID: "turn-1", Delivery: chatDeliveryStart}, nil
+}
+func (f *fakeChatQueueSender) Recover(ChatQueueItem) (chatQueueDeliveryResult, bool, error) {
+	return chatQueueDeliveryResult{}, false, f.recoverErr
+}
+
+func TestChatQueueRecoveryErrorRemainsUncertainInsteadOfBlindRetry(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "queue.json")
+	q, _ := openChatQueue(path)
+	item, _ := q.Enqueue(ChatQueueItem{
+		ClientMessageID: "client-1", Assistant: "codex", SessionID: "thread-1", Text: "hello",
+	})
+	if _, err := q.updateExpected(item.ID, []string{chatQueueQueued}, func(current *ChatQueueItem) error {
+		current.Status = chatQueueSending
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	q, _ = openChatQueue(path)
+	newChatQueueWorker(q, &fakeChatQueueSender{recoverErr: errors.New("history unavailable")}).processOne()
+	got, _ := q.get(item.ID)
+	if got.Status != chatQueueUncertain || !strings.Contains(got.Error, "history unavailable") {
+		t.Fatalf("recovery error was treated as safe failure: %+v", got)
+	}
 }
 
 func TestChatQueueForcedDeliveryFailsInsteadOfReturningToWait(t *testing.T) {
 	q, _ := openChatQueue(filepath.Join(t.TempDir(), "queue.json"))
-	item, _ := q.Enqueue(ChatQueueItem{ClientMessageID: "client-1", Assistant: "codex", SessionID: "thread-1", Text: "hello", Decision: "force"})
+	item, _ := q.Enqueue(ChatQueueItem{ClientMessageID: "client-1", Assistant: "codex", SessionID: "thread-1", Text: "hello"})
+	item, _ = q.updateExpected(item.ID, []string{chatQueueQueued}, func(item *ChatQueueItem) error {
+		item.Decision = "force"
+		return nil
+	})
 	sender := &fakeChatQueueSender{err: errExternalChatTurn}
 	newChatQueueWorker(q, sender).processOne()
 	got, _ := q.get(item.ID)
@@ -78,8 +384,12 @@ func TestChatQueueWorkerPersistsWaitingAndSendsWithoutBrowser(t *testing.T) {
 	w := newChatQueueWorker(q, sender)
 	w.processOne()
 	got, _ := q.get(item.ID)
-	if got.Status != chatQueueWaitingWriter || got.WriterOwner != "desktop" {
+	if got.Status != chatQueueWriterConfirmation || got.WriterOwner != "desktop" {
 		t.Fatalf("status=%q", got.Status)
+	}
+	service := newChatTakeoverService(q, &fakeTakeoverController{}, w.Wake)
+	if _, err := service.Decide(item.ID, "wait", "", got.StateVersion); err != nil {
+		t.Fatal(err)
 	}
 	sender.err = nil
 	w.processOne()
@@ -168,6 +478,13 @@ func TestChatQueueForceRequiresMatchingAuditConfirmation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	item, err = q.updateExpected(item.ID, []string{chatQueueQueued}, func(item *ChatQueueItem) error {
+		item.Status = chatQueueTakeoverCheck
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
 	affected := []ChatTakeoverImpact{{SessionID: "other", Title: "Other", Active: true}}
 	item, err = q.RequireTakeoverConfirmation(item.ID, "audit-1", affected)
 	if err != nil {
@@ -203,16 +520,20 @@ func (f *fakeTakeoverController) Restart() error { f.restarts++; return f.err }
 func TestChatQueueForceAuditsBeforeRestartAndRequiresConfirmation(t *testing.T) {
 	q, _ := openChatQueue(filepath.Join(t.TempDir(), "queue.json"))
 	item, _ := q.Enqueue(ChatQueueItem{ClientMessageID: "c", Assistant: "codex", SessionID: "s", Text: "x"})
+	item, _ = q.updateExpected(item.ID, []string{chatQueueQueued}, func(item *ChatQueueItem) error {
+		item.Status = chatQueueWriterConfirmation
+		return nil
+	})
 	controller := &fakeTakeoverController{version: "v1", impacts: []ChatTakeoverImpact{{SessionID: "active", Active: true}}}
 	service := newChatTakeoverService(q, controller, nil)
-	got, err := service.Decide(item.ID, "force", "")
+	got, err := service.Decide(item.ID, "force", "", item.StateVersion)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if got.Status != chatQueueTakeoverConfirmation || controller.restarts != 0 {
 		t.Fatalf("item=%+v restarts=%d", got, controller.restarts)
 	}
-	got, err = service.Decide(item.ID, "confirm-force", "v1")
+	got, err = service.Decide(item.ID, "confirm-force", "v1", got.StateVersion)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -224,13 +545,42 @@ func TestChatQueueForceAuditsBeforeRestartAndRequiresConfirmation(t *testing.T) 
 func TestChatQueuePersistsFailedTakeover(t *testing.T) {
 	q, _ := openChatQueue(filepath.Join(t.TempDir(), "queue.json"))
 	item, _ := q.Enqueue(ChatQueueItem{ClientMessageID: "c", Assistant: "codex", SessionID: "s", Text: "x"})
+	item, _ = q.updateExpected(item.ID, []string{chatQueueQueued}, func(item *ChatQueueItem) error {
+		item.Status = chatQueueWriterConfirmation
+		return nil
+	})
 	controller := &fakeTakeoverController{version: "v1", err: errors.New("restart unavailable")}
 	service := newChatTakeoverService(q, controller, nil)
-	if _, err := service.Decide(item.ID, "force", ""); err == nil {
+	if _, err := service.Decide(item.ID, "force", "", item.StateVersion); err == nil {
 		t.Fatal("restart failure was ignored")
 	}
 	got, _ := q.get(item.ID)
 	if got.Status != chatQueueFailed || got.Error == "" {
 		t.Fatalf("item=%+v", got)
+	}
+}
+
+func TestSystemTakeoverControllerUsesLockAuthorityAndManagedRestart(t *testing.T) {
+	previousLocks := codexFleetWriterSessions
+	previousState := codexActiveRolloutTaskState
+	previousRestart := restartCodexFleetSidecar
+	t.Cleanup(func() {
+		codexFleetWriterSessions = previousLocks
+		codexActiveRolloutTaskState = previousState
+		restartCodexFleetSidecar = previousRestart
+	})
+	codexFleetWriterSessions = func() []string { return []string{"thread-a", "thread-b"} }
+	codexActiveRolloutTaskState = func(sessionID string) (codexRolloutTaskState, bool) {
+		return codexRolloutTaskState{turnID: "turn-" + sessionID, terminal: sessionID == "thread-b"}, true
+	}
+	restarted := 0
+	restartCodexFleetSidecar = func() error { restarted++; return nil }
+	controller := systemTakeoverController{}
+	impacts, version, err := controller.Audit()
+	if err != nil || version == "" || len(impacts) != 2 || !impacts[0].Active || impacts[1].Active {
+		t.Fatalf("impacts=%+v version=%q err=%v", impacts, version, err)
+	}
+	if err := controller.Restart(); err != nil || restarted != 1 {
+		t.Fatalf("restart count=%d err=%v", restarted, err)
 	}
 }

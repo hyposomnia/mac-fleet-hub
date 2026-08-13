@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"mime/multipart"
 	"net/http"
@@ -12,6 +13,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 type fakeChatBackend struct {
@@ -24,6 +26,7 @@ type fakeChatBackend struct {
 	eventsFn    func(context.Context, string, string) (<-chan ChatEvent, error)
 	respondFn   func(context.Context, string, string, string, json.RawMessage) error
 	interruptFn func(context.Context, string, string) error
+	releaseFn   func(context.Context, string, string) error
 	settingsFn  func(context.Context, string, string, string) error
 }
 
@@ -92,6 +95,13 @@ func (f fakeChatBackend) Interrupt(ctx context.Context, assistant, sessionID str
 	return nil
 }
 
+func (f fakeChatBackend) Release(ctx context.Context, assistant, sessionID string) error {
+	if f.releaseFn != nil {
+		return f.releaseFn(ctx, assistant, sessionID)
+	}
+	return nil
+}
+
 func (f fakeChatBackend) Settings(ctx context.Context, assistant, sessionID, approvalMode string) error {
 	if f.settingsFn != nil {
 		return f.settingsFn(ctx, assistant, sessionID, approvalMode)
@@ -102,8 +112,17 @@ func (f fakeChatBackend) Settings(ctx context.Context, assistant, sessionID, app
 func withChatBackend(t *testing.T, b chatBackend) {
 	t.Helper()
 	prev := agentChatBackend
+	prevQueue := agentChatQueue
+	queue, err := openChatQueue(filepath.Join(t.TempDir(), "chat-queue.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
 	agentChatBackend = b
-	t.Cleanup(func() { agentChatBackend = prev })
+	agentChatQueue = queue
+	t.Cleanup(func() {
+		agentChatBackend = prev
+		agentChatQueue = prevQueue
+	})
 }
 
 func TestChatStartCallsBackend(t *testing.T) {
@@ -179,6 +198,22 @@ func TestChatResumeUnavailableReturnsStructured503(t *testing.T) {
 	}
 	if !strings.Contains(rr.Body.String(), `"appserver_unavailable"`) {
 		t.Fatalf("body missing appserver unavailable: %s", rr.Body.String())
+	}
+}
+
+func TestChatResumeProjectsServerAccessMode(t *testing.T) {
+	withChatBackend(t, fakeChatBackend{resumeFn: func(context.Context, string, string, string) (ChatResumeResult, error) {
+		return ChatResumeResult{SessionID: "s1", ThreadID: "s1"}, nil
+	}})
+	if _, err := agentChatQueue.SetAccessMode("codex", "s1", chatAccessReadOnly); err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest(http.MethodPost, "/api/chat/resume", bytes.NewBufferString(`{"assistant":"codex","sessionId":"s1"}`))
+	rr := httptest.NewRecorder()
+	handleChatResume(rr, req)
+	var got ChatResumeResult
+	if rr.Code != http.StatusOK || json.Unmarshal(rr.Body.Bytes(), &got) != nil || got.AccessMode != chatAccessReadOnly {
+		t.Fatalf("status=%d result=%+v body=%s", rr.Code, got, rr.Body.String())
 	}
 }
 
@@ -410,6 +445,119 @@ func TestChatInterruptWithoutActiveTurnReturnsConflict(t *testing.T) {
 
 	if rr.Code != http.StatusConflict || !strings.Contains(rr.Body.String(), `"no_active_turn"`) {
 		t.Fatalf("status=%d body=%s", rr.Code, rr.Body.String())
+	}
+}
+
+func TestChatReleaseCallsBackend(t *testing.T) {
+	called := false
+	withChatBackend(t, fakeChatBackend{
+		releaseFn: func(_ context.Context, assistant, sessionID string) error {
+			called = assistant == "codex" && sessionID == "s1"
+			return nil
+		},
+	})
+	req := httptest.NewRequest(http.MethodPost, "/api/chat/release", bytes.NewBufferString(`{"assistant":"codex","sessionId":"s1"}`))
+	rr := httptest.NewRecorder()
+	handleChatRelease(rr, req)
+	if rr.Code != http.StatusOK || !called {
+		t.Fatalf("status=%d called=%v body=%s", rr.Code, called, rr.Body.String())
+	}
+}
+
+func TestChatAccessReleasePersistsReadOnlyBeforeBackendRelease(t *testing.T) {
+	withChatBackend(t, fakeChatBackend{releaseFn: func(context.Context, string, string) error {
+		if got := agentChatQueue.AccessMode("codex", "s1"); got != chatAccessReadOnly {
+			t.Fatalf("backend release observed accessMode=%q", got)
+		}
+		return nil
+	}})
+	req := httptest.NewRequest(http.MethodPost, "/api/chat/access", bytes.NewBufferString(`{"assistant":"codex","sessionId":"s1","action":"release"}`))
+	rr := httptest.NewRecorder()
+	handleChatAccess(rr, req)
+	if rr.Code != http.StatusOK || agentChatQueue.AccessMode("codex", "s1") != chatAccessReadOnly || !strings.Contains(rr.Body.String(), `"accessMode":"read_only"`) {
+		t.Fatalf("status=%d mode=%q body=%s", rr.Code, agentChatQueue.AccessMode("codex", "s1"), rr.Body.String())
+	}
+}
+
+func TestChatAccessReleaseFailureRemainsReadOnlyAndBlocksDirectMutation(t *testing.T) {
+	withChatBackend(t, fakeChatBackend{releaseFn: func(context.Context, string, string) error {
+		return errors.New("unsubscribe failed")
+	}})
+	req := httptest.NewRequest(http.MethodPost, "/api/chat/access", bytes.NewBufferString(`{"assistant":"codex","sessionId":"s1","action":"release"}`))
+	rr := httptest.NewRecorder()
+	handleChatAccess(rr, req)
+	if rr.Code != http.StatusInternalServerError || agentChatQueue.AccessMode("codex", "s1") != chatAccessReadOnly {
+		t.Fatalf("status=%d mode=%q body=%s", rr.Code, agentChatQueue.AccessMode("codex", "s1"), rr.Body.String())
+	}
+	req = httptest.NewRequest(http.MethodPost, "/api/chat/input", bytes.NewBufferString(`{"assistant":"codex","sessionId":"s1","text":"must not send"}`))
+	rr = httptest.NewRecorder()
+	handleChatInput(rr, req)
+	if rr.Code != http.StatusConflict || !strings.Contains(rr.Body.String(), `"fleet_read_only"`) {
+		t.Fatalf("status=%d body=%s", rr.Code, rr.Body.String())
+	}
+}
+
+func TestChatAccessEnableWriteRequeuesWaitingAccess(t *testing.T) {
+	withChatBackend(t, fakeChatBackend{})
+	if _, err := agentChatQueue.SetAccessMode("codex", "s1", chatAccessReadOnly); err != nil {
+		t.Fatal(err)
+	}
+	item, err := agentChatQueue.Enqueue(ChatQueueItem{ClientMessageID: "queued", Assistant: "codex", SessionID: "s1", Text: "later"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := agentChatQueue.ClaimNext(); err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest(http.MethodPost, "/api/chat/access", bytes.NewBufferString(`{"assistant":"codex","sessionId":"s1","action":"enable-write"}`))
+	rr := httptest.NewRecorder()
+	handleChatAccess(rr, req)
+	got, _ := agentChatQueue.get(item.ID)
+	if rr.Code != http.StatusOK || got.Status != chatQueueQueued || agentChatQueue.AccessMode("codex", "s1") != chatAccessReadWrite {
+		t.Fatalf("status=%d item=%+v body=%s", rr.Code, got, rr.Body.String())
+	}
+}
+
+func TestChatAccessReleaseSerializesWithDirectWriteEndpoint(t *testing.T) {
+	inputEntered := make(chan struct{})
+	finishInput := make(chan struct{})
+	releaseEntered := make(chan struct{})
+	withChatBackend(t, fakeChatBackend{
+		inputFn: func(context.Context, string, string, string, []ChatAttachment, []ChatSkill, ChatTurnOptions) (ChatInputResult, error) {
+			close(inputEntered)
+			<-finishInput
+			return ChatInputResult{TurnID: "turn-1"}, nil
+		},
+		releaseFn: func(context.Context, string, string) error {
+			close(releaseEntered)
+			return nil
+		},
+	})
+	inputReq := httptest.NewRequest(http.MethodPost, "/api/chat/input", bytes.NewBufferString(`{"assistant":"codex","sessionId":"s1","text":"hello"}`))
+	inputRR := httptest.NewRecorder()
+	inputDone := make(chan struct{})
+	go func() {
+		handleChatInput(inputRR, inputReq)
+		close(inputDone)
+	}()
+	<-inputEntered
+	accessReq := httptest.NewRequest(http.MethodPost, "/api/chat/access", bytes.NewBufferString(`{"assistant":"codex","sessionId":"s1","action":"release"}`))
+	accessRR := httptest.NewRecorder()
+	accessDone := make(chan struct{})
+	go func() {
+		handleChatAccess(accessRR, accessReq)
+		close(accessDone)
+	}()
+	select {
+	case <-releaseEntered:
+		t.Fatal("release crossed an in-flight write operation")
+	case <-time.After(20 * time.Millisecond):
+	}
+	close(finishInput)
+	<-inputDone
+	<-accessDone
+	if inputRR.Code != http.StatusOK || accessRR.Code != http.StatusOK || agentChatQueue.AccessMode("codex", "s1") != chatAccessReadOnly {
+		t.Fatalf("input=%d access=%d mode=%q", inputRR.Code, accessRR.Code, agentChatQueue.AccessMode("codex", "s1"))
 	}
 }
 

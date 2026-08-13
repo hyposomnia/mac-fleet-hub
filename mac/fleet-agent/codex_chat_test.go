@@ -285,6 +285,81 @@ func TestCodexChatBackendIsolatedTurnCompletionReleasesWriter(t *testing.T) {
 	}
 }
 
+func TestCodexChatBackendReapsIdleFleetWriterWithoutBrowserLifecycle(t *testing.T) {
+	previousCfg := cfg
+	previousState := codexActiveRolloutTaskState
+	previousSessions := codexFleetWriterSessions
+	t.Cleanup(func() {
+		cfg = previousCfg
+		codexActiveRolloutTaskState = previousState
+		codexFleetWriterSessions = previousSessions
+	})
+	cfg.CodexMode = "isolated"
+	codexFleetWriterSessions = func() []string { return []string{"thread-stale"} }
+	codexActiveRolloutTaskState = func(string) (codexRolloutTaskState, bool) {
+		return codexRolloutTaskState{turnID: "turn-done", terminal: true}, true
+	}
+	rpc := newFakeRPCConn()
+	b := newCodexChatBackend(func(context.Context) (codexRPCConn, func(), error) {
+		return rpc, func() {}, nil
+	})
+	if _, err := b.ensure(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	b.mu.Lock()
+	b.loadedThreads["thread-stale"] = true
+	b.writerOwners["thread-stale"] = "fleet"
+	b.lastTurn["thread-stale"] = "turn-done"
+	b.turnOwners["thread-stale"] = "fleet"
+	b.mu.Unlock()
+
+	b.reapIdleFleetWriters()
+
+	b.mu.Lock()
+	loaded := b.loadedThreads["thread-stale"]
+	owner := b.writerOwners["thread-stale"]
+	b.mu.Unlock()
+	if loaded || owner != "" || !reflect.DeepEqual(methods(rpc.calls), []string{"thread/unsubscribe"}) {
+		t.Fatalf("stale Fleet writer not reaped: loaded=%v owner=%q calls=%v", loaded, owner, methods(rpc.calls))
+	}
+}
+
+func TestCodexChatBackendReleaseInterruptsActiveFleetTurnBeforeUnsubscribe(t *testing.T) {
+	previousCfg := cfg
+	previousOwner := codexThreadWriterProcessOwner
+	previousState := codexActiveRolloutTaskState
+	t.Cleanup(func() {
+		cfg = previousCfg
+		codexThreadWriterProcessOwner = previousOwner
+		codexActiveRolloutTaskState = previousState
+	})
+	cfg.CodexMode = "isolated"
+	codexThreadWriterProcessOwner = func(string) string { return "fleet" }
+	codexActiveRolloutTaskState = func(string) (codexRolloutTaskState, bool) {
+		return codexRolloutTaskState{turnID: "turn-live", terminal: false}, true
+	}
+	rpc := newFakeRPCConn()
+	b := newCodexChatBackend(func(context.Context) (codexRPCConn, func(), error) {
+		return rpc, func() {}, nil
+	})
+	if _, err := b.ensure(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	b.mu.Lock()
+	b.loadedThreads["thread-live"] = true
+	b.writerOwners["thread-live"] = "fleet"
+	b.lastTurn["thread-live"] = "turn-live"
+	b.turnOwners["thread-live"] = "fleet"
+	b.mu.Unlock()
+
+	if err := b.Release(context.Background(), "codex", "thread-live"); err != nil {
+		t.Fatal(err)
+	}
+	if got := methods(rpc.calls); !reflect.DeepEqual(got, []string{"turn/interrupt", "thread/unsubscribe"}) {
+		t.Fatalf("release call order = %v", got)
+	}
+}
+
 func TestCodexChatBackendResumeRestoresActiveTurnFromThread(t *testing.T) {
 	rpc := newFakeRPCConn()
 	rpc.reply["thread/resume"] = json.RawMessage(`{
@@ -1698,7 +1773,7 @@ func TestCodexChatBackendReconcileConnectedSessionUsesRolloutLifecycle(t *testin
 	}
 }
 
-func TestCodexChatBackendConnectedSyncStopsWithLastSubscriber(t *testing.T) {
+func TestCodexChatBackendLastBrowserDisconnectDoesNotReleaseWriter(t *testing.T) {
 	rpc := newFakeRPCConn()
 	rpc.reply["thread/items/list"] = json.RawMessage(`{"data":[]}`)
 	b := newCodexChatBackend(func(ctx context.Context) (codexRPCConn, func(), error) {
@@ -1724,27 +1799,160 @@ func TestCodexChatBackendConnectedSyncStopsWithLastSubscriber(t *testing.T) {
 		t.Fatalf("sync start got %+v", started[0])
 	}
 	cancel()
+	waitForCodexSyncStop(t, b, "thread-1")
+	for _, call := range rpc.calls {
+		if call.method == "thread/unsubscribe" {
+			t.Fatalf("browser disconnect changed writer lifecycle: calls=%v", methods(rpc.calls))
+		}
+	}
+}
 
-	deadline := time.Now().Add(time.Second)
-	for {
-		b.mu.Lock()
-		_, running := b.syncers["thread-1"]
-		loaded := b.loadedThreads["thread-1"]
-		b.mu.Unlock()
-		unsubscribed := false
-		for _, call := range rpc.calls {
-			if call.method == "thread/unsubscribe" {
-				unsubscribed = true
-				break
-			}
+func TestCodexChatBackendReleaseKeepsLeaseWhenUnsubscribeFails(t *testing.T) {
+	previousCfg := cfg
+	t.Cleanup(func() { cfg = previousCfg })
+	cfg.CodexMode = "isolated"
+	rpc := newFakeRPCConn()
+	rpc.errs["thread/unsubscribe"] = []error{errors.New("unsubscribe failed")}
+	b := newCodexChatBackend(func(context.Context) (codexRPCConn, func(), error) {
+		return rpc, func() {}, nil
+	})
+	if _, err := b.ensure(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	b.mu.Lock()
+	b.loadedThreads["thread-1"] = true
+	b.writerOwners["thread-1"] = "fleet"
+	b.mu.Unlock()
+
+	if err := b.Release(context.Background(), "codex", "thread-1"); err == nil {
+		t.Fatal("release reported success after unsubscribe failure")
+	}
+	b.mu.Lock()
+	loaded, owner := b.loadedThreads["thread-1"], b.writerOwners["thread-1"]
+	b.mu.Unlock()
+	if !loaded || owner != "fleet" {
+		t.Fatalf("failed release discarded lease: loaded=%v owner=%q", loaded, owner)
+	}
+}
+
+func TestCodexChatBackendStaleTurnDoneCannotReleaseNewWriter(t *testing.T) {
+	previousCfg := cfg
+	t.Cleanup(func() { cfg = previousCfg })
+	cfg.CodexMode = "isolated"
+	rpc := newFakeRPCConn()
+	b := newCodexChatBackend(func(context.Context) (codexRPCConn, func(), error) {
+		return rpc, func() {}, nil
+	})
+	if _, err := b.ensure(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	b.mu.Lock()
+	b.loadedThreads["thread-1"] = true
+	b.writerOwners["thread-1"] = "fleet"
+	b.lastTurn["thread-1"] = "turn-new"
+	b.turnOwners["thread-1"] = "fleet"
+	b.mu.Unlock()
+	b.releaseCompletedFleetTurn(rpc, "thread-1", "turn-old")
+	if got := methods(rpc.calls); len(got) != 0 {
+		t.Fatalf("stale completion released new writer: %v", got)
+	}
+}
+
+func TestCodexChatBackendReaperFindsOrphanLockOutsideMemoryMaps(t *testing.T) {
+	previousCfg := cfg
+	previousLocks := codexFleetWriterSessions
+	previousState := codexActiveRolloutTaskState
+	previousRestart := restartCodexFleetSidecar
+	t.Cleanup(func() {
+		cfg = previousCfg
+		codexFleetWriterSessions = previousLocks
+		codexActiveRolloutTaskState = previousState
+		restartCodexFleetSidecar = previousRestart
+	})
+	cfg.CodexMode = "isolated"
+	codexFleetWriterSessions = func() []string { return []string{"thread-orphan"} }
+	codexActiveRolloutTaskState = func(string) (codexRolloutTaskState, bool) {
+		return codexRolloutTaskState{turnID: "turn-done", terminal: true}, true
+	}
+	restarts := 0
+	restartCodexFleetSidecar = func() error { restarts++; return nil }
+	b := newCodexChatBackend(func(context.Context) (codexRPCConn, func(), error) {
+		return newFakeRPCConn(), func() {}, nil
+	})
+	b.reapIdleFleetWriters()
+	if restarts != 1 {
+		t.Fatalf("orphan sidecar restarts=%d", restarts)
+	}
+}
+
+func TestCodexChatBackendExplicitReleaseRecoversOrphanedSidecarWriter(t *testing.T) {
+	previousCfg := cfg
+	previousOwner := codexThreadWriterProcessOwner
+	previousLocks := codexFleetWriterSessions
+	previousState := codexActiveRolloutTaskState
+	previousRestart := restartCodexFleetSidecar
+	t.Cleanup(func() {
+		cfg = previousCfg
+		codexThreadWriterProcessOwner = previousOwner
+		codexFleetWriterSessions = previousLocks
+		codexActiveRolloutTaskState = previousState
+		restartCodexFleetSidecar = previousRestart
+	})
+	cfg.CodexMode = "isolated"
+	owned := true
+	codexThreadWriterProcessOwner = func(string) string {
+		if owned {
+			return "fleet"
 		}
-		if !running && !loaded && unsubscribed {
-			break
+		return ""
+	}
+	codexFleetWriterSessions = func() []string {
+		if owned {
+			return []string{"thread-orphan"}
 		}
-		if time.Now().After(deadline) {
-			t.Fatalf("last subscriber cleanup incomplete: sync=%v loaded=%v calls=%v", running, loaded, methods(rpc.calls))
+		return nil
+	}
+	codexActiveRolloutTaskState = func(string) (codexRolloutTaskState, bool) { return codexRolloutTaskState{}, false }
+	restarts := 0
+	restartCodexFleetSidecar = func() error { restarts++; owned = false; return nil }
+	b := newCodexChatBackend(func(context.Context) (codexRPCConn, func(), error) {
+		return newFakeRPCConn(), func() {}, nil
+	})
+	if err := b.Release(context.Background(), "codex", "thread-orphan"); err != nil {
+		t.Fatal(err)
+	}
+	if restarts != 1 || owned {
+		t.Fatalf("restarts=%d owned=%v", restarts, owned)
+	}
+}
+
+func TestCodexChatBackendReaperDefersSidecarRestartForOtherActiveFleetTurn(t *testing.T) {
+	previousCfg := cfg
+	previousLocks := codexFleetWriterSessions
+	previousState := codexActiveRolloutTaskState
+	previousRestart := restartCodexFleetSidecar
+	t.Cleanup(func() {
+		cfg = previousCfg
+		codexFleetWriterSessions = previousLocks
+		codexActiveRolloutTaskState = previousState
+		restartCodexFleetSidecar = previousRestart
+	})
+	cfg.CodexMode = "isolated"
+	codexFleetWriterSessions = func() []string { return []string{"thread-orphan", "thread-active"} }
+	codexActiveRolloutTaskState = func(sessionID string) (codexRolloutTaskState, bool) {
+		if sessionID == "thread-active" {
+			return codexRolloutTaskState{turnID: "turn-live", terminal: false}, true
 		}
-		time.Sleep(time.Millisecond)
+		return codexRolloutTaskState{turnID: "turn-done", terminal: true}, true
+	}
+	restarts := 0
+	restartCodexFleetSidecar = func() error { restarts++; return nil }
+	b := newCodexChatBackend(func(context.Context) (codexRPCConn, func(), error) {
+		return newFakeRPCConn(), func() {}, nil
+	})
+	b.reapIdleFleetWriters()
+	if restarts != 0 {
+		t.Fatalf("reaper interrupted another active Fleet turn: restarts=%d", restarts)
 	}
 }
 

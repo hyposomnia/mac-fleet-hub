@@ -1936,6 +1936,8 @@ func runServer() {
 	mux.HandleFunc("/api/chat/respond", handleChatRespond)
 	mux.HandleFunc("/api/chat/approve", handleChatApprove)
 	mux.HandleFunc("/api/chat/interrupt", handleChatInterrupt)
+	mux.HandleFunc("/api/chat/release", handleChatRelease)
+	mux.HandleFunc("/api/chat/access", handleChatAccess)
 	mux.HandleFunc("/api/health", func(w http.ResponseWriter, r *http.Request) { w.Write([]byte("ok")) })
 
 	idleSec.Store(cfg.IdleSec) // 初值 = FLEET_IDLE_SEC，configSync 成功后覆盖

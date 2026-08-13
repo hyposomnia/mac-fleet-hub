@@ -251,6 +251,7 @@ var errInvalidChatSkill = errors.New("invalid_chat_skill")
 var errExternalChatTurn = errors.New("external_turn_running")
 var errFleetChatTurnRunning = errors.New("fleet_turn_running")
 var errThreadReadOnly = errors.New("thread_read_only")
+var errFleetChatReadOnly = errors.New("fleet_read_only")
 
 type ChatStartResult struct {
 	SessionID    string            `json:"sessionId"`
@@ -269,6 +270,7 @@ type ChatResumeResult struct {
 	ActiveTurnID    string            `json:"activeTurnId,omitempty"`
 	TurnOwner       string            `json:"turnOwner,omitempty"`
 	WriterOwner     string            `json:"writerOwner,omitempty"`
+	AccessMode      string            `json:"accessMode"`
 	PendingRequests int               `json:"pendingRequests,omitempty"`
 	PendingEvents   []ChatEvent       `json:"pendingEvents,omitempty"`
 	History         ChatHistoryPage   `json:"history"`
@@ -351,6 +353,7 @@ type chatBackend interface {
 	Events(ctx context.Context, assistant, sessionID string) (<-chan ChatEvent, error)
 	Respond(ctx context.Context, assistant, sessionID, requestID string, response json.RawMessage) error
 	Interrupt(ctx context.Context, assistant, sessionID string) error
+	Release(ctx context.Context, assistant, sessionID string) error
 	Settings(ctx context.Context, assistant, sessionID, approvalMode string) error
 }
 
@@ -383,6 +386,9 @@ func (unavailableChatBackend) Respond(context.Context, string, string, string, j
 	return errAppServerUnavailable
 }
 func (unavailableChatBackend) Interrupt(context.Context, string, string) error {
+	return errAppServerUnavailable
+}
+func (unavailableChatBackend) Release(context.Context, string, string) error {
 	return errAppServerUnavailable
 }
 func (unavailableChatBackend) Settings(context.Context, string, string, string) error {
@@ -422,6 +428,10 @@ func writeChatErr(w http.ResponseWriter, err error) {
 		writeErr(w, http.StatusConflict, "thread_read_only", "该会话正由其他 Codex 客户端控制，Fleet 当前为只读同步。")
 		return
 	}
+	if errors.Is(err, errFleetChatReadOnly) {
+		writeErr(w, http.StatusConflict, "fleet_read_only", "Fleet 已释放该会话的写入权；恢复 Fleet 写入后才能执行此操作。")
+		return
+	}
 	if errors.Is(err, errChatRequestNotFound) {
 		writeErr(w, http.StatusConflict, "chat_request_not_found", "这个交互请求已经失效或已被处理。")
 		return
@@ -456,6 +466,20 @@ func handleChatStart(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, res)
 }
 
+func requireChatWriteAccess(w http.ResponseWriter, assistant, sessionID string) bool {
+	if agentChatQueue.AccessMode(assistant, sessionID) == chatAccessReadOnly {
+		writeChatErr(w, errFleetChatReadOnly)
+		return false
+	}
+	return true
+}
+
+func lockChatSessionOperation(assistant, sessionID string) func() {
+	operation := agentChatQueue.sessionOperation(assistant, sessionID)
+	operation.Lock()
+	return operation.Unlock
+}
+
 func handleChatResume(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -480,6 +504,7 @@ func handleChatResume(w http.ResponseWriter, r *http.Request) {
 		writeChatErr(w, err)
 		return
 	}
+	res.AccessMode = agentChatQueue.AccessMode(assistant, req.SessionID)
 	writeJSON(w, res)
 }
 
@@ -500,6 +525,10 @@ func handleChatSettings(w http.ResponseWriter, r *http.Request) {
 	assistant := normAssistant(req.Assistant)
 	if assistant != "codex" {
 		writeErr(w, http.StatusNotImplemented, "unsupported_assistant", "自绘界面暂只支持 Codex。")
+		return
+	}
+	defer lockChatSessionOperation(assistant, req.SessionID)()
+	if !requireChatWriteAccess(w, assistant, req.SessionID) {
 		return
 	}
 	opts, err := normalizeChatTurnOptions(ChatTurnOptions{ApprovalMode: req.ApprovalMode})
@@ -553,6 +582,10 @@ func handleChatInput(w http.ResponseWriter, r *http.Request) {
 	assistant := normAssistant(req.Assistant)
 	if assistant != "codex" {
 		writeErr(w, http.StatusNotImplemented, "unsupported_assistant", "自绘界面暂只支持 Codex。")
+		return
+	}
+	defer lockChatSessionOperation(assistant, req.SessionID)()
+	if !requireChatWriteAccess(w, assistant, req.SessionID) {
 		return
 	}
 	images := make([]ChatAttachment, 0, len(req.Images))
@@ -625,6 +658,10 @@ func handleChatSteer(w http.ResponseWriter, r *http.Request) {
 	assistant := normAssistant(req.Assistant)
 	if assistant != "codex" {
 		writeErr(w, http.StatusNotImplemented, "unsupported_assistant", "自绘界面暂只支持 Codex。")
+		return
+	}
+	defer lockChatSessionOperation(assistant, req.SessionID)()
+	if !requireChatWriteAccess(w, assistant, req.SessionID) {
 		return
 	}
 	images := make([]ChatAttachment, 0, len(req.Images))
@@ -1059,11 +1096,93 @@ func handleChatInterrupt(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusNotImplemented, "unsupported_assistant", "自绘界面暂只支持 Codex。")
 		return
 	}
+	defer lockChatSessionOperation(assistant, req.SessionID)()
+	if !requireChatWriteAccess(w, assistant, req.SessionID) {
+		return
+	}
 	if err := agentChatBackend.Interrupt(r.Context(), assistant, req.SessionID); err != nil {
 		writeChatErr(w, err)
 		return
 	}
 	writeJSON(w, map[string]bool{"ok": true})
+}
+
+func handleChatRelease(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	var req struct {
+		Assistant string `json:"assistant"`
+		SessionID string `json:"sessionId"`
+	}
+	if json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&req) != nil || req.SessionID == "" {
+		http.Error(w, "bad request", http.StatusBadRequest)
+		return
+	}
+	assistant := normAssistant(req.Assistant)
+	if assistant != "codex" {
+		writeErr(w, http.StatusNotImplemented, "unsupported_assistant", "自绘界面暂只支持 Codex。")
+		return
+	}
+	if _, err := agentChatQueue.SetAccessMode(assistant, req.SessionID, chatAccessReadOnly); err != nil {
+		writeErr(w, http.StatusInternalServerError, "access_state_failed", err.Error())
+		return
+	}
+	if err := agentChatBackend.Release(r.Context(), assistant, req.SessionID); err != nil {
+		writeChatErr(w, err)
+		return
+	}
+	writeJSON(w, map[string]bool{"ok": true})
+}
+
+// handleChatAccess is the authoritative session access transition. Release is
+// persisted before touching app-server so a failed unsubscribe cannot let a
+// browser continue mutating the session under a stale optimistic state.
+func handleChatAccess(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	var req struct {
+		Assistant string `json:"assistant"`
+		SessionID string `json:"sessionId"`
+		Action    string `json:"action"`
+	}
+	if json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&req) != nil || strings.TrimSpace(req.SessionID) == "" {
+		http.Error(w, "bad request", http.StatusBadRequest)
+		return
+	}
+	assistant := normAssistant(req.Assistant)
+	if assistant != "codex" {
+		writeErr(w, http.StatusNotImplemented, "unsupported_assistant", "自绘界面暂只支持 Codex。")
+		return
+	}
+	switch req.Action {
+	case "release":
+		state, err := agentChatQueue.SetAccessMode(assistant, req.SessionID, chatAccessReadOnly)
+		if err != nil {
+			writeErr(w, http.StatusInternalServerError, "access_state_failed", err.Error())
+			return
+		}
+		if err := agentChatBackend.Release(r.Context(), assistant, req.SessionID); err != nil {
+			writeChatErr(w, err)
+			return
+		}
+		writeJSON(w, state)
+	case "enable-write":
+		state, err := agentChatQueue.SetAccessMode(assistant, req.SessionID, chatAccessReadWrite)
+		if err != nil {
+			writeErr(w, http.StatusInternalServerError, "access_state_failed", err.Error())
+			return
+		}
+		if agentChatQueueWorker != nil {
+			agentChatQueueWorker.Wake()
+		}
+		writeJSON(w, state)
+	default:
+		writeErr(w, http.StatusBadRequest, "bad_access_action", "无效的会话访问操作。")
+	}
 }
 
 func handleChatRespond(w http.ResponseWriter, r *http.Request) {
@@ -1085,6 +1204,10 @@ func handleChatRespond(w http.ResponseWriter, r *http.Request) {
 	assistant := normAssistant(req.Assistant)
 	if assistant != "codex" {
 		writeErr(w, http.StatusNotImplemented, "unsupported_assistant", "自绘界面暂只支持 Codex。")
+		return
+	}
+	defer lockChatSessionOperation(assistant, req.SessionID)()
+	if !requireChatWriteAccess(w, assistant, req.SessionID) {
 		return
 	}
 	if err := agentChatBackend.Respond(r.Context(), assistant, req.SessionID, req.RequestID, req.Response); err != nil {
@@ -1121,7 +1244,12 @@ func handleChatApprove(w http.ResponseWriter, r *http.Request) {
 		decision = "cancel"
 	}
 	response, _ := json.Marshal(map[string]string{"decision": decision})
-	if err := agentChatBackend.Respond(r.Context(), normAssistant(req.Assistant), req.SessionID, req.RequestID, response); err != nil {
+	assistant := normAssistant(req.Assistant)
+	defer lockChatSessionOperation(assistant, req.SessionID)()
+	if !requireChatWriteAccess(w, assistant, req.SessionID) {
+		return
+	}
+	if err := agentChatBackend.Respond(r.Context(), assistant, req.SessionID, req.RequestID, response); err != nil {
 		writeChatErr(w, err)
 		return
 	}

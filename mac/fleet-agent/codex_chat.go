@@ -86,6 +86,7 @@ type codexChatBackend struct {
 
 	connectMu           sync.Mutex
 	turnProcessMu       sync.Mutex
+	writerLeaseMu       sync.Mutex
 	threadLoadMu        sync.Mutex
 	subscriptionMu      sync.Mutex
 	restartOnce         sync.Once
@@ -117,6 +118,7 @@ type codexChatBackend struct {
 	historyUsage     map[string]codexTurnUsageCache
 	rolloutToolsMu   sync.Mutex
 	rolloutTools     map[string]*codexRolloutToolsCache
+	orphanFirstSeen  map[string]time.Time
 }
 
 func newCodexChatBackend(connect codexConnector) *codexChatBackend {
@@ -144,11 +146,14 @@ func newCodexChatBackend(connect codexConnector) *codexChatBackend {
 		historyPages:        map[string]codexTurnsPage{},
 		historyUsage:        map[string]codexTurnUsageCache{},
 		rolloutTools:        map[string]*codexRolloutToolsCache{},
+		orphanFirstSeen:     map[string]time.Time{},
 	}
 }
 
 func newAgentChatBackend() chatBackend {
-	return newCodexChatBackend(connectCodexAppServer)
+	b := newCodexChatBackend(connectCodexAppServer)
+	go b.runWriterLeaseReaper(context.Background(), 30*time.Second)
+	return b
 }
 
 func (b *codexChatBackend) ensure(ctx context.Context) (codexRPCConn, error) {
@@ -216,6 +221,10 @@ func codexUsesIsolatedSidecar() bool {
 
 var codexThreadWriterProcessOwner = systemCodexThreadWriterProcessOwner
 var codexActiveRolloutTaskState = codexCurrentRolloutTaskState
+var codexFleetWriterSessions = systemCodexFleetWriterSessions
+var restartCodexFleetSidecar = systemRestartCodexFleetSidecar
+
+const codexWriterOrphanGrace = 2 * time.Minute
 
 // systemCodexThreadWriterProcessOwner recovers writer ownership after the
 // fleet-agent reconnects or restarts. The writer lock belongs to app-server,
@@ -244,6 +253,48 @@ func systemCodexThreadWriterProcessOwner(sessionID string) string {
 		}
 	}
 	return ""
+}
+
+func systemCodexFleetWriterSessions() []string {
+	paths, _ := filepath.Glob(filepath.Join(cfg.CodexHome, "thread-writer-locks", "*.lock"))
+	sessions := make([]string, 0, len(paths))
+	for _, path := range paths {
+		sessionID := strings.TrimSuffix(filepath.Base(path), ".lock")
+		if sessionID != "" && systemCodexThreadWriterProcessOwner(sessionID) == "fleet" {
+			sessions = append(sessions, sessionID)
+		}
+	}
+	sort.Strings(sessions)
+	return sessions
+}
+
+func systemRestartCodexFleetSidecar() error {
+	if !codexUsesIsolatedSidecar() {
+		return errors.New("Fleet Codex sidecar restart requires isolated mode")
+	}
+	target := fmt.Sprintf("gui/%d/com.macfleet.codex-app-server", os.Getuid())
+	out, err := exec.Command("launchctl", "kickstart", "-k", target).CombinedOutput()
+	if err == nil {
+		return nil
+	}
+	detail := strings.TrimSpace(string(out))
+	if detail == "" {
+		return fmt.Errorf("restart Fleet Codex sidecar: %w", err)
+	}
+	return fmt.Errorf("restart Fleet Codex sidecar: %w: %s", err, detail)
+}
+
+func otherActiveFleetWriter(sessionID string) (string, bool) {
+	for _, candidate := range codexFleetWriterSessions() {
+		if candidate == sessionID {
+			continue
+		}
+		state, ok := codexActiveRolloutTaskState(candidate)
+		if ok && state.turnID != "" && !state.terminal {
+			return candidate, true
+		}
+	}
+	return "", false
 }
 
 func (b *codexChatBackend) restoreFleetTurnOwner(sessionID, turnID string) bool {
@@ -1140,7 +1191,7 @@ func (b *codexChatBackend) reconcileConnectedSession(ctx context.Context, rpc co
 	wasActive := b.lastTurn[sessionID] == state.turnID
 	releaseFleetWriter := wasActive && codexUsesIsolatedSidecar() &&
 		b.turnOwners[sessionID] == "fleet" && b.writerOwners[sessionID] == "fleet"
-	if wasActive {
+	if wasActive && !releaseFleetWriter {
 		delete(b.lastTurn, sessionID)
 		delete(b.turnOwners, sessionID)
 	}
@@ -1151,7 +1202,7 @@ func (b *codexChatBackend) reconcileConnectedSession(ctx context.Context, rpc co
 		}))
 	}
 	if releaseFleetWriter {
-		b.releaseFleetWriter(rpc, sessionID)
+		b.releaseCompletedFleetTurn(rpc, sessionID, state.turnID)
 	}
 	return true, nil
 }
@@ -1897,6 +1948,8 @@ func (b *codexChatBackend) Input(ctx context.Context, assistant, sessionID, text
 	if err != nil {
 		return ChatInputResult{}, err
 	}
+	b.writerLeaseMu.Lock()
+	defer b.writerLeaseMu.Unlock()
 	if rolloutState, ok := codexCurrentRolloutTaskState(sessionID); !opts.ForceTakeover && ok && rolloutState.turnID != "" && !rolloutState.terminal {
 		b.mu.Lock()
 		owned := b.lastTurn[sessionID] == rolloutState.turnID && b.turnOwners[sessionID] == "fleet"
@@ -3006,11 +3059,8 @@ func (b *codexChatBackend) Events(ctx context.Context, assistant, sessionID stri
 		b.subscriptionMu.Lock()
 		defer b.subscriptionMu.Unlock()
 		b.mu.Lock()
-		lastSubscriber := b.removeSubscriberLocked(sessionID, ch)
+		b.removeSubscriberLocked(sessionID, ch)
 		b.mu.Unlock()
-		if lastSubscriber {
-			b.unsubscribeThreadLocked(rpc, sessionID)
-		}
 	}()
 	return ch, nil
 }
@@ -3060,6 +3110,145 @@ func (b *codexChatBackend) Interrupt(ctx context.Context, assistant, sessionID s
 		}
 	}
 	return err
+}
+
+// Release stops a Fleet-owned turn, if present, then drops this app-server
+// connection's subscription so Codex Desktop can acquire the writer. It is
+// intentionally idempotent: an already released thread is still success.
+func (b *codexChatBackend) Release(ctx context.Context, assistant, sessionID string) error {
+	if assistant != "codex" {
+		return errUnsupportedChatAssistant
+	}
+	b.writerLeaseMu.Lock()
+	defer b.writerLeaseMu.Unlock()
+	rpc, err := b.ensure(ctx)
+	if err != nil {
+		return err
+	}
+	b.refreshActiveTurnOwnership(sessionID)
+	b.mu.Lock()
+	turnID := b.lastTurn[sessionID]
+	turnOwner := b.turnOwners[sessionID]
+	writerOwner := b.writerOwners[sessionID]
+	b.mu.Unlock()
+	if turnOwner == "desktop" || writerOwner == "desktop" {
+		return errExternalChatTurn
+	}
+	if turnID != "" && turnOwner == "fleet" {
+		b.turnProcessMu.Lock()
+		_, interruptErr := rpc.call(ctx, "turn/interrupt", map[string]string{"threadId": sessionID, "turnId": turnID})
+		b.turnProcessMu.Unlock()
+		if interruptErr != nil && !codexNoActiveTurn(interruptErr) {
+			return interruptErr
+		}
+	}
+	b.mu.Lock()
+	delete(b.lastTurn, sessionID)
+	delete(b.turnOwners, sessionID)
+	b.mu.Unlock()
+	if err := b.releaseFleetWriter(rpc, sessionID); err != nil {
+		if !codexUsesIsolatedSidecar() || codexThreadWriterProcessOwner(sessionID) != "fleet" {
+			return err
+		}
+		if activeSession, active := otherActiveFleetWriter(sessionID); active {
+			return fmt.Errorf("cannot recover orphan writer while Fleet turn %s is active: %w", activeSession, err)
+		}
+		if restartErr := restartCodexFleetSidecar(); restartErr != nil {
+			return fmt.Errorf("%v; restart orphaned Fleet sidecar: %w", err, restartErr)
+		}
+		b.resetRPC()
+		b.mu.Lock()
+		b.lastTurn = map[string]string{}
+		b.turnOwners = map[string]string{}
+		b.orphanFirstSeen = map[string]time.Time{}
+		b.mu.Unlock()
+		if codexThreadWriterProcessOwner(sessionID) == "fleet" {
+			return errors.New("Fleet writer remained held after isolated sidecar restart")
+		}
+	}
+	b.publish(newChatEvent("thread_status", "codex", sessionID, "", "", map[string]interface{}{
+		"status": "idle", "writerOwner": "", "releaseReason": "manual",
+	}))
+	return nil
+}
+
+// reapIdleFleetWriters is the server-side lease check. Rollout state is the
+// authority: browser/SSE lifecycle is never required for releasing an idle
+// writer. Unknown rollout state is kept conservatively to avoid interrupting
+// legitimate work.
+func (b *codexChatBackend) reapIdleFleetWriters() {
+	if !codexUsesIsolatedSidecar() {
+		return
+	}
+	for _, sessionID := range codexFleetWriterSessions() {
+		state, ok := codexActiveRolloutTaskState(sessionID)
+		if ok && state.turnID != "" && !state.terminal {
+			b.mu.Lock()
+			delete(b.orphanFirstSeen, sessionID)
+			b.mu.Unlock()
+			_ = b.restoreFleetTurnOwner(sessionID, state.turnID)
+			continue
+		}
+		b.writerLeaseMu.Lock()
+		state, ok = codexActiveRolloutTaskState(sessionID)
+		if ok && state.turnID != "" && !state.terminal {
+			b.writerLeaseMu.Unlock()
+			continue
+		}
+		b.mu.Lock()
+		rpc, loaded := b.rpc, b.loadedThreads[sessionID]
+		firstSeen := b.orphanFirstSeen[sessionID]
+		if firstSeen.IsZero() {
+			firstSeen = time.Now()
+			b.orphanFirstSeen[sessionID] = firstSeen
+		}
+		b.mu.Unlock()
+		shouldRecover := ok || time.Since(firstSeen) >= codexWriterOrphanGrace
+		if loaded && rpc != nil {
+			if err := b.releaseFleetWriter(rpc, sessionID); err == nil {
+				b.mu.Lock()
+				delete(b.orphanFirstSeen, sessionID)
+				b.mu.Unlock()
+				b.publish(newChatEvent("thread_status", "codex", sessionID, "", "", map[string]interface{}{
+					"status": "idle", "writerOwner": "", "releaseReason": "idle_writer_lease",
+				}))
+				b.writerLeaseMu.Unlock()
+				continue
+			}
+			shouldRecover = true
+		}
+		if shouldRecover {
+			if activeSession, active := otherActiveFleetWriter(sessionID); active {
+				log.Printf("Codex orphan writer recovery deferred for %s while Fleet turn %s is active", sessionID, activeSession)
+			} else if err := restartCodexFleetSidecar(); err != nil {
+				log.Printf("Codex orphan writer recovery failed for %s: %v", sessionID, err)
+			} else {
+				b.resetRPC()
+				b.mu.Lock()
+				b.lastTurn = map[string]string{}
+				b.turnOwners = map[string]string{}
+				b.orphanFirstSeen = map[string]time.Time{}
+				b.mu.Unlock()
+				if codexThreadWriterProcessOwner(sessionID) == "fleet" {
+					log.Printf("Codex orphan writer %s remained held after isolated sidecar restart", sessionID)
+				}
+			}
+		}
+		b.writerLeaseMu.Unlock()
+	}
+}
+
+func (b *codexChatBackend) runWriterLeaseReaper(ctx context.Context, interval time.Duration) {
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			b.reapIdleFleetWriters()
+		}
+	}
 }
 
 func (b *codexChatBackend) Respond(ctx context.Context, assistant, sessionID, requestID string, response json.RawMessage) error {
@@ -3124,17 +3313,7 @@ func (b *codexChatBackend) dispatch(rpc codexRPCConn, notes <-chan rpcNotificati
 				b.mu.Unlock()
 			}
 			if ev.Type == "turn_done" && ev.SessionID != "" {
-				releaseFleetWriter := false
-				b.mu.Lock()
-				releaseFleetWriter = codexUsesIsolatedSidecar() && b.writerOwners[ev.SessionID] == "fleet"
-				if ev.TurnID == "" || b.lastTurn[ev.SessionID] == ev.TurnID {
-					delete(b.lastTurn, ev.SessionID)
-					delete(b.turnOwners, ev.SessionID)
-				}
-				b.mu.Unlock()
-				if releaseFleetWriter {
-					b.releaseFleetWriter(rpc, ev.SessionID)
-				}
+				go b.releaseCompletedFleetTurn(rpc, ev.SessionID, ev.TurnID)
 			}
 			b.mu.Lock()
 			if b.resuming[ev.SessionID] {
@@ -3153,6 +3332,27 @@ func (b *codexChatBackend) dispatch(rpc codexRPCConn, notes <-chan rpcNotificati
 	}
 }
 
+func (b *codexChatBackend) releaseCompletedFleetTurn(rpc codexRPCConn, sessionID, turnID string) {
+	if !codexUsesIsolatedSidecar() || turnID == "" {
+		return
+	}
+	b.writerLeaseMu.Lock()
+	defer b.writerLeaseMu.Unlock()
+	b.mu.Lock()
+	matches := b.lastTurn[sessionID] == turnID && b.turnOwners[sessionID] == "fleet" && b.writerOwners[sessionID] == "fleet"
+	if matches {
+		delete(b.lastTurn, sessionID)
+		delete(b.turnOwners, sessionID)
+	}
+	b.mu.Unlock()
+	if !matches {
+		return
+	}
+	if err := b.releaseFleetWriter(rpc, sessionID); err != nil {
+		log.Printf("Codex completed writer release failed for %s: %v", sessionID, err)
+	}
+}
+
 func (b *codexChatBackend) publish(ev ChatEvent) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -3164,53 +3364,48 @@ func (b *codexChatBackend) publishLocked(ev ChatEvent) {
 		select {
 		case ch <- ev:
 		default:
-			if b.removeSubscriberLocked(ev.SessionID, ch) {
-				rpc := b.rpc
-				go b.unsubscribeThreadIfUnused(rpc, ev.SessionID)
-			}
+			b.removeSubscriberLocked(ev.SessionID, ch)
 		}
-	}
-}
-
-func (b *codexChatBackend) unsubscribeThreadIfUnused(rpc codexRPCConn, sessionID string) {
-	b.subscriptionMu.Lock()
-	defer b.subscriptionMu.Unlock()
-	b.mu.Lock()
-	unused := len(b.subs[sessionID]) == 0
-	b.mu.Unlock()
-	if unused {
-		b.unsubscribeThreadLocked(rpc, sessionID)
 	}
 }
 
 // unsubscribeThreadLocked releases only this app-server connection's live
 // subscription. It does not interrupt an active turn. subscriptionMu prevents
 // a reconnecting browser from racing the unsubscribe after it has resumed.
-func (b *codexChatBackend) unsubscribeThreadLocked(rpc codexRPCConn, sessionID string) {
+func (b *codexChatBackend) unsubscribeThreadLocked(rpc codexRPCConn, sessionID string) error {
 	b.mu.Lock()
 	loaded := b.loadedThreads[sessionID]
+	b.mu.Unlock()
+	if rpc == nil {
+		return errAppServerUnavailable
+	}
+	if !loaded {
+		if codexThreadWriterProcessOwner(sessionID) == "fleet" {
+			return errors.New("Fleet writer belongs to an orphaned app-server connection")
+		}
+		return nil
+	}
+	unsubscribeCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if _, err := rpc.call(unsubscribeCtx, "thread/unsubscribe", map[string]string{"threadId": sessionID}); err != nil {
+		return fmt.Errorf("Codex thread/unsubscribe failed for %s: %w", sessionID, err)
+	}
+	b.mu.Lock()
 	delete(b.loadedThreads, sessionID)
 	if b.writerOwners[sessionID] == "fleet" {
 		delete(b.writerOwners, sessionID)
 	}
 	b.mu.Unlock()
-	if rpc == nil || !loaded {
-		return
-	}
-	unsubscribeCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	if _, err := rpc.call(unsubscribeCtx, "thread/unsubscribe", map[string]string{"threadId": sessionID}); err != nil {
-		log.Printf("Codex thread/unsubscribe failed for %s: %v", sessionID, err)
-	}
+	return nil
 }
 
 // releaseFleetWriter gives Codex Desktop the thread immediately after a Fleet
 // turn finishes. Browser subscribers remain connected and continue receiving
 // rollout-backed history/status updates without holding the app-server writer.
-func (b *codexChatBackend) releaseFleetWriter(rpc codexRPCConn, sessionID string) {
+func (b *codexChatBackend) releaseFleetWriter(rpc codexRPCConn, sessionID string) error {
 	b.subscriptionMu.Lock()
 	defer b.subscriptionMu.Unlock()
-	b.unsubscribeThreadLocked(rpc, sessionID)
+	return b.unsubscribeThreadLocked(rpc, sessionID)
 }
 
 func (b *codexChatBackend) removeSubscriberLocked(sessionID string, ch chan ChatEvent) bool {

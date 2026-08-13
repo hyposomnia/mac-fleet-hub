@@ -79,10 +79,14 @@ const appSandbox = {
   Date: FixedAppDate,
 };
 vm.createContext(appSandbox);
-vm.runInContext(`${appSrc}\n;globalThis.__chatCacheTest = { chatCacheVictim, isChatConnectionKept, isSessionRunning, updateChatUpdatedAt, formatChatDate, chatAssistantMetaText, chatUserMetaText, chatMessageMetaVisibility, applyChatMetadataDefaults, enqueueChatFollowup, removeChatFollowup, normalizeChatDraft, isNoActiveTurnError, createDeviceScopeButton, chatSkillTriggerAt, parseChatSkillInput, chatSkillTokenNames, mergeChatComposerText, mergeChatAttachments, chatComposerAction: typeof chatComposerAction === 'function' ? chatComposerAction : null, chatImageSrc, chatToolStatus, chatToolDuration, chatToolActivityLabel, chatToolHasExpandableBody, isChatActivityItem, isChatTraceItem: typeof isChatTraceItem === 'function' ? isChatTraceItem : null, chatRenderUnits: typeof chatRenderUnits === 'function' ? chatRenderUnits : null, renderChatTurnProgress: typeof renderChatTurnProgress === 'function' ? renderChatTurnProgress : null, chatActivityGroupSummaryText, chatActivityActiveSummarySegments, chatActivityGroupIconKind, renderChatActivityGroup, renderChatActivityRun: typeof renderChatActivityRun === 'function' ? renderChatActivityRun : null, renderChatItem: typeof renderChatItem === 'function' ? renderChatItem : null, sessionProjectInfo: typeof sessionProjectInfo === 'function' ? sessionProjectInfo : null, groupSessionsByProject: typeof groupSessionsByProject === 'function' ? groupSessionsByProject : null, sessionRow, sessionStatus, filterFileEntries, sortFileEntries: typeof sortFileEntries === 'function' ? sortFileEntries : null, normalizeFileView: typeof normalizeFileView === 'function' ? normalizeFileView : null, truncateFileColumns: typeof truncateFileColumns === 'function' ? truncateFileColumns : null, fileColumnRequestCurrent: typeof fileColumnRequestCurrent === 'function' ? fileColumnRequestCurrent : null, fileIconName: typeof fileIconName === 'function' ? fileIconName : null, activeFileLocationID: typeof activeFileLocationID === 'function' ? activeFileLocationID : null, applyTheme: typeof applyTheme === 'function' ? applyTheme : null, visualKeyboardInset: typeof visualKeyboardInset === 'function' ? visualKeyboardInset : null, sessionBackDragOffset: typeof sessionBackDragOffset === 'function' ? sessionBackDragOffset : null, isSessionBackSwipe: typeof isSessionBackSwipe === 'function' ? isSessionBackSwipe : null, ensurePendingChatStarted: typeof ensurePendingChatStarted === 'function' ? ensurePendingChatStarted : null, filePreviewTypeLabel, filePreviewLocation, chatTurnPinText: typeof chatTurnPinText === 'function' ? chatTurnPinText : () => '', isInternalChatTool: typeof isInternalChatTool === 'function' ? isInternalChatTool : () => false, state };`, appSandbox);
-const { chatCacheVictim, isChatConnectionKept, isSessionRunning, updateChatUpdatedAt, formatChatDate, chatAssistantMetaText, chatUserMetaText, chatMessageMetaVisibility, applyChatMetadataDefaults, enqueueChatFollowup, removeChatFollowup, normalizeChatDraft, isNoActiveTurnError, createDeviceScopeButton, chatSkillTriggerAt, parseChatSkillInput, chatSkillTokenNames, mergeChatComposerText, mergeChatAttachments, chatComposerAction, chatImageSrc, chatToolStatus, chatToolDuration, chatToolActivityLabel, chatToolHasExpandableBody, isChatActivityItem, isChatTraceItem, chatRenderUnits, renderChatTurnProgress, chatActivityGroupSummaryText, chatActivityActiveSummarySegments, chatActivityGroupIconKind, renderChatActivityGroup, renderChatActivityRun, renderChatItem, sessionProjectInfo, groupSessionsByProject, sessionRow, sessionStatus, filterFileEntries, sortFileEntries, normalizeFileView, truncateFileColumns, fileColumnRequestCurrent, fileIconName, activeFileLocationID, applyTheme, visualKeyboardInset, sessionBackDragOffset, isSessionBackSwipe, ensurePendingChatStarted, filePreviewTypeLabel, filePreviewLocation, chatTurnPinText, isInternalChatTool, state: appState } = appSandbox.__chatCacheTest;
+vm.runInContext(`${appSrc}\n;globalThis.__chatCacheTest = { chatCacheVictim, isChatConnectionKept, isSessionRunning, updateChatUpdatedAt, formatChatDate, chatAssistantMetaText, chatUserMetaText, chatMessageMetaVisibility, applyChatMetadataDefaults, normalizeChatDraft, isNoActiveTurnError, createDeviceScopeButton, chatSkillTriggerAt, parseChatSkillInput, chatSkillTokenNames, mergeChatComposerText, mergeChatAttachments, chatComposerAction: typeof chatComposerAction === 'function' ? chatComposerAction : null, chatImageSrc, chatToolStatus, chatToolDuration, chatToolActivityLabel, chatToolHasExpandableBody, isChatActivityItem, isChatTraceItem: typeof isChatTraceItem === 'function' ? isChatTraceItem : null, chatRenderUnits: typeof chatRenderUnits === 'function' ? chatRenderUnits : null, renderChatTurnProgress: typeof renderChatTurnProgress === 'function' ? renderChatTurnProgress : null, chatActivityGroupSummaryText, chatActivityActiveSummarySegments, chatActivityGroupIconKind, renderChatActivityGroup, renderChatActivityRun: typeof renderChatActivityRun === 'function' ? renderChatActivityRun : null, renderChatItem: typeof renderChatItem === 'function' ? renderChatItem : null, sessionProjectInfo: typeof sessionProjectInfo === 'function' ? sessionProjectInfo : null, groupSessionsByProject: typeof groupSessionsByProject === 'function' ? groupSessionsByProject : null, sessionRow, sessionStatus, filterFileEntries, sortFileEntries: typeof sortFileEntries === 'function' ? sortFileEntries : null, normalizeFileView: typeof normalizeFileView === 'function' ? normalizeFileView : null, truncateFileColumns: typeof truncateFileColumns === 'function' ? truncateFileColumns : null, fileColumnRequestCurrent: typeof fileColumnRequestCurrent === 'function' ? fileColumnRequestCurrent : null, fileIconName: typeof fileIconName === 'function' ? fileIconName : null, activeFileLocationID: typeof activeFileLocationID === 'function' ? activeFileLocationID : null, applyTheme: typeof applyTheme === 'function' ? applyTheme : null, visualKeyboardInset: typeof visualKeyboardInset === 'function' ? visualKeyboardInset : null, sessionBackDragOffset: typeof sessionBackDragOffset === 'function' ? sessionBackDragOffset : null, isSessionBackSwipe: typeof isSessionBackSwipe === 'function' ? isSessionBackSwipe : null, ensurePendingChatStarted: typeof ensurePendingChatStarted === 'function' ? ensurePendingChatStarted : null, filePreviewTypeLabel, filePreviewLocation, chatTurnPinText: typeof chatTurnPinText === 'function' ? chatTurnPinText : () => '', isInternalChatTool: typeof isInternalChatTool === 'function' ? isInternalChatTool : () => false, state };`, appSandbox);
+const { chatCacheVictim, isChatConnectionKept, isSessionRunning, updateChatUpdatedAt, formatChatDate, chatAssistantMetaText, chatUserMetaText, chatMessageMetaVisibility, applyChatMetadataDefaults, normalizeChatDraft, isNoActiveTurnError, createDeviceScopeButton, chatSkillTriggerAt, parseChatSkillInput, chatSkillTokenNames, mergeChatComposerText, mergeChatAttachments, chatComposerAction, chatImageSrc, chatToolStatus, chatToolDuration, chatToolActivityLabel, chatToolHasExpandableBody, isChatActivityItem, isChatTraceItem, chatRenderUnits, renderChatTurnProgress, chatActivityGroupSummaryText, chatActivityActiveSummarySegments, chatActivityGroupIconKind, renderChatActivityGroup, renderChatActivityRun, renderChatItem, sessionProjectInfo, groupSessionsByProject, sessionRow, sessionStatus, filterFileEntries, sortFileEntries, normalizeFileView, truncateFileColumns, fileColumnRequestCurrent, fileIconName, activeFileLocationID, applyTheme, visualKeyboardInset, sessionBackDragOffset, isSessionBackSwipe, ensurePendingChatStarted, filePreviewTypeLabel, filePreviewLocation, chatTurnPinText, isInternalChatTool, state: appState } = appSandbox.__chatCacheTest;
 vm.runInContext('globalThis.__updateChatSkillMenuTest = updateChatSkillMenu;', appSandbox);
 const updateChatSkillMenu = appSandbox.__updateChatSkillMenuTest;
+vm.runInContext('globalThis.__chatQueuePresentationTest = chatQueuePresentation;', appSandbox);
+const chatQueuePresentation = appSandbox.__chatQueuePresentationTest;
+vm.runInContext('globalThis.__queueStatusCardTest = queueStatusCard;', appSandbox);
+const queueStatusCard = appSandbox.__queueStatusCardTest;
 function toolLabelText(item) {
   const status = chatToolStatus(item.status);
   return chatToolActivityLabel(item, status, chatToolDuration(item.durationMs)).map(nodeText).join('');
@@ -602,10 +606,98 @@ test('external Codex writer keeps Fleet visible and queues confirmed input witho
   assert.match(appSrc, /writerOwner:\s*''/);
   assert.match(appSrc, /isDesktopChatOwned/);
   assert.match(appSrc, /Codex Desktop 已打开此会话/);
-  assert.match(appSrc, /enqueueChatFollowup/);
-  assert.match(appSrc, /external_turn_running/);
+  assert.match(appSrc, /enqueueServerChatMessage/);
+  assert.match(appSrc, /deliveryMode/);
   assert.match(appSrc, /chat\/resume/);
   assert.match(styleCSS, /\.chat-desktop-running/);
+});
+
+test('Fleet writer ownership is shown in the header and can be released into read-only mode', () => {
+  assert.match(appSrc, /会话已被 Fleet 占有，如果 Codex 操作受限，可先/);
+  assert.match(appSrc, /text: chat\.releasingWriter \? '释放中…' : '释放会话'/);
+  assert.match(appSrc, /chat\/access/);
+  assert.match(appSrc, /action: 'release'/);
+  assert.match(appSrc, /if \(chat\?\.accessMode === 'read_only'\) return 'readonly'/);
+  assert.match(styleCSS, /\.chat-writer-state/);
+  assert.match(styleCSS, /\.chat-release-writer/);
+});
+
+test('Dashboard is a server-authoritative chat shell with no local delivery state machine', () => {
+  assert.doesNotMatch(appSrc, /macfleet:codex-followups/);
+  assert.doesNotMatch(appSrc, /function flushChatFollowups/);
+  assert.doesNotMatch(appSrc, /chat\/input/);
+  assert.doesNotMatch(appSrc, /chat\/steer/);
+  assert.doesNotMatch(appSrc, /writerOwner:\s*item\.externalWriter/);
+  assert.match(appSrc, /forceQueue \? 'next' : 'auto'/);
+  assert.match(appSrc, /chat\/queue/);
+  assert.match(appSrc, /accessMode/);
+});
+
+test('server queue states map to distinct native UI treatments and actions', () => {
+  assert.match(appSrc, /writer_confirmation_required/);
+  assert.match(appSrc, /waiting_access/);
+  assert.match(appSrc, /uncertain/);
+  assert.match(appSrc, /正在插入当前任务/);
+  assert.match(appSrc, /服务器已保存 · 当前任务结束后发送/);
+  assert.match(appSrc, /等待释放/);
+  assert.match(appSrc, /Fleet 当前只读；恢复 Fleet 写入后才会发送/);
+  assert.match(appSrc, /上次投递结果未知/);
+  assert.match(appSrc, /恢复 Fleet 写入/);
+  assert.match(appSrc, /decideServerChatQueue\(item, 'steer'\)/);
+  const waitingTurnBranch = appSrc.slice(appSrc.indexOf('function renderChatFollowups'), appSrc.indexOf('function renderChatAttachments'));
+  assert.doesNotMatch(waitingTurnBranch, /强制接管/);
+});
+
+test('every server queue state has an explicit placement, label, and legal browser actions', () => {
+  const expected = {
+    queued: ['transcript', []],
+    steering: ['transcript', []],
+    waiting_turn: ['followup', ['steer', 'cancel']],
+    writer_confirmation_required: ['transcript', ['wait', 'force', 'cancel']],
+    waiting_writer: ['transcript', ['force', 'cancel']],
+    waiting_access: ['transcript', ['enable-write', 'cancel']],
+    takeover_check: ['transcript', []],
+    takeover_confirmation_required: ['transcript', ['confirm-force', 'wait', 'cancel']],
+    taking_over: ['transcript', []],
+    sending: ['transcript', []],
+    recovering: ['transcript', []],
+    uncertain: ['transcript', ['retry', 'cancel']],
+    failed: ['transcript', ['retry', 'cancel']],
+    sent: ['hidden', []],
+    cancelled: ['hidden', []],
+  };
+  for (const [status, [placement, actions]] of Object.entries(expected)) {
+    const presentation = chatQueuePresentation({ status });
+    assert.equal(presentation.placement, placement, status);
+    assert.ok(presentation.label.length > 0, `${status} has label`);
+    assert.deepEqual(Array.from(presentation.actions), actions, status);
+  }
+  const unknown = chatQueuePresentation({ status: 'future_state' });
+  assert.equal(unknown.placement, 'transcript');
+  assert.match(unknown.label, /未知队列状态/);
+  assert.deepEqual(Array.from(unknown.actions), []);
+});
+
+test('queue transcript cards render exactly the actions permitted by the state matrix', () => {
+  const cases = {
+    queued: ['消息已保存'],
+    steering: ['正在插入当前任务'],
+    writer_confirmation_required: ['等待并发送', '强制接管', '取消'],
+    waiting_writer: ['强制接管', '取消'],
+    waiting_access: ['恢复 Fleet 写入', '取消'],
+    takeover_confirmation_required: ['中断全部并接管', '继续排队', '取消'],
+    sending: ['正在启动下一轮'],
+    recovering: ['正在核对'],
+    uncertain: ['重新尝试', '取消'],
+    failed: ['发送失败', '重新尝试', '取消'],
+  };
+  for (const [status, labels] of Object.entries(cases)) {
+    const text = nodeText(queueStatusCard({ status, affected: [] }));
+    for (const label of labels) assert.match(text, new RegExp(label), `${status}: ${label}`);
+    if (!chatQueuePresentation({ status }).actions.some((action) => action === 'force' || action === 'confirm-force')) {
+      assert.doesNotMatch(text, /强制接管/, `${status} must not offer takeover`);
+    }
+  }
 });
 
 test('external writer messages use the agent queue and render takeover actions below the user message', () => {
@@ -614,8 +706,9 @@ test('external writer messages use the agent queue and render takeover actions b
   assert.match(appSrc, /enqueueServerChatMessage/);
   assert.match(appSrc, /中断全部并接管/);
   assert.match(appSrc, /继续排队/);
-  assert.match(appSrc, /该会话正在目标 Mac 的本地 Codex 中使用/);
+  assert.match(appSrc, /此会话正在其他 Codex 客户端中使用/);
   assert.match(appSrc, /item\.decisionPending = action/);
+  assert.match(appSrc, /stateVersion: item\.stateVersion/);
   assert.match(appSrc, /disabled: pending \? '' : null/);
   assert.match(appSrc, /重新尝试/);
   assert.match(styleCSS, /\.chat-queue-status/);
@@ -624,25 +717,25 @@ test('external writer messages use the agent queue and render takeover actions b
 
 test('Fleet-owned turn queue reuses the composer follow-up stack instead of transcript cards', () => {
   const queueCard = appSrc.slice(appSrc.indexOf('function queueStatusCard'), appSrc.indexOf('function acknowledgeChatFollowups'));
-  const followups = appSrc.slice(appSrc.indexOf('function renderChatFollowups'), appSrc.indexOf('function editChatFollowup'));
+  const followups = appSrc.slice(appSrc.indexOf('function renderChatFollowups'), appSrc.indexOf('function renderChatAttachments'));
   assert.doesNotMatch(queueCard, /status === 'queued' \|\| status === 'waiting_turn'/);
   assert.match(appSrc, /function isFleetQueueFollowup/);
-  assert.match(appSrc, /item\?\.writerOwner/);
   assert.match(appSrc, /!isFleetQueueFollowup\(queued\)/);
-  assert.match(followups, /isFleetQueueFollowup\(item\)/);
-  assert.match(followups, /结束后发送/);
+  assert.match(followups, /filter\(isFleetQueueFollowup\)/);
+  assert.match(followups, /chatQueuePresentation\(item\)\.label/);
+  assert.match(followups, /decideServerChatQueue\(item, 'steer'\)/);
   assert.match(followups, /decideServerChatQueue\(item, 'cancel'\)/);
   assert.match(followups, /disabled: item\.decisionPending \? '' : null/);
   assert.match(appSrc, /decisionPending: currentQueue\.get\(item\.id\)\?\.decisionPending \|\| ''/);
-  assert.match(appSrc, /if \(transcript\) chat\.model = FleetChatModel\.appendUserMessage/);
-  assert.match(appSrc, /enqueueServerChatMessage\(chat, item, \{ transcript: true \}\)/);
+  assert.match(appSrc, /chat\.model = FleetChatModel\.appendUserMessage/);
   assert.match(appSrc, /chat\.model = FleetChatModel\.removeMessage\(chat\.model, item\.clientMessageId\)/);
 });
 
-test('agent-owned queue is excluded from legacy browser persistence and direct flushing', () => {
-  assert.match(appSrc, /filter\(\(item\) => !item\.clientMessageId\)\.map/);
-  assert.match(appSrc, /const item = chat\.followups\?\.find\(\(entry\) => !entry\.clientMessageId\)/);
-  assert.match(appSrc, /loadServerChatQueue\(chat\)\.then\(\(\) => migrateLocalChatFollowups\(chat\)\)/);
+test('browser queue projection is replaced from the server without legacy persistence', () => {
+  assert.doesNotMatch(appSrc, /macfleet:codex-followups/);
+  assert.doesNotMatch(appSrc, /migrateLocalChatFollowups|persistChatFollowups|loadChatFollowups/);
+  assert.match(appSrc, /chat\.followups = visibleQueue/);
+  assert.match(appSrc, /chat\.accessMode = result\?\.accessMode/);
 });
 
 test('successfully sent queue items do not render a redundant status card', () => {
@@ -650,15 +743,15 @@ test('successfully sent queue items do not render a redundant status card', () =
 });
 
 test('refresh restores only actionable queue items, not sent or cancelled history', () => {
-  assert.match(appSrc, /filter\(\(item\) => item\.status !== 'sent' && item\.status !== 'cancelled'\)/);
+  assert.match(appSrc, /filter\(\(item\) => chatQueuePresentation\(item\)\.placement !== 'hidden'\)/);
   assert.match(appSrc, /for \(const item of visibleQueue\)/);
 });
 
 test('takeover is offered only for an external writer, never the current Fleet turn', () => {
-  const queueCard = appSrc.slice(appSrc.indexOf('function queueStatusCard'), appSrc.indexOf('function acknowledgeChatFollowups'));
-  assert.match(queueCard, /if \(status === 'waiting_writer'\)/);
-  assert.doesNotMatch(queueCard, /status === 'queued' \|\| status === 'waiting_turn'/);
-  assert.doesNotMatch(queueCard, /status === 'queued' \|\| status === 'waiting_writer'/);
+  assert.deepEqual(Array.from(chatQueuePresentation({ status: 'writer_confirmation_required' }).actions), ['wait', 'force', 'cancel']);
+  assert.deepEqual(Array.from(chatQueuePresentation({ status: 'waiting_writer' }).actions), ['force', 'cancel']);
+  assert.deepEqual(Array.from(chatQueuePresentation({ status: 'waiting_turn' }).actions), ['steer', 'cancel']);
+  assert.deepEqual(Array.from(chatQueuePresentation({ status: 'queued' }).actions), []);
 });
 
 test('waiting reply label is suppressed after an opened chat proves there is no actionable request', () => {
@@ -1043,26 +1136,13 @@ test('no-active errors support structured and legacy agent responses', () => {
   assert.equal(isNoActiveTurnError({ code: 'chat_failed', message: 'connection reset' }), false);
 });
 
-test('follow-up queue is FIFO and removing one item preserves the others', () => {
-  const chat = { followups: [] };
-  const images = [{ id: 'img-1', name: 'one.png' }];
-  const first = enqueueChatFollowup(chat, 'first', images, 'follow-1');
-  const second = enqueueChatFollowup(chat, 'second', [], 'follow-2');
-  assert.equal(first.id, 'follow-1');
-  assert.deepEqual(Array.from(chat.followups, (item) => item.id), ['follow-1', 'follow-2']);
-  assert.notEqual(first.images, images);
-
-  const removed = removeChatFollowup(chat, 'follow-1');
-  assert.equal(removed.text, 'first');
-  assert.deepEqual(Array.from(chat.followups, (item) => item.id), ['follow-2']);
-  assert.equal(second.text, 'second');
-});
-
 test('composer sends running input to the follow-up queue and only stops when empty', () => {
   const idle = { model: { phase: 'idle' } };
   const running = { model: { phase: 'running' } };
   const desktopIdle = { writerOwner: 'desktop', model: { phase: 'idle' } };
   const desktopRunning = { writerOwner: 'desktop', model: { phase: 'running', turnOwner: 'desktop' } };
+  const readOnly = { accessMode: 'read_only', model: { phase: 'idle' } };
+  const releasing = { releasingWriter: true, model: { phase: 'running' } };
 
   assert.equal(chatComposerAction(idle, false), 'send');
   assert.equal(chatComposerAction(idle, true), 'send');
@@ -1071,12 +1151,19 @@ test('composer sends running input to the follow-up queue and only stops when em
   assert.equal(chatComposerAction(desktopIdle, false), 'wait-desktop');
   assert.equal(chatComposerAction(desktopIdle, true), 'queue-desktop');
   assert.equal(chatComposerAction(desktopRunning, true), 'queue-desktop');
+  assert.equal(chatComposerAction(readOnly, true), 'readonly');
+  assert.equal(chatComposerAction(releasing, true), 'transition');
   assert.match(appSrc, /submitChatInput\(\{ forceQueue: action === 'queue' \}\)/);
   assert.match(appSrc, /Codex Desktop 正在输出/);
   assert.match(appSrc, /chatComposerAction[\s\S]*queue-desktop/);
-  assert.match(appSrc, /persistChatFollowups\(chat\)/);
-  assert.match(appSrc, /e\?\.code === 'external_turn_running'/);
-  assert.match(appSrc, /chat\.writerOwner === 'desktop'.*flushChatFollowups/s);
+  assert.match(appSrc, /enqueueServerChatMessage\(chat, item, forceQueue \? 'next' : 'auto'\)/);
+  assert.doesNotMatch(appSrc, /external_turn_running|flushChatFollowups/);
+  assert.match(appSrc, /input\.placeholder = action === 'readonly' \? 'Fleet 已释放此会话'/);
+  assert.match(appSrc, /attach\.disabled = mutationBlocked/);
+  assert.match(appSrc, /approval\.disabled = mutationBlocked/);
+  assert.match(appSrc, /function chatMutationsBlocked/);
+  assert.match(appSrc, /disabled: chatMutationsBlocked\(\) \? '' : null/);
+  assert.match(appSrc, /if \(chatMutationsBlocked\(chat\) \|\| !requestId/);
 });
 
 test('command enter steers the running turn before the skill menu handles enter', () => {
@@ -2129,13 +2216,13 @@ test('composer draft normalization rejects null-like persisted values', () => {
 });
 
 test('send and stop source contracts reject stale active state', () => {
-  assert.match(appSrc, /typeof started\.turnId !== 'string'/);
-  assert.match(appSrc, /FleetChatModel\.removeMessage\(chat\.model, optimisticId\)/);
+  assert.match(appSrc, /deliveryMode: deliveryMode === 'next' \? 'next' : 'auto'/);
+  assert.match(appSrc, /FleetChatModel\.removeMessage\(chat\.model, item\.id\)/);
   assert.match(appSrc, /restoreChatComposerItem\(chat, item\)/);
   assert.match(appSrc, /Skill 列表加载失败，消息未发送/);
   assert.match(appSrc, /isNoActiveTurnError\(e\)/);
   assert.match(appSrc, /reconcileChatInactiveTurn\(chat, observedTurnId\)/);
-  assert.match(appSrc, /await flushChatFollowups\(chat\)/);
+  assert.match(appSrc, /await loadServerChatQueue\(chat\)/);
 });
 
 test('new Codex sessions open a local self-drawn draft before starting', () => {

@@ -1596,6 +1596,31 @@ function isDesktopChatOwned(chat) {
   return !!chat && (chat.writerOwner === 'desktop' || isDesktopChatRunning(chat));
 }
 
+function renderChatOwnershipHead(chat = state.chat) {
+  if (!chat || state.chat !== chat) return;
+  const tt = $('#win-title'); clear(tt);
+  tt.append(h('span', { class: 'dot live' }), h('span', { class: 'ttl', text: chat.title || 'Codex 会话' }));
+  if (chat.accessMode === 'read_only') {
+    tt.append(h('span', { class: 'chat-writer-state readonly' },
+      h('span', { text: 'Fleet 只读，Codex 可接管' }),
+      h('button', {
+        type: 'button', class: 'chat-release-writer', text: chat.changingAccess ? '恢复中…' : '恢复 Fleet 写入',
+        disabled: chat.changingAccess ? '' : null,
+        onclick: enableChatWriter,
+      })));
+  } else if (chat.writerOwner === 'fleet') {
+    tt.append(h('span', { class: 'chat-writer-state' },
+      h('span', { text: '会话已被 Fleet 占有，如果 Codex 操作受限，可先' }),
+      h('button', {
+        type: 'button', class: 'chat-release-writer', text: chat.releasingWriter ? '释放中…' : '释放会话',
+        disabled: chat.releasingWriter ? '' : null,
+        onclick: releaseChatWriter,
+      })));
+  } else if (isDesktopChatOwned(chat)) {
+    tt.append(h('span', { class: 'chat-writer-state readonly', text: '其他 Codex 客户端正在使用 · Fleet 只读同步' }));
+  }
+}
+
 function isNoActiveTurnError(error) {
   return error?.code === 'no_active_turn'
     || /no active turn to (?:steer|interrupt)/i.test(String(error?.message || ''));
@@ -1617,69 +1642,17 @@ function reconcileChatInactiveTurn(chat, observedTurnId) {
   return true;
 }
 
-function enqueueChatFollowup(chat, text, images, id, skills, displayText) {
-  if (!chat) return null;
-  chat.followups = chat.followups || [];
-  const item = {
-    id: id || `follow-${Date.now()}-${Math.random().toString(16).slice(2)}`,
-    text: typeof text === 'string' ? text : '',
-    displayText: typeof displayText === 'string' ? displayText : '',
-    images: Array.isArray(images) ? images.map((image) => ({ ...image })) : [],
-    skills: Array.isArray(skills) ? skills.map((skill) => ({ id: skill.id, name: skill.name })) : [],
-  };
-  chat.followups.push(item);
-  persistChatFollowups(chat);
-  return item;
-}
-
-function removeChatFollowup(chat, id) {
-  if (!chat?.followups) return null;
-  const index = chat.followups.findIndex((item) => item.id === id);
-  if (index < 0) return null;
-  const removed = chat.followups.splice(index, 1)[0];
-  persistChatFollowups(chat);
-  return removed;
-}
-
-function chatFollowupStorageKey(chat) {
-  if (!chat?.macId || !chat?.sessionId) return '';
-  return `macfleet:codex-followups:${chat.macId}:${chat.sessionId}`;
-}
-
-function persistChatFollowups(chat) {
-  const key = chatFollowupStorageKey(chat);
-  if (!key) return;
-  try {
-    const items = (chat.followups || []).filter((item) => !item.clientMessageId).map((item) => ({
-      id: item.id, text: item.text || '', displayText: item.displayText || '',
-      images: (item.images || []).map(({ id, name, mime, size, url }) => ({ id, name, mime, size, url })),
-      skills: (item.skills || []).map(({ id, name }) => ({ id, name })),
-    }));
-    if (items.length) localStorage.setItem(key, JSON.stringify(items));
-    else localStorage.removeItem(key);
-  } catch (_) {}
-}
-
-function loadChatFollowups(macId, sessionId) {
-  try {
-    const raw = localStorage.getItem(`macfleet:codex-followups:${macId}:${sessionId}`);
-    const items = raw ? JSON.parse(raw) : [];
-    return Array.isArray(items) ? items.filter((item) => item?.id && (item.text || item.images?.length || item.skills?.length)) : [];
-  } catch (_) {
-    return [];
-  }
-}
-
 async function loadServerChatQueue(chat) {
   if (!chat || chat.pendingStart) return;
   try {
     const result = await api(chat.macId, `chat/queue?assistant=codex&sessionId=${encodeURIComponent(chat.sessionId)}`);
-    const legacy = (chat.followups || []).filter((item) => !item.clientMessageId);
     const currentQueue = new Map((chat.followups || []).filter((item) => item.clientMessageId).map((item) => [item.id, item]));
     const visibleQueue = (Array.isArray(result?.items) ? result.items : [])
-      .filter((item) => item.status !== 'sent' && item.status !== 'cancelled')
+      .filter((item) => chatQueuePresentation(item).placement !== 'hidden')
       .map((item) => ({ ...item, decisionPending: currentQueue.get(item.id)?.decisionPending || '' }));
-    chat.followups = [...legacy, ...visibleQueue];
+    chat.followups = visibleQueue;
+    chat.accessMode = result?.accessMode === 'read_only' ? 'read_only' : 'read_write';
+    if (visibleQueue.some((item) => item.writerOwner === 'desktop')) chat.writerOwner = 'desktop';
     for (const item of visibleQueue) {
       if (isFleetQueueFollowup(item)) {
         chat.model = FleetChatModel.removeMessage(chat.model, item.clientMessageId);
@@ -1690,27 +1663,43 @@ async function loadServerChatQueue(chat) {
     if (state.chat === chat) {
       renderChat();
       renderChatFollowups();
+      updateChatComposerState();
     }
   } catch (_) {}
 }
 
-function isFleetQueueFollowup(item) {
-  if (item?.writerOwner) return item.writerOwner === 'fleet';
-  return item?.status === 'queued' || item?.status === 'waiting_turn';
+const CHAT_QUEUE_UI = Object.freeze({
+  queued: { placement: 'transcript', label: '消息已保存', actions: [] },
+  steering: { placement: 'transcript', label: '正在插入当前任务…', actions: [] },
+  waiting_turn: { placement: 'followup', label: '服务器已保存 · 当前任务结束后发送', actions: ['steer', 'cancel'] },
+  writer_confirmation_required: { placement: 'transcript', label: '此会话正在其他 Codex 客户端中使用。等待释放，或确认强制接管。', actions: ['wait', 'force', 'cancel'] },
+  waiting_writer: { placement: 'transcript', label: '已由服务器排队，等待其他 Codex 客户端释放会话。', actions: ['force', 'cancel'] },
+  waiting_access: { placement: 'transcript', label: 'Fleet 当前只读；恢复 Fleet 写入后才会发送。', actions: ['enable-write', 'cancel'] },
+  takeover_check: { placement: 'transcript', label: '正在检查目标 Mac 上受影响的任务…', actions: [] },
+  takeover_confirmation_required: { placement: 'transcript', label: '强制接管会中断目标 Mac 上以下任务', actions: ['confirm-force', 'wait', 'cancel'] },
+  taking_over: { placement: 'transcript', label: '正在强制接管目标 Mac 上的会话…', actions: [] },
+  sending: { placement: 'transcript', label: '正在启动下一轮…', actions: [] },
+  recovering: { placement: 'transcript', label: '服务已重启，正在核对这条消息是否已经投递…', actions: [] },
+  uncertain: { placement: 'transcript', label: '上次投递结果未知。请先核对会话历史，再决定重试或取消。', actions: ['retry', 'cancel'] },
+  failed: { placement: 'transcript', label: '发送失败，请重新尝试', actions: ['retry', 'cancel'] },
+  sent: { placement: 'hidden', label: '已发送', actions: [] },
+  cancelled: { placement: 'hidden', label: '已取消', actions: [] },
+});
+
+function chatQueuePresentation(item) {
+  const status = item?.status || 'queued';
+  const configured = CHAT_QUEUE_UI[status];
+  if (!configured) return { status, placement: 'transcript', label: `未知队列状态：${status}`, actions: [] };
+  return {
+    status,
+    placement: configured.placement,
+    label: status === 'failed' && item?.error ? item.error : configured.label,
+    actions: configured.actions.slice(),
+  };
 }
 
-async function migrateLocalChatFollowups(chat) {
-  const legacy = (chat?.followups || []).filter((item) => !item.clientMessageId);
-  if (!legacy.length) return;
-  for (const item of legacy) {
-    const queued = await saveServerChatQueueItem(chat, item);
-    if (!queued) return;
-    const index = chat.followups.findIndex((entry) => entry.id === item.id && !entry.clientMessageId);
-    if (index >= 0) chat.followups.splice(index, 1);
-    chat.followups.push(queued);
-    persistChatFollowups(chat);
-  }
-  if (state.chat === chat) renderChat();
+function isFleetQueueFollowup(item) {
+  return chatQueuePresentation(item).placement === 'followup';
 }
 
 function startServerChatQueueSync(chat) {
@@ -1727,7 +1716,7 @@ async function decideServerChatQueue(item, action) {
   try {
     const updated = await api(chat.macId, 'chat/queue/decision', {
       method: 'POST', headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ id: item.id, action, auditVersion: item.auditVersion || '' }),
+      body: JSON.stringify({ id: item.id, action, auditVersion: item.auditVersion || '', stateVersion: item.stateVersion }),
     });
     const index = chat.followups.findIndex((entry) => entry.id === item.id);
     if (index >= 0) chat.followups[index] = updated;
@@ -1738,30 +1727,40 @@ async function decideServerChatQueue(item, action) {
     renderChatFollowups();
   } catch (error) {
     item.decisionPending = '';
-    item.status = 'failed';
-    item.error = `操作失败：${error.message}`;
-    toast(item.error, 'err');
+    toast(`操作失败：${error.message}`, 'err');
+    await loadServerChatQueue(chat);
   }
   renderChat();
   renderChatFollowups();
 }
 
 function queueStatusCard(item) {
-  const status = item?.writerOwner === 'desktop' && item?.status === 'queued'
-    ? 'waiting_writer' : (item?.status || 'queued');
-  const labels = { queued: '消息已保存，等待当前任务结束后发送', waiting_turn: '当前 Fleet 任务仍在运行，消息将在结束后发送', waiting_writer: '该会话正在目标 Mac 的本地 Codex 中使用，Fleet 正在等待控制权', takeover_check: '正在检查目标 Mac 上受影响的任务…', takeover_confirmation_required: '强制接管会中断目标 Mac 上以下任务', taking_over: '正在强制接管目标 Mac 上的会话…', sending: '正在发送…', sent: '已发送', failed: item.error || '发送失败，请重新尝试', cancelled: '已取消' };
+  const presentation = chatQueuePresentation(item);
+  const status = presentation.status;
   const pending = !!item.decisionPending;
   const actions = [];
-	if (status === 'waiting_writer') {
-    actions.push(h('button', { type: 'button', class: 'btn sm danger', disabled: pending ? '' : null, onclick: () => decideServerChatQueue(item, 'force') }, pending && item.decisionPending === 'force' ? '正在接管…' : '强制接管'));
-    actions.push(h('button', { type: 'button', class: 'btn sm', disabled: pending ? '' : null, onclick: () => decideServerChatQueue(item, 'wait') }, '继续排队'));
-	} else if (status === 'takeover_confirmation_required') {
-    actions.push(h('button', { type: 'button', class: 'btn sm danger', disabled: pending ? '' : null, onclick: () => decideServerChatQueue(item, 'confirm-force') }, pending ? '正在接管…' : '中断全部并接管'));
-    actions.push(h('button', { type: 'button', class: 'btn sm', disabled: pending ? '' : null, onclick: () => decideServerChatQueue(item, 'wait') }, '继续排队'));
-  } else if (status === 'failed') actions.push(h('button', { type: 'button', class: 'btn sm', disabled: pending ? '' : null, onclick: () => decideServerChatQueue(item, 'retry') }, pending ? '正在重试…' : '重新尝试'));
-  if (status === 'waiting_writer') actions.push(h('button', { type: 'button', class: 'btn sm bare', disabled: pending ? '' : null, onclick: () => decideServerChatQueue(item, 'cancel') }, '取消'));
+  for (const action of presentation.actions) {
+    if (action === 'steer') continue;
+    if (action === 'enable-write') {
+      actions.push(h('button', { type: 'button', class: 'btn sm accent', disabled: chatAccessBusy() ? '' : null, onclick: enableChatWriter }, chatAccessBusy() ? '恢复中…' : '恢复 Fleet 写入'));
+      continue;
+    }
+    const danger = action === 'force' || action === 'confirm-force';
+    const bare = action === 'cancel';
+    const labels = {
+      wait: status === 'writer_confirmation_required' ? '等待并发送' : '继续排队',
+      force: pending && item.decisionPending === 'force' ? '正在接管…' : '强制接管',
+      'confirm-force': pending ? '正在接管…' : '中断全部并接管',
+      retry: pending ? '正在重试…' : '重新尝试',
+      cancel: '取消',
+    };
+    actions.push(h('button', {
+      type: 'button', class: `btn sm${danger ? ' danger' : ''}${bare ? ' bare' : ''}`,
+      disabled: pending ? '' : null, onclick: () => decideServerChatQueue(item, action),
+    }, labels[action] || action));
+  }
   return h('section', { class: `chat-queue-status ${status}` },
-    h('div', { class: 'chat-queue-status-title', text: labels[status] || status }),
+    h('div', { class: 'chat-queue-status-title', text: presentation.label }),
     status === 'takeover_confirmation_required' ? h('p', { class: 'chat-queue-warning', text: '再次确认将立即中断目标机器上以下全部运行中任务，并把会话控制权交给 Fleet。' }) : null,
     item.affected?.length ? h('div', { class: 'chat-queue-affected' }, ...item.affected.map((impact) => h('div', { text: `${impact.active ? '运行中' : '占用中'} · ${impact.title || impact.sessionId}` }))) : null,
     actions.length ? h('div', { class: 'chat-queue-actions' }, ...actions) : null);
@@ -1771,8 +1770,9 @@ function acknowledgeChatFollowups(chat, events) {
   let changed = false;
   for (const ev of events || []) {
     const id = FleetChatModel.followupAckId(ev);
-    const item = id && chat?.followups?.find((entry) => entry.id === id);
-    if (item && !item.clientMessageId && removeChatFollowup(chat, id)) changed = true;
+    const before = chat?.followups?.length || 0;
+    if (id && chat?.followups) chat.followups = chat.followups.filter((entry) => entry.clientMessageId !== id);
+    if ((chat?.followups?.length || 0) !== before) changed = true;
   }
   return changed;
 }
@@ -1975,6 +1975,7 @@ function renderChat({ preserveScroll = false, forceBottom = false } = {}) {
   }
   if (chat.loading) stack.append(chatRow(h('div', { class: 'chat-card muted', text: '正在连接 Codex app-server…' })));
   const model = chat.model || FleetChatModel.createChatState();
+  renderChatOwnershipHead(chat);
   if (isDesktopChatOwned(chat)) {
     const running = model.phase === 'running' && model.turnOwner === 'desktop';
     stack.append(h('div', { class: 'chat-desktop-running' },
@@ -2564,6 +2565,7 @@ function requestActionButton(label, response, primary = false) {
   return h('button', {
     type: 'button',
     class: `btn sm${primary ? ' primary' : ''}`,
+    disabled: chatMutationsBlocked() ? '' : null,
     onclick: (event) => respondChatRequest(event.currentTarget.closest('[data-request-id]')?.dataset.requestId, response),
   }, label);
 }
@@ -2630,7 +2632,7 @@ function renderUserInputQuestion(item, question, index) {
       autocomplete: question.isSecret ? 'new-password' : 'off',
     }));
   }
-  return h('fieldset', { class: 'chat-request-fieldset', dataset: { questionId: question.id, fieldName: name } },
+  return h('fieldset', { class: 'chat-request-fieldset', disabled: chatMutationsBlocked() ? '' : null, dataset: { questionId: question.id, fieldName: name } },
     question.header ? h('legend', { text: question.header }) : null,
     h('div', { class: 'chat-request-question', text: question.question || '' }),
     ...fields);
@@ -2681,7 +2683,7 @@ function renderChatUserInputRequest(item) {
   h('div', { class: 'chat-approval-body' },
     ...(item.questions || []).map((question, index) => renderUserInputQuestion(item, question, index)),
     h('div', { class: 'chat-approval-actions' },
-      h('button', { type: 'submit', class: 'btn sm primary' }, '提交回答'))));
+      h('button', { type: 'submit', class: 'btn sm primary', disabled: chatMutationsBlocked() ? '' : null }, '提交回答'))));
   return chatRow(form, 'approval');
 }
 
@@ -2701,16 +2703,16 @@ function renderMcpFormField(key, schema, required) {
   let control;
   if (options.length && schema.type === 'array') {
     control = h('div', { class: 'chat-request-options' }, options.map((option) => h('label', { class: 'chat-request-option' },
-      h('input', { type: 'checkbox', name: key, value: option.value }),
+      h('input', { type: 'checkbox', name: key, value: option.value, disabled: chatMutationsBlocked() ? '' : null }),
       h('span', { text: option.label }))));
   } else if (options.length) {
-    control = h('select', { class: 'chat-request-input', name: key, required: required ? '' : null },
+    control = h('select', { class: 'chat-request-input', name: key, required: required ? '' : null, disabled: chatMutationsBlocked() ? '' : null },
       required ? h('option', { value: '', text: '请选择' }) : null,
       ...options.map((option) => h('option', { value: option.value, text: option.label,
         selected: schema.default === option.value ? '' : null })));
   } else if (schema.type === 'boolean') {
     control = h('label', { class: 'chat-request-option inline' },
-      h('input', { type: 'checkbox', name: key, checked: schema.default === true ? '' : null }),
+      h('input', { type: 'checkbox', name: key, checked: schema.default === true ? '' : null, disabled: chatMutationsBlocked() ? '' : null }),
       h('span', { text: schema.description || label }));
   } else {
     control = h('input', {
@@ -2725,6 +2727,7 @@ function renderMcpFormField(key, schema, required) {
       maxlength: schema.maxLength,
       value: schema.default ?? '',
       required: required ? '' : null,
+      disabled: chatMutationsBlocked() ? '' : null,
     });
   }
   return h('label', { class: 'chat-request-field', dataset: { mcpField: key, fieldType: schema.type || 'string' } },
@@ -2768,7 +2771,7 @@ function renderChatElicitationRequest(item) {
   } else {
     body.push(...fields.map(([key, field]) => renderMcpFormField(key, field || {}, required.has(key))));
     body.push(h('div', { class: 'chat-approval-actions' },
-      h('button', { type: 'submit', class: 'btn sm primary' }, '提交'),
+      h('button', { type: 'submit', class: 'btn sm primary', disabled: chatMutationsBlocked() ? '' : null }, '提交'),
       requestActionButton('拒绝', { action: 'decline' })));
   }
   const form = h('form', {
@@ -2909,9 +2912,15 @@ function resizeChatInput() {
 }
 
 function chatComposerAction(chat, hasContent) {
+  if (chat?.releasingWriter || chat?.changingAccess) return 'transition';
+  if (chat?.accessMode === 'read_only') return 'readonly';
   if (isDesktopChatOwned(chat)) return hasContent ? 'queue-desktop' : 'wait-desktop';
   if (!isChatRunning(chat)) return 'send';
   return hasContent ? 'queue' : 'interrupt';
+}
+
+function chatMutationsBlocked(chat = state.chat) {
+  return !chat || chat.accessMode === 'read_only' || chat.releasingWriter || chat.changingAccess;
 }
 
 function updateChatComposerState() {
@@ -2922,11 +2931,29 @@ function updateChatComposerState() {
   const blocked = attachments.some((att) => att.uploading || att.error || (!att.id && !att.pendingUpload));
   const hasContent = Boolean(input?.value.trim()) || attachments.length > 0;
   const action = chatComposerAction(state.chat, hasContent);
+  const mutationBlocked = action === 'readonly' || action === 'transition';
   send.dataset.action = action;
-  send.disabled = !state.chat || !!state.chat.starting || action === 'wait-desktop' || (action === 'interrupt'
+  if (input) {
+    input.disabled = mutationBlocked;
+    input.placeholder = action === 'readonly' ? 'Fleet 已释放此会话' : (action === 'transition' ? '正在切换会话访问状态…' : '给 Codex 发送消息…');
+  }
+  const attach = $('#chat-attach');
+  const options = $('#chat-options-trigger');
+  const approval = $('#chat-approval');
+  if (attach) attach.disabled = mutationBlocked;
+  if (options) options.disabled = mutationBlocked;
+  if (approval) approval.disabled = mutationBlocked || !state.chat?.approvalControlsEnabled;
+  if (mutationBlocked) {
+    closeChatSkillMenu();
+    closeChatApproval();
+    closeChatOptions();
+  }
+  send.disabled = !state.chat || !!state.chat.starting || mutationBlocked || action === 'wait-desktop' || (action === 'interrupt'
     ? !!state.chat.interrupting
     : (!hasContent || blocked));
-  send.title = action === 'interrupt'
+  send.title = action === 'readonly' ? 'Fleet 已释放会话并保持只读'
+    : action === 'transition' ? '正在切换会话访问状态'
+    : action === 'interrupt'
     ? '停止生成'
     : (action === 'wait-desktop' ? 'Codex Desktop 正在使用此会话' :
       (blocked ? '等待图片上传完成' : (action === 'queue' || action === 'queue-desktop' ? '结束后发送' : '发送')));
@@ -2970,7 +2997,7 @@ function renderChatFollowups() {
   const chat = state.chat;
   if (!box) return;
   clear(box);
-  const items = (chat?.followups || []).filter((item) => !item.clientMessageId || isFleetQueueFollowup(item));
+  const items = (chat?.followups || []).filter(isFleetQueueFollowup);
   box.hidden = items.length === 0;
   for (const item of items) {
     const images = item.images || [];
@@ -2986,35 +3013,13 @@ function renderChatFollowups() {
       h('span', { class: 'chat-followup-text', text: label, title: label }),
       images.length ? h('span', { class: 'chat-followup-images', text: `+${images.length} 图` }) : null,
       h('div', { class: 'chat-followup-actions' },
-        item.clientMessageId && item.status === 'failed'
-          ? h('button', { type: 'button', class: 'chat-followup-guide', disabled: item.decisionPending ? '' : null, onclick: () => decideServerChatQueue(item, 'retry') }, item.decisionPending ? '正在重试…' : '发送失败，重新尝试')
-          : item.clientMessageId ? h('span', { class: 'chat-followup-waiting', text: item.status === 'sending' ? '正在发送…' : '结束后发送' })
-          : !isDesktopChatOwned(chat) ? h('button', { type: 'button', class: 'chat-followup-guide', title: item.guiding ? '正在引导' : '引导当前任务',
-          disabled: item.guiding ? '' : null, onclick: () => guideChatFollowup(item.id) },
-          svgIconParts('ic', [{ tag: 'path', attrs: { d: 'M4 5v6a4 4 0 0 0 4 4h11M15 11l4 4-4 4' } }]), '引导') : h('span', { class: 'chat-followup-waiting', text: '等待 Desktop' }),
-        !item.clientMessageId ? h('button', { type: 'button', class: 'iconbtn bare', title: '编辑追问', 'aria-label': '编辑追问', onclick: () => editChatFollowup(item.id) },
-          svgIconParts('ic', [{ tag: 'path', attrs: { d: 'M12 20h9M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z' } }])) : null,
-        item.status !== 'sending' ? h('button', { type: 'button', class: 'iconbtn bare', disabled: item.decisionPending ? '' : null, title: item.clientMessageId ? '取消排队' : '删除追问', 'aria-label': item.clientMessageId ? '取消排队' : '删除追问', onclick: () => {
-          if (item.clientMessageId) decideServerChatQueue(item, 'cancel');
-          else { removeChatFollowup(chat, item.id); renderChatFollowups(); }
-        } },
-          svgIconParts('ic', [{ tag: 'path', attrs: { d: 'M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6M10 11v5M14 11v5' } }])) : null)));
+        h('span', { class: 'chat-followup-waiting', text: chatQueuePresentation(item).label }),
+        h('button', { type: 'button', class: 'chat-followup-guide', title: '改为引导当前任务',
+          disabled: item.decisionPending ? '' : null, onclick: () => decideServerChatQueue(item, 'steer') },
+          svgIconParts('ic', [{ tag: 'path', attrs: { d: 'M4 5v6a4 4 0 0 0 4 4h11M15 11l4 4-4 4' } }]), item.decisionPending === 'steer' ? '引导中…' : '引导当前任务'),
+        h('button', { type: 'button', class: 'iconbtn bare', disabled: item.decisionPending ? '' : null, title: '取消排队', 'aria-label': '取消排队', onclick: () => decideServerChatQueue(item, 'cancel') },
+          svgIconParts('ic', [{ tag: 'path', attrs: { d: 'M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6M10 11v5M14 11v5' } }])))));
   }
-}
-
-function editChatFollowup(id) {
-  const chat = state.chat;
-  const item = removeChatFollowup(chat, id);
-  if (!item) return;
-  const input = $('#chat-input');
-  const current = input.value.trim();
-  input.value = [current, item.displayText || item.text].filter(Boolean).join(current ? '\n' : '');
-  chat.draft = input.value;
-  chat.attachments = [...(chat.attachments || []), ...item.images.map((image) => ({ ...image }))];
-  renderChatFollowups();
-  renderChatAttachments();
-  resizeChatInput();
-  input.focus();
 }
 
 function renderChatAttachments() {
@@ -3043,7 +3048,7 @@ function removeChatAttachment(localId) {
 
 async function addChatFiles(files) {
   const chat = state.chat;
-  if (!chat || !files || !files.length) return;
+  if (chatMutationsBlocked(chat) || !files || !files.length) return;
   chat.attachments = chat.attachments || [];
   chat.objectUrls = chat.objectUrls || [];
   for (const file of Array.from(files)) {
@@ -3120,7 +3125,7 @@ async function openChatSession(s) {
       model: FleetChatModel.createChatState(), loading: true, events: null, resumePromise: null,
       pendingStart: !!s.pendingStart, unscoped: !!s.unscoped, startPromise: null,
       attachments: [], objectUrls: [], draft: '', updatedAt: Number(s.mtime) || Date.now(),
-      followups: loadChatFollowups(macId, s.sessionId), sendingFollowup: false, interrupting: false,
+      followups: [], interrupting: false,
       expandedActivityGroups: new Set(),
       skills: [], skillsLoaded: false, skillsPromise: null, skillsError: '',
       skillsCwd: s.cwd || '', skillMenu: null, skillPreferences: {},
@@ -3129,6 +3134,7 @@ async function openChatSession(s) {
       modelDirty: false, serviceTierDirty: false,
       approvalMode: 'on-request', approvalConfirmedMode: 'on-request',
       writerOwner: '', pendingRequestCount: 0,
+      accessMode: 'read_write', releasingWriter: false, changingAccess: false, approvalControlsEnabled: false,
       approvalUpdateChain: Promise.resolve(),
     };
     state.chatCache.set(key, chat);
@@ -3136,6 +3142,7 @@ async function openChatSession(s) {
   state.chat = chat;
   if (!(chat.expandedActivityGroups instanceof Set)) chat.expandedActivityGroups = new Set();
   if (typeof chat.writerOwner !== 'string') chat.writerOwner = '';
+  if (chat.accessMode !== 'read_only') chat.accessMode = 'read_write';
   if (!Array.isArray(chat.skills)) chat.skills = [];
   if (typeof chat.skillsLoaded !== 'boolean') chat.skillsLoaded = false;
   if (!chat.skillPreferences || typeof chat.skillPreferences !== 'object') chat.skillPreferences = {};
@@ -3157,7 +3164,7 @@ async function openChatSession(s) {
   resizeChatInput();
   renderChatAttachments();
   renderChatFollowups();
-  loadServerChatQueue(chat).then(() => migrateLocalChatFollowups(chat));
+  loadServerChatQueue(chat);
   startServerChatQueueSync(chat);
   closeChatSkillMenu();
   if (!chat.pendingStart) loadChatSkills(chat).catch(() => {});
@@ -3198,6 +3205,7 @@ async function openChatSession(s) {
         data: { status: resumed.status, activeTurnId: resumed.activeTurnId, turnOwner: resumed.turnOwner },
       });
       chat.writerOwner = resumed.writerOwner || '';
+      chat.accessMode = resumed.accessMode === 'read_only' ? 'read_only' : 'read_write';
       chat.pendingRequestCount = pendingChatRequestCount(chat);
       chat.historyCursor = resumed.history?.nextCursor || '';
       chat.historyReady = true;
@@ -3332,8 +3340,11 @@ function renderChatApprovalMenu(chat = state.chat) {
 function setChatApprovalEnabled(chat, enabled) {
   const trigger = $('#chat-approval');
   if (!trigger) return;
-  if (chat) chat.approvalMode = normalizeChatApprovalMode(chat.approvalMode);
-  trigger.disabled = !enabled;
+  if (chat) {
+    chat.approvalMode = normalizeChatApprovalMode(chat.approvalMode);
+    chat.approvalControlsEnabled = !!enabled;
+  }
+  trigger.disabled = !enabled || chat?.accessMode === 'read_only' || chat?.releasingWriter || chat?.changingAccess;
   if (!enabled) closeChatApproval();
   renderChatApprovalMenu(chat);
 }
@@ -3583,6 +3594,9 @@ function startChatEvents(chat = state.chat) {
       chat.model = FleetChatModel.reduceChatEvent(chat.model, ev);
       const eventTurnOwner = ev?.data?.turnOwner || ev?.turnOwner || '';
       if (ev.type === 'turn_started' && eventTurnOwner) chat.writerOwner = eventTurnOwner;
+      if (ev.type === 'thread_status' && typeof ev?.data?.writerOwner === 'string') {
+        chat.writerOwner = ev.data.writerOwner;
+      }
       // EventSource reconnects replay unresolved requests. Derive this from the
       // reducer so the same request never creates a phantom waiting badge.
       chat.pendingRequestCount = pendingChatRequestCount(chat);
@@ -3594,7 +3608,7 @@ function startChatEvents(chat = state.chat) {
         updateChatComposerState();
         renderChatFollowups();
       }
-      if (wasRunning && !isChatRunning(chat)) flushChatFollowups(chat);
+      if (wasRunning && !isChatRunning(chat)) loadServerChatQueue(chat);
     } catch (_) {}
   };
   es.onerror = () => {
@@ -3630,6 +3644,7 @@ async function restoreChatAfterForeground(chat = state.chat) {
         data: { status: resumed.status, activeTurnId: resumed.activeTurnId, turnOwner: resumed.turnOwner },
       });
       chat.writerOwner = resumed.writerOwner || '';
+      chat.accessMode = resumed.accessMode === 'read_only' ? 'read_only' : 'read_write';
       chat.pendingRequestCount = pendingChatRequestCount(chat);
       chat.historyCursor = resumed.history?.nextCursor || chat.historyCursor || '';
       applyChatMetadataDefaults(chat);
@@ -3639,7 +3654,7 @@ async function restoreChatAfterForeground(chat = state.chat) {
         updateChatComposerState();
         renderChatFollowups();
       }
-      if (!isChatRunning(chat)) flushChatFollowups(chat);
+      await loadServerChatQueue(chat);
     } catch (_) {
       // 恢复时即使历史补偿暂时失败，也要重新建立实时流；下一次回前台会再次补偿。
     } finally {
@@ -3668,11 +3683,6 @@ function wireChatPageLifecycle() {
   addEventListener('pageshow', (event) => {
     if (event.persisted) restoreChatAfterForeground();
   });
-  setInterval(() => {
-    for (const chat of state.chatCache.values()) {
-      if (chat.writerOwner === 'desktop' && chat.followups?.length && !isChatRunning(chat)) flushChatFollowups(chat);
-    }
-  }, 3000);
 }
 
 async function ensurePendingChatStarted(chat) {
@@ -3744,7 +3754,7 @@ async function submitChatInput({ forceQueue = false } = {}) {
   const chat = state.chat;
   const input = $('#chat-input');
   let raw = typeof input.value === 'string' ? input.value : '';
-  if (!chat) return;
+  if (!chat || chat.accessMode === 'read_only' || chat.releasingWriter || chat.changingAccess) return;
   if (chat.pendingStart) {
     try {
       await ensurePendingChatStarted(chat);
@@ -3795,60 +3805,44 @@ async function submitChatInput({ forceQueue = false } = {}) {
     text, displayText: raw.trim(), images,
     skills: parsed.skills.map((skill) => ({ id: skill.id, name: skill.name })),
   };
-  if (isDesktopChatOwned(chat)) {
-    await enqueueServerChatMessage(chat, item, { transcript: true });
-    return;
-  }
-  if (isChatRunning(chat)) {
-    if (forceQueue) {
-      await enqueueServerChatMessage(chat, item);
-    } else {
-      const steered = await sendChatSteer(chat, item);
-      if (!steered) {
-        await enqueueServerChatMessage(chat, item);
-        if (state.chat === chat) {
-          renderChatFollowups();
-          toast(item.steerNoActive ? '当前任务已结束，追问将作为下一轮发送。' : '追问未能插入当前任务，已保留到下一轮。', item.steerNoActive ? '' : 'err');
-        }
-        if (!isChatRunning(chat)) await flushChatFollowups(chat);
-      }
-    }
-    return;
-  }
-  const sent = await sendChatTurn(chat, item, { restoreOnFailure: false });
-  if (sent) return;
-  if (item.externalWriter) {
-    await enqueueServerChatMessage(chat, item, { transcript: true });
-    return;
-  }
-  restoreChatComposerItem(chat, item);
+  await enqueueServerChatMessage(chat, item, forceQueue ? 'next' : 'auto');
 }
 
-async function enqueueServerChatMessage(chat, item, { transcript = false } = {}) {
-  if (transcript) chat.model = FleetChatModel.appendUserMessage(chat.model, (item.displayText || item.text).trim(), item.id, item.images);
-  const queued = await saveServerChatQueueItem(chat, item);
+async function enqueueServerChatMessage(chat, item, deliveryMode) {
+  chat.model = FleetChatModel.appendUserMessage(chat.model, (item.displayText || item.text).trim(), item.id, item.images);
+  chat.submitting = true;
+  syncSessionRuntimeIndicators();
+  if (state.chat === chat) {
+    renderChat();
+    updateChatComposerState();
+  }
+  const queued = await saveServerChatQueueItem(chat, item, deliveryMode);
   if (queued) {
-    if (transcript && queued.status === 'queued') queued.status = 'waiting_writer';
     chat.followups = chat.followups || [];
     const index = chat.followups.findIndex((entry) => entry.id === queued.id);
     if (index >= 0) chat.followups[index] = queued; else chat.followups.push(queued);
+    await loadServerChatQueue(chat);
+  } else {
+    chat.model = FleetChatModel.removeMessage(chat.model, item.id);
+    restoreChatComposerItem(chat, item);
+  }
+  chat.submitting = false;
+  syncSessionRuntimeIndicators();
+  if (state.chat === chat) {
     renderChat();
     renderChatFollowups();
-    return;
+    updateChatComposerState();
   }
-  if (transcript) chat.model = FleetChatModel.removeMessage(chat.model, item.id);
-  restoreChatComposerItem(chat, item);
-  renderChat();
 }
 
-async function saveServerChatQueueItem(chat, item) {
+async function saveServerChatQueueItem(chat, item, deliveryMode) {
   try {
     return await api(chat.macId, 'chat/queue', {
       method: 'POST', headers: { 'content-type': 'application/json' },
       body: JSON.stringify({
         assistant: 'codex', sessionId: chat.sessionId, clientMessageId: item.id,
         cwd: chat.cwd || '', text: item.text, displayText: item.displayText,
-        writerOwner: item.externalWriter || isDesktopChatOwned(chat) ? 'desktop' : 'fleet',
+        deliveryMode: deliveryMode === 'next' ? 'next' : 'auto',
         skills: item.skills || [], images: item.images.map(({ id, name, mime, size, url }) => ({ id, name, mime, size, url })),
         options: chatTurnOptions(chat),
       }),
@@ -3870,138 +3864,6 @@ function chatTurnOptions(chat) {
   return turnOptions;
 }
 
-async function sendChatTurn(chat, item, { restoreOnFailure = true } = {}) {
-  const optimisticId = item.id || ('user-' + Date.now());
-  chat.model = FleetChatModel.appendUserMessage(chat.model, (item.displayText || item.text).trim(), optimisticId, item.images);
-  chat.loading = false;
-  chat.submitting = true;
-  syncSessionRuntimeIndicators();
-  if (state.chat === chat) {
-    renderChat();
-    updateChatComposerState();
-  }
-  try {
-    item.externalWriter = false;
-    const started = await api(chat.macId, 'chat/input', {
-      method: 'POST', headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({
-        assistant: 'codex', sessionId: chat.sessionId, clientMessageId: optimisticId,
-        cwd: chat.cwd || '', text: item.text, skills: item.skills || [],
-        images: item.images.map((img) => ({ id: img.id })), ...chatTurnOptions(chat),
-      }),
-    });
-    if (!started || typeof started.turnId !== 'string' || !started.turnId.trim()) {
-      throw new Error('Codex 未返回有效的任务 ID，消息未发送。');
-    }
-    chat.model = FleetChatModel.reduceChatEvent(chat.model, { type: 'turn_started', turnId: started.turnId, data: { turnId: started.turnId, turnOwner: 'fleet' } });
-    chat.writerOwner = 'fleet';
-    loadSessions();
-    return true;
-  } catch (e) {
-    chat.model = FleetChatModel.removeMessage(chat.model, optimisticId);
-    if (e?.code === 'external_turn_running') {
-      item.externalWriter = true;
-      chat.writerOwner = 'desktop';
-    } else {
-      chat.model = FleetChatModel.reduceChatEvent(chat.model, { type: 'error', data: { message: e.message } });
-    }
-    if (restoreOnFailure) restoreChatComposerItem(chat, item);
-    if (state.chat === chat) {
-      renderChat();
-    }
-    return false;
-  } finally {
-    chat.submitting = false;
-    syncSessionRuntimeIndicators();
-    if (state.chat === chat) updateChatComposerState();
-  }
-}
-
-async function sendChatSteer(chat, item) {
-  const clientId = item.id || `steer-${Date.now()}-${Math.random().toString(16).slice(2)}`;
-  const observedTurnId = chat.model.activeTurnId;
-  item.steerError = '';
-  item.steerNoActive = false;
-  chat.model = FleetChatModel.appendSteeringMessage(
-    chat.model, (item.displayText || item.text).trim(), clientId, item.images, observedTurnId,
-  );
-  if (state.chat === chat) renderChat();
-  try {
-    const steered = await api(chat.macId, 'chat/steer', {
-      method: 'POST', headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({
-        assistant: 'codex', sessionId: chat.sessionId, clientMessageId: clientId,
-        cwd: chat.cwd || '', text: item.text, skills: item.skills || [],
-        images: item.images.map((img) => ({ id: img.id })),
-      }),
-    });
-    chat.model = FleetChatModel.reduceChatEvent(chat.model, {
-      type: 'steer_accepted', itemId: clientId, turnId: steered.turnId,
-      data: { clientId, turnId: steered.turnId },
-    });
-    if (state.chat === chat) renderChat();
-    return true;
-  } catch (e) {
-    chat.model = FleetChatModel.reduceChatEvent(chat.model, {
-      type: 'steer_failed', itemId: clientId, data: { clientId, message: e.message },
-    });
-    item.steerError = e.message;
-    if (isNoActiveTurnError(e)) {
-      item.steerNoActive = reconcileChatInactiveTurn(chat, observedTurnId);
-    }
-    if (state.chat === chat) {
-      renderChat();
-    }
-    return false;
-  }
-}
-
-async function flushChatFollowups(chat) {
-  if (!chat || chat.sendingFollowup || isChatRunning(chat)) return;
-  const item = chat.followups?.find((entry) => !entry.clientMessageId);
-  if (!item) return;
-  chat.sendingFollowup = true;
-  const sent = await sendChatTurn(chat, item, { restoreOnFailure: false });
-  if (sent) removeChatFollowup(chat, item.id);
-  chat.sendingFollowup = false;
-  if (state.chat === chat) renderChatFollowups();
-}
-
-async function guideChatFollowup(id) {
-  const chat = state.chat;
-  const item = chat?.followups?.find((entry) => entry.id === id);
-  if (!chat || !item || item.guiding || !isChatRunning(chat) || isDesktopChatOwned(chat)) return;
-  item.guiding = true;
-  renderChatFollowups();
-  try {
-    const sent = await sendChatSteer(chat, item);
-    if (!sent) {
-      item.guiding = false;
-      renderChatFollowups();
-      if (item.steerNoActive) {
-        const pendingId = item.id;
-        await flushChatFollowups(chat);
-        if (chat.followups?.some((entry) => entry.id === pendingId)) {
-          toast('当前任务已结束，追问自动续投失败，仍保留在队列。', 'err');
-        }
-        return;
-      }
-      toast('引导失败，追问仍保留在队列：' + (item.steerError || '当前任务已经结束'), 'err');
-      return;
-    }
-    removeChatFollowup(chat, id);
-    renderChatFollowups();
-    renderChat();
-  } catch (e) {
-    const pending = chat.followups?.find((entry) => entry.id === id);
-    if (pending) {
-      pending.guiding = false;
-      renderChatFollowups();
-      toast('引导失败：' + e.message, 'err');
-    }
-  }
-}
-
 async function interruptChat() {
   const chat = state.chat;
   if (!chat || !isChatRunning(chat) || isDesktopChatOwned(chat) || chat.interrupting) return;
@@ -4017,7 +3879,7 @@ async function interruptChat() {
     if (isNoActiveTurnError(e)) {
       reconcileChatInactiveTurn(chat, observedTurnId);
       toast('任务已结束，状态已同步。');
-      await flushChatFollowups(chat);
+      await loadServerChatQueue(chat);
     } else {
       toast('停止失败：' + e.message, 'err');
     }
@@ -4027,10 +3889,72 @@ async function interruptChat() {
   }
 }
 
+async function releaseChatWriter() {
+  const chat = state.chat;
+  if (!chat || chat.accessMode === 'read_only' || chat.releasingWriter) return;
+  chat.releasingWriter = true;
+  renderChatOwnershipHead(chat);
+  updateChatComposerState();
+  try {
+    const result = await api(chat.macId, 'chat/access', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ assistant: 'codex', sessionId: chat.sessionId, action: 'release' }),
+    });
+    chat.writerOwner = '';
+    chat.accessMode = result?.accessMode === 'read_only' ? 'read_only' : 'read_write';
+    chat.model = FleetChatModel.reduceChatEvent(chat.model, {
+      type: 'thread_status', data: { status: 'idle', reconciledTurnId: chat.model?.activeTurnId || '' },
+    });
+    syncSessionRuntimeIndicators();
+    renderChat();
+    toast('会话已释放，Fleet 已切换为只读。');
+  } catch (e) {
+    toast('释放会话失败：' + e.message, 'err');
+    await loadServerChatQueue(chat);
+  } finally {
+    chat.releasingWriter = false;
+    if (state.chat === chat) {
+      renderChatOwnershipHead(chat);
+      updateChatComposerState();
+    }
+  }
+}
+
+function chatAccessBusy() {
+  return !!state.chat?.changingAccess;
+}
+
+async function enableChatWriter() {
+  const chat = state.chat;
+  if (!chat || chat.accessMode !== 'read_only' || chat.changingAccess) return;
+  chat.changingAccess = true;
+  renderChatOwnershipHead(chat);
+  renderChat();
+  updateChatComposerState();
+  try {
+    const result = await api(chat.macId, 'chat/access', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ assistant: 'codex', sessionId: chat.sessionId, action: 'enable-write' }),
+    });
+    chat.accessMode = result?.accessMode === 'read_only' ? 'read_only' : 'read_write';
+    await loadServerChatQueue(chat);
+    toast('Fleet 写入已恢复，排队消息将由服务器继续处理。');
+  } catch (e) {
+    toast('恢复 Fleet 写入失败：' + e.message, 'err');
+  } finally {
+    chat.changingAccess = false;
+    if (state.chat === chat) {
+      renderChat();
+      renderChatFollowups();
+      updateChatComposerState();
+    }
+  }
+}
+
 async function respondChatRequest(requestId, response) {
   const chat = state.chat;
   const request = chat?.model?.requests?.[String(requestId)];
-  if (!chat || !requestId || request?.submitting) return;
+  if (chatMutationsBlocked(chat) || !requestId || request?.submitting) return;
   if (request) request.submitting = true;
   if (state.chat === chat) renderChat();
   try {

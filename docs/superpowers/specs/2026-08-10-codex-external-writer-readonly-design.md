@@ -1,5 +1,7 @@
 # Codex 外部 Writer 会话只读同步设计
 
+> 已由 `2026-08-13-codex-server-authoritative-chat-design.md` 取代。本文保留为早期研究记录；其中浏览器禁用提交、自动 acquisition loop 等交互不再是当前实现契约。
+
 ## 目标
 
 当 Codex Desktop、VS Code 或另一个 app-server 进程已经持有某个 thread 的 writer 时，Fleet 不再把 `thread/resume ... already has an active writer` 显示成致命错误，而是：

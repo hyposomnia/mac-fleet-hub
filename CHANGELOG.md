@@ -2,6 +2,7 @@
 
 ## 2026-08-13
 
+- 将 Codex Fleet 写入权、消息投递与 steer/next 队列收口为服务端持久化状态机：浏览器只提交消息意图并投影服务端状态，不再用 localStorage、SSE 断线或本地 writer 判断驱动投递；队列支持 CAS、崩溃恢复与不确定态，15 种状态都有明确界面和合法动作。Fleet 持有 writer 时标题栏提供“释放会话”，服务端先持久化只读、停止当前 turn、再 `thread/unsubscribe`；后台每 30 秒扫描真实锁与 rollout 回收残留 writer，必要时由 launchd 重启隔离 sidecar。Dashboard PWA 缓存升级到 v114。
 - 修复 Codex 消息中的音频、视频 Markdown 媒体预览被错误渲染成破损图片、播放器请求被 fleet-agent 拒绝的问题；现在按文件类型显示原生播放控件，媒体端点支持白名单内的音频/视频与 Range 请求，图片预览行为保持不变。Dashboard PWA 缓存升级到 v113。
 - 修复 Fleet 自己持有 writer 时把下一条消息误画成右侧“接管/排队”状态卡：当前 turn 的后续消息恢复到输入框上方的持久化 follow-up 队列，继续支持 steer、排队和取消；只有 Desktop/VS Code 等外部 writer 才在用户消息下显示接管操作，刷新页面后仍按服务器保存的 writer 归属恢复正确样式。
 - 修复 Codex 会话列表误报“等待回复”以及进入会话后看不到确认内容：该状态现在只由 Fleet 实际持有、可在页面响应的未决请求触发，`chat/resume` 会同步重放请求详情；审批自动完成或 SSE 重连时不会因陈旧/重复事件留下假状态。
