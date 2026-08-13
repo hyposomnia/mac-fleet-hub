@@ -295,6 +295,21 @@ func TestCodexWriterProcessClassifierTreatsAnyNonFleetLockHolderAsExternal(t *te
 	}
 }
 
+func TestCodexRolloutProcessClassifierIgnoresFleetReaderButFindsExternalCLI(t *testing.T) {
+	fleetSocket := "/Users/test/.macfleet/codex-app-server.sock"
+	fleet := "/Users/test/.codex/packages/standalone/current/codex app-server --remote-control --listen unix://" + fleetSocket
+	external := "/Users/test/.codex/packages/standalone/current/codex exec resume thread-1"
+	if got := codexProcessCommandsOwner([]string{fleet}, fleetSocket, false); got != "" {
+		t.Fatalf("Fleet rollout reader was treated as a writer: %q", got)
+	}
+	if got := codexProcessCommandsOwner([]string{fleet, external}, fleetSocket, false); got != "desktop" {
+		t.Fatalf("external CLI rollout holder owner=%q", got)
+	}
+	if got := codexProcessCommandsOwner([]string{fleet}, fleetSocket, true); got != "fleet" {
+		t.Fatalf("Fleet lock holder owner=%q", got)
+	}
+}
+
 func TestCodexControlReportsIdleDesktopWriterFromPhysicalLock(t *testing.T) {
 	previousOwner := codexThreadWriterProcessOwner
 	previousState := codexActiveRolloutTaskState

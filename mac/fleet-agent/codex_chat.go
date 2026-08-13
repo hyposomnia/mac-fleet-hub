@@ -227,33 +227,65 @@ var restartCodexFleetSidecar = systemRestartCodexFleetSidecar
 const codexWriterOrphanGrace = 2 * time.Minute
 
 // systemCodexThreadWriterProcessOwner recovers writer ownership after the
-// fleet-agent reconnects or restarts. The writer lock belongs to app-server,
-// so in-memory turn ownership alone is not durable enough.
+// fleet-agent reconnects or restarts. App-server writers hold the dedicated
+// lock; direct `codex exec resume` writers instead keep the rollout open, so
+// both process-backed signals are required.
 func systemCodexThreadWriterProcessOwner(sessionID string) string {
 	if strings.TrimSpace(sessionID) == "" || strings.ContainsAny(sessionID, "/\r\n\x00") {
 		return ""
 	}
 	lockPath := filepath.Join(cfg.CodexHome, "thread-writer-locks", sessionID+".lock")
-	out, err := exec.Command("lsof", "-t", lockPath).Output()
+	owner, err := systemCodexOpenFileProcessOwner(lockPath, true)
 	if err != nil {
-		var exitErr *exec.ExitError
-		if errors.As(err, &exitErr) && exitErr.ExitCode() == 1 {
-			// lsof uses exit 1 for a valid inspection with no open file.
-			return ""
-		}
 		// Missing lsof, permission errors, and other inspection failures are
 		// not proof that the lease is free. Fail closed as an external owner.
 		return "desktop"
 	}
-	fleetOwner := false
-	holderSeen := false
+	if owner != "" {
+		return owner
+	}
+	rolloutPath := jsonlPathFor("codex", sessionID)
+	if rolloutPath == "" {
+		return ""
+	}
+	// The isolated Fleet sidecar may keep a rollout open for read/history even
+	// while idle, so its presence alone is not a writer lease. Any other live
+	// holder is an external CLI/Desktop writer and outranks the Fleet reader.
+	owner, err = systemCodexOpenFileProcessOwner(rolloutPath, false)
+	if err != nil {
+		return "desktop"
+	}
+	return owner
+}
+
+func systemCodexOpenFileProcessOwner(path string, includeFleet bool) (string, error) {
+	out, err := exec.Command("lsof", "-t", path).Output()
+	if err != nil {
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) && exitErr.ExitCode() == 1 {
+			// lsof uses exit 1 for a valid inspection with no open file.
+			return "", nil
+		}
+		return "", err
+	}
+	commands := make([]string, 0, len(strings.Fields(string(out))))
 	for _, pid := range strings.Fields(string(out)) {
-		holderSeen = true
 		command, commandErr := exec.Command("ps", "-p", pid, "-o", "command=").Output()
 		if commandErr != nil {
+			// A PID reported by lsof but no longer classifiable is a race, not
+			// proof the file is free. Keep the decision conservative.
+			commands = append(commands, "unknown-live-holder")
 			continue
 		}
-		owner := codexWriterProcessCommandOwner(strings.TrimSpace(string(command)), cfg.CodexSock)
+		commands = append(commands, strings.TrimSpace(string(command)))
+	}
+	return codexProcessCommandsOwner(commands, cfg.CodexSock, includeFleet), nil
+}
+
+func codexProcessCommandsOwner(commands []string, fleetSocket string, includeFleet bool) string {
+	fleetOwner := false
+	for _, command := range commands {
+		owner := codexWriterProcessCommandOwner(command, fleetSocket)
 		if owner == "desktop" {
 			return owner
 		}
@@ -261,12 +293,8 @@ func systemCodexThreadWriterProcessOwner(sessionID string) string {
 			fleetOwner = true
 		}
 	}
-	if fleetOwner {
+	if fleetOwner && includeFleet {
 		return "fleet"
-	}
-	if holderSeen {
-		// A live but unclassifiable holder must never be treated as free.
-		return "desktop"
 	}
 	return ""
 }
