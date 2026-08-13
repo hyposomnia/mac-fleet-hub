@@ -1418,8 +1418,10 @@ func httpTmuxErr(w http.ResponseWriter, err error) {
 
 func markSessionRuntime(assistant string, all []Session, ptySet map[string]bool, paths map[string]string) {
 	actionableCodexRequests := map[string]bool{}
+	var codexBackend *codexChatBackend
 	if assistant == "codex" {
 		if backend, ok := agentChatBackend.(*codexChatBackend); ok {
+			codexBackend = backend
 			backend.mu.Lock()
 			for _, request := range backend.pending {
 				actionableCodexRequests[request.sessionID] = true
@@ -1435,7 +1437,8 @@ func markSessionRuntime(assistant string, all []Session, ptySet map[string]bool,
 					all[i].Status = "idle"
 					all[i].Live = false
 					all[i].Waiting = false
-				} else if codexUsesIsolatedSidecar() && codexThreadWriterProcessOwner(all[i].SessionID) == "" {
+				} else if codexUsesIsolatedSidecar() && codexThreadWriterProcessOwner(all[i].SessionID) == "" &&
+					(codexBackend == nil || !codexBackend.ownsCurrentFleetTurn(all[i].SessionID, runtime.turnID)) {
 					// An unfinished task_started record is historical evidence, not
 					// a live lease. In isolated mode only the OS writer lock proves
 					// that a process can still advance the turn.

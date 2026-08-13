@@ -86,6 +86,12 @@
     return '';
   }
 
+  function chatErrorMessage(data) {
+    const nested = asObject(data && data.error);
+    return firstString(data && data.message, data && data.detail, nested.message, nested.detail)
+      || '自绘会话出错';
+  }
+
   function firstNumber(...values) {
     for (const value of values) {
       if (value === undefined || value === null || value === '') continue;
@@ -364,7 +370,10 @@
         next.phase = 'running';
         if (data.turnOwner || data.turn_owner) next.turnOwner = firstString(data.turnOwner, data.turn_owner);
         next.activeTurnId = firstString(ev && ev.turnId, data.turnId, data.turn_id, asObject(data.turn).id, next.activeTurnId);
-        if (next.activeTurnId !== previousTurnId) next.turnProgress = '';
+        if (next.activeTurnId !== previousTurnId) {
+          next.turnProgress = '';
+          next.error = null;
+        }
         return next;
       }
       case 'assistant_delta': {
@@ -575,17 +584,19 @@
       case 'turn_done': {
         mergeTurnMetadata(next, data, ev, true);
         const turnId = firstString(ev && ev.turnId, data.turnId, data.turn_id, asObject(data.turn).id);
+        const turnStatus = firstString(asObject(data.turn).status, data.status).toLowerCase();
         if (!turnId || !next.activeTurnId || turnId === next.activeTurnId) {
           next.phase = 'idle';
           next.activeTurnId = '';
           next.turnOwner = '';
           next.turnProgress = '';
+          if (['completed', 'success', 'succeeded'].includes(turnStatus)) next.error = null;
         }
         if (turnId) delete next.turnUsage[turnId];
         return next;
       }
       case 'error':
-        next.error = data.message || data.error || '自绘会话出错';
+        next.error = chatErrorMessage(data);
         next.phase = 'error';
         next.turnProgress = '';
         return next;

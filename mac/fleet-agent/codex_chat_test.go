@@ -240,6 +240,45 @@ func TestCodexChatBackendIsolatedResumeIgnoresActiveRolloutWithoutWriter(t *test
 	}
 }
 
+func TestCodexChatBackendIsolatedResumePreservesCurrentFleetLeaseWithoutLockFile(t *testing.T) {
+	previousCfg := cfg
+	previousOwner := codexThreadWriterProcessOwner
+	t.Cleanup(func() {
+		cfg = previousCfg
+		codexThreadWriterProcessOwner = previousOwner
+	})
+	cfg.CodexMode = "isolated"
+	cfg.CodexHome = t.TempDir()
+	codexThreadWriterProcessOwner = func(string) string { return "" }
+	sessionID := "11111111-2222-4333-8444-888888888888"
+	dir := filepath.Join(cfg.CodexHome, "sessions", "2026", "08", "13")
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "rollout-2026-08-13T00-00-00-"+sessionID+".jsonl"), []byte(
+		`{"type":"event_msg","payload":{"type":"task_started","turn_id":"turn-fresh"}}`+"\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	rpc := newFakeRPCConn()
+	rpc.reply["thread/read"] = json.RawMessage(`{"thread":{"id":"` + sessionID + `"}}`)
+	rpc.reply["thread/items/list"] = json.RawMessage(`{"data":[]}`)
+	b := newCodexChatBackend(func(context.Context) (codexRPCConn, func(), error) {
+		return rpc, func() {}, nil
+	})
+	b.loadedThreads[sessionID] = true
+	b.lastTurn[sessionID] = "turn-fresh"
+	b.turnOwners[sessionID] = "fleet"
+	b.writerOwners[sessionID] = "fleet"
+
+	res, err := b.Resume(context.Background(), "codex", sessionID, "default")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Status != "running" || res.ActiveTurnID != "turn-fresh" || res.TurnOwner != "fleet" || res.WriterOwner != "fleet" {
+		t.Fatalf("read-only resume discarded the current Fleet lease: %+v", res)
+	}
+}
+
 func TestCodexWriterProcessClassifierTreatsAnyNonFleetLockHolderAsExternal(t *testing.T) {
 	fleetSocket := "/Users/test/.macfleet/codex-app-server.sock"
 	for _, command := range []string{
@@ -330,6 +369,35 @@ func TestCodexControlClearsActiveRolloutWithoutPhysicalWriterInIsolatedMode(t *t
 	if b.lastTurn["thread-1"] != "" || b.turnOwners["thread-1"] != "" || b.writerOwners["thread-1"] != "" {
 		t.Fatalf("orphaned external ownership remained cached: turn=%q owner=%q writer=%q",
 			b.lastTurn["thread-1"], b.turnOwners["thread-1"], b.writerOwners["thread-1"])
+	}
+}
+
+func TestCodexControlPreservesCurrentFleetLeaseWithoutPhysicalLock(t *testing.T) {
+	previousCfg := cfg
+	previousOwner := codexThreadWriterProcessOwner
+	previousState := codexActiveRolloutTaskState
+	t.Cleanup(func() {
+		cfg = previousCfg
+		codexThreadWriterProcessOwner = previousOwner
+		codexActiveRolloutTaskState = previousState
+	})
+	cfg.CodexMode = "isolated"
+	codexThreadWriterProcessOwner = func(string) string { return "" }
+	codexActiveRolloutTaskState = func(string) (codexRolloutTaskState, bool) {
+		return codexRolloutTaskState{turnID: "turn-fresh", terminal: false}, true
+	}
+	b := newCodexChatBackend(func(context.Context) (codexRPCConn, func(), error) { return newFakeRPCConn(), func() {}, nil })
+	b.loadedThreads["thread-1"] = true
+	b.lastTurn["thread-1"] = "turn-fresh"
+	b.turnOwners["thread-1"] = "fleet"
+	b.writerOwners["thread-1"] = "fleet"
+
+	got, err := b.Control(context.Background(), "codex", "thread-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Status != "running" || got.WriterOwner != "fleet" || got.TurnOwner != "fleet" || got.ActiveTurnID != "turn-fresh" {
+		t.Fatalf("current Fleet lease without a lock file was discarded: %+v", got)
 	}
 }
 
@@ -2015,6 +2083,38 @@ func TestCodexChatBackendConnectedSyncDoesNotReviveOrphanedRollout(t *testing.T)
 	assertNoChatEvent(t, ch)
 }
 
+func TestCodexChatBackendConnectedSyncPreservesCurrentFleetLeaseWithoutLockFile(t *testing.T) {
+	previousCfg := cfg
+	previousOwner := codexThreadWriterProcessOwner
+	t.Cleanup(func() {
+		cfg = previousCfg
+		codexThreadWriterProcessOwner = previousOwner
+	})
+	cfg.CodexMode = "isolated"
+	codexThreadWriterProcessOwner = func(string) string { return "" }
+	rpc := newFakeRPCConn()
+	rpc.reply["thread/items/list"] = json.RawMessage(`{"data":[]}`)
+	b := newCodexChatBackend(func(context.Context) (codexRPCConn, func(), error) {
+		return rpc, func() {}, nil
+	})
+	b.loadedThreads["thread-1"] = true
+	b.lastTurn["thread-1"] = "turn-fresh"
+	b.turnOwners["thread-1"] = "fleet"
+	b.writerOwners["thread-1"] = "fleet"
+
+	completed, err := b.reconcileConnectedSession(context.Background(), rpc, "thread-1", codexRolloutTaskState{
+		turnID: "turn-fresh", status: "inProgress",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if completed || !b.loadedThreads["thread-1"] || b.lastTurn["thread-1"] != "turn-fresh" ||
+		b.turnOwners["thread-1"] != "fleet" || b.writerOwners["thread-1"] != "fleet" {
+		t.Fatalf("connected sync discarded current Fleet lease: completed=%v loaded=%v turn=%q owner=%q writer=%q",
+			completed, b.loadedThreads["thread-1"], b.lastTurn["thread-1"], b.turnOwners["thread-1"], b.writerOwners["thread-1"])
+	}
+}
+
 func TestCodexChatBackendLastBrowserDisconnectDoesNotReleaseWriter(t *testing.T) {
 	rpc := newFakeRPCConn()
 	rpc.reply["thread/items/list"] = json.RawMessage(`{"data":[]}`)
@@ -2307,6 +2407,43 @@ func TestCodexChatBackendActiveRolloutWithoutWriterDoesNotBlockNewFleetTurn(t *t
 	}
 	if got := methods(rpc.calls); !reflect.DeepEqual(got, []string{"thread/resume", "turn/start"}) {
 		t.Fatalf("orphan recovery calls=%v", got)
+	}
+}
+
+func TestCodexChatBackendActiveFleetLeaseWithoutLockBlocksSecondTurn(t *testing.T) {
+	previousCfg := cfg
+	previousOwner := codexThreadWriterProcessOwner
+	t.Cleanup(func() {
+		cfg = previousCfg
+		codexThreadWriterProcessOwner = previousOwner
+	})
+	cfg.CodexMode = "isolated"
+	cfg.CodexHome = t.TempDir()
+	codexThreadWriterProcessOwner = func(string) string { return "" }
+	sessionID := "11111111-2222-4333-8444-999999999999"
+	dir := filepath.Join(cfg.CodexHome, "sessions", "2026", "08", "13")
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "rollout-2026-08-13T00-00-00-"+sessionID+".jsonl"), []byte(
+		`{"type":"event_msg","payload":{"type":"task_started","turn_id":"turn-fresh"}}`+"\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	rpc := newFakeRPCConn()
+	b := newCodexChatBackend(func(context.Context) (codexRPCConn, func(), error) {
+		return rpc, func() {}, nil
+	})
+	b.loadedThreads[sessionID] = true
+	b.lastTurn[sessionID] = "turn-fresh"
+	b.turnOwners[sessionID] = "fleet"
+	b.writerOwners[sessionID] = "fleet"
+
+	_, err := b.Input(context.Background(), "codex", sessionID, "must queue behind current turn", nil, nil, ChatTurnOptions{})
+	if !errors.Is(err, errFleetChatTurnRunning) {
+		t.Fatalf("second turn was not blocked by current Fleet lease: %v", err)
+	}
+	if len(rpc.calls) != 0 {
+		t.Fatalf("current Fleet lease triggered a second writer acquisition: %v", methods(rpc.calls))
 	}
 }
 

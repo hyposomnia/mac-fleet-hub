@@ -57,8 +57,8 @@ Fleet 目前同时存在三套会影响真实行为的状态：fleet-agent 内�
 - `serverEpoch`：fleet-agent 本次进程生命周期的随机标识；agent 重启后变化。
 - `snapshotVersion`：同一进程内单调递增；浏览器不得用更旧版本覆盖新版本。
 - `accessMode`：持久化的 `read_write | read_only`。
-- `writerOwner`：从真实 writer lock 持锁进程判定的 `fleet | desktop | 空`；Fleet 私有 socket 之外的任何活持锁进程都视为外部客户端，不能依赖某个固定 Desktop 命令行形态。
-- `turnPhase`、`activeTurnId`、`turnOwner`：由 rollout、真实锁和服务端运行态共同核对；terminal rollout 必须清除陈旧内存 turn。在 isolated 模式下，unfinished rollout 只表示历史中缺少 terminal 记录；真实 writer lock 无持有者时必须判 idle，不能反推为外部 writer。
+- `writerOwner`：优先从真实 writer lock 持锁进程判定 `fleet | desktop | 空`；Fleet 私有 socket 之外的任何活持锁进程都视为外部客户端，不能依赖某个固定 Desktop 命令行形态。`thread/start` 创建的新 Fleet thread 在首轮运行期间没有 lock 文件，此时仅接受本 fleet-agent 当前进程内 `loadedThreads + writerOwner=fleet + turnOwner=fleet + 同 turn id` 的组合租约。
+- `turnPhase`、`activeTurnId`、`turnOwner`：由 rollout、真实锁和服务端运行态共同核对；terminal rollout 必须清除陈旧内存 turn。在 isolated 模式下，unfinished rollout 只表示历史中缺少 terminal 记录；没有真实 writer lock 且没有上述同 epoch Fleet 租约时必须判 idle，不能反推为外部 writer。
 - `approvalMode`：服务端最后确认的线程审批模式；浏览器可以暂存尚未提交的选择，但不得把乐观值当作已生效状态。
 - `items`：该 session 的完整可见队列投影；每项带服务端派生的 `allowedActions`，浏览器不得按 `status` 维护第二套合法动作表。
 
@@ -144,7 +144,7 @@ SSE 最后观察者离开只停止 rollout 增量同步并删除 channel，不�
 - rollout 未知：记录 `orphanFirstSeen`；宽限 2 分钟后再次核对，仍无服务端活跃 turn 证据则重启 Fleet sidecar。
 - isolated sidecar 被多个 Fleet 会话共享；若另一个 Fleet writer 仍有真实活跃 rollout，自动/普通 release 不得通过重启 sidecar 打断它。此时延后孤儿恢复；只有列出全部受影响任务并获确认的强制接管可以重启。
 - 每次动作后重新检查文件锁；未释放则保留告警状态并下轮重试。
-- 外部 Desktop/CLI 已被服务端观察为 owner、但随后真实锁无持有者时，立即清理内存 owner 并广播 idle；详情快照、只读 resume、connected sync、会话列表和队列 worker 都必须独立执行同一核对，避免重启或重连再次从陈旧 rollout 复活幽灵 writer。
+- 外部 Desktop/CLI 已被服务端观察为 owner、但随后真实锁无持有者时，立即清理内存 owner 并广播 idle；详情快照、只读 resume、connected sync、会话列表和队列 worker 都必须独立执行同一核对，避免重启或重连再次从陈旧 rollout 复活幽灵 writer。当前 agent 自己启动且仍加载的同 turn Fleet 租约不适用这条清理规则，因为 fresh thread 首轮没有 lock 文件。
 
 显式 release 已获得用户中断授权：当前连接无法释放或检测到 orphan 时，可立即重启 Fleet isolated sidecar。只操作 `com.macfleet.codex-app-server`，不操作默认 Desktop daemon。
 
@@ -219,7 +219,7 @@ SSE 最后观察者离开只停止 rollout 增量同步并删除 channel，不�
 - map 为空但真实 Fleet lock存在时巡检仍能发现并回收。
 - unknown rollout 超过宽限期后回收孤儿锁，活跃 turn 不回收。
 - 实际 ChatGPT Desktop 命令行持锁识别为外部 writer；terminal rollout 清除陈旧内存 turn/writer。
-- isolated 模式下 active rollout 无真实持锁进程时，Control、Resume、connected sync、会话列表均投影 idle，Input 可重新取得 writer；锁探测工具失败或持锁进程无法分类时保守判外部占用。
+- isolated 模式下 active rollout 无真实持锁进程、也无当前 agent 的同 turn Fleet 租约时，Control、Resume、connected sync、会话列表均投影 idle，Input 可重新取得 writer；同 epoch Fleet 租约无 lock 时仍投影 running 并阻止第二个 turn；锁探测工具失败或持锁进程无法分类时保守判外部占用。
 - `read_only` 时附件上传与其他写接口一致返回拒绝。
 
 ### Dashboard

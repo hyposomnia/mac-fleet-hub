@@ -449,6 +449,38 @@ func TestCodexOrphanedActiveRolloutIsIdleInSessionList(t *testing.T) {
 	}
 }
 
+func TestCodexCurrentFleetLeaseWithoutLockIsActiveInSessionList(t *testing.T) {
+	previousCfg := cfg
+	previousOwner := codexThreadWriterProcessOwner
+	previousBackend := agentChatBackend
+	t.Cleanup(func() {
+		cfg = previousCfg
+		codexThreadWriterProcessOwner = previousOwner
+		agentChatBackend = previousBackend
+	})
+	cfg.CodexMode = "isolated"
+	codexThreadWriterProcessOwner = func(string) string { return "" }
+	backend := newCodexChatBackend(func(context.Context) (codexRPCConn, func(), error) {
+		return nil, nil, errAppServerUnavailable
+	})
+	agentChatBackend = backend
+	backend.loadedThreads["thread-1"] = true
+	backend.lastTurn["thread-1"] = "turn-fresh"
+	backend.turnOwners["thread-1"] = "fleet"
+	backend.writerOwners["thread-1"] = "fleet"
+	path := filepath.Join(t.TempDir(), "rollout.jsonl")
+	if err := os.WriteFile(path, []byte(
+		`{"type":"event_msg","payload":{"type":"task_started","turn_id":"turn-fresh"}}`+"\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	all := []Session{{SessionID: "thread-1", Assistant: "codex", Status: "idle"}}
+	markSessionRuntime("codex", all, nil, map[string]string{"thread-1": path})
+	if !all[0].Live || all[0].Status != "active" {
+		t.Fatalf("current Fleet lease without a lock file was hidden in session list: %+v", all[0])
+	}
+}
+
 func TestCodexSessionWaitingRequiresActionableFleetRequest(t *testing.T) {
 	previousBackend := agentChatBackend
 	backend := newCodexChatBackend(func(context.Context) (codexRPCConn, func(), error) {

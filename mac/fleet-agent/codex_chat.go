@@ -303,10 +303,11 @@ func (b *codexChatBackend) Control(ctx context.Context, assistant, sessionID str
 	turnID := cachedTurnID
 	turnOwner := b.turnOwners[sessionID]
 	if rolloutKnown && rolloutState.turnID != "" && !rolloutState.terminal {
-		if codexUsesIsolatedSidecar() && physicalOwner == "" {
+		logicalFleetOwner := b.ownsCurrentFleetTurnLocked(sessionID, rolloutState.turnID)
+		if codexUsesIsolatedSidecar() && physicalOwner == "" && !logicalFleetOwner {
 			// A persisted task_started record can outlive a crashed Desktop/CLI
-			// process. In isolated mode the OS writer lock is the authority: no
-			// holder means no process can still own or advance this turn.
+			// process. No physical lock and no Fleet lease from this agent epoch
+			// means no known process can still own or advance this turn.
 			turnID, turnOwner = "", ""
 			delete(b.lastTurn, sessionID)
 			delete(b.turnOwners, sessionID)
@@ -315,7 +316,9 @@ func (b *codexChatBackend) Control(ctx context.Context, assistant, sessionID str
 		} else {
 			turnID = rolloutState.turnID
 		}
-		if turnID != "" && physicalOwner != "" && (codexUsesIsolatedSidecar() || turnOwner == "" || cachedTurnID != turnID) {
+		if turnID != "" && logicalFleetOwner && physicalOwner == "" {
+			turnOwner = "fleet"
+		} else if turnID != "" && physicalOwner != "" && (codexUsesIsolatedSidecar() || turnOwner == "" || cachedTurnID != turnID) {
 			// In shared mode Fleet and Desktop intentionally use one daemon, so
 			// the process identity cannot override ownership remembered for the
 			// same live turn. A new/unknown turn still defaults to external.
@@ -437,6 +440,21 @@ func (b *codexChatBackend) restoreFleetTurnOwner(sessionID, turnID string) bool 
 	return true
 }
 
+// ownsCurrentFleetTurnLocked recognizes the server-side lease created by this
+// fleet-agent process. A fresh thread/start turn has no writer lock file until
+// it is resumed, so the physical lock is not the sole proof for that case.
+// The caller must hold b.mu.
+func (b *codexChatBackend) ownsCurrentFleetTurnLocked(sessionID, turnID string) bool {
+	return turnID != "" && b.loadedThreads[sessionID] && b.lastTurn[sessionID] == turnID &&
+		b.turnOwners[sessionID] == "fleet" && b.writerOwners[sessionID] == "fleet"
+}
+
+func (b *codexChatBackend) ownsCurrentFleetTurn(sessionID, turnID string) bool {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.ownsCurrentFleetTurnLocked(sessionID, turnID)
+}
+
 func (b *codexChatBackend) refreshActiveTurnOwnership(sessionID string) {
 	state, active := codexActiveRolloutTaskState(sessionID)
 	if !active || state.turnID == "" || state.terminal {
@@ -448,6 +466,9 @@ func (b *codexChatBackend) refreshActiveTurnOwnership(sessionID string) {
 	owner := codexThreadWriterProcessOwner(sessionID)
 	b.mu.Lock()
 	defer b.mu.Unlock()
+	if owner == "" && b.ownsCurrentFleetTurnLocked(sessionID, state.turnID) {
+		return
+	}
 	if owner == "" {
 		delete(b.lastTurn, sessionID)
 		delete(b.turnOwners, sessionID)
@@ -737,7 +758,8 @@ func (b *codexChatBackend) Resume(ctx context.Context, assistant, sessionID, mod
 			fleetProcessOwner = b.restoreFleetTurnOwner(sessionID, rolloutState.turnID)
 		}
 		b.mu.Lock()
-		if codexUsesIsolatedSidecar() && physicalOwner == "" {
+		logicalFleetOwner := b.ownsCurrentFleetTurnLocked(sessionID, rolloutState.turnID)
+		if codexUsesIsolatedSidecar() && physicalOwner == "" && !logicalFleetOwner {
 			// Read-only resume must not revive a task_started record whose
 			// writer process is gone. A future real writer acquisition will
 			// establish fresh ownership.
@@ -745,7 +767,7 @@ func (b *codexChatBackend) Resume(ctx context.Context, assistant, sessionID, mod
 			delete(b.turnOwners, sessionID)
 			delete(b.writerOwners, sessionID)
 			delete(b.loadedThreads, sessionID)
-		} else if fleetProcessOwner {
+		} else if fleetProcessOwner || logicalFleetOwner {
 			status = "running"
 			activeTurnID = rolloutState.turnID
 			b.lastTurn[sessionID] = activeTurnID
@@ -1331,17 +1353,20 @@ func (b *codexChatBackend) reconcileConnectedSession(ctx context.Context, rpc co
 		b.mu.Lock()
 		previous := b.lastTurn[sessionID]
 		owner := b.turnOwners[sessionID]
-		missingWriter := codexUsesIsolatedSidecar() && physicalOwner == ""
+		logicalFleetOwner := b.ownsCurrentFleetTurnLocked(sessionID, state.turnID)
+		missingWriter := codexUsesIsolatedSidecar() && physicalOwner == "" && !logicalFleetOwner
 		if missingWriter {
 			delete(b.lastTurn, sessionID)
 			delete(b.turnOwners, sessionID)
 			delete(b.writerOwners, sessionID)
 			delete(b.loadedThreads, sessionID)
-		} else if codexUsesIsolatedSidecar() {
+		} else if codexUsesIsolatedSidecar() && physicalOwner != "" {
 			owner = physicalOwner
 			b.lastTurn[sessionID] = state.turnID
 			b.turnOwners[sessionID] = owner
 			b.writerOwners[sessionID] = owner
+		} else if logicalFleetOwner {
+			owner = "fleet"
 		} else if previous != state.turnID || owner != "fleet" {
 			owner = "desktop"
 			b.turnOwners[sessionID] = owner
@@ -2140,12 +2165,13 @@ func (b *codexChatBackend) Input(ctx context.Context, assistant, sessionID, text
 		if codexUsesIsolatedSidecar() {
 			physicalOwner = codexThreadWriterProcessOwner(sessionID)
 		}
-		if !codexUsesIsolatedSidecar() || physicalOwner != "" {
+		logicalFleetOwner := b.ownsCurrentFleetTurn(sessionID, rolloutState.turnID)
+		if !codexUsesIsolatedSidecar() || physicalOwner != "" || logicalFleetOwner {
 			b.mu.Lock()
 			owned := b.lastTurn[sessionID] == rolloutState.turnID && b.turnOwners[sessionID] == "fleet"
 			b.mu.Unlock()
 			if codexUsesIsolatedSidecar() {
-				owned = physicalOwner == "fleet"
+				owned = physicalOwner == "fleet" || (physicalOwner == "" && logicalFleetOwner)
 			}
 			if !owned && physicalOwner != "desktop" {
 				owned = b.restoreFleetTurnOwner(sessionID, rolloutState.turnID)

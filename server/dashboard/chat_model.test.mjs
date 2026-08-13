@@ -2290,6 +2290,29 @@ test('failed turn keeps its error and exits running state', () => {
   assert.equal(state.error, 'missing tool output');
 });
 
+test('structured app-server errors render a readable message', () => {
+  const state = reduceChatEvent(createChatState(), {
+    type: 'error', turnId: 't1',
+    data: { error: { message: 'upstream request timed out' } },
+  });
+  assert.equal(state.error, 'upstream request timed out');
+  assert.equal(state.phase, 'error');
+});
+
+test('successful completion clears a transient turn error', () => {
+  let state = reduceChatEvent(createChatState(), {
+    type: 'turn_started', turnId: 't1', data: { turn: { id: 't1' } },
+  });
+  state = reduceChatEvent(state, {
+    type: 'error', turnId: 't1', data: { error: { message: 'retrying upstream' } },
+  });
+  state = reduceChatEvent(state, {
+    type: 'turn_done', turnId: 't1', data: { turn: { id: 't1', status: 'completed' } },
+  });
+  assert.equal(state.phase, 'idle');
+  assert.equal(state.error, null);
+});
+
 test('optimistic user message can be removed without discarding later events', () => {
   let state = appendUserMessage(createChatState(), 'pending', 'optimistic-1', []);
   state = reduceChatEvent(state, {
