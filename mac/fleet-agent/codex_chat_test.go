@@ -198,6 +198,48 @@ func TestCodexChatBackendIsolatedResumeStaysReadOnly(t *testing.T) {
 	}
 }
 
+func TestCodexChatBackendIsolatedResumeIgnoresActiveRolloutWithoutWriter(t *testing.T) {
+	previousCfg := cfg
+	previousOwner := codexThreadWriterProcessOwner
+	t.Cleanup(func() {
+		cfg = previousCfg
+		codexThreadWriterProcessOwner = previousOwner
+	})
+	cfg.CodexMode = "isolated"
+	cfg.CodexHome = t.TempDir()
+	codexThreadWriterProcessOwner = func(string) string { return "" }
+	sessionID := "11111111-2222-4333-8444-777777777777"
+	dir := filepath.Join(cfg.CodexHome, "sessions", "2026", "08", "13")
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "rollout-2026-08-13T00-00-00-"+sessionID+".jsonl"), []byte(
+		`{"type":"event_msg","payload":{"type":"task_started","turn_id":"turn-orphan"}}`+"\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	rpc := newFakeRPCConn()
+	rpc.reply["thread/read"] = json.RawMessage(`{"thread":{"id":"` + sessionID + `"}}`)
+	rpc.reply["thread/items/list"] = json.RawMessage(`{"data":[]}`)
+	b := newCodexChatBackend(func(context.Context) (codexRPCConn, func(), error) {
+		return rpc, func() {}, nil
+	})
+	b.lastTurn[sessionID] = "turn-orphan"
+	b.turnOwners[sessionID] = "desktop"
+	b.writerOwners[sessionID] = "desktop"
+
+	res, err := b.Resume(context.Background(), "codex", sessionID, "default")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Status != "idle" || res.ActiveTurnID != "" || res.TurnOwner != "" || res.WriterOwner != "" {
+		t.Fatalf("read-only resume revived orphaned writer: %+v", res)
+	}
+	if b.lastTurn[sessionID] != "" || b.turnOwners[sessionID] != "" || b.writerOwners[sessionID] != "" {
+		t.Fatalf("read-only resume retained orphaned cache: turn=%q owner=%q writer=%q",
+			b.lastTurn[sessionID], b.turnOwners[sessionID], b.writerOwners[sessionID])
+	}
+}
+
 func TestCodexWriterProcessClassifierTreatsAnyNonFleetLockHolderAsExternal(t *testing.T) {
 	fleetSocket := "/Users/test/.macfleet/codex-app-server.sock"
 	for _, command := range []string{
@@ -256,6 +298,38 @@ func TestCodexControlClearsCachedTurnWhenRolloutIsTerminal(t *testing.T) {
 	}
 	if got.Status != "idle" || got.WriterOwner != "" || got.TurnOwner != "" || got.ActiveTurnID != "" {
 		t.Fatalf("terminal rollout did not clear cached control state: %+v", got)
+	}
+}
+
+func TestCodexControlClearsActiveRolloutWithoutPhysicalWriterInIsolatedMode(t *testing.T) {
+	previousCfg := cfg
+	previousOwner := codexThreadWriterProcessOwner
+	previousState := codexActiveRolloutTaskState
+	t.Cleanup(func() {
+		cfg = previousCfg
+		codexThreadWriterProcessOwner = previousOwner
+		codexActiveRolloutTaskState = previousState
+	})
+	cfg.CodexMode = "isolated"
+	codexThreadWriterProcessOwner = func(string) string { return "" }
+	codexActiveRolloutTaskState = func(string) (codexRolloutTaskState, bool) {
+		return codexRolloutTaskState{turnID: "turn-orphan", terminal: false}, true
+	}
+	b := newCodexChatBackend(func(context.Context) (codexRPCConn, func(), error) { return newFakeRPCConn(), func() {}, nil })
+	b.lastTurn["thread-1"] = "turn-orphan"
+	b.turnOwners["thread-1"] = "desktop"
+	b.writerOwners["thread-1"] = "desktop"
+
+	got, err := b.Control(context.Background(), "codex", "thread-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Status != "idle" || got.WriterOwner != "" || got.TurnOwner != "" || got.ActiveTurnID != "" {
+		t.Fatalf("active rollout without a physical writer remained authoritative: %+v", got)
+	}
+	if b.lastTurn["thread-1"] != "" || b.turnOwners["thread-1"] != "" || b.writerOwners["thread-1"] != "" {
+		t.Fatalf("orphaned external ownership remained cached: turn=%q owner=%q writer=%q",
+			b.lastTurn["thread-1"], b.turnOwners["thread-1"], b.writerOwners["thread-1"])
 	}
 }
 
@@ -1155,6 +1229,37 @@ func TestCodexChatBackendOperationsRecoverFleetOwnershipBeforeRejecting(t *testi
 	}
 }
 
+func TestCodexChatBackendPhysicalDesktopOwnerOverridesStaleFleetCache(t *testing.T) {
+	previousCfg := cfg
+	previousOwner := codexThreadWriterProcessOwner
+	previousState := codexActiveRolloutTaskState
+	t.Cleanup(func() {
+		cfg = previousCfg
+		codexThreadWriterProcessOwner = previousOwner
+		codexActiveRolloutTaskState = previousState
+	})
+	cfg.CodexMode = "isolated"
+	codexThreadWriterProcessOwner = func(string) string { return "desktop" }
+	codexActiveRolloutTaskState = func(string) (codexRolloutTaskState, bool) {
+		return codexRolloutTaskState{turnID: "turn-external"}, true
+	}
+	rpc := newFakeRPCConn()
+	b := newCodexChatBackend(func(context.Context) (codexRPCConn, func(), error) {
+		return rpc, func() {}, nil
+	})
+	b.lastTurn["thread-1"] = "turn-external"
+	b.turnOwners["thread-1"] = "fleet"
+	b.writerOwners["thread-1"] = "fleet"
+
+	_, err := b.Steer(context.Background(), "codex", "thread-1", "client-1", "must not cross", nil, nil)
+	if !errors.Is(err, errExternalChatTurn) {
+		t.Fatalf("physical Desktop owner did not override stale Fleet cache: %v", err)
+	}
+	if len(rpc.calls) != 0 {
+		t.Fatalf("external turn was steered through Fleet sidecar: %v", methods(rpc.calls))
+	}
+}
+
 func TestCodexChatBackendFullAccessAutoApprovesCurrentTurnRequests(t *testing.T) {
 	rpc := newFakeRPCConn()
 	rpc.reply["thread/settings/update"] = json.RawMessage(`{}`)
@@ -1791,6 +1896,14 @@ func TestFinishResumeDropsBufferedAssistantAlreadyPresentInHistory(t *testing.T)
 }
 
 func TestCodexChatBackendReconcileConnectedSessionUsesRolloutLifecycle(t *testing.T) {
+	previousCfg := cfg
+	previousOwner := codexThreadWriterProcessOwner
+	t.Cleanup(func() {
+		cfg = previousCfg
+		codexThreadWriterProcessOwner = previousOwner
+	})
+	cfg.CodexMode = "isolated"
+	codexThreadWriterProcessOwner = func(string) string { return "desktop" }
 	rpc := newFakeRPCConn()
 	rpc.reply["thread/turns/list"] = json.RawMessage(`{
 		"data":[{"id":"turn-live","status":"interrupted","items":[]}]
@@ -1860,6 +1973,46 @@ func TestCodexChatBackendReconcileConnectedSessionUsesRolloutLifecycle(t *testin
 	}) {
 		t.Fatalf("reconciliation used app-server turn status: %#v", got)
 	}
+}
+
+func TestCodexChatBackendConnectedSyncDoesNotReviveOrphanedRollout(t *testing.T) {
+	previousCfg := cfg
+	previousOwner := codexThreadWriterProcessOwner
+	t.Cleanup(func() {
+		cfg = previousCfg
+		codexThreadWriterProcessOwner = previousOwner
+	})
+	cfg.CodexMode = "isolated"
+	codexThreadWriterProcessOwner = func(string) string { return "" }
+	rpc := newFakeRPCConn()
+	rpc.reply["thread/items/list"] = json.RawMessage(`{"data":[]}`)
+	b := newCodexChatBackend(func(context.Context) (codexRPCConn, func(), error) {
+		return rpc, func() {}, nil
+	})
+	ch := make(chan ChatEvent, 2)
+	b.subs["thread-1"] = map[chan ChatEvent]struct{}{ch: {}}
+	b.lastTurn["thread-1"] = "turn-orphan"
+	b.turnOwners["thread-1"] = "desktop"
+	b.writerOwners["thread-1"] = "desktop"
+
+	completed, err := b.reconcileConnectedSession(context.Background(), rpc, "thread-1", codexRolloutTaskState{
+		turnID: "turn-orphan", status: "inProgress",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if completed {
+		t.Fatal("orphaned nonterminal rollout should keep polling for a future terminal append")
+	}
+	if b.lastTurn["thread-1"] != "" || b.turnOwners["thread-1"] != "" || b.writerOwners["thread-1"] != "" {
+		t.Fatalf("connected sync revived orphaned writer: turn=%q owner=%q writer=%q",
+			b.lastTurn["thread-1"], b.turnOwners["thread-1"], b.writerOwners["thread-1"])
+	}
+	event := receiveChatEvents(t, ch, 1)[0]
+	if event.Type != "thread_status" || !strings.Contains(string(event.Data), `"releaseReason":"missing_writer_lease"`) {
+		t.Fatalf("connected sync orphan event=%+v", event)
+	}
+	assertNoChatEvent(t, ch)
 }
 
 func TestCodexChatBackendLastBrowserDisconnectDoesNotReleaseWriter(t *testing.T) {
@@ -1974,6 +2127,36 @@ func TestCodexChatBackendReaperFindsOrphanLockOutsideMemoryMaps(t *testing.T) {
 	}
 }
 
+func TestCodexChatBackendReaperClearsExternalTurnWithoutPhysicalWriter(t *testing.T) {
+	previousCfg := cfg
+	previousOwner := codexThreadWriterProcessOwner
+	t.Cleanup(func() {
+		cfg = previousCfg
+		codexThreadWriterProcessOwner = previousOwner
+	})
+	cfg.CodexMode = "isolated"
+	codexThreadWriterProcessOwner = func(string) string { return "" }
+	b := newCodexChatBackend(func(context.Context) (codexRPCConn, func(), error) {
+		return newFakeRPCConn(), func() {}, nil
+	})
+	b.lastTurn["thread-external"] = "turn-orphan"
+	b.turnOwners["thread-external"] = "desktop"
+	b.writerOwners["thread-external"] = "desktop"
+	ch := make(chan ChatEvent, 1)
+	b.subs["thread-external"] = map[chan ChatEvent]struct{}{ch: {}}
+
+	b.reapMissingExternalWriters()
+
+	if b.lastTurn["thread-external"] != "" || b.turnOwners["thread-external"] != "" || b.writerOwners["thread-external"] != "" {
+		t.Fatalf("external orphan remained cached: turn=%q owner=%q writer=%q",
+			b.lastTurn["thread-external"], b.turnOwners["thread-external"], b.writerOwners["thread-external"])
+	}
+	event := receiveChatEvents(t, ch, 1)[0]
+	if event.Type != "thread_status" || !strings.Contains(string(event.Data), `"releaseReason":"missing_writer_lease"`) {
+		t.Fatalf("external orphan reaper event=%+v", event)
+	}
+}
+
 func TestCodexChatBackendExplicitReleaseRecoversOrphanedSidecarWriter(t *testing.T) {
 	previousCfg := cfg
 	previousOwner := codexThreadWriterProcessOwner
@@ -2063,8 +2246,11 @@ func TestCodexChatBackendDesktopTurnCannotBeSteered(t *testing.T) {
 
 func TestCodexChatBackendDesktopTurnBlocksNewFleetTurn(t *testing.T) {
 	previousCfg := cfg
-	t.Cleanup(func() { cfg = previousCfg })
+	previousOwner := codexThreadWriterProcessOwner
+	t.Cleanup(func() { cfg = previousCfg; codexThreadWriterProcessOwner = previousOwner })
+	cfg.CodexMode = "isolated"
 	cfg.CodexHome = t.TempDir()
+	codexThreadWriterProcessOwner = func(string) string { return "desktop" }
 	sessionID := "11111111-2222-4333-8444-555555555555"
 	dir := filepath.Join(cfg.CodexHome, "sessions", "2026", "08", "11")
 	if err := os.MkdirAll(dir, 0700); err != nil {
@@ -2085,6 +2271,42 @@ func TestCodexChatBackendDesktopTurnBlocksNewFleetTurn(t *testing.T) {
 	}
 	if len(rpc.calls) != 0 {
 		t.Fatalf("blocked Fleet input reached sidecar: %v", methods(rpc.calls))
+	}
+}
+
+func TestCodexChatBackendActiveRolloutWithoutWriterDoesNotBlockNewFleetTurn(t *testing.T) {
+	previousCfg := cfg
+	previousOwner := codexThreadWriterProcessOwner
+	t.Cleanup(func() { cfg = previousCfg; codexThreadWriterProcessOwner = previousOwner })
+	cfg.CodexMode = "isolated"
+	cfg.CodexHome = t.TempDir()
+	codexThreadWriterProcessOwner = func(string) string { return "" }
+	sessionID := "11111111-2222-4333-8444-666666666666"
+	dir := filepath.Join(cfg.CodexHome, "sessions", "2026", "08", "13")
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	rollout := filepath.Join(dir, "rollout-2026-08-13T00-00-00-"+sessionID+".jsonl")
+	if err := os.WriteFile(rollout, []byte(
+		`{"type":"event_msg","payload":{"type":"task_started","turn_id":"turn-orphan"}}`+"\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	rpc := newFakeRPCConn()
+	rpc.reply["thread/resume"] = json.RawMessage(`{"thread":{"id":"` + sessionID + `"}}`)
+	rpc.reply["turn/start"] = json.RawMessage(`{"turn":{"id":"turn-fleet","status":"running"}}`)
+	b := newCodexChatBackend(func(context.Context) (codexRPCConn, func(), error) {
+		return rpc, func() {}, nil
+	})
+
+	result, err := b.Input(context.Background(), "codex", sessionID, "continue after crash", nil, nil, ChatTurnOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.TurnID != "turn-fleet" || b.writerOwners[sessionID] != "fleet" {
+		t.Fatalf("Fleet did not recover orphaned external turn: result=%+v writer=%q", result, b.writerOwners[sessionID])
+	}
+	if got := methods(rpc.calls); !reflect.DeepEqual(got, []string{"thread/resume", "turn/start"}) {
+		t.Fatalf("orphan recovery calls=%v", got)
 	}
 }
 

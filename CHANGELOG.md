@@ -2,6 +2,7 @@
 
 ## 2026-08-13
 
+- 修复外部 Codex writer 异常退出后 unfinished rollout 被长期误判为仍在运行的问题：isolated 模式现在以目标 Mac 的真实 writer lock 为占用权威，详情控制快照、只读恢复、实时对账、会话列表、队列投递与 30 秒服务端回收使用同一判断；无持锁进程时清除幽灵 owner 并允许 Fleet 重新取得 writer，锁探测异常则保守保持只读。
 - 继续收紧 Codex 服务端权威控制面：控制快照新增审批模式与逐队列项合法动作，队列 worker 在 steer/start 前应用消息绑定的审批设置；浏览器仅渲染服务端动作、按状态版本解除按钮锁，并在控制快照超过 10 秒未刷新时进入不可写重连态。补正 `read_only + Fleet writer` 的“尚未释放”界面和释放重试，避免误报 Codex 已可接管；Dashboard PWA 缓存升级到 v116。
 - 补齐 Codex 会话控制面的统一版本快照：`resume`、queue 与 access 响应现在一次返回 access、真实 writer、turn phase/owner 和完整可见队列，并用进程 epoch + 单调版本拒绝乱序浏览器响应。浏览器不再根据 SSE、history、submitting 或队列项推断/清除 writer 和运行态；实际 ChatGPT Desktop 持锁进程、terminal rollout 陈旧缓存、只读附件上传也纳入服务端校验。Dashboard PWA 缓存升级到 v115。
 - 将 Codex Fleet 写入权、消息投递与 steer/next 队列收口为服务端持久化状态机：浏览器只提交消息意图并投影服务端状态，不再用 localStorage、SSE 断线或本地 writer 判断驱动投递；队列支持 CAS、崩溃恢复与不确定态，15 种状态都有明确界面和合法动作。Fleet 持有 writer 时标题栏提供“释放会话”，服务端先持久化只读、停止当前 turn、再 `thread/unsubscribe`；后台每 30 秒扫描真实锁与 rollout 回收残留 writer，必要时由 launchd 重启隔离 sidecar。Dashboard PWA 缓存升级到 v114。

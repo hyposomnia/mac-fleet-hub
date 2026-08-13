@@ -1435,6 +1435,13 @@ func markSessionRuntime(assistant string, all []Session, ptySet map[string]bool,
 					all[i].Status = "idle"
 					all[i].Live = false
 					all[i].Waiting = false
+				} else if codexUsesIsolatedSidecar() && codexThreadWriterProcessOwner(all[i].SessionID) == "" {
+					// An unfinished task_started record is historical evidence, not
+					// a live lease. In isolated mode only the OS writer lock proves
+					// that a process can still advance the turn.
+					all[i].Status = "idle"
+					all[i].Live = false
+					all[i].Waiting = false
 				} else {
 					all[i].Status = "active"
 					all[i].Live = true

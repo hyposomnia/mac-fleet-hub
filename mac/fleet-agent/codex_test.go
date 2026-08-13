@@ -380,11 +380,19 @@ func TestCodexOpenedPtyIsActiveEvenWhenHistoryDormant(t *testing.T) {
 }
 
 func TestCodexRolloutLifecycleDrivesSessionListRuntime(t *testing.T) {
+	previousCfg := cfg
+	previousOwner := codexThreadWriterProcessOwner
 	previousBackend := agentChatBackend
+	cfg.CodexMode = "isolated"
+	codexThreadWriterProcessOwner = func(string) string { return "desktop" }
 	agentChatBackend = newCodexChatBackend(func(context.Context) (codexRPCConn, func(), error) {
 		return nil, nil, errAppServerUnavailable
 	})
-	t.Cleanup(func() { agentChatBackend = previousBackend })
+	t.Cleanup(func() {
+		cfg = previousCfg
+		codexThreadWriterProcessOwner = previousOwner
+		agentChatBackend = previousBackend
+	})
 	path := filepath.Join(t.TempDir(), "rollout.jsonl")
 	if err := os.WriteFile(path, []byte(
 		`{"type":"event_msg","payload":{"type":"task_started","turn_id":"turn-live"}}`+"\n"), 0644); err != nil {
@@ -416,6 +424,28 @@ func TestCodexRolloutLifecycleDrivesSessionListRuntime(t *testing.T) {
 	markSessionRuntime("codex", idle, nil, paths)
 	if idle[0].Live || idle[0].Status != "idle" || idle[0].Waiting {
 		t.Fatalf("completed rollout should return the session list to idle: %+v", idle[0])
+	}
+}
+
+func TestCodexOrphanedActiveRolloutIsIdleInSessionList(t *testing.T) {
+	previousCfg := cfg
+	previousOwner := codexThreadWriterProcessOwner
+	t.Cleanup(func() {
+		cfg = previousCfg
+		codexThreadWriterProcessOwner = previousOwner
+	})
+	cfg.CodexMode = "isolated"
+	codexThreadWriterProcessOwner = func(string) string { return "" }
+	path := filepath.Join(t.TempDir(), "rollout.jsonl")
+	if err := os.WriteFile(path, []byte(
+		`{"type":"event_msg","payload":{"type":"task_started","turn_id":"turn-orphan"}}`+"\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	all := []Session{{SessionID: "thread-1", Assistant: "codex", Status: "active", Live: true}}
+	markSessionRuntime("codex", all, nil, map[string]string{"thread-1": path})
+	if all[0].Live || all[0].Status != "idle" || all[0].Waiting {
+		t.Fatalf("orphaned active rollout remained live in session list: %+v", all[0])
 	}
 }
 
