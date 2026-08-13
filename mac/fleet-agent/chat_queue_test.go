@@ -17,7 +17,7 @@ func TestChatQueuePersistsAndDeduplicatesClientMessage(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	in := ChatQueueItem{ClientMessageID: "client-1", Assistant: "codex", SessionID: "thread-1", Text: "hello"}
+	in := ChatQueueItem{ClientMessageID: "client-1", Assistant: "codex", SessionID: "thread-1", Text: "hello", WriterOwner: "fleet"}
 	one, err := q.Enqueue(in)
 	if err != nil {
 		t.Fatal(err)
@@ -34,7 +34,7 @@ func TestChatQueuePersistsAndDeduplicatesClientMessage(t *testing.T) {
 		t.Fatal(err)
 	}
 	items := reloaded.List("codex", "thread-1")
-	if len(items) != 1 || items[0].Text != "hello" {
+	if len(items) != 1 || items[0].Text != "hello" || items[0].WriterOwner != "fleet" {
 		t.Fatalf("reloaded=%+v", items)
 	}
 }
@@ -78,7 +78,7 @@ func TestChatQueueWorkerPersistsWaitingAndSendsWithoutBrowser(t *testing.T) {
 	w := newChatQueueWorker(q, sender)
 	w.processOne()
 	got, _ := q.get(item.ID)
-	if got.Status != chatQueueWaitingWriter {
+	if got.Status != chatQueueWaitingWriter || got.WriterOwner != "desktop" {
 		t.Fatalf("status=%q", got.Status)
 	}
 	sender.err = nil
@@ -96,6 +96,24 @@ func TestChatQueueWorkerPersistsWaitingAndSendsWithoutBrowser(t *testing.T) {
 		t.Fatalf("persisted=%+v", persisted)
 	}
 	_ = time.Second
+}
+
+func TestChatQueueWaitsForFleetTurnWithoutOfferingTakeoverState(t *testing.T) {
+	q, _ := openChatQueue(filepath.Join(t.TempDir(), "queue.json"))
+	item, _ := q.Enqueue(ChatQueueItem{ClientMessageID: "client-1", Assistant: "codex", SessionID: "thread-1", Text: "hello"})
+	sender := &fakeChatQueueSender{err: errFleetChatTurnRunning}
+	worker := newChatQueueWorker(q, sender)
+	worker.processOne()
+	got, _ := q.get(item.ID)
+	if got.Status != chatQueueWaitingTurn || got.WriterOwner != "fleet" {
+		t.Fatalf("Fleet-owned turn became external writer state: %+v", got)
+	}
+	sender.err = nil
+	worker.processOne()
+	got, _ = q.get(item.ID)
+	if got.Status != chatQueueSent {
+		t.Fatalf("queued follow-up was not sent after Fleet turn: %+v", got)
+	}
 }
 
 func TestChatQueueHandlersPersistBeyondRequest(t *testing.T) {
@@ -122,6 +140,22 @@ func TestChatQueueHandlersPersistBeyondRequest(t *testing.T) {
 	handleChatQueue(rr, req)
 	if rr.Code != http.StatusOK || !bytes.Contains(rr.Body.Bytes(), []byte(`"clientMessageId":"client-1"`)) {
 		t.Fatalf("status=%d body=%s", rr.Code, rr.Body.String())
+	}
+}
+
+func TestChatQueueVisibleListExcludesTerminalAuditRecords(t *testing.T) {
+	q, _ := openChatQueue(filepath.Join(t.TempDir(), "queue.json"))
+	queued, _ := q.Enqueue(ChatQueueItem{ClientMessageID: "queued", Assistant: "codex", SessionID: "thread-1", Text: "queued"})
+	sent, _ := q.Enqueue(ChatQueueItem{ClientMessageID: "sent", Assistant: "codex", SessionID: "thread-1", Text: "sent"})
+	cancelled, _ := q.Enqueue(ChatQueueItem{ClientMessageID: "cancelled", Assistant: "codex", SessionID: "thread-1", Text: "cancelled"})
+	_, _ = q.update(sent.ID, func(item *ChatQueueItem) error { item.Status = chatQueueSent; return nil })
+	_, _ = q.update(cancelled.ID, func(item *ChatQueueItem) error { item.Status = chatQueueCancelled; return nil })
+	visible := q.ListVisible("codex", "thread-1")
+	if len(visible) != 1 || visible[0].ID != queued.ID {
+		t.Fatalf("visible=%+v", visible)
+	}
+	if audit := q.List("codex", "thread-1"); len(audit) != 3 {
+		t.Fatalf("audit records lost: %+v", audit)
 	}
 }
 

@@ -1417,6 +1417,16 @@ func httpTmuxErr(w http.ResponseWriter, err error) {
 }
 
 func markSessionRuntime(assistant string, all []Session, ptySet map[string]bool, paths map[string]string) {
+	actionableCodexRequests := map[string]bool{}
+	if assistant == "codex" {
+		if backend, ok := agentChatBackend.(*codexChatBackend); ok {
+			backend.mu.Lock()
+			for _, request := range backend.pending {
+				actionableCodexRequests[request.sessionID] = true
+			}
+			backend.mu.Unlock()
+		}
+	}
 	for i := range all {
 		all[i].Pty = ptySet[shortSidFor(assistant, all[i].SessionID)]
 		if assistant == "codex" {
@@ -1431,7 +1441,10 @@ func markSessionRuntime(assistant string, all []Session, ptySet map[string]bool,
 				}
 			}
 			all[i].Live = all[i].Live || all[i].Pty
-			all[i].Waiting = all[i].Waiting || sessionWaiting(paths[all[i].SessionID])
+			// Rollout/thread status can stay active after an approval was already
+			// auto-resolved. Only requests retained by this Fleet backend are
+			// actionable from the dashboard and may show "waiting for reply".
+			all[i].Waiting = actionableCodexRequests[all[i].SessionID]
 			continue
 		}
 		all[i].Waiting = sessionWaiting(paths[all[i].SessionID])

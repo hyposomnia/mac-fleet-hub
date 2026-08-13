@@ -225,6 +225,31 @@ func TestCodexChatBackendIsolatedInputWaitsForDesktopWriterThenClaims(t *testing
 	}
 }
 
+func TestCodexChatBackendRestoresFleetOwnedTurnAfterAgentRestart(t *testing.T) {
+	previousCfg := cfg
+	previousOwner := codexThreadWriterProcessOwner
+	t.Cleanup(func() { cfg = previousCfg; codexThreadWriterProcessOwner = previousOwner })
+	cfg.CodexMode = "isolated"
+	codexThreadWriterProcessOwner = func(sessionID string) string {
+		if sessionID == "thread-1" {
+			return "fleet"
+		}
+		return ""
+	}
+	rpc := newFakeRPCConn()
+	rpc.reply["thread/resume"] = json.RawMessage(`{"thread":{"id":"thread-1"}}`)
+	rpc.reply["turn/start"] = json.RawMessage(`{"turn":{"id":"turn-next"}}`)
+	b := newCodexChatBackend(func(context.Context) (codexRPCConn, func(), error) {
+		return rpc, func() {}, nil
+	})
+	if !b.restoreFleetTurnOwner("thread-1", "turn-live") {
+		t.Fatal("Fleet sidecar lock was not restored")
+	}
+	if b.lastTurn["thread-1"] != "turn-live" || b.turnOwners["thread-1"] != "fleet" || b.writerOwners["thread-1"] != "fleet" {
+		t.Fatalf("ownership not restored: last=%q turn=%q writer=%q", b.lastTurn["thread-1"], b.turnOwners["thread-1"], b.writerOwners["thread-1"])
+	}
+}
+
 func TestCodexChatBackendIsolatedTurnCompletionReleasesWriter(t *testing.T) {
 	previousCfg := cfg
 	t.Cleanup(func() { cfg = previousCfg })
@@ -920,6 +945,49 @@ func TestCodexChatBackendSettingsUpdatesApprovalImmediately(t *testing.T) {
 	sandbox, ok := params["sandboxPolicy"].(map[string]interface{})
 	if !ok || sandbox["type"] != "dangerFullAccess" {
 		t.Fatalf("sandbox params: %#v", params["sandboxPolicy"])
+	}
+}
+
+func TestCodexChatBackendOperationsRecoverFleetOwnershipBeforeRejecting(t *testing.T) {
+	previousCfg := cfg
+	previousOwner := codexThreadWriterProcessOwner
+	previousState := codexActiveRolloutTaskState
+	t.Cleanup(func() {
+		cfg = previousCfg
+		codexThreadWriterProcessOwner = previousOwner
+		codexActiveRolloutTaskState = previousState
+	})
+	cfg.CodexMode = "isolated"
+	codexThreadWriterProcessOwner = func(string) string { return "fleet" }
+	codexActiveRolloutTaskState = func(string) (codexRolloutTaskState, bool) {
+		return codexRolloutTaskState{turnID: "turn-live"}, true
+	}
+	rpc := newFakeRPCConn()
+	rpc.reply["thread/settings/update"] = json.RawMessage(`{}`)
+	rpc.reply["turn/steer"] = json.RawMessage(`{"turnId":"turn-live"}`)
+	rpc.reply["turn/interrupt"] = json.RawMessage(`{}`)
+	b := newCodexChatBackend(func(context.Context) (codexRPCConn, func(), error) {
+		return rpc, func() {}, nil
+	})
+	for _, operation := range []struct {
+		name string
+		run  func() error
+	}{
+		{"settings", func() error { return b.Settings(context.Background(), "codex", "thread-1", "full-access") }},
+		{"steer", func() error {
+			_, err := b.Steer(context.Background(), "codex", "thread-1", "client-1", "next", nil, nil)
+			return err
+		}},
+		{"interrupt", func() error { return b.Interrupt(context.Background(), "codex", "thread-1") }},
+	} {
+		b.mu.Lock()
+		b.lastTurn["thread-1"] = "turn-live"
+		b.turnOwners["thread-1"] = "desktop"
+		b.writerOwners["thread-1"] = "desktop"
+		b.mu.Unlock()
+		if err := operation.run(); errors.Is(err, errExternalChatTurn) {
+			t.Fatalf("%s rejected Fleet-owned turn as Desktop: %v", operation.name, err)
+		}
 	}
 }
 
@@ -1987,6 +2055,38 @@ func TestCodexChatBackendReplaysPendingRequestToReconnectedEvents(t *testing.T) 
 	}
 	cancelSecond()
 	waitForCodexSyncStop(t, b, "thread-1")
+}
+
+func TestCodexChatBackendResumeReportsOnlyActionablePendingRequests(t *testing.T) {
+	rpc := newFakeRPCConn()
+	b := newCodexChatBackend(func(ctx context.Context) (codexRPCConn, func(), error) {
+		return rpc, func() {}, nil
+	})
+	b.pending["request-1"] = pendingCodexRequest{
+		id: json.RawMessage(`61`), method: "item/tool/requestUserInput", sessionID: "thread-1",
+		params: json.RawMessage(`{"threadId":"thread-1","questions":[{"id":"q1","question":"Continue?"}]}`),
+	}
+
+	res, err := b.Resume(context.Background(), "codex", "thread-1", "default")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.PendingRequests != 1 {
+		t.Fatalf("pendingRequests=%d want 1", res.PendingRequests)
+	}
+	if len(res.PendingEvents) != 1 || res.PendingEvents[0].Type != "interaction_request" ||
+		!strings.Contains(string(res.PendingEvents[0].Data), `"question":"Continue?"`) {
+		t.Fatalf("pending event was not recoverable from resume: %+v", res.PendingEvents)
+	}
+
+	delete(b.pending, "request-1")
+	res, err = b.Resume(context.Background(), "codex", "thread-1", "default")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.PendingRequests != 0 || len(res.PendingEvents) != 0 {
+		t.Fatalf("stale thread waiting flag leaked as pending request: %+v", res)
+	}
 }
 
 func methods(calls []recordedCall) []string {

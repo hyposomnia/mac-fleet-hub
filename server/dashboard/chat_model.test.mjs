@@ -622,10 +622,53 @@ test('external writer messages use the agent queue and render takeover actions b
   assert.doesNotMatch(appSrc, /Codex Desktop 正在使用此会话。\\n\\nFleet 不会抢占/);
 });
 
+test('Fleet-owned turn queue reuses the composer follow-up stack instead of transcript cards', () => {
+  const queueCard = appSrc.slice(appSrc.indexOf('function queueStatusCard'), appSrc.indexOf('function acknowledgeChatFollowups'));
+  const followups = appSrc.slice(appSrc.indexOf('function renderChatFollowups'), appSrc.indexOf('function editChatFollowup'));
+  assert.doesNotMatch(queueCard, /status === 'queued' \|\| status === 'waiting_turn'/);
+  assert.match(appSrc, /function isFleetQueueFollowup/);
+  assert.match(appSrc, /item\?\.writerOwner/);
+  assert.match(appSrc, /!isFleetQueueFollowup\(queued\)/);
+  assert.match(followups, /isFleetQueueFollowup\(item\)/);
+  assert.match(followups, /结束后发送/);
+  assert.match(followups, /decideServerChatQueue\(item, 'cancel'\)/);
+  assert.match(followups, /disabled: item\.decisionPending \? '' : null/);
+  assert.match(appSrc, /decisionPending: currentQueue\.get\(item\.id\)\?\.decisionPending \|\| ''/);
+  assert.match(appSrc, /if \(transcript\) chat\.model = FleetChatModel\.appendUserMessage/);
+  assert.match(appSrc, /enqueueServerChatMessage\(chat, item, \{ transcript: true \}\)/);
+  assert.match(appSrc, /chat\.model = FleetChatModel\.removeMessage\(chat\.model, item\.clientMessageId\)/);
+});
+
 test('agent-owned queue is excluded from legacy browser persistence and direct flushing', () => {
   assert.match(appSrc, /filter\(\(item\) => !item\.clientMessageId\)\.map/);
   assert.match(appSrc, /const item = chat\.followups\?\.find\(\(entry\) => !entry\.clientMessageId\)/);
   assert.match(appSrc, /loadServerChatQueue\(chat\)\.then\(\(\) => migrateLocalChatFollowups\(chat\)\)/);
+});
+
+test('successfully sent queue items do not render a redundant status card', () => {
+  assert.match(appSrc, /queued && queued\.status !== 'sent'/);
+});
+
+test('refresh restores only actionable queue items, not sent or cancelled history', () => {
+  assert.match(appSrc, /filter\(\(item\) => item\.status !== 'sent' && item\.status !== 'cancelled'\)/);
+  assert.match(appSrc, /for \(const item of visibleQueue\)/);
+});
+
+test('takeover is offered only for an external writer, never the current Fleet turn', () => {
+  const queueCard = appSrc.slice(appSrc.indexOf('function queueStatusCard'), appSrc.indexOf('function acknowledgeChatFollowups'));
+  assert.match(queueCard, /if \(status === 'waiting_writer'\)/);
+  assert.doesNotMatch(queueCard, /status === 'queued' \|\| status === 'waiting_turn'/);
+  assert.doesNotMatch(queueCard, /status === 'queued' \|\| status === 'waiting_writer'/);
+});
+
+test('waiting reply label is suppressed after an opened chat proves there is no actionable request', () => {
+  assert.equal(sessionStatus({ waiting: true, waitingVisible: false, status: 'active' }).text, '正在进行');
+  assert.equal(sessionStatus({ waiting: true, waitingVisible: true, status: 'active' }).text, '等待回复');
+  assert.match(appSrc, /for \(const event of resumed\.pendingEvents \|\| \[\]\)/);
+  assert.match(appSrc, /function pendingChatRequestCount/);
+  assert.match(appSrc, /request\?\.status === 'pending'/);
+  assert.match(appSrc, /session\.waitingVisible = pendingChatRequestCount\(chat\) > 0/);
+  assert.match(appSrc, /chat\.pendingRequestCount = pendingChatRequestCount\(chat\)/);
 });
 
 test('custom file browser stays on one device and shares the protected preview route', () => {
@@ -1458,7 +1501,7 @@ test('generic tool updates preserve kind, summary, status, and details', () => {
 
 test('tool activity rows mirror Codex inline summaries', () => {
   assert.match(appSrc, /function chatToolActivityLabel\(item, status, duration\)/);
-  assert.match(appSrc, /function renderChatActivityGroup\(items\)/);
+  assert.match(appSrc, /function renderChatActivityGroup\(items,/);
   assert.match(appSrc, /class:\s*'chat-tool-verb'/);
   assert.match(appSrc, /class:\s*'chat-tool-command mono'/);
   assert.match(appSrc, /'chat-tool-path mono'/);
@@ -1482,6 +1525,21 @@ test('tool-only activity summaries keep the existing compatibility fallback', ()
   assert.equal(group.className, 'chat-row tool activity-group');
   assert.match(nodeText(group), /已读取文件运行了一个命令已搜索网页/);
   assert.match(nodeText(group), /npm test/);
+});
+
+test('manually expanded activity groups stay open across live rerenders', () => {
+  const items = [
+    { type: 'diff', files: [{ path: 'app.js' }], status: 'completed' },
+    { type: 'tool', kind: 'commandExecution', summary: 'npm test', status: 'inProgress' },
+  ];
+  const expanded = new Set(['tool-1']);
+  const group = renderChatActivityGroup(items, 'tool-1', expanded);
+  const details = nodesWithClass(group, 'chat-activity-group')[0];
+  assert.equal(details.attributes.open, '');
+  assert.equal(typeof details.ontoggle, 'function');
+  details.open = false;
+  details.ontoggle({ currentTarget: details });
+  assert.equal(expanded.has('tool-1'), false);
 });
 
 test('Codex activity traces omit internal reasoning items', () => {

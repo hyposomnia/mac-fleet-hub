@@ -249,6 +249,7 @@ var errNoActiveChatTurn = errors.New("no_active_turn")
 var errChatRequestNotFound = errors.New("chat_request_not_found")
 var errInvalidChatSkill = errors.New("invalid_chat_skill")
 var errExternalChatTurn = errors.New("external_turn_running")
+var errFleetChatTurnRunning = errors.New("fleet_turn_running")
 var errThreadReadOnly = errors.New("thread_read_only")
 
 type ChatStartResult struct {
@@ -262,18 +263,20 @@ type ChatStartResult struct {
 }
 
 type ChatResumeResult struct {
-	SessionID    string            `json:"sessionId"`
-	ThreadID     string            `json:"threadId"`
-	Status       string            `json:"status"`
-	ActiveTurnID string            `json:"activeTurnId,omitempty"`
-	TurnOwner    string            `json:"turnOwner,omitempty"`
-	WriterOwner  string            `json:"writerOwner,omitempty"`
-	History      ChatHistoryPage   `json:"history"`
-	Model        string            `json:"model,omitempty"`
-	Effort       string            `json:"effort,omitempty"`
-	ServiceTier  string            `json:"serviceTier,omitempty"`
-	ApprovalMode string            `json:"approvalMode,omitempty"`
-	Models       []ChatModelOption `json:"models,omitempty"`
+	SessionID       string            `json:"sessionId"`
+	ThreadID        string            `json:"threadId"`
+	Status          string            `json:"status"`
+	ActiveTurnID    string            `json:"activeTurnId,omitempty"`
+	TurnOwner       string            `json:"turnOwner,omitempty"`
+	WriterOwner     string            `json:"writerOwner,omitempty"`
+	PendingRequests int               `json:"pendingRequests,omitempty"`
+	PendingEvents   []ChatEvent       `json:"pendingEvents,omitempty"`
+	History         ChatHistoryPage   `json:"history"`
+	Model           string            `json:"model,omitempty"`
+	Effort          string            `json:"effort,omitempty"`
+	ServiceTier     string            `json:"serviceTier,omitempty"`
+	ApprovalMode    string            `json:"approvalMode,omitempty"`
+	Models          []ChatModelOption `json:"models,omitempty"`
 }
 
 type ChatHistoryPage struct {
