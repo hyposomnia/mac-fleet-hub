@@ -825,6 +825,13 @@ textarea.chat-request-input { resize: vertical; }
 .chat-followup-guide .ic { width: 15px; height: 15px; }
 .chat-followup-waiting { padding: 0 6px; color: var(--chat-text-2); font-size: var(--t-secondary); white-space: nowrap; }
 .chat-followup-guide:hover, .chat-followup-actions .iconbtn:hover { color: var(--chat-text); background: var(--chat-surface-hover); }
+.chat-row.user.queue-status-row { margin-top: -6px; }
+.chat-queue-status { width: min(520px, 82%); margin-left: auto; padding: 10px 12px; border: 1px solid var(--chat-border); border-radius: 13px; background: var(--chat-surface-1); color: var(--chat-text-2); font-size: var(--t-secondary); }
+.chat-queue-status-title { color: var(--chat-text); font-weight: 600; }
+.chat-queue-status.failed, .chat-queue-status.takeover_confirmation_required { border-color: color-mix(in srgb, var(--danger) 38%, var(--chat-border)); }
+.chat-queue-affected { display: grid; gap: 4px; margin-top: 8px; padding: 8px; border-radius: 9px; background: var(--chat-surface-2); }
+.chat-queue-warning { margin: 6px 0 0; color: var(--danger); font-size: var(--t-caption); line-height: 1.5; }
+.chat-queue-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 7px; margin-top: 9px; }
 .chat-composer-inner {
   position: relative; z-index: 1; width: 100%; min-height: 112px; display: flex; flex-direction: column; min-width: 0;
   padding: 8px; border-radius: 24px; background: var(--chat-composer-bg); border: 1px solid var(--chat-border);

@@ -61,6 +61,7 @@ type Config struct {
 	ProxyFile         string // 代理配置持久化文件（~/.macfleet-proxy.json）
 	DesktopStore      string // Claude Desktop 会话库目录（一次数据源）
 	TmuxConf          string // 自管理 tmux 配置（~/.macfleet-tmux.conf），经 tmux -f 在 server 启动时加载
+	ChatQueueFile     string // Codex 待发送消息队列（agent 权威持久化）
 }
 
 // 代理配置：Web 端可设，按会话注入到 claude 的环境（HTTP(S)_PROXY）。
@@ -138,6 +139,7 @@ func loadConfig() Config {
 		ProxyFile:         envOr("FLEET_PROXY_FILE", filepath.Join(home, ".macfleet-proxy.json")),
 		DesktopStore:      envOr("FLEET_DESKTOP_STORE", filepath.Join(home, "Library", "Application Support", "Claude", "claude-code-sessions")),
 		TmuxConf:          envOr("FLEET_TMUX_CONF", filepath.Join(home, ".macfleet-tmux.conf")),
+		ChatQueueFile:     envOr("FLEET_CHAT_QUEUE_FILE", filepath.Join(home, ".macfleet", "chat-queue.json")),
 	}
 }
 
@@ -1877,6 +1879,14 @@ func runServer() {
 		log.Printf("配置 Codex.app app-server 隔离策略失败；重启 App 后连接模式可能未更新：%v", err)
 	}
 	agentChatBackend = newAgentChatBackend()
+	var err error
+	agentChatQueue, err = openChatQueue(cfg.ChatQueueFile)
+	if err != nil {
+		log.Fatalf("加载聊天队列失败: %v", err)
+	}
+	agentChatQueueWorker = newChatQueueWorker(agentChatQueue, backendChatQueueSender{backend: agentChatBackend})
+	agentChatTakeover = newChatTakeoverService(agentChatQueue, systemTakeoverController{}, agentChatQueueWorker.Wake)
+	go agentChatQueueWorker.Run(context.Background())
 	loadProxy()
 	writeTmuxConf()
 	mux := http.NewServeMux()
@@ -1906,6 +1916,8 @@ func runServer() {
 	mux.HandleFunc("/api/chat/attachment", handleChatAttachment)
 	mux.HandleFunc("/api/chat/media", handleChatMedia)
 	mux.HandleFunc("/api/chat/input", handleChatInput)
+	mux.HandleFunc("/api/chat/queue", handleChatQueue)
+	mux.HandleFunc("/api/chat/queue/decision", handleChatQueueDecision)
 	mux.HandleFunc("/api/chat/steer", handleChatSteer)
 	mux.HandleFunc("/api/chat/events", handleChatEvents)
 	mux.HandleFunc("/api/chat/respond", handleChatRespond)

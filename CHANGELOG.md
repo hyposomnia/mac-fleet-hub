@@ -2,7 +2,14 @@
 
 ## 2026-08-13
 
-- 修复 Codex 消息中的音频、视频 Markdown 媒体预览被错误渲染成破损图片的问题；现在按文件类型显示原生播放控件，图片预览行为保持不变。Dashboard PWA 缓存升级到 v105。
+- 修复 Codex 消息中的音频、视频 Markdown 媒体预览被错误渲染成破损图片的问题；现在按文件类型显示原生播放控件，图片预览行为保持不变。Dashboard PWA 缓存升级到 v107。
+
+## 2026-08-12
+
+- 修复强制接管后被陈旧 rollout 运行态挡住、又静默退回等待的问题：已授权接管的队列可直接使用 Fleet sidecar 已取得的 writer；再次冲突则显示明确失败并允许重新尝试。处理期间立即禁用全部操作按钮，状态文案明确说明会话在目标 Mac 本地被占用。
+- Codex 追问与 writer 冲突消息改由目标 Mac 的 fleet-agent 持久化排队和后台投递；关闭浏览器、切换终端或刷新页面不会丢失或中断队列，旧 localStorage 队列会幂等迁移。
+- 用户消息下方新增服务器状态卡，可继续排队、取消、重试或请求强制接管。若目标机器存在活跃任务，首次操作只展示影响清单，二次确认后才允许中断该机器默认 daemon 上全部受影响任务。
+- 强制接管在执行前重新核对审计版本，串行重启默认 app-server，并持久记录失败状态；Dashboard PWA 缓存升级到 v105。
 
 ## 2026-08-11
 
@@ -14,6 +21,7 @@
 
 ## 2026-08-10
 
+- 修复网关静态文件被旧版 `app.js` 混版覆盖后仍沿用 v103 缓存键的问题：PWA 外壳升级到 v104，确保重新加载外部 writer 只读界面与“尝试获取控制权”操作。
 - 增加 Codex 外部 writer 只读模式：当 Desktop、VS Code 或另一 app-server 正在控制会话时，Fleet 不再显示原始 resume 错误，而是继续展示并同步历史与运行输出；输入、附件、审批和模型设置明确禁用，并提供“尝试获取控制权”操作，writer 释放后可原地恢复读写。
 - 修复 Fleet 与本机 Codex.app 通过两个独立 app-server 抢占同一 thread writer 的问题：安装和 fleet-agent 启动会启用 Codex Desktop 内置的本机 daemon 连接开关，App 重启后与 Fleet 共享默认 Unix control socket；已用两个独立 WebSocket 客户端验证同一 daemon 可同时 resume 同一会话。自定义 Codex home/socket 与显式 `stdio` 模式保持隔离，并可通过 `FLEET_CODEX_DESKTOP_SHARED_DAEMON=0` 关闭。
 - 修复 Codex 会话在最后一个网页观察者离开后仍被 fleet-agent 永久订阅的问题：现在会调用 app-server `thread/unsubscribe` 释放该连接的占用，正在执行的 turn 不受影响；网页与 Codex Desktop 同时打开时仍保持共同订阅，可继续协同操作同一会话。
