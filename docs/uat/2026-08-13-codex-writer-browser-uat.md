@@ -3,6 +3,7 @@
 - 日期：2026-08-13
 - 被测环境：生产 Fleet Dashboard，Mac Mini M4（mesh `100.64.0.2`）
 - 被测版本：`8cffd96` / Dashboard PWA v116
+- 修复后回归版本：`4252635` / Dashboard PWA v117
 - Fleet 操作入口：已登录的真实浏览器页面
 - 外部 writer：在 `.2` 上启动的真实 Codex CLI
 - 测试数据：仅使用名称含 `UAT writer control` 的专用会话
@@ -78,8 +79,37 @@
 - 实际首 token 等待约 100.4 秒，turn 正常完成且有助手回复，不存在静默失败；原观察在回复到达前结束，因此 D02 不作为产品缺陷，也不据此增加错误协议。
 - UAT-01 和 UAT-05 的未覆盖回复断言来自测试人员主动停止/释放 turn，保留为“部分通过”仅表示用例未完整执行，不表示实现失败。
 
+## 修复后真实浏览器回归
+
+### 范围与版本
+
+- 时间：2026-08-13 19:04–19:44（Asia/Shanghai）。
+- Fleet Dashboard：生产环境 PWA v117。
+- fleet-agent：`4252635`，部署在 `.2`（`100.64.0.2`）。
+- 浏览器创建并全程操作的专用 thread：`019ffacb-e146-7482-b063-1ee4a2e52072`。
+- 外部 writer：在 `.2` 上真实执行 `codex exec resume`；Shell 仅用于启动、精确终止测试进程和事后采证。
+
+### 回归结果
+
+| 检查项 | 浏览器实测结果 | 状态 |
+|---|---|---|
+| 新建 thread 的首个 Fleet turn | 首次浏览器发送后，页面持续保持 Fleet 正在执行；该 turn 没有物理 writer lock，但服务端保留同一 agent 的逻辑 lease，没有错误切成空闲或允许第二次发送。115.6 秒后收到唯一回复 `UAT_SETUP_DONE` | **通过** |
+| 直接 Codex CLI 外部 writer 识别 | 外部 `codex exec resume` 不创建 writer lock，只持有 rollout 文件。浏览器仍正确显示“其他 Codex 客户端正在使用 · Fleet 只读同步 / Codex Desktop 正在输出”，不显示 Fleet 的停止或释放动作 | **通过** |
+| 外部占用时排队 | 浏览器提交消息后只出现一条用户消息；确认卡仅有“等待并发送 / 强制接管 / 取消”。选择等待后显示“已由服务器排队”，仅保留“强制接管 / 取消” | **通过** |
+| 外部进程异常退出回收 | 精确终止外部 Codex PID 及其测试子进程后，非 Fleet rollout holder 消失；服务端自动清除外部占用并投递队列。外部进程最后事件为 19:42:53.565，Fleet turn 于 19:43:04.631 启动，回收与投递最坏小于 11.1 秒 | **通过** |
+| 自动投递完成与释放 | 浏览器于 19:43:10 收到唯一回复 `UAT_ORPHAN_RECOVERED`；排队卡和外部占用提示消失，输入恢复可用。服务端最终快照为 `accessMode=read_write`、`turnPhase=idle`、`items=[]` | **通过** |
+| 错误呈现与浏览器质量 | 页面不存在 `[object Object]`，Chrome 控制台无 error/warning；最终页面没有队列态或外部 writer 态残留 | **通过** |
+| 清理 | `.2` 上测试 Codex PID 及 `sleep`/工具子进程均不存在，只有 Fleet sidecar 持有 rollout；`/api/health` 返回 `ok`，专用 thread 已从浏览器归档 | **通过** |
+
+### 与首次 UAT 的对比
+
+1. 首次 UAT 的 D01 会在物理进程和 lock holder 都消失后永久保留 `desktop` 占用；修复后，服务端以真实 lock holder 为第一证据，并覆盖直接 CLI “没有 lock、但持有 rollout”的实际行为，异常退出后在下一轮服务端检测中回收。
+2. 第一版修复只看物理 lock，把 Fleet 新建 thread 的首个无 lock turn 误判为空闲。真实浏览器回归捕获了这个退化；最终实现仅在 `agentID + turnID + Fleet owner` 全部匹配时保留服务端逻辑 lease，外部残留不能借此长期占用。
+3. 首次 UAT 的 Dashboard v116 在部分结构化错误上可能渲染 `[object Object]`；v117 统一提取可读错误，成功重试后清除旧错误。本轮浏览器实测没有对象字符串或控制台异常。
+4. 原 UAT-08 现已通过。修复后回归覆盖了“外部 writer 检出 → 浏览器排队 → 进程异常退出 → 服务端回收 → 自动投递 → 回复完成 → writer 释放”的完整用户路径，满足本轮放行标准。
+
 ### 清理结果
 
-- 两个 UAT 专用会话均已从浏览器归档。
+- 首次 UAT 的两个专用会话和修复后回归专用会话均已从浏览器归档。
 - `.2` 的 fleet-agent 已恢复运行，`/api/health` 返回 `ok`。
-- 两个 UAT thread 的 writer lock 文件都无进程持有；无 `codex exec resume` 测试进程残留。
+- 所有 UAT thread 均无外部 writer lock holder；无 `codex exec resume` 测试进程或测试子进程残留。
