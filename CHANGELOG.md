@@ -2,6 +2,7 @@
 
 ## 2026-08-13
 
+- 修复 isolated 模式“强制接管”重启 Fleet sidecar、却没有释放 Desktop/CLI 实际 writer 的方向性错误：接管审计现在只列出真实外部持锁或持有 rollout 的 Codex 进程，确认后向这些外部 holder 发送 TERM、超时才升级 KILL，并等待目标会话的物理 writer 信号消失后才重新投递；Fleet 自己的 sidecar 与任务不再被误杀。直接 `codex exec resume` 没有 lock 文件时同样可被审计和接管。
 - 修复外部 Codex writer 异常退出后 unfinished rollout 被长期误判为仍在运行的问题：isolated 模式以目标 Mac 的真实 writer lock、非 Fleet rollout 文件持有进程，或本 fleet-agent 进程已确认的同 turn Fleet 租约作为占用证据；详情控制快照、只读恢复、实时对账、会话列表、队列投递与 30 秒服务端回收使用同一判断。外部/未知 owner 无活进程时清除幽灵占用并允许 Fleet 重新取得 writer；直接 `codex exec resume` 不建 lock 文件仍能识别为外部 writer；新建 Fleet thread 首轮没有 lock 文件时仍保持真实运行态；进程探测异常则保守保持只读。结构化 app-server 错误不再显示 `[object Object]`，成功重试完成后清除瞬态错误；Dashboard PWA 缓存升级到 v117。
 - 继续收紧 Codex 服务端权威控制面：控制快照新增审批模式与逐队列项合法动作，队列 worker 在 steer/start 前应用消息绑定的审批设置；浏览器仅渲染服务端动作、按状态版本解除按钮锁，并在控制快照超过 10 秒未刷新时进入不可写重连态。补正 `read_only + Fleet writer` 的“尚未释放”界面和释放重试，避免误报 Codex 已可接管；Dashboard PWA 缓存升级到 v116。
 - 补齐 Codex 会话控制面的统一版本快照：`resume`、queue 与 access 响应现在一次返回 access、真实 writer、turn phase/owner 和完整可见队列，并用进程 epoch + 单调版本拒绝乱序浏览器响应。浏览器不再根据 SSE、history、submitting 或队列项推断/清除 writer 和运行态；实际 ChatGPT Desktop 持锁进程、terminal rollout 陈旧缓存、只读附件上传也纳入服务端校验。Dashboard PWA 缓存升级到 v115。

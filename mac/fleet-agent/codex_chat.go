@@ -222,6 +222,8 @@ func codexUsesIsolatedSidecar() bool {
 var codexThreadWriterProcessOwner = systemCodexThreadWriterProcessOwner
 var codexActiveRolloutTaskState = codexCurrentRolloutTaskState
 var codexFleetWriterSessions = systemCodexFleetWriterSessions
+var codexExternalWriterSessions = systemCodexExternalWriterSessions
+var stopCodexExternalWriters = systemStopCodexExternalWriters
 var restartCodexFleetSidecar = systemRestartCodexFleetSidecar
 
 const codexWriterOrphanGrace = 2 * time.Minute
@@ -415,11 +417,43 @@ func (b *codexChatBackend) currentApprovalMode(sessionID string) string {
 }
 
 func systemCodexFleetWriterSessions() []string {
+	return systemCodexWriterSessions("fleet")
+}
+
+func systemCodexExternalWriterSessions() []string {
+	return systemCodexWriterSessions("desktop")
+}
+
+func systemCodexWriterSessions(owner string) []string {
+	candidates := make(map[string]bool)
 	paths, _ := filepath.Glob(filepath.Join(cfg.CodexHome, "thread-writer-locks", "*.lock"))
-	sessions := make([]string, 0, len(paths))
 	for _, path := range paths {
 		sessionID := strings.TrimSuffix(filepath.Base(path), ".lock")
-		if sessionID != "" && systemCodexThreadWriterProcessOwner(sessionID) == "fleet" {
+		if sessionID != "" {
+			candidates[sessionID] = true
+		}
+	}
+	// Direct `codex exec resume` writers do not necessarily hold the dedicated
+	// writer lock, but they do keep their rollout open. Ask lsof once for files
+	// opened by Codex processes instead of probing every historical rollout.
+	if out, err := exec.Command("lsof", "-Fn", "-c", "codex").Output(); err == nil {
+		root := filepath.Clean(cfg.CodexHome) + string(os.PathSeparator)
+		for _, line := range strings.Split(string(out), "\n") {
+			if !strings.HasPrefix(line, "n") {
+				continue
+			}
+			path := filepath.Clean(strings.TrimPrefix(line, "n"))
+			if !strings.HasPrefix(path, root) {
+				continue
+			}
+			if sessionID := codexIDFromName(filepath.Base(path)); sessionID != "" {
+				candidates[sessionID] = true
+			}
+		}
+	}
+	sessions := make([]string, 0, len(candidates))
+	for sessionID := range candidates {
+		if systemCodexThreadWriterProcessOwner(sessionID) == owner {
 			sessions = append(sessions, sessionID)
 		}
 	}

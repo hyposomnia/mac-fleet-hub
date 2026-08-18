@@ -623,25 +623,33 @@ func TestChatQueuePersistsFailedTakeover(t *testing.T) {
 	}
 }
 
-func TestSystemTakeoverControllerUsesLockAuthorityAndManagedRestart(t *testing.T) {
-	previousLocks := codexFleetWriterSessions
+func TestSystemTakeoverControllerAuditsAndStopsOnlyExternalWriters(t *testing.T) {
+	previousExternal := codexExternalWriterSessions
+	previousFleet := codexFleetWriterSessions
 	previousState := codexActiveRolloutTaskState
-	previousRestart := restartCodexFleetSidecar
+	previousRestart := stopCodexExternalWriters
 	t.Cleanup(func() {
-		codexFleetWriterSessions = previousLocks
+		codexExternalWriterSessions = previousExternal
+		codexFleetWriterSessions = previousFleet
 		codexActiveRolloutTaskState = previousState
-		restartCodexFleetSidecar = previousRestart
+		stopCodexExternalWriters = previousRestart
 	})
-	codexFleetWriterSessions = func() []string { return []string{"thread-a", "thread-b"} }
+	codexExternalWriterSessions = func() []string { return []string{"thread-a", "thread-b"} }
+	codexFleetWriterSessions = func() []string { return []string{"thread-fleet-active"} }
 	codexActiveRolloutTaskState = func(sessionID string) (codexRolloutTaskState, bool) {
 		return codexRolloutTaskState{turnID: "turn-" + sessionID, terminal: sessionID == "thread-b"}, true
 	}
 	restarted := 0
-	restartCodexFleetSidecar = func() error { restarted++; return nil }
+	stopCodexExternalWriters = func() error { restarted++; return nil }
 	controller := systemTakeoverController{}
 	impacts, version, err := controller.Audit()
-	if err != nil || version == "" || len(impacts) != 2 || !impacts[0].Active || impacts[1].Active {
+	if err != nil || version == "" || len(impacts) != 2 || impacts[0].SessionID != "thread-a" || !impacts[0].Active || impacts[1].SessionID != "thread-b" || impacts[1].Active {
 		t.Fatalf("impacts=%+v version=%q err=%v", impacts, version, err)
+	}
+	for _, impact := range impacts {
+		if impact.SessionID == "thread-fleet-active" {
+			t.Fatalf("Fleet-owned task entered takeover impact list: %+v", impacts)
+		}
 	}
 	if err := controller.Restart(); err != nil || restarted != 1 {
 		t.Fatalf("restart count=%d err=%v", restarted, err)

@@ -91,15 +91,15 @@ agent在 `turn/start` 响应未知（超时/断线）时不自动重放，标记
 
 强制接管只作用于目标 Mac。
 
-1. 定位默认 control socket daemon及其 `thread-writer-locks/*.lock`。
-2. 对每个持锁 thread读取 rollout生命周期，判断 active/idle，并返回受影响清单。
+1. 定位目标会话 `thread-writer-locks/*.lock` 或 rollout 的真实外部持有进程；Fleet isolated sidecar 不属于接管目标。
+2. 对外部进程持有的每个 thread 读取 rollout 生命周期，判断 active/idle，并返回受影响清单；直接 `codex exec resume` 没有 lock 文件时使用 rollout holder 作为物理证据。
 3. 无 active任务：第一次 `force`即可进入执行。
 4. 存在 active任务：进入 `takeover_confirmation_required`，第一下不做破坏性操作。
 5. `confirm-force` 后：
-   - 终止默认 app-server及其 supervisor；必要时超时升级为强制终止。
-   - 使用官方 `codex app-server daemon bootstrap --remote-control` 重建默认 daemon。
-   - isolated sidecar对目标 thread `resume`并投递队首消息。
-6. 默认 daemon上的所有 active任务都可能中断；确认卡必须展示数量和会话名称/ID。
+   - 向真实外部 holder 发送 TERM；3 秒内未释放才升级 KILL。
+   - 等目标会话的物理 writer 信号确认消失；不能把“已发信号”当作接管成功。
+   - 保持 Fleet isolated sidecar 存活，由它立即对目标 thread `resume`并投递队首消息。
+6. 同一外部 holder 上的 active 任务都可能中断；确认卡必须展示数量和会话名称/ID。
 
 全机强制接管使用互斥锁。执行中其它 force请求串行等待并重新审计，不并发重启 runtime。
 
