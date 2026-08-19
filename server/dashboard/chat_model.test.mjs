@@ -2090,6 +2090,31 @@ test('history is prepended chronologically and deduplicated against live items',
   assert.equal(state.items.a2.text, 'live');
 });
 
+test('foreground history reconciliation does not duplicate a live turn with different server item ids', () => {
+  let state = appendUserMessage(createChatState(), 'deploy this', 'client-user-1');
+  state = reduceChatEvent(state, {
+    type: 'turn_started', turnId: 'turn-1', data: { turnId: 'turn-1' },
+  });
+  state = reduceChatEvent(state, {
+    type: 'assistant_done', itemId: 'live-assistant', turnId: 'turn-1', data: { text: 'starting deploy' },
+  });
+  state = prependHistory(state, [
+    {
+      type: 'user_done', itemId: 'history-user', turnId: 'turn-1',
+      data: { text: 'deploy this', clientId: 'client-user-1' },
+    },
+    {
+      type: 'assistant_done', itemId: 'history-assistant', turnId: 'turn-1',
+      data: { text: 'starting deploy' },
+    },
+  ]);
+
+  assert.deepEqual(Array.from(state.messages), ['client-user-1', 'live-assistant']);
+  assert.equal(state.items['client-user-1'].optimistic, false);
+  assert.equal(state.items['history-user'], undefined);
+  assert.equal(state.items['history-assistant'], undefined);
+});
+
 test('user and assistant message metadata is normalized for rendering', () => {
   let state = createChatState();
   state = reduceChatEvent(state, {

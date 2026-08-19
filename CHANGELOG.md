@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-08-19
+
+- 修复 iPhone 从后台回到 Fleet 会话时，同一轮实时消息与历史补偿因服务端 `itemId` 不同而重复显示：前端现在按客户端消息 ID，并在同一 turn 内按内容与出现顺序对账；同步升级 Dashboard PWA 外壳缓存到 v113。
+
 ## 2026-08-13
 
 - 修复 isolated 模式“强制接管”重启 Fleet sidecar、却没有释放 Desktop/CLI 实际 writer 的方向性错误：接管审计现在只列出真实外部持锁或持有 rollout 的 Codex 进程，确认后向这些外部 holder 发送 TERM、超时才升级 KILL，并等待目标会话的物理 writer 信号消失后才重新投递；Fleet 自己的 sidecar 与任务不再被误杀。直接 `codex exec resume` 没有 lock 文件时同样可被审计和接管。

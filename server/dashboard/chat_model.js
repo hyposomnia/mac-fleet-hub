@@ -312,11 +312,46 @@
     }
     const next = cloneState(state || createChatState());
     const existing = new Set(next.messages);
-    next.messages = history.messages.filter((id) => !existing.has(id)).concat(next.messages);
+    const liveByClientId = new Map();
+    const liveBySemanticKey = new Map();
+    for (const id of next.messages) {
+      const item = next.items[id];
+      if (!item) continue;
+      if (item.type === 'user' && item.clientId) liveByClientId.set(item.clientId, id);
+      const key = historyReconcileKey(item);
+      if (key) {
+        const matches = liveBySemanticKey.get(key) || [];
+        matches.push(id);
+        liveBySemanticKey.set(key, matches);
+      }
+    }
+    const reconciled = new Map();
+    for (const id of history.messages) {
+      if (existing.has(id)) continue;
+      const item = history.items[id];
+      let liveId = item?.type === 'user' && item.clientId ? liveByClientId.get(item.clientId) : '';
+      if (!liveId) {
+        const matches = liveBySemanticKey.get(historyReconcileKey(item)) || [];
+        liveId = matches.shift() || '';
+      }
+      if (liveId) reconciled.set(id, liveId);
+    }
+    next.messages = history.messages.filter((id) => !existing.has(id) && !reconciled.has(id)).concat(next.messages);
+    for (const [historyId, liveId] of reconciled) {
+      next.items[liveId] = { ...history.items[historyId], ...next.items[liveId], optimistic: false };
+    }
     next.items = { ...history.items, ...next.items };
+    for (const historyId of reconciled.keys()) delete next.items[historyId];
     next.approvals = { ...history.approvals, ...next.approvals };
     next.turnUsage = { ...history.turnUsage, ...next.turnUsage };
     return next;
+  }
+
+  function historyReconcileKey(item) {
+    if (!item || !item.turnId) return '';
+    if (item.type === 'user') return `user\0${item.turnId}\0${item.text || ''}`;
+    if (item.type === 'assistant') return `assistant\0${item.turnId}\0${item.text || ''}`;
+    return '';
   }
 
   function applyToolData(item, data) {
