@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-08-20
+
+- 修复 isolated Fleet sidecar 浏览空闲 Codex 会话时，权限切换对尚未加载的 thread 调用 `thread/settings/update` 并报 `thread not found`：空闲会话现在缓存审批模式，真正发送并恢复 thread 后随 `turn/start` 生效；同步重建双架构 fleet-agent 分发产物。
+
 ## 2026-08-19
 
 - 修复 iPhone 从后台回到 Fleet 会话时，同一轮实时消息与历史补偿因服务端 `itemId` 不同而重复显示：前端现在按客户端消息 ID，并在同一 turn 内按内容与出现顺序对账；同步升级 Dashboard PWA 外壳缓存到 v113。
