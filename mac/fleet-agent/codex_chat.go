@@ -2488,9 +2488,22 @@ func (b *codexChatBackend) Settings(ctx context.Context, assistant, sessionID, a
 	b.refreshActiveTurnOwnership(sessionID)
 	b.mu.Lock()
 	external := b.turnOwners[sessionID] == "desktop" || b.writerOwners[sessionID] == "desktop"
+	loaded := b.loadedThreads[sessionID]
 	b.mu.Unlock()
 	if external {
 		return errExternalChatTurn
+	}
+	// Browsing an idle thread through the isolated sidecar intentionally does
+	// not resume it, because resume would claim the writer from Codex Desktop.
+	// thread/settings/update only accepts a thread loaded in this app-server, so
+	// cache the selection here and let the next turn/start carry it after Input
+	// has resumed the thread. A loaded/running Fleet thread still updates
+	// immediately so full-access can resolve pending approval requests.
+	if codexUsesIsolatedSidecar() && !loaded {
+		b.mu.Lock()
+		b.approvalModes[sessionID] = approvalMode
+		b.mu.Unlock()
+		return nil
 	}
 	rpc, err := b.ensure(ctx)
 	if err != nil {

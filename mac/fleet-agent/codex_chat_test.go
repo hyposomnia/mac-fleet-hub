@@ -1269,6 +1269,29 @@ func TestCodexChatBackendSettingsUpdatesApprovalImmediately(t *testing.T) {
 	}
 }
 
+func TestCodexChatBackendSettingsCachesIdleIsolatedThread(t *testing.T) {
+	previousCfg := cfg
+	t.Cleanup(func() { cfg = previousCfg })
+	cfg.CodexMode = "isolated"
+	rpc := newFakeRPCConn()
+	b := newCodexChatBackend(func(ctx context.Context) (codexRPCConn, func(), error) {
+		return rpc, func() {}, nil
+	})
+
+	if err := b.Settings(context.Background(), "codex", "thread-1", "full-access"); err != nil {
+		t.Fatal(err)
+	}
+	if len(rpc.calls) != 0 {
+		t.Fatalf("idle isolated settings must not touch unloaded app-server thread: %#v", rpc.calls)
+	}
+	b.mu.Lock()
+	mode := b.approvalModes["thread-1"]
+	b.mu.Unlock()
+	if mode != "full-access" {
+		t.Fatalf("cached approval mode = %q", mode)
+	}
+}
+
 func TestCodexChatBackendOperationsRecoverFleetOwnershipBeforeRejecting(t *testing.T) {
 	previousCfg := cfg
 	previousOwner := codexThreadWriterProcessOwner
