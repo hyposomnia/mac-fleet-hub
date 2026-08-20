@@ -44,7 +44,24 @@ func (r *recoveringCodexRPC) call(ctx context.Context, method string, params int
 	if err == nil || ctx.Err() != nil || !recoverableCodexRPCError(err) {
 		return raw, err
 	}
-	r.backend.resetRPCIf(next)
+	failedRPC := codexRPCConn(next)
+	if codexUsesIsolatedSidecar() {
+		replacement, recoveryErr = r.backend.restartFailedSidecarRPC(next, err)
+		if recoveryErr == nil {
+			failedRPC = replacement
+			if final, ok := replacement.(*recoveringCodexRPC); ok {
+				raw, err = final.callOnce(ctx, method, params)
+			} else {
+				raw, err = replacement.call(ctx, method, params)
+			}
+			if err == nil || ctx.Err() != nil || !recoverableCodexRPCError(err) {
+				return raw, err
+			}
+		} else {
+			err = recoveryErr
+		}
+	}
+	r.backend.resetRPCIf(failedRPC)
 	r.backend.scheduleSelfRestart(err)
 	return nil, fmt.Errorf("%w: %s: %v", errAgentRestarting, method, err)
 }
@@ -127,6 +144,48 @@ func (b *codexChatBackend) replaceFailedRPC(failed codexRPCConn, cause error) (c
 		return nil, fmt.Errorf("Codex app-server recovery after %v: %w", cause, err)
 	}
 	return rpc, nil
+}
+
+// restartFailedSidecarRPC replaces the process, rather than merely opening a
+// new connection to the same unresponsive isolated app-server. launchd may
+// return before the new Unix socket is ready, so connection attempts are kept
+// inside the recovery deadline and must not independently restart fleet-agent.
+func (b *codexChatBackend) restartFailedSidecarRPC(failed codexRPCConn, cause error) (codexRPCConn, error) {
+	b.connectMu.Lock()
+	defer b.connectMu.Unlock()
+	b.resetRPCIf(failed)
+	if err := restartCodexFleetSidecar(); err != nil {
+		return nil, fmt.Errorf("restart Codex sidecar after %v: %w", cause, err)
+	}
+
+	recoveryCtx, cancel := context.WithTimeout(context.Background(), codexRecoveryConnectTimeout)
+	defer cancel()
+
+	for {
+		b.mu.Lock()
+		if b.rpc != nil {
+			rpc := b.rpc
+			b.mu.Unlock()
+			return rpc, nil
+		}
+		b.mu.Unlock()
+
+		inner, cleanup, err := b.connect(recoveryCtx)
+		if err == nil {
+			rpc := codexRPCConn(&recoveringCodexRPC{backend: b, inner: inner})
+			b.mu.Lock()
+			b.rpc = rpc
+			b.cleanup = cleanup
+			b.mu.Unlock()
+			go b.dispatch(rpc, rpc.notifications())
+			return rpc, nil
+		}
+		select {
+		case <-recoveryCtx.Done():
+			return nil, fmt.Errorf("reconnect Codex sidecar after %v: %w", cause, err)
+		case <-time.After(100 * time.Millisecond):
+		}
+	}
 }
 
 func (b *codexChatBackend) resetRPCIf(failed codexRPCConn) {

@@ -208,6 +208,56 @@ func TestCodexListThreadsTimeoutReconnectsAndRetries(t *testing.T) {
 	}
 }
 
+func TestCodexRepeatedSafeCallTimeoutRestartsIsolatedSidecar(t *testing.T) {
+	previousCfg := cfg
+	previousTimeout := codexCatalogCallTimeout
+	previousRestart := restartCodexFleetSidecar
+	cfg.CodexMode = codexAppServerModeIsolated
+	codexCatalogCallTimeout = 10 * time.Millisecond
+	restarts := 0
+	restartCodexFleetSidecar = func() error {
+		restarts++
+		return nil
+	}
+	t.Cleanup(func() {
+		cfg = previousCfg
+		codexCatalogCallTimeout = previousTimeout
+		restartCodexFleetSidecar = previousRestart
+	})
+
+	rpc1 := newFakeRPCConn()
+	rpc1.block["thread/list"] = true
+	rpc2 := newFakeRPCConn()
+	rpc2.block["thread/list"] = true
+	rpc3 := newFakeRPCConn()
+	rpc3.reply["thread/list"] = json.RawMessage(`{"data":[{"id":"recovered","cwd":"/repo","preview":"Recovered"}]}`)
+	rpcs := []codexRPCConn{rpc1, rpc2, rpc3}
+	connects := 0
+	backend := newCodexChatBackend(func(context.Context) (codexRPCConn, func(), error) {
+		rpc := rpcs[connects]
+		connects++
+		return rpc, func() {}, nil
+	})
+	agentRestarts := make(chan error, 1)
+	backend.restart = func(err error) { agentRestarts <- err }
+
+	page, err := backend.ListThreads(context.Background(), codexThreadListOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(page.Sessions) != 1 || page.Sessions[0].SessionID != "recovered" {
+		t.Fatalf("recovered page got %+v", page)
+	}
+	if connects != 3 || restarts != 1 {
+		t.Fatalf("connects=%d sidecar restarts=%d, want 3/1", connects, restarts)
+	}
+	select {
+	case err := <-agentRestarts:
+		t.Fatalf("successful sidecar recovery restarted fleet-agent: %v", err)
+	case <-time.After(30 * time.Millisecond):
+	}
+}
+
 func TestCodexRecoveryFailureSchedulesSelfRestartOnce(t *testing.T) {
 	previousTimeout := codexCatalogCallTimeout
 	codexCatalogCallTimeout = 10 * time.Millisecond
