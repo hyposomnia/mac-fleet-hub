@@ -1603,11 +1603,18 @@ function chatOwnershipPresentation(chat) {
       ? { className: 'readonly', text: '会话控制状态不可确认 · 正在重连', action: '' }
       : null;
   }
+  const pendingRequests = visiblePendingChatRequestCount(chat);
+  if (pendingRequests > 0 && chat.writerOwner === 'fleet') {
+    return {
+      className: 'waiting', text: `任务已暂停，等待你审批或回答（${pendingRequests}）`,
+      action: 'release', actionLabel: chat.releasingWriter ? '释放中…' : '释放会话',
+    };
+  }
   if (chat.accessMode === 'read_only' && chat.writerOwner === 'fleet') {
     return {
       className: 'readonly',
-      text: 'Fleet 已只读，但 writer 仍由 Fleet 占用，正在等待服务端回收',
-      action: 'release', actionLabel: chat.releasingWriter ? '重试中…' : '重试释放',
+      text: 'Fleet 已只读，孤立 writer 将在其他 Fleet 任务结束后自动回收',
+      action: '',
     };
   }
   if (chat.accessMode === 'read_only') {
@@ -1718,6 +1725,8 @@ function applyChatControlSnapshot(chat, source, requestSeq = 0) {
   chat.controlStale = false;
   chat.controlLastSyncedAt = Date.now();
   chat.approvalConfirmedMode = normalizeChatApprovalMode(snapshot.approvalMode);
+  chat.pendingRequestCount = Math.max(Number(snapshot.pendingRequests) || 0,
+    Object.values(chat.model?.requests || {}).filter((request) => request?.status === 'pending').length);
   if (!chat.approvalUpdatePending) chat.approvalMode = chat.approvalConfirmedMode;
   chat.followups = visibleQueue;
   if (chat.controlReady) {
@@ -1925,6 +1934,35 @@ function pendingChatRequestCount(chat) {
   return Object.values(chat?.model?.requests || {}).filter((request) => request?.status === 'pending').length;
 }
 
+function visiblePendingChatRequestCount(chat) {
+  return Math.max(pendingChatRequestCount(chat), Number(chat?.pendingRequestCount) || 0);
+}
+
+function renderChatPendingInteraction(chat = state.chat) {
+  const host = $('#chat-pending-interaction');
+  if (!host) return;
+  clear(host);
+  const count = visiblePendingChatRequestCount(chat);
+  if (!chat || count < 1) {
+    host.hidden = true;
+    return;
+  }
+  const actionable = Object.values(chat.model?.requests || {}).find((request) => request?.status === 'pending');
+  host.hidden = false;
+  host.append(
+    h('div', { class: 'chat-pending-interaction-copy' },
+      h('strong', { text: '等待你审批或回答' }),
+      h('span', { text: actionable ? '任务已暂停，处理后才会继续输出。' : '请求正在同步；若连接已丢失，服务端会在无进展超时后自动释放。' })),
+    h('button', {
+      type: 'button', class: 'btn sm accent', text: '等待你处理', disabled: actionable ? null : '',
+      onclick: () => {
+        const target = $('#chat-scroll .chat-request[data-request-id]');
+        if (target) target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      },
+    }),
+  );
+}
+
 function sessionHasVisibleRequest(session) {
   if (!session?.waiting || session.waitingVisible === false) return false;
   if (!session?.sessionId || !session?.macId) return true;
@@ -2066,6 +2104,7 @@ function renderChat({ preserveScroll = false, forceBottom = false } = {}) {
   }
   if (chat.loading) stack.append(chatRow(h('div', { class: 'chat-card muted', text: '正在连接 Codex app-server…' })));
   const model = chat.model || FleetChatModel.createChatState();
+  renderChatPendingInteraction(chat);
   renderChatOwnershipHead(chat);
   if (isDesktopChatOwned(chat)) {
     const running = isDesktopChatRunning(chat);
@@ -3310,7 +3349,6 @@ async function openChatSession(s) {
       }
       configureChatOptions(chat, resumed);
       if (!applyChatControlSnapshot(chat, resumed, controlRequestSeq)) throw new Error('服务端返回了无效的会话控制状态');
-      chat.pendingRequestCount = pendingChatRequestCount(chat);
       chat.historyCursor = resumed.history?.nextCursor || '';
       chat.historyReady = true;
       chat.loading = false;
@@ -3711,7 +3749,7 @@ function startChatEvents(chat = state.chat) {
         updateChatComposerState();
         renderChatFollowups();
       }
-      if (['turn_started', 'turn_done', 'thread_status', 'control_changed', 'user_done'].includes(ev.type)) {
+      if (['turn_started', 'turn_done', 'thread_status', 'control_changed', 'user_done', 'interaction_request', 'interaction_resolved', 'approval_request', 'approval_resolved'].includes(ev.type)) {
         loadServerChatQueue(chat);
       }
     } catch (_) {}
@@ -3750,7 +3788,6 @@ async function restoreChatAfterForeground(chat = state.chat) {
         chat.model = FleetChatModel.reduceChatEvent(chat.model, event);
       }
       applyChatControlSnapshot(chat, resumed, controlRequestSeq);
-      chat.pendingRequestCount = pendingChatRequestCount(chat);
       chat.historyCursor = resumed.history?.nextCursor || chat.historyCursor || '';
       applyChatMetadataDefaults(chat);
       updateChatUpdatedAt(chat, Date.now());
@@ -4024,7 +4061,9 @@ async function releaseChatWriter() {
     });
     if (!isCompleteChatControlSnapshot(control?.control || control)) throw new Error('服务端返回了无效的会话控制状态');
     applyChatControlSnapshot(chat, control, controlRequestSeq);
-    toast('会话已释放，Fleet 已切换为只读。');
+    toast(chat.writerOwner === 'fleet'
+      ? 'Fleet 已切换为只读；孤立 writer 将在其他 Fleet 任务结束后自动回收。'
+      : '会话已释放，Fleet 已切换为只读。');
   } catch (e) {
     toast('释放会话失败：' + e.message, 'err');
     await loadServerChatQueue(chat);

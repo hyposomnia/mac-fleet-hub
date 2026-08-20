@@ -2265,6 +2265,98 @@ func TestCodexChatBackendReaperFindsOrphanLockOutsideMemoryMaps(t *testing.T) {
 	}
 }
 
+func TestCodexChatBackendReaperInterruptsStalledActiveTurn(t *testing.T) {
+	previousCfg := cfg
+	previousLocks := codexFleetWriterSessions
+	previousState := codexActiveRolloutTaskState
+	t.Cleanup(func() {
+		cfg = previousCfg
+		codexFleetWriterSessions = previousLocks
+		codexActiveRolloutTaskState = previousState
+	})
+	cfg.CodexMode = "isolated"
+	codexFleetWriterSessions = func() []string { return []string{"thread-stalled"} }
+	codexActiveRolloutTaskState = func(string) (codexRolloutTaskState, bool) {
+		return codexRolloutTaskState{turnID: "turn-stalled", terminal: false}, true
+	}
+
+	rpc := newFakeRPCConn()
+	b := newCodexChatBackend(func(context.Context) (codexRPCConn, func(), error) {
+		return rpc, func() {}, nil
+	})
+	if _, err := b.ensure(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Date(2026, 8, 20, 12, 0, 0, 0, time.UTC)
+	b.now = func() time.Time { return now }
+	b.stallTimeout = 30 * time.Minute
+	b.rolloutStamp = func(string) (codexRolloutStamp, bool) {
+		return codexRolloutStamp{modTime: now.Add(-31 * time.Minute).UnixNano()}, true
+	}
+	b.mu.Lock()
+	b.loadedThreads["thread-stalled"] = true
+	b.lastTurn["thread-stalled"] = "turn-stalled"
+	b.turnOwners["thread-stalled"] = "fleet"
+	b.writerOwners["thread-stalled"] = "fleet"
+	b.pending["approval-1"] = pendingCodexRequest{
+		id: json.RawMessage(`61`), method: "item/commandExecution/requestApproval", sessionID: "thread-stalled",
+	}
+	b.mu.Unlock()
+	ch := make(chan ChatEvent, 1)
+	b.subs["thread-stalled"] = map[chan ChatEvent]struct{}{ch: {}}
+
+	b.reapIdleFleetWriters()
+
+	if got := methods(rpc.calls); !reflect.DeepEqual(got, []string{"turn/interrupt", "thread/unsubscribe"}) {
+		t.Fatalf("stalled turn calls=%v", got)
+	}
+	b.mu.Lock()
+	_, pending := b.pending["approval-1"]
+	loaded, turnID, writer := b.loadedThreads["thread-stalled"], b.lastTurn["thread-stalled"], b.writerOwners["thread-stalled"]
+	b.mu.Unlock()
+	if pending || loaded || turnID != "" || writer != "" {
+		t.Fatalf("stalled lease not cleared: pending=%v loaded=%v turn=%q writer=%q", pending, loaded, turnID, writer)
+	}
+	event := receiveChatEvents(t, ch, 1)[0]
+	if event.Type != "thread_status" || !strings.Contains(string(event.Data), `"releaseReason":"stalled_turn_timeout"`) {
+		t.Fatalf("stalled release event=%+v", event)
+	}
+}
+
+func TestCodexChatBackendReaperKeepsRecentlyActiveTurn(t *testing.T) {
+	previousCfg := cfg
+	previousLocks := codexFleetWriterSessions
+	previousState := codexActiveRolloutTaskState
+	previousOwner := codexThreadWriterProcessOwner
+	t.Cleanup(func() {
+		cfg = previousCfg
+		codexFleetWriterSessions = previousLocks
+		codexActiveRolloutTaskState = previousState
+		codexThreadWriterProcessOwner = previousOwner
+	})
+	cfg.CodexMode = "isolated"
+	codexThreadWriterProcessOwner = func(string) string { return "fleet" }
+	codexFleetWriterSessions = func() []string { return []string{"thread-active"} }
+	codexActiveRolloutTaskState = func(string) (codexRolloutTaskState, bool) {
+		return codexRolloutTaskState{turnID: "turn-active", terminal: false}, true
+	}
+	b := newCodexChatBackend(func(context.Context) (codexRPCConn, func(), error) {
+		return newFakeRPCConn(), func() {}, nil
+	})
+	now := time.Date(2026, 8, 20, 12, 0, 0, 0, time.UTC)
+	b.now = func() time.Time { return now }
+	b.stallTimeout = 30 * time.Minute
+	b.rolloutStamp = func(string) (codexRolloutStamp, bool) {
+		return codexRolloutStamp{modTime: now.Add(-29 * time.Minute).UnixNano()}, true
+	}
+
+	b.reapIdleFleetWriters()
+
+	if b.lastTurn["thread-active"] != "turn-active" || b.writerOwners["thread-active"] != "fleet" {
+		t.Fatalf("recent active turn was reaped: turn=%q writer=%q", b.lastTurn["thread-active"], b.writerOwners["thread-active"])
+	}
+}
+
 func TestCodexChatBackendReaperClearsExternalTurnWithoutPhysicalWriter(t *testing.T) {
 	previousCfg := cfg
 	previousOwner := codexThreadWriterProcessOwner
@@ -2333,6 +2425,70 @@ func TestCodexChatBackendExplicitReleaseRecoversOrphanedSidecarWriter(t *testing
 	}
 	if restarts != 1 || owned {
 		t.Fatalf("restarts=%d owned=%v", restarts, owned)
+	}
+}
+
+func TestCodexChatBackendExplicitReleaseDefersOrphanRecoveryUntilOtherFleetTurnEnds(t *testing.T) {
+	previousCfg := cfg
+	previousOwner := codexThreadWriterProcessOwner
+	previousLocks := codexFleetWriterSessions
+	previousState := codexActiveRolloutTaskState
+	previousRestart := restartCodexFleetSidecar
+	t.Cleanup(func() {
+		cfg = previousCfg
+		codexThreadWriterProcessOwner = previousOwner
+		codexFleetWriterSessions = previousLocks
+		codexActiveRolloutTaskState = previousState
+		restartCodexFleetSidecar = previousRestart
+	})
+	cfg.CodexMode = "isolated"
+	owned, otherActive := true, true
+	codexThreadWriterProcessOwner = func(sessionID string) string {
+		if owned && sessionID == "thread-orphan" {
+			return "fleet"
+		}
+		return ""
+	}
+	codexFleetWriterSessions = func() []string {
+		var sessions []string
+		if owned {
+			sessions = append(sessions, "thread-orphan")
+		}
+		if otherActive {
+			sessions = append(sessions, "thread-active")
+		}
+		return sessions
+	}
+	codexActiveRolloutTaskState = func(sessionID string) (codexRolloutTaskState, bool) {
+		if sessionID == "thread-active" && otherActive {
+			return codexRolloutTaskState{turnID: "turn-live", terminal: false}, true
+		}
+		return codexRolloutTaskState{turnID: "turn-done", terminal: true}, true
+	}
+	restarts := 0
+	restartCodexFleetSidecar = func() error {
+		restarts++
+		owned = false
+		return nil
+	}
+	b := newCodexChatBackend(func(context.Context) (codexRPCConn, func(), error) {
+		return newFakeRPCConn(), func() {}, nil
+	})
+
+	if err := b.Release(context.Background(), "codex", "thread-orphan"); err != nil {
+		t.Fatalf("manual release should be accepted for deferred recovery: %v", err)
+	}
+	b.mu.Lock()
+	requested := b.orphanRequested["thread-orphan"]
+	b.mu.Unlock()
+	if restarts != 0 || !requested {
+		t.Fatalf("active turn was interrupted or recovery was not queued: restarts=%d requested=%v", restarts, requested)
+	}
+
+	otherActive = false
+	b.reapIdleFleetWriters()
+	if restarts != 1 || owned {
+		t.Fatalf("deferred orphan was not recovered after active turn ended: restarts=%d owned=%v", restarts, owned)
 	}
 }
 

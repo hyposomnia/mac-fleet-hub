@@ -287,7 +287,7 @@ func buildChatSessionControlSnapshotLocked(ctx context.Context, assistant, sessi
 		AccessMode:  accessMode,
 		WriterOwner: runtimeState.WriterOwner, TurnPhase: phase,
 		ActiveTurnID: runtimeState.ActiveTurnID, TurnOwner: runtimeState.TurnOwner,
-		ApprovalMode: approvalMode, Items: views,
+		ApprovalMode: approvalMode, PendingRequests: runtimeState.PendingRequests, Items: views,
 	}, nil
 }
 

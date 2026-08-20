@@ -235,7 +235,8 @@ func TestChatQueueGetReturnsVersionedAuthoritativeControlSnapshot(t *testing.T) 
 			t.Fatalf("control args assistant=%q session=%q", assistant, sessionID)
 		}
 		return ChatRuntimeState{
-			Status: "running", ActiveTurnID: "turn-1", TurnOwner: "desktop", WriterOwner: "desktop", ApprovalMode: "full-access",
+			Status: "running", ActiveTurnID: "turn-1", TurnOwner: "desktop", WriterOwner: "desktop",
+			ApprovalMode: "full-access", PendingRequests: 2,
 		}, nil
 	}})
 	queued, err := agentChatQueue.Enqueue(ChatQueueItem{ClientMessageID: "queued", Assistant: "codex", SessionID: "s1", Text: "later"})
@@ -254,7 +255,7 @@ func TestChatQueueGetReturnsVersionedAuthoritativeControlSnapshot(t *testing.T) 
 	}
 	if got.ServerEpoch == "" || got.SnapshotVersion == 0 || got.AccessMode != chatAccessReadOnly ||
 		got.WriterOwner != "desktop" || got.TurnOwner != "desktop" || got.TurnPhase != "running" || got.ActiveTurnID != "turn-1" ||
-		got.ApprovalMode != "full-access" || len(got.Items) != 1 || got.Items[0].ID != queued.ID ||
+		got.ApprovalMode != "full-access" || got.PendingRequests != 2 || len(got.Items) != 1 || got.Items[0].ID != queued.ID ||
 		strings.Join(got.Items[0].AllowedActions, ",") != "enable-write,cancel" {
 		t.Fatalf("bad control snapshot: %+v", got)
 	}

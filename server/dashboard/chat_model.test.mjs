@@ -815,12 +815,21 @@ test('expired control transport disables mutations without inventing server stat
 
 test('read-only Fleet writer is shown as unreleased instead of Codex-ready', () => {
   const stuck = chatOwnershipPresentation({ controlReady: true, accessMode: 'read_only', writerOwner: 'fleet' });
-  assert.match(stuck.text, /仍由 Fleet 占用|等待服务端回收/);
+  assert.match(stuck.text, /孤立 writer|自动回收/);
   assert.doesNotMatch(stuck.text, /Codex 可接管/);
-  assert.equal(stuck.action, 'release');
+  assert.equal(stuck.action, '');
   const released = chatOwnershipPresentation({ controlReady: true, accessMode: 'read_only', writerOwner: '' });
   assert.match(released.text, /Codex 可接管/);
   assert.equal(released.action, 'enable-write');
+});
+
+test('pending app-server requests stay visible beside the composer and in the ownership header', () => {
+  assert.match(indexHTML, /id="chat-pending-interaction"/);
+  assert.match(appSrc, /function renderChatPendingInteraction/);
+  assert.match(appSrc, /等待你审批或回答/);
+  assert.match(appSrc, /pendingRequestCount/);
+  assert.match(appSrc, /等待你处理/);
+  assert.match(styleCSS, /\.chat-pending-interaction/);
 });
 
 test('successfully sent queue items do not render a redundant status card', () => {

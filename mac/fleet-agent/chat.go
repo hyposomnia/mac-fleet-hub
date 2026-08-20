@@ -287,11 +287,12 @@ type ChatResumeResult struct {
 // deliberately excludes queue/access data so the HTTP control layer can combine
 // both under the per-session operation lock.
 type ChatRuntimeState struct {
-	Status       string `json:"status"`
-	ActiveTurnID string `json:"activeTurnId,omitempty"`
-	TurnOwner    string `json:"turnOwner,omitempty"`
-	WriterOwner  string `json:"writerOwner,omitempty"`
-	ApprovalMode string `json:"approvalMode,omitempty"`
+	Status          string `json:"status"`
+	ActiveTurnID    string `json:"activeTurnId,omitempty"`
+	TurnOwner       string `json:"turnOwner,omitempty"`
+	WriterOwner     string `json:"writerOwner,omitempty"`
+	ApprovalMode    string `json:"approvalMode,omitempty"`
+	PendingRequests int    `json:"pendingRequests,omitempty"`
 }
 
 // ChatSessionControlSnapshot is the only browser-facing source of truth for
@@ -306,6 +307,7 @@ type ChatSessionControlSnapshot struct {
 	ActiveTurnID    string          `json:"activeTurnId,omitempty"`
 	TurnOwner       string          `json:"turnOwner,omitempty"`
 	ApprovalMode    string          `json:"approvalMode"`
+	PendingRequests int             `json:"pendingRequests,omitempty"`
 	Items           []ChatQueueView `json:"items"`
 }
 

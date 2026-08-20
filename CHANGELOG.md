@@ -2,6 +2,7 @@
 
 ## 2026-08-20
 
+- 修复 Fleet turn 在审批或工具链断线后因 rollout 永远没有 terminal 记录而永久占用 Codex writer：isolated sidecar 现在把 rollout 最后进展作为 30 分钟租约，超时后先中断 turn、再 `thread/unsubscribe`；若旧连接无法释放，仅在没有仍有进展的其他 Fleet turn 时重启 sidecar。控制快照同步携带待处理请求数量，Dashboard 在标题与输入区上方持续显示“等待你审批或回答”，避免任务暂停被误画成普通“正在进行”；PWA 缓存升级到 v120。
 - 修复 isolated Fleet sidecar 浏览空闲 Codex 会话时，权限切换对尚未加载的 thread 调用 `thread/settings/update` 并报 `thread not found`：空闲会话现在缓存审批模式，真正发送并恢复 thread 后随 `turn/start` 生效；同步重建双架构 fleet-agent 分发产物。
 
 ## 2026-08-19
