@@ -6,9 +6,9 @@
     '.txt', '.log', '.json', '.jsonl', '.js', '.mjs', '.cjs', '.ts', '.tsx', '.jsx',
     '.go', '.py', '.rb', '.sh', '.zsh', '.yaml', '.yml', '.toml', '.xml', '.csv', '.ini', '.conf', '.env', '.css',
     '.pdf',
-    '.png', '.jpg', '.jpeg', '.gif', '.webp', '.avif',
-    '.mp4', '.m4v', '.webm', '.mov',
-    '.mp3', '.m4a', '.aac', '.wav', '.ogg', '.flac',
+    '.png', '.jpg', '.jpeg', '.gif', '.webp', '.avif', '.svg', '.heic', '.heif',
+    '.mp4', '.m4v', '.webm', '.mov', '.ogv', '.mpeg', '.mpg',
+    '.mp3', '.m4a', '.aac', '.wav', '.ogg', '.flac', '.opus', '.aif', '.aiff',
   ]);
   const TEXT_EXTENSIONS = new Set([
     '.txt', '.log', '.json', '.jsonl', '.js', '.mjs', '.cjs', '.ts', '.tsx', '.jsx',
@@ -25,9 +25,9 @@
     '.xml': 'application/xml', '.css': 'text/css',
     '.ini': 'text/x-properties', '.conf': 'text/x-properties',
   });
-  const RESOURCE_EXTENSIONS = new Set(PREVIEW_EXTENSIONS);
+  const RESOURCE_EXTENSIONS = new Set([...PREVIEW_EXTENSIONS, '.vtt']);
   const RESOURCE_ATTRS = [
-    ['img', 'src'], ['video', 'src'], ['video', 'poster'], ['audio', 'src'], ['source', 'src'],
+    ['img', 'src'], ['video', 'src'], ['video', 'poster'], ['audio', 'src'], ['source', 'src'], ['track', 'src'],
   ];
   let textEditor = null;
 
@@ -114,6 +114,9 @@
     let value = String(source || '').trim();
     if (!value || value.startsWith('#') || value.startsWith('//')) return '';
     if (/^(?:https?:|mailto:|tel:|data:|blob:|javascript:)/i.test(value)) return '';
+    if (/^file:\/\//i.test(value)) {
+      try { value = new URL(value).pathname; } catch (_) { return ''; }
+    }
     const hashAt = value.indexOf('#');
     if (hashAt >= 0) value = value.slice(0, hashAt);
     const queryAt = value.indexOf('?');
@@ -222,6 +225,15 @@
     });
   }
 
+  function rewriteSrcset(value, context) {
+    return String(value || '').split(',').map((candidate) => {
+      const match = candidate.trim().match(/^(\S+)(\s+.+)?$/);
+      if (!match) return '';
+      const resolved = resourceURL(match[1], context);
+      return resolved ? `${resolved}${match[2] || ''}` : '';
+    }).filter(Boolean).join(', ');
+  }
+
   function safeHTMLDocument(source, context) {
     if (!root.DOMPurify || typeof DOMParser === 'undefined') return '';
     const clean = root.DOMPurify.sanitize(String(source || ''), {
@@ -239,7 +251,11 @@
         else node.removeAttribute(attr);
       });
     }
-    doc.querySelectorAll('[srcset]').forEach((node) => node.removeAttribute('srcset'));
+    doc.querySelectorAll('[srcset]').forEach((node) => {
+      const resolved = rewriteSrcset(node.getAttribute('srcset'), resourceContext);
+      if (resolved) node.setAttribute('srcset', resolved);
+      else node.removeAttribute('srcset');
+    });
     doc.querySelectorAll('link').forEach((link) => {
       if (String(link.getAttribute('rel') || '').toLowerCase() !== 'stylesheet') {
         link.remove();

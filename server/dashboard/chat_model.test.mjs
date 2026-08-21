@@ -167,6 +167,7 @@ test('preview helpers build protected media URLs and parse only /view routes', (
     '/m2/api/file/content?path=.%2Fimage.png&cwd=%2FUsers%2Ftest%2Fdocs',
   );
   assert.equal(resourceURL('https://example.com/image.png', { macId: 'm2' }), '');
+  assert.equal(resourceURL('file:///Users/test/docs/image.svg', { macId: 'm2' }), '/m2/api/file/content?path=%2FUsers%2Ftest%2Fdocs%2Fimage.svg');
   assert.match(fileEndpoint('content', 'm2', '/Users/test/clip.mp4', { download: true }), /download=1/);
   assert.equal(isPreviewRoute('/view'), true);
   assert.equal(isPreviewRoute('/view/'), true);
@@ -190,8 +191,8 @@ test('standalone file preview returns to its originating session when browser hi
 
 test('preview page keeps HTML in a scriptless sandbox and media in native controls', () => {
   const iframe = indexHTML.match(/<iframe id="preview-html"[^>]*>/)?.[0] || '';
-  assert.match(iframe, /sandbox="allow-popups allow-popups-to-escape-sandbox"/);
-  assert.doesNotMatch(iframe, /allow-scripts|allow-same-origin/);
+  assert.match(iframe, /sandbox="allow-same-origin allow-popups allow-popups-to-escape-sandbox"/);
+  assert.doesNotMatch(iframe, /allow-scripts/);
   assert.match(indexHTML, /<video id="preview-video" controls playsinline preload="metadata">/);
   assert.match(indexHTML, /<audio id="preview-audio" controls preload="metadata">/);
   assert.match(indexHTML, /<div id="preview-text"[^>]*data-preview-kind="text"/);
@@ -201,6 +202,8 @@ test('preview page keeps HTML in a scriptless sandbox and media in native contro
   assert.match(previewSrc, /dataset\.previewEmbed = request\.embed/);
   assert.match(previewSrc, /FORBID_TAGS:[\s\S]*?'script'/);
   assert.match(previewSrc, /"script-src 'none'"/);
+  assert.match(previewSrc, /\['track', 'src'\]/);
+  assert.match(previewSrc, /rewriteSrcset/);
   assert.match(appSrc, /FleetMarkdown\.renderMarkdown\(item\.text, chatMediaSrc, chatLinkHref\)/);
 });
 

@@ -179,7 +179,7 @@ func fileBrowserEntryFor(dir string, entry os.DirEntry) (fileBrowserEntry, bool)
 	}
 	extension := strings.ToLower(filepath.Ext(entry.Name()))
 	format, previewable := previewFormatForPath(path)
-	previewable = previewable && format.Kind != "stylesheet"
+	previewable = previewable && format.Kind != "stylesheet" && format.Kind != "track"
 	return fileBrowserEntry{
 		Name: entry.Name(), Path: path, Kind: kind, Extension: extension,
 		MIME: mime.TypeByExtension(extension), Size: size, ModifiedAt: info.ModTime().UnixMilli(),

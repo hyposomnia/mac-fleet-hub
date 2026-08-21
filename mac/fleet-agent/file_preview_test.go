@@ -77,6 +77,18 @@ func TestFilePreviewSupportsHTMLAndLineSuffix(t *testing.T) {
 	}
 }
 
+func TestFilePreviewRecognizesCommonBrowserMediaFormats(t *testing.T) {
+	for path, want := range map[string]string{
+		"poster.svg": "image", "photo.heic": "image", "movie.ogv": "video",
+		"sound.opus": "audio", "captions.vtt": "track",
+	} {
+		format, ok := previewFormatForPath(path)
+		if !ok || format.Kind != want || !format.Stream {
+			t.Fatalf("%s: format=%+v ok=%v", path, format, ok)
+		}
+	}
+}
+
 func TestFilePreviewRejectsOutsideRootAndSymlinkEscape(t *testing.T) {
 	root := t.TempDir()
 	outside := t.TempDir()

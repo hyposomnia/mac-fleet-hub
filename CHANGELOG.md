@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-08-21
+
+- 修复 HTML 预览内相对图片、视频和音频因沙箱为不透明源而无法携带同站鉴权的问题；预览仍禁用脚本、表单、连接和嵌入内容，同时支持 `srcset`、`poster`、`source`、字幕轨、`file://` 本地路径及 CSS 资源改写。独立媒体预览补充 SVG/HEIC/HEIF、Ogg/MPEG 视频、Opus/AIFF 音频，并继续用 Range 请求流式播放；Dashboard PWA 缓存升级到 v121。
+
 ## 2026-08-20
 
 - 修复 Fleet turn 在审批或工具链断线后因 rollout 永远没有 terminal 记录而永久占用 Codex writer：isolated sidecar 现在把 rollout 最后进展作为 30 分钟租约，超时后先中断 turn、再 `thread/unsubscribe`；若旧连接无法释放，仅在没有仍有进展的其他 Fleet turn 时重启 sidecar。控制快照同步携带待处理请求数量，Dashboard 在标题与输入区上方持续显示“等待你审批或回答”，避免任务暂停被误画成普通“正在进行”；PWA 缓存升级到 v120。
