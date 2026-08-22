@@ -1,9 +1,5 @@
 # Changelog
 
-## 2026-08-22
-
-- fleet-agent 双架构发布产物统一使用固定 `com.macfleet.fleet-agent` identifier 和同一 Apple Team 证书签名，启用 hardened runtime 与可信时间戳；构建会自动选择唯一发布身份并严格验签，避免自更新后因代码身份变化重复申请 macOS 隐私权限。
-
 ## 2026-08-21
 
 - 修复 HTML 预览内相对图片、视频和音频因沙箱为不透明源而无法携带同站鉴权的问题；预览仍禁用脚本、表单、连接和嵌入内容，同时支持 `srcset`、`poster`、`source`、字幕轨、`file://` 本地路径及 CSS 资源改写。独立媒体预览补充 SVG/HEIC/HEIF、Ogg/MPEG 视频、Opus/AIFF 音频，并继续用 Range 请求流式播放；Dashboard PWA 缓存升级到 v121。

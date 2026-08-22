@@ -46,26 +46,6 @@
 - **磁盘访问**：文件管理默认根目录是整个用户主目录。macOS 会保护「桌面 / 文档 / 下载」等目录——要在网页里浏览这几个，需给文件服务（filebrowser，经 launchd 运行）授予「完全磁盘访问权限」（系统设置 ›  隐私与安全性 ›  完全磁盘访问权限，把 filebrowser 二进制加进去）；主目录其余文件无需额外授权即可读。
 - 这些服务**只绑私有组网地址**、不对公网；任何外部访问都经网关 + 两步验证。
 
-### fleet-agent 发布签名
-
-`fleet-agent` 的发布产物必须由同一 Team 的 Apple 代码签名证书签名，并固定使用
-`com.macfleet.fleet-agent` identifier。这样自更新替换二进制后，macOS 仍能以同一代码身份识别它，
-已经授予的隐私权限不会因每次重新编译而反复询问。
-
-```bash
-# 优先自动选择 Developer ID Application；受控内网可回退到唯一 Apple Development 身份
-bash mac/fleet-agent/build.sh
-
-# 多 Team / 多证书时必须明确指定（证书名称或 SHA-1 指纹）
-FLEET_CODESIGN_IDENTITY='Developer ID Application: Example (TEAMID)' \
-  bash mac/fleet-agent/build.sh
-```
-
-如需定制 identifier，可设置 `FLEET_CODESIGN_IDENTIFIER`；已经向 Mac 分发后不要再更改证书 Team
-或 identifier，否则系统会把它视为另一个程序。跨组织/公网分发应使用 Developer ID Application；
-Apple Development 回退只用于同 Team 的受控局域网 Mac。构建脚本会为两个架构启用 hardened
-runtime、加入可信时间戳，并在写入 `dist/` 后立即严格校验签名；没有唯一可用身份时会直接失败。
-
 ---
 
 ## 🤖 用 AI 部署（最省事）
