@@ -13,7 +13,7 @@ fleet-agent 的正式产物只能在持有 Developer ID Application 私钥和 Ap
 连接签名构建机后执行：
 
 ```bash
-ssh hjc@100.64.0.2
+ssh <签名构建机用户>@<签名构建机当前 mesh IP>
 cd ~/Git_Repositories/mac-fleet-hub
 
 # 只读预检：证书、网关 SSH、所有 Mac SSH/PID/health
@@ -30,3 +30,5 @@ PID/health 验收。所有 SSH/SCP/远端验证输出均应保留给人和 AI �
 
 真实网关与节点清单只保存在签名机的 `~/.config/mac-fleet-hub/release.env`（权限 `0600`），证书、
 私钥、公证密码和真实配置不得提交。公开配置格式见 `scripts/release-fleet-agent.env.example`。
+签名机构建机的 mesh IP 由各自 Headscale/Fleet 当前分配，**不是项目固定地址**，可能在重新入网后
+变化；连接地址和 `FLEET_RELEASE_BUILDER_IP` 都应以该部署的私有配置/节点状态为准，不要照抄示例值。

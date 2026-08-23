@@ -148,7 +148,7 @@ Accepted、目标机实际执行及 launchd canary 为准。
 在签名构建机上唯一支持的发布入口：
 
 ```bash
-ssh hjc@100.64.0.2
+ssh <签名构建机用户>@<签名构建机当前 mesh IP>
 cd ~/Git_Repositories/mac-fleet-hub
 bash scripts/release-fleet-agent.sh --check   # 只读预检
 bash scripts/release-fleet-agent.sh           # 完整发布
@@ -168,6 +168,9 @@ bash scripts/release-fleet-agent.sh           # 完整发布
 真实基础设施值只放在签名机 `~/.config/mac-fleet-hub/release.env`（`0600`），格式参考
 `scripts/release-fleet-agent.env.example`。证书、私钥、App 专用密码、notarytool 凭据和真实节点配置
 不得进入仓库。其他开发机只提交源码；正式签名、公证和 rollout 统一由签名机构建脚本完成。
+签名构建机 mesh IP 由每套 Headscale/Fleet 当前分配，并非 mac-fleet-hub 的固定/保留地址，重新入网
+后可能变化。AI 必须从该部署的私有 `FLEET_RELEASE_BUILDER_IP`、节点列表或 `tailscale ip -4` 取证，
+不得把文档示例或其他部署的 `100.x` 地址当作通用配置。
 
 ---
 
