@@ -67,6 +67,18 @@ FLEET_CODESIGN_IDENTITY='Developer ID Application: Example (TEAMID)' \
 `FLEET_NOTARY_PROFILE` 指定另一 profile。Apple Development 证书不会被接受，因为它生成的
 独立程序会被其他 Mac 的 Gatekeeper/XProtect 拒绝。
 
+正式发布统一在持有证书私钥的 Mac 上运行：先将
+`scripts/release-fleet-agent.env.example` 复制为 `~/.config/mac-fleet-hub/release.env` 并填写私有
+网关/节点清单，之后 SSH 连接该 Mac，在仓库工作树干净时执行：
+
+```bash
+bash scripts/release-fleet-agent.sh
+```
+
+脚本会先 `git pull --ff-only`，再依次完成验证、签名、公证、产物提交推送、网关备份替换、公网 SHA
+校验和所有 Mac 的滚动更新/健康检查。Git、SSH、SCP 与远端验证输出均实时显示，适合 AI 非交互调用
+和人工审阅；证书、私钥、公证密码和真实节点配置均不进入仓库。
+
 ---
 
 ## 🤖 用 AI 部署（最省事）

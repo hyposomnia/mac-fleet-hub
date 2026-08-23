@@ -3,6 +3,7 @@
 ## 2026-08-22
 
 - fleet-agent 双架构发布产物统一使用固定 `com.macfleet.fleet-agent` identifier 和 Developer ID Application 证书签名，启用 hardened runtime 与可信时间戳；构建会自动选择唯一发布 identity 并严格验签，且拒绝误用 Apple Development，避免自更新后因代码身份变化重复申请 macOS 隐私权限。
+- 新增签名构建机专用的一键发布入口：从干净且同步的 master 开始，自动完成测试、签名公证、发布提交、网关分发备份替换、公网 SHA 校验及全部 Mac 滚动更新和健康验收；真实基础设施清单仅保存在构建机私有配置中。
 
 ## 2026-08-21
 
