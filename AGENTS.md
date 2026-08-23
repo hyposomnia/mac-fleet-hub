@@ -137,6 +137,40 @@ launchctl getenv CODEX_APP_SERVER_USE_LOCAL_DAEMON # 期望为空（Desktop 不�
 
 ---
 
+## 三、fleet-agent 统一签名发布
+
+fleet-agent 的正式产物只能由持有 **Developer ID Application** 私钥和 Apple 公证凭据的唯一签名
+构建机生成。固定代码身份为 `com.macfleet.fleet-agent`；禁止使用 Apple Development、ad-hoc、
+未公证产物，禁止在其他 Mac 自行编译后直接覆盖生产分发源。Developer ID 签名后必须提交 Apple
+公证并取得 `Accepted`；裸 Mach-O 的 `spctl --type execute` 可能只报告“不是 app”，最终以公证
+Accepted、目标机实际执行及 launchd canary 为准。
+
+在签名构建机上唯一支持的发布入口：
+
+```bash
+ssh hjc@100.64.0.2
+cd ~/Git_Repositories/mac-fleet-hub
+bash scripts/release-fleet-agent.sh --check   # 只读预检
+bash scripts/release-fleet-agent.sh           # 完整发布
+```
+
+完整脚本按以下顺序执行，AI 不得拆开、跳步或用手工替换冒充完成：
+
+1. 确认当前 mesh IP 是签名机、工作树干净、分支正确，再 `git pull --ff-only origin master`。
+2. 运行 `bash scripts/verify.sh`。
+3. 双架构构建，以固定 identifier 做 Developer ID 签名、可信时间戳和严格验签，并等待 Apple 公证
+   `Accepted`。
+4. 提交/push 精确产物；从同一不可变提交生成 `mac-bundle.tar.gz`。
+5. 网关先备份现有 bundle/dist，再替换，核 amd64/arm64 SHA 与核心服务状态；从公网下载再次核 SHA。
+6. 按私有节点清单逐台备份、运行正式 `fleet-agent update`、验签并核新 PID、磁盘 SHA、mesh health。
+7. SSH/SCP 和远端验证 stdout/stderr 原样输出；SSH 连续三次失败或任一步异常立即停止，不带病继续。
+
+真实基础设施值只放在签名机 `~/.config/mac-fleet-hub/release.env`（`0600`），格式参考
+`scripts/release-fleet-agent.env.example`。证书、私钥、App 专用密码、notarytool 凭据和真实节点配置
+不得进入仓库。其他开发机只提交源码；正式签名、公证和 rollout 统一由签名机构建脚本完成。
+
+---
+
 ## 给 AI 的收尾准则
 
 - **提交/部署前必须运行项目验证入口 `bash scripts/verify.sh` 并贴出真实输出**（按序执行 mac/fleet-agent 的 `go test ./...`、server/dashboard 的 `node --test chat_model.test.mjs`、tests/tailscale-utils_test.sh 三个测试层；任一失败则先修复再继续）。
