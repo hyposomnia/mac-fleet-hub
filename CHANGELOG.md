@@ -2,6 +2,7 @@
 
 ## 2026-08-26
 
+- fleet-agent 自更新下载总超时由 60 秒提高到 5 分钟，允许家庭网络公网回环偶发低吞吐时完整下载约 8 MB 的统一签名产物，避免传输接近完成时被客户端主动取消。
 - 恢复 Codex shared daemon 为 Mac 安装与 fleet-agent 的默认连接方式：Fleet 和完全退出后重开的 Codex.app 复用官方 managed daemon；`isolated` 保留为旧版 Desktop 与特殊环境的显式兼容回退。
 - shared 安装在未显式指定 Codex 路径时优先使用 ChatGPT.app bundled CLI，以独立 release 目录和原子 `current` symlink 安全更新完整 standalone package（含 code-mode host、rg、zsh 与 package manifest；同版本残缺目录也会重建，旧式 current 目录保留可恢复备份），再执行官方 `daemon bootstrap --remote-control`；package 升级时会预告 bootstrap 将重启 daemon，bootstrap 后仅当 `managedCodexVersion` 与运行中的 `appServerVersion` 仍不一致时额外 restart，避免 Desktop 新版连接旧 daemon，也避免同版本任务被无谓打断。
 - 从 isolated 迁移时会 unload 旧 `com.macfleet.codex-app-server.plist` 并移到 LaunchAgents 外的可恢复备份；managed release、bootstrap 或版本校验失败时，迁移会原子恢复原 `current`（兼容 symlink、旧式目录和原先不存在三种状态）、还原 plist 并重新 load sidecar。成功后备份保留；安装只设置 `CODEX_APP_SERVER_USE_LOCAL_DAEMON=1`，不会自动重启 Codex.app，并明确要求用户 Cmd+Q 后重新打开。

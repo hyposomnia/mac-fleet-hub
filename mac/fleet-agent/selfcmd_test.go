@@ -6,7 +6,14 @@ import (
 	"path/filepath"
 	"runtime"
 	"testing"
+	"time"
 )
+
+func TestUpdateDownloadTimeoutAllowsSlowWANHairpin(t *testing.T) {
+	if updateDownloadTimeout < 5*time.Minute {
+		t.Fatalf("update download timeout=%s, want at least 5m", updateDownloadTimeout)
+	}
+}
 
 func TestParseCommand(t *testing.T) {
 	cases := map[string]svcAction{

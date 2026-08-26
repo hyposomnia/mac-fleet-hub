@@ -26,6 +26,11 @@ const svcLabel = "com.macfleet.fleet-agent"
 // 更新下载源由部署方配置，不内置任何具体仓库/用户名。环境变量名见下。
 const updateBaseEnv = "FLEET_UPDATE_BASE"
 
+// The public update endpoint may be reached through a residential WAN hairpin.
+// Keep a finite deadline, but allow transient low throughput to finish an 8 MB
+// signed binary instead of aborting an otherwise healthy transfer after 60s.
+const updateDownloadTimeout = 5 * time.Minute
+
 const usage = `fleet-agent —— 每台 Mac 的会话管理服务
 
 用法:
@@ -119,8 +124,8 @@ func done(err error) int {
 
 // ---------------- launchd 服务 ----------------
 
-func svcDomain() string  { return fmt.Sprintf("gui/%d", os.Getuid()) }
-func svcTarget() string  { return svcDomain() + "/" + svcLabel }
+func svcDomain() string { return fmt.Sprintf("gui/%d", os.Getuid()) }
+func svcTarget() string { return svcDomain() + "/" + svcLabel }
 func svcPlistPath() string {
 	home, _ := os.UserHomeDir()
 	return filepath.Join(home, "Library", "LaunchAgents", svcLabel+".plist")
@@ -319,7 +324,7 @@ func downloadBinary(url string) ([]byte, error) {
 	if tok := os.Getenv("FLEET_UPDATE_TOKEN"); tok != "" {
 		req.Header.Set("Authorization", "token "+tok)
 	}
-	resp, err := (&http.Client{Timeout: 60 * time.Second}).Do(req)
+	resp, err := (&http.Client{Timeout: updateDownloadTimeout}).Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("下载失败: %v", err)
 	}
