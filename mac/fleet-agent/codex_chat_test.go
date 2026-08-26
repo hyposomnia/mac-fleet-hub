@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -25,16 +26,18 @@ type fakeRPCConn struct {
 	reply                 map[string]json.RawMessage
 	errs                  map[string][]error
 	block                 map[string]bool
+	beforeReply           map[string]func()
 	terminatedDescendants int
 }
 
 func newFakeRPCConn() *fakeRPCConn {
 	return &fakeRPCConn{
-		notes:     make(chan rpcNotification, 8),
-		responses: make(chan recordedCall, 128),
-		reply:     map[string]json.RawMessage{},
-		errs:      map[string][]error{},
-		block:     map[string]bool{},
+		notes:       make(chan rpcNotification, 8),
+		responses:   make(chan recordedCall, 128),
+		reply:       map[string]json.RawMessage{},
+		errs:        map[string][]error{},
+		block:       map[string]bool{},
+		beforeReply: map[string]func(){},
 	}
 }
 
@@ -48,6 +51,9 @@ func (f *fakeRPCConn) call(ctx context.Context, method string, params interface{
 		err := f.errs[method][0]
 		f.errs[method] = f.errs[method][1:]
 		return nil, err
+	}
+	if beforeReply := f.beforeReply[method]; beforeReply != nil {
+		beforeReply()
 	}
 	if raw := f.reply[method]; raw != nil {
 		return raw, nil
@@ -431,6 +437,7 @@ func TestCodexControlPreservesFleetTurnOwnershipInSharedDaemon(t *testing.T) {
 		return codexRolloutTaskState{turnID: "turn-live", terminal: false}, true
 	}
 	b := newCodexChatBackend(func(context.Context) (codexRPCConn, func(), error) { return newFakeRPCConn(), func() {}, nil })
+	b.loadedThreads["thread-1"] = true
 	b.lastTurn["thread-1"] = "turn-live"
 	b.turnOwners["thread-1"] = "fleet"
 	b.writerOwners["thread-1"] = "fleet"
@@ -441,6 +448,369 @@ func TestCodexControlPreservesFleetTurnOwnershipInSharedDaemon(t *testing.T) {
 	}
 	if got.Status != "running" || got.WriterOwner != "fleet" || got.TurnOwner != "fleet" || got.ActiveTurnID != "turn-live" {
 		t.Fatalf("shared daemon process identity overrode logical Fleet ownership: %+v", got)
+	}
+}
+
+func TestCodexChatBackendSharedResumeTreatsUnknownActiveTurnAsDesktop(t *testing.T) {
+	previousCfg := cfg
+	t.Cleanup(func() { cfg = previousCfg })
+	cfg.CodexMode = "shared"
+	rpc := newFakeRPCConn()
+	rpc.reply["thread/read"] = json.RawMessage(`{"thread":{"id":"thread-1"}}`)
+	rpc.reply["thread/resume"] = json.RawMessage(`{
+		"thread":{"id":"thread-1","status":{"type":"active"},"turns":[{"id":"turn-desktop","status":"inProgress"}]}
+	}`)
+	rpc.reply["thread/items/list"] = json.RawMessage(`{"data":[]}`)
+	b := newCodexChatBackend(func(context.Context) (codexRPCConn, func(), error) {
+		return rpc, func() {}, nil
+	})
+
+	res, err := b.Resume(context.Background(), "codex", "thread-1", "default")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Status != "active" || res.ActiveTurnID != "turn-desktop" ||
+		res.TurnOwner != "desktop" || res.WriterOwner != "desktop" {
+		t.Fatalf("shared active resume claimed an unknown Desktop turn: %+v", res)
+	}
+
+	b.pending["71"] = pendingCodexRequest{
+		id: json.RawMessage(`71`), method: "item/commandExecution/requestApproval", sessionID: "thread-1",
+		params: json.RawMessage(`{"threadId":"thread-1","turnId":"turn-desktop","itemId":"cmd-1"}`),
+	}
+	baselineCalls := len(rpc.calls)
+	operations := []struct {
+		name string
+		run  func() error
+	}{
+		{name: "steer", run: func() error {
+			_, operationErr := b.Steer(context.Background(), "codex", "thread-1", "follow-1", "keep going", nil, nil)
+			return operationErr
+		}},
+		{name: "interrupt", run: func() error {
+			return b.Interrupt(context.Background(), "codex", "thread-1")
+		}},
+		{name: "respond", run: func() error {
+			return b.Respond(context.Background(), "codex", "thread-1", "71", json.RawMessage(`{"decision":"accept"}`))
+		}},
+		{name: "settings", run: func() error {
+			return b.Settings(context.Background(), "codex", "thread-1", "full-access")
+		}},
+	}
+	for _, operation := range operations {
+		if operationErr := operation.run(); !errors.Is(operationErr, errExternalChatTurn) {
+			t.Fatalf("shared Desktop %s got %v", operation.name, operationErr)
+		}
+	}
+	if len(rpc.calls) != baselineCalls {
+		t.Fatalf("shared Desktop controls reached the daemon: %v", methods(rpc.calls[baselineCalls:]))
+	}
+}
+
+func TestCodexChatBackendSharedIdleResumeDoesNotClaimWriter(t *testing.T) {
+	previousCfg := cfg
+	t.Cleanup(func() { cfg = previousCfg })
+	cfg.CodexMode = "shared"
+	rpc := newFakeRPCConn()
+	rpc.reply["thread/read"] = json.RawMessage(`{"thread":{"id":"thread-1"}}`)
+	rpc.reply["thread/resume"] = json.RawMessage(`{"thread":{"id":"thread-1","status":{"type":"idle"}}}`)
+	rpc.reply["thread/items/list"] = json.RawMessage(`{"data":[]}`)
+	b := newCodexChatBackend(func(context.Context) (codexRPCConn, func(), error) {
+		return rpc, func() {}, nil
+	})
+
+	res, err := b.Resume(context.Background(), "codex", "thread-1", "default")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Status != "idle" || res.ActiveTurnID != "" || res.TurnOwner != "" || res.WriterOwner != "" {
+		t.Fatalf("shared idle resume retained logical ownership: %+v", res)
+	}
+	if !b.loadedThreads["thread-1"] || b.writerOwners["thread-1"] != "" {
+		t.Fatalf("shared idle resume state: loaded=%v writer=%q", b.loadedThreads["thread-1"], b.writerOwners["thread-1"])
+	}
+}
+
+func TestCodexChatBackendSharedIdleSettingsWaitForFleetTurn(t *testing.T) {
+	previousCfg := cfg
+	previousState := codexActiveRolloutTaskState
+	t.Cleanup(func() {
+		cfg = previousCfg
+		codexActiveRolloutTaskState = previousState
+	})
+	cfg.CodexMode = "shared"
+	codexActiveRolloutTaskState = func(string) (codexRolloutTaskState, bool) {
+		return codexRolloutTaskState{}, true
+	}
+	rpc := newFakeRPCConn()
+	b := newCodexChatBackend(func(context.Context) (codexRPCConn, func(), error) {
+		return rpc, func() {}, nil
+	})
+	b.loadedThreads["thread-1"] = true
+
+	if err := b.Settings(context.Background(), "codex", "thread-1", "full-access"); err != nil {
+		t.Fatal(err)
+	}
+	if len(rpc.calls) != 0 {
+		t.Fatalf("shared idle settings mutated daemon thread before Fleet turn: %v", methods(rpc.calls))
+	}
+	if b.approvalModes["thread-1"] != "full-access" {
+		t.Fatalf("shared idle approval mode=%q", b.approvalModes["thread-1"])
+	}
+}
+
+func TestCodexChatBackendSharedLiveSettingsNeverCrossTurnBoundary(t *testing.T) {
+	previousCfg := cfg
+	previousState := codexActiveRolloutTaskState
+	t.Cleanup(func() {
+		cfg = previousCfg
+		codexActiveRolloutTaskState = previousState
+	})
+	cfg.CodexMode = "shared"
+	codexActiveRolloutTaskState = func(string) (codexRolloutTaskState, bool) {
+		return codexRolloutTaskState{turnID: "turn-fleet", status: "inProgress"}, true
+	}
+	rpc := newFakeRPCConn()
+	b := newCodexChatBackend(func(context.Context) (codexRPCConn, func(), error) {
+		return rpc, func() {}, nil
+	})
+	b.loadedThreads["thread-1"] = true
+	b.lastTurn["thread-1"] = "turn-fleet"
+	b.turnOwners["thread-1"] = "fleet"
+	b.writerOwners["thread-1"] = "fleet"
+
+	if err := b.Settings(context.Background(), "codex", "thread-1", "full-access"); err != nil {
+		t.Fatal(err)
+	}
+	if got := methods(rpc.calls); slices.Contains(got, "thread/settings/update") {
+		t.Fatalf("shared live settings used a cross-turn daemon mutation: %v", got)
+	}
+	if b.approvalModes["thread-1"] != "full-access" {
+		t.Fatalf("shared live approval mode=%q", b.approvalModes["thread-1"])
+	}
+}
+
+func TestCodexChatBackendSharedControlAndReconcileDefaultUnknownTurnToDesktop(t *testing.T) {
+	previousCfg := cfg
+	previousState := codexActiveRolloutTaskState
+	t.Cleanup(func() {
+		cfg = previousCfg
+		codexActiveRolloutTaskState = previousState
+	})
+	cfg.CodexMode = "shared"
+	codexActiveRolloutTaskState = func(string) (codexRolloutTaskState, bool) {
+		return codexRolloutTaskState{turnID: "turn-unknown", status: "inProgress"}, true
+	}
+	rpc := newFakeRPCConn()
+	rpc.reply["thread/items/list"] = json.RawMessage(`{"data":[]}`)
+	b := newCodexChatBackend(func(context.Context) (codexRPCConn, func(), error) {
+		return rpc, func() {}, nil
+	})
+
+	control, err := b.Control(context.Background(), "codex", "thread-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if control.ActiveTurnID != "turn-unknown" || control.TurnOwner != "desktop" || control.WriterOwner != "desktop" {
+		t.Fatalf("shared control claimed restarted unknown turn: %+v", control)
+	}
+
+	b.lastTurn = map[string]string{}
+	b.turnOwners = map[string]string{}
+	b.writerOwners = map[string]string{}
+	completed, err := b.reconcileConnectedSession(context.Background(), rpc, "thread-1", codexRolloutTaskState{
+		turnID: "turn-unknown", status: "inProgress",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if completed || b.lastTurn["thread-1"] != "turn-unknown" || b.turnOwners["thread-1"] != "desktop" ||
+		b.writerOwners["thread-1"] != "desktop" {
+		t.Fatalf("shared reconciliation ownership: completed=%v turn=%q owner=%q writer=%q",
+			completed, b.lastTurn["thread-1"], b.turnOwners["thread-1"], b.writerOwners["thread-1"])
+	}
+}
+
+func TestCodexChatBackendSharedInputCorrectsEarlyTurnStartedOwnership(t *testing.T) {
+	previousCfg := cfg
+	t.Cleanup(func() { cfg = previousCfg })
+	cfg.CodexMode = "shared"
+	rpc := newFakeRPCConn()
+	rpc.reply["thread/resume"] = json.RawMessage(`{"thread":{"id":"thread-1","status":{"type":"idle"}}}`)
+	rpc.reply["turn/start"] = json.RawMessage(`{"turn":{"id":"turn-fleet"}}`)
+	rpc.reply["turn/steer"] = json.RawMessage(`{"turnId":"turn-fleet"}`)
+	rpc.reply["thread/settings/update"] = json.RawMessage(`{}`)
+	rpc.reply["turn/interrupt"] = json.RawMessage(`{}`)
+	var b *codexChatBackend
+	sawSafeEarlyOwner := false
+	rpc.beforeReply["turn/start"] = func() {
+		notes := make(chan rpcNotification, 2)
+		notes <- rpcNotification{Method: "turn/started", Params: json.RawMessage(
+			`{"threadId":"thread-1","turn":{"id":"turn-fleet","status":"inProgress"}}`,
+		)}
+		notes <- rpcNotification{
+			ID: json.RawMessage(`73`), Method: "item/commandExecution/requestApproval",
+			Params: json.RawMessage(`{"threadId":"thread-1","turnId":"turn-fleet","itemId":"cmd-early"}`),
+		}
+		close(notes)
+		b.dispatch(rpc, notes)
+		b.mu.Lock()
+		sawSafeEarlyOwner = b.lastTurn["thread-1"] == "turn-fleet" &&
+			b.turnOwners["thread-1"] == "desktop" && b.writerOwners["thread-1"] == "desktop"
+		b.mu.Unlock()
+	}
+	b = newCodexChatBackend(func(context.Context) (codexRPCConn, func(), error) {
+		return rpc, func() {}, nil
+	})
+
+	result, err := b.Input(context.Background(), "codex", "thread-1", "start", nil, nil, ChatTurnOptions{ApprovalMode: "full-access"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !sawSafeEarlyOwner {
+		t.Fatal("turn/started notification claimed Fleet ownership before turn/start returned")
+	}
+	if result.TurnID != "turn-fleet" || !b.ownsCurrentFleetTurn("thread-1", "turn-fleet") {
+		t.Fatalf("turn/start response did not correct Fleet ownership: result=%+v owner=%q writer=%q",
+			result, b.turnOwners["thread-1"], b.writerOwners["thread-1"])
+	}
+	if _, pending := b.pending["73"]; pending {
+		t.Fatal("early Fleet approval was not resolved after turn/start established ownership")
+	}
+	foundEarlyResponse := false
+	for _, call := range rpc.calls {
+		if call.method == "response:73" {
+			foundEarlyResponse = true
+		}
+	}
+	if !foundEarlyResponse {
+		t.Fatal("early Fleet approval was not answered after ownership was established")
+	}
+
+	b.pending["72"] = pendingCodexRequest{
+		id: json.RawMessage(`72`), method: "item/commandExecution/requestApproval", sessionID: "thread-1",
+		params: json.RawMessage(`{"threadId":"thread-1","turnId":"turn-fleet","itemId":"cmd-1"}`),
+	}
+	if _, err := b.Steer(context.Background(), "codex", "thread-1", "follow-1", "continue", nil, nil); err != nil {
+		t.Fatalf("Fleet turn steer failed: %v", err)
+	}
+	if err := b.Settings(context.Background(), "codex", "thread-1", "on-request"); err != nil {
+		t.Fatalf("Fleet turn settings failed: %v", err)
+	}
+	if err := b.Respond(context.Background(), "codex", "thread-1", "72", json.RawMessage(`{"decision":"accept"}`)); err != nil {
+		t.Fatalf("Fleet turn response failed: %v", err)
+	}
+	if err := b.Interrupt(context.Background(), "codex", "thread-1"); err != nil {
+		t.Fatalf("Fleet turn interrupt failed: %v", err)
+	}
+}
+
+func TestCodexChatBackendSharedUnknownTurnNotificationIsDesktop(t *testing.T) {
+	previousCfg := cfg
+	t.Cleanup(func() { cfg = previousCfg })
+	cfg.CodexMode = "shared"
+	rpc := newFakeRPCConn()
+	b := newCodexChatBackend(func(context.Context) (codexRPCConn, func(), error) {
+		return rpc, func() {}, nil
+	})
+	notes := make(chan rpcNotification, 1)
+	notes <- rpcNotification{Method: "turn/started", Params: json.RawMessage(
+		`{"threadId":"thread-1","turn":{"id":"turn-unknown","status":"inProgress"}}`,
+	)}
+	close(notes)
+	b.dispatch(rpc, notes)
+
+	if b.lastTurn["thread-1"] != "turn-unknown" || b.turnOwners["thread-1"] != "desktop" ||
+		b.writerOwners["thread-1"] != "desktop" {
+		t.Fatalf("unknown shared notification ownership: turn=%q owner=%q writer=%q",
+			b.lastTurn["thread-1"], b.turnOwners["thread-1"], b.writerOwners["thread-1"])
+	}
+}
+
+func TestCodexChatBackendSharedSteerDoesNotRetargetDesktopTurn(t *testing.T) {
+	previousCfg := cfg
+	previousState := codexActiveRolloutTaskState
+	t.Cleanup(func() {
+		cfg = previousCfg
+		codexActiveRolloutTaskState = previousState
+	})
+	cfg.CodexMode = "shared"
+	codexActiveRolloutTaskState = func(string) (codexRolloutTaskState, bool) {
+		return codexRolloutTaskState{turnID: "turn-fleet", status: "inProgress"}, true
+	}
+	rpc := newFakeRPCConn()
+	rpc.errs["turn/steer"] = []error{errors.New("expected active turn id turn-fleet but found turn-desktop")}
+	b := newCodexChatBackend(func(context.Context) (codexRPCConn, func(), error) {
+		return rpc, func() {}, nil
+	})
+	b.loadedThreads["thread-1"] = true
+	b.lastTurn["thread-1"] = "turn-fleet"
+	b.turnOwners["thread-1"] = "fleet"
+	b.writerOwners["thread-1"] = "fleet"
+
+	if _, err := b.Steer(context.Background(), "codex", "thread-1", "follow-1", "continue", nil, nil); !errors.Is(err, errExternalChatTurn) {
+		t.Fatalf("shared mismatch steer err=%v", err)
+	}
+	if got := methods(rpc.calls); !reflect.DeepEqual(got, []string{"turn/steer"}) {
+		t.Fatalf("shared mismatch steer retried against Desktop turn: %v", got)
+	}
+	b.mu.Lock()
+	turnID, owner, writer := b.lastTurn["thread-1"], b.turnOwners["thread-1"], b.writerOwners["thread-1"]
+	b.mu.Unlock()
+	if turnID != "turn-desktop" || owner != "desktop" || writer != "desktop" {
+		t.Fatalf("shared mismatch ownership turn=%q owner=%q writer=%q", turnID, owner, writer)
+	}
+}
+
+func TestCodexChatBackendSharedTurnDoneClearsMatchingRuntimeOwnerOnly(t *testing.T) {
+	previousCfg := cfg
+	t.Cleanup(func() { cfg = previousCfg })
+	cfg.CodexMode = "shared"
+	rpc := newFakeRPCConn()
+	b := newCodexChatBackend(func(context.Context) (codexRPCConn, func(), error) {
+		return rpc, func() {}, nil
+	})
+	events := make(chan ChatEvent, 1)
+	b.loadedThreads["thread-1"] = true
+	b.lastTurn["thread-1"] = "turn-done"
+	b.turnOwners["thread-1"] = "fleet"
+	b.writerOwners["thread-1"] = "fleet"
+	b.subs["thread-1"] = map[chan ChatEvent]struct{}{events: {}}
+	b.loadedThreads["thread-other"] = true
+	b.lastTurn["thread-other"] = "turn-other"
+	b.turnOwners["thread-other"] = "fleet"
+	b.writerOwners["thread-other"] = "fleet"
+
+	notes := make(chan rpcNotification, 1)
+	notes <- rpcNotification{Method: "turn/completed", Params: json.RawMessage(
+		`{"threadId":"thread-1","turn":{"id":"turn-done","status":"completed"}}`,
+	)}
+	close(notes)
+	b.dispatch(rpc, notes)
+
+	if b.lastTurn["thread-1"] != "" || b.turnOwners["thread-1"] != "" || b.writerOwners["thread-1"] != "" {
+		t.Fatalf("matching shared completion retained runtime ownership: turn=%q owner=%q writer=%q",
+			b.lastTurn["thread-1"], b.turnOwners["thread-1"], b.writerOwners["thread-1"])
+	}
+	if !b.loadedThreads["thread-1"] || len(b.subs["thread-1"]) != 1 {
+		t.Fatalf("shared completion changed subscription state: loaded=%v subscribers=%d",
+			b.loadedThreads["thread-1"], len(b.subs["thread-1"]))
+	}
+	if b.lastTurn["thread-other"] != "turn-other" || b.turnOwners["thread-other"] != "fleet" ||
+		b.writerOwners["thread-other"] != "fleet" {
+		t.Fatalf("shared completion changed another turn: turn=%q owner=%q writer=%q",
+			b.lastTurn["thread-other"], b.turnOwners["thread-other"], b.writerOwners["thread-other"])
+	}
+	if got := methods(rpc.calls); len(got) != 0 {
+		t.Fatalf("shared completion unsubscribed the daemon connection: %v", got)
+	}
+	select {
+	case event := <-events:
+		if event.Type != "turn_done" || event.TurnID != "turn-done" {
+			t.Fatalf("completion event got %+v", event)
+		}
+	default:
+		t.Fatal("shared completion was not published")
 	}
 }
 
@@ -1292,6 +1662,183 @@ func TestCodexChatBackendSettingsCachesIdleIsolatedThread(t *testing.T) {
 	}
 }
 
+func TestCodexChatBackendSettingsClearsStaleDesktopOwnershipAfterTakeover(t *testing.T) {
+	previousCfg := cfg
+	previousOwner := codexThreadWriterProcessOwner
+	previousState := codexActiveRolloutTaskState
+	t.Cleanup(func() {
+		cfg = previousCfg
+		codexThreadWriterProcessOwner = previousOwner
+		codexActiveRolloutTaskState = previousState
+	})
+	cfg.CodexMode = "isolated"
+	codexThreadWriterProcessOwner = func(string) string { return "" }
+
+	for _, test := range []struct {
+		name  string
+		state func(string) (codexRolloutTaskState, bool)
+	}{
+		{
+			name: "terminal rollout",
+			state: func(string) (codexRolloutTaskState, bool) {
+				return codexRolloutTaskState{turnID: "turn-done", terminal: true}, true
+			},
+		},
+		{
+			name:  "idle rollout",
+			state: func(string) (codexRolloutTaskState, bool) { return codexRolloutTaskState{}, true },
+		},
+		{
+			name:  "no rollout",
+			state: func(string) (codexRolloutTaskState, bool) { return codexRolloutTaskState{}, false },
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			codexActiveRolloutTaskState = test.state
+			rpc := newFakeRPCConn()
+			b := newCodexChatBackend(func(context.Context) (codexRPCConn, func(), error) {
+				return rpc, func() {}, nil
+			})
+			b.lastTurn["thread-1"] = "turn-done"
+			b.turnOwners["thread-1"] = "desktop"
+			b.writerOwners["thread-1"] = "desktop"
+
+			if err := b.Settings(context.Background(), "codex", "thread-1", "full-access"); err != nil {
+				t.Fatalf("settings retained stale external ownership: %v", err)
+			}
+			if len(rpc.calls) != 0 {
+				t.Fatalf("idle isolated settings touched unloaded app-server thread: %#v", rpc.calls)
+			}
+			b.mu.Lock()
+			turnID := b.lastTurn["thread-1"]
+			turnOwner := b.turnOwners["thread-1"]
+			writerOwner := b.writerOwners["thread-1"]
+			mode := b.approvalModes["thread-1"]
+			b.mu.Unlock()
+			if turnID != "" || turnOwner != "" || writerOwner != "" {
+				t.Fatalf("stale ownership remained: turn=%q owner=%q writer=%q", turnID, turnOwner, writerOwner)
+			}
+			if mode != "full-access" {
+				t.Fatalf("cached approval mode = %q", mode)
+			}
+		})
+	}
+}
+
+func TestCodexChatBackendRefreshInactiveOwnershipPreservesPhysicalWriter(t *testing.T) {
+	previousCfg := cfg
+	previousOwner := codexThreadWriterProcessOwner
+	previousState := codexActiveRolloutTaskState
+	t.Cleanup(func() {
+		cfg = previousCfg
+		codexThreadWriterProcessOwner = previousOwner
+		codexActiveRolloutTaskState = previousState
+	})
+	cfg.CodexMode = "isolated"
+	codexActiveRolloutTaskState = func(string) (codexRolloutTaskState, bool) {
+		return codexRolloutTaskState{turnID: "turn-done", terminal: true}, true
+	}
+
+	for _, owner := range []string{"desktop", "fleet"} {
+		t.Run(owner, func(t *testing.T) {
+			codexThreadWriterProcessOwner = func(string) string { return owner }
+			b := newCodexChatBackend(func(context.Context) (codexRPCConn, func(), error) {
+				return newFakeRPCConn(), func() {}, nil
+			})
+			b.loadedThreads["thread-1"] = true
+			b.lastTurn["thread-1"] = "turn-done"
+			b.turnOwners["thread-1"] = "desktop"
+			b.writerOwners["thread-1"] = "desktop"
+
+			b.refreshActiveTurnOwnership("thread-1")
+
+			b.mu.Lock()
+			turnID := b.lastTurn["thread-1"]
+			turnOwner := b.turnOwners["thread-1"]
+			writerOwner := b.writerOwners["thread-1"]
+			b.mu.Unlock()
+			if turnID != "" || turnOwner != "" {
+				t.Fatalf("terminal turn ownership remained: turn=%q owner=%q", turnID, turnOwner)
+			}
+			if writerOwner != owner {
+				t.Fatalf("physical writer owner = %q, want %q", writerOwner, owner)
+			}
+		})
+	}
+}
+
+func TestCodexChatBackendRefreshMissingRolloutPreservesCurrentFleetLease(t *testing.T) {
+	previousCfg := cfg
+	previousOwner := codexThreadWriterProcessOwner
+	previousState := codexActiveRolloutTaskState
+	t.Cleanup(func() {
+		cfg = previousCfg
+		codexThreadWriterProcessOwner = previousOwner
+		codexActiveRolloutTaskState = previousState
+	})
+	cfg.CodexMode = "isolated"
+	codexThreadWriterProcessOwner = func(string) string { return "" }
+	codexActiveRolloutTaskState = func(string) (codexRolloutTaskState, bool) {
+		return codexRolloutTaskState{}, false
+	}
+	b := newCodexChatBackend(func(context.Context) (codexRPCConn, func(), error) {
+		return newFakeRPCConn(), func() {}, nil
+	})
+	b.loadedThreads["thread-1"] = true
+	b.lastTurn["thread-1"] = "turn-starting"
+	b.turnOwners["thread-1"] = "fleet"
+	b.writerOwners["thread-1"] = "fleet"
+
+	b.refreshActiveTurnOwnership("thread-1")
+
+	b.mu.Lock()
+	loaded := b.loadedThreads["thread-1"]
+	turnID := b.lastTurn["thread-1"]
+	turnOwner := b.turnOwners["thread-1"]
+	writerOwner := b.writerOwners["thread-1"]
+	b.mu.Unlock()
+	if !loaded || turnID != "turn-starting" || turnOwner != "fleet" || writerOwner != "fleet" {
+		t.Fatalf("fresh Fleet lease was cleared: loaded=%v turn=%q owner=%q writer=%q",
+			loaded, turnID, turnOwner, writerOwner)
+	}
+}
+
+func TestCodexChatBackendRefreshTerminalRolloutPreservesLoadedFleetWriter(t *testing.T) {
+	previousCfg := cfg
+	previousOwner := codexThreadWriterProcessOwner
+	previousState := codexActiveRolloutTaskState
+	t.Cleanup(func() {
+		cfg = previousCfg
+		codexThreadWriterProcessOwner = previousOwner
+		codexActiveRolloutTaskState = previousState
+	})
+	cfg.CodexMode = "isolated"
+	codexThreadWriterProcessOwner = func(string) string { return "" }
+	codexActiveRolloutTaskState = func(string) (codexRolloutTaskState, bool) {
+		return codexRolloutTaskState{turnID: "turn-done", terminal: true}, true
+	}
+	b := newCodexChatBackend(func(context.Context) (codexRPCConn, func(), error) {
+		return newFakeRPCConn(), func() {}, nil
+	})
+	b.loadedThreads["thread-1"] = true
+	b.lastTurn["thread-1"] = "turn-done"
+	b.turnOwners["thread-1"] = "fleet"
+	b.writerOwners["thread-1"] = "fleet"
+
+	b.refreshActiveTurnOwnership("thread-1")
+
+	b.mu.Lock()
+	loaded := b.loadedThreads["thread-1"]
+	turnID := b.lastTurn["thread-1"]
+	turnOwner := b.turnOwners["thread-1"]
+	writerOwner := b.writerOwners["thread-1"]
+	b.mu.Unlock()
+	if !loaded || turnID != "" || turnOwner != "" || writerOwner != "fleet" {
+		t.Fatalf("idle Fleet writer lease was discarded: loaded=%v turn=%q owner=%q writer=%q",
+			loaded, turnID, turnOwner, writerOwner)
+	}
+}
+
 func TestCodexChatBackendOperationsRecoverFleetOwnershipBeforeRejecting(t *testing.T) {
 	previousCfg := cfg
 	previousOwner := codexThreadWriterProcessOwner
@@ -1786,7 +2333,6 @@ func TestCodexChatBackendEventsDispatchBySessionID(t *testing.T) {
 	})
 
 	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
 	events, err := b.Events(ctx, "codex", "thread-1")
 	if err != nil {
 		t.Fatal(err)
@@ -1805,6 +2351,8 @@ func TestCodexChatBackendEventsDispatchBySessionID(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("event timeout")
 	}
+	cancel()
+	waitForCodexSyncStop(t, b, "thread-1")
 }
 
 func TestUpdateCodexRolloutTaskStateTracksLatestTurnIncrementally(t *testing.T) {

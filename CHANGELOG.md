@@ -1,5 +1,13 @@
 # Changelog
 
+## 2026-08-26
+
+- 恢复 Codex shared daemon 为 Mac 安装与 fleet-agent 的默认连接方式：Fleet 和完全退出后重开的 Codex.app 复用官方 managed daemon；`isolated` 保留为旧版 Desktop 与特殊环境的显式兼容回退。
+- shared 安装在未显式指定 Codex 路径时优先使用 ChatGPT.app bundled CLI，以独立 release 目录和原子 `current` symlink 安全更新完整 standalone package（含 code-mode host、rg、zsh 与 package manifest；同版本残缺目录也会重建，旧式 current 目录保留可恢复备份），再执行官方 `daemon bootstrap --remote-control`；package 升级时会预告 bootstrap 将重启 daemon，bootstrap 后仅当 `managedCodexVersion` 与运行中的 `appServerVersion` 仍不一致时额外 restart，避免 Desktop 新版连接旧 daemon，也避免同版本任务被无谓打断。
+- 从 isolated 迁移时会 unload 旧 `com.macfleet.codex-app-server.plist` 并移到 LaunchAgents 外的可恢复备份；managed release、bootstrap 或版本校验失败时，迁移会原子恢复原 `current`（兼容 symlink、旧式目录和原先不存在三种状态）、还原 plist 并重新 load sidecar。成功后备份保留；安装只设置 `CODEX_APP_SERVER_USE_LOCAL_DAEMON=1`，不会自动重启 Codex.app，并明确要求用户 Cmd+Q 后重新打开。
+- 收紧 shared 的逻辑 turn 所有权：同一 daemon 的未知 turn 一律视为 Desktop 发起，只有 Fleet 自己成功 `turn/start` 返回的同 turn 才能 steer、停止或处理审批；权限预设仅缓存并随下一次 Fleet `turn/start` 生效，避免无 expected-turn 的 `thread/settings/update` 跨到 Desktop 新 turn。提前到达的通知会保守等待响应纠正，shared 空闲 resume 不再伪造 Fleet writer。
+- shared 模式不再提供或接受进程级“强制接管”，避免把双方共用的 managed daemon 当外部 holder 杀掉；真正的外部 turn 只安全排队。isolated 接管同时修复 terminal/idle 后残留 `writerOwner=desktop` 的竞态，并在投递失败时保留真实错误原因。
+
 ## 2026-08-22
 
 - fleet-agent 双架构发布产物统一使用固定 `com.macfleet.fleet-agent` identifier 和 Developer ID Application 证书签名，启用 hardened runtime 与可信时间戳；构建会自动选择唯一发布 identity 并严格验签，且拒绝误用 Apple Development，避免自更新后因代码身份变化重复申请 macOS 隐私权限。

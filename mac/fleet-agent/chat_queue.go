@@ -43,6 +43,7 @@ const (
 )
 
 var errChatQueueStateConflict = errors.New("queue_state_conflict")
+var errChatTakeoverUnavailable = errors.New("takeover_unavailable")
 
 type ChatTakeoverImpact struct {
 	SessionID string `json:"sessionId"`
@@ -270,7 +271,12 @@ func buildChatSessionControlSnapshotLocked(ctx context.Context, assistant, sessi
 	items := agentChatQueue.ListVisible(assistant, sessionID)
 	views := make([]ChatQueueView, 0, len(items))
 	for _, item := range items {
-		views = append(views, ChatQueueView{ChatQueueItem: item, AllowedActions: chatQueueAllowedActions(item.Status, accessMode)})
+		views = append(views, ChatQueueView{
+			ChatQueueItem: item,
+			AllowedActions: chatQueueAllowedActionsWithTakeover(
+				item.Status, accessMode, agentChatTakeover != nil && agentChatTakeover.controller.Available(),
+			),
+		})
 	}
 	approvalMode := runtimeState.ApprovalMode
 	if normalized, normalizeErr := normalizeChatTurnOptions(ChatTurnOptions{ApprovalMode: approvalMode}); normalizeErr == nil {
@@ -292,6 +298,10 @@ func buildChatSessionControlSnapshotLocked(ctx context.Context, assistant, sessi
 }
 
 func chatQueueAllowedActions(status, accessMode string) []string {
+	return chatQueueAllowedActionsWithTakeover(status, accessMode, true)
+}
+
+func chatQueueAllowedActionsWithTakeover(status, accessMode string, takeoverAvailable bool) []string {
 	readOnly := accessMode == chatAccessReadOnly
 	switch status {
 	case chatQueueQueued:
@@ -305,16 +315,19 @@ func chatQueueAllowedActions(status, accessMode string) []string {
 		if readOnly {
 			return []string{"wait", "cancel"}
 		}
+		if !takeoverAvailable {
+			return []string{"wait", "cancel"}
+		}
 		return []string{"wait", "force", "cancel"}
 	case chatQueueWaitingWriter:
-		if readOnly {
+		if readOnly || !takeoverAvailable {
 			return []string{"cancel"}
 		}
 		return []string{"force", "cancel"}
 	case chatQueueWaitingAccess:
 		return []string{"enable-write", "cancel"}
 	case chatQueueTakeoverConfirmation:
-		if readOnly {
+		if readOnly || !takeoverAvailable {
 			return []string{"wait", "cancel"}
 		}
 		return []string{"confirm-force", "wait", "cancel"}
@@ -415,7 +428,11 @@ func (w *chatQueueWorker) processOne() {
 		_, _ = w.queue.updateExpected(item.ID, []string{claimedStatus}, func(current *ChatQueueItem) error {
 			current.Status, current.Error = chatQueueFailed, deliverErr.Error()
 			if current.Decision == "force" || current.Decision == "confirm-force" {
-				current.Error = "强制接管后仍无法取得该会话控制权，请重新尝试。"
+				if errors.Is(deliverErr, errExternalChatTurn) {
+					current.Error = "强制接管期间，其他 Codex 客户端重新取得了该会话；请改为等待，或使用共享 daemon。"
+				} else {
+					current.Error = "强制接管完成，但消息投递失败：" + deliverErr.Error()
+				}
 			}
 			return nil
 		})
@@ -653,6 +670,10 @@ func handleChatQueueDecision(w http.ResponseWriter, r *http.Request) {
 	}
 	if errors.Is(err, errChatQueueStateConflict) {
 		writeErr(w, 409, "queue_state_conflict", "队列状态或接管审计已变化，请重新确认。")
+		return
+	}
+	if errors.Is(err, errChatTakeoverUnavailable) {
+		writeErr(w, 409, "takeover_unavailable", "共享 Codex daemon 不需要也不允许强制接管；请选择等待发送。")
 		return
 	}
 	if err != nil {

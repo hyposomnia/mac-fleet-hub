@@ -129,9 +129,9 @@ func loadConfig() Config {
 		ClaudeBin:         envOr("FLEET_CLAUDE_BIN", "claude"),
 		CodexHome:         envOr("FLEET_CODEX_HOME", filepath.Join(home, ".codex")),
 		CodexBin:          envOr("FLEET_CODEX_BIN", "codex"),
-		CodexMode:         envOr("FLEET_CODEX_APPSERVER_MODE", "isolated"),
+		CodexMode:         envOr("FLEET_CODEX_APPSERVER_MODE", "shared"),
 		CodexSock:         strings.TrimSpace(os.Getenv("FLEET_CODEX_APPSERVER_SOCK")),
-		CodexDesktopShare: envOr("FLEET_CODEX_DESKTOP_SHARED_DAEMON", "0") == "1",
+		CodexDesktopShare: envOr("FLEET_CODEX_DESKTOP_SHARED_DAEMON", "1") == "1",
 		MacIndex:          envOr("FLEET_MAC_INDEX", "1"),
 		IdleSec:           idle,
 		AutoCmdR:          envOr("FLEET_AUTO_CMDR", "1") == "1",
@@ -1899,7 +1899,7 @@ func runServer() {
 	cfg = loadConfig()
 	home, _ := os.UserHomeDir()
 	if err := configureCodexDesktopSharedDaemon(cfg, home, runtime.GOOS); err != nil {
-		log.Printf("配置 Codex.app app-server 隔离策略失败；重启 App 后连接模式可能未更新：%v", err)
+		log.Printf("配置 Codex.app app-server 连接策略失败；重启 App 后连接模式可能未更新：%v", err)
 	}
 	agentChatBackend = newAgentChatBackend()
 	var err error

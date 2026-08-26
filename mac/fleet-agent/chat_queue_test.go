@@ -95,6 +95,23 @@ func TestChatQueueAllowedActionsAreServerDerived(t *testing.T) {
 	}
 }
 
+func TestChatQueueAllowedActionsDisableForceForSharedDaemon(t *testing.T) {
+	tests := []struct {
+		status string
+		want   string
+	}{
+		{chatQueueWriterConfirmation, "wait,cancel"},
+		{chatQueueWaitingWriter, "cancel"},
+		{chatQueueTakeoverConfirmation, "wait,cancel"},
+	}
+	for _, test := range tests {
+		got := strings.Join(chatQueueAllowedActionsWithTakeover(test.status, chatAccessReadWrite, false), ",")
+		if got != test.want {
+			t.Fatalf("status=%s actions=%s want=%s", test.status, got, test.want)
+		}
+	}
+}
+
 func TestChatQueueRestartMovesInflightDeliveryToRecovering(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "queue.json")
 	q, _ := openChatQueue(path)
@@ -429,8 +446,22 @@ func TestChatQueueForcedDeliveryFailsInsteadOfReturningToWait(t *testing.T) {
 	sender := &fakeChatQueueSender{err: errExternalChatTurn}
 	newChatQueueWorker(q, sender).processOne()
 	got, _ := q.get(item.ID)
-	if got.Status != chatQueueFailed || got.Error == "" {
+	if got.Status != chatQueueFailed || !strings.Contains(got.Error, "其他 Codex 客户端重新取得") {
 		t.Fatalf("forced item silently returned to waiting: %+v", got)
+	}
+}
+
+func TestChatQueueForcedDeliveryPreservesNonWriterFailure(t *testing.T) {
+	q, _ := openChatQueue(filepath.Join(t.TempDir(), "queue.json"))
+	item, _ := q.Enqueue(ChatQueueItem{ClientMessageID: "client-1", Assistant: "codex", SessionID: "thread-1", Text: "hello"})
+	item, _ = q.updateExpected(item.ID, []string{chatQueueQueued}, func(item *ChatQueueItem) error {
+		item.Decision = "force"
+		return nil
+	})
+	newChatQueueWorker(q, &fakeChatQueueSender{err: errors.New("attachment unavailable")}).processOne()
+	got, _ := q.get(item.ID)
+	if got.Status != chatQueueFailed || !strings.Contains(got.Error, "attachment unavailable") {
+		t.Fatalf("forced delivery hid the underlying failure: %+v", got)
 	}
 }
 
@@ -575,6 +606,7 @@ type fakeTakeoverController struct {
 	err      error
 }
 
+func (f *fakeTakeoverController) Available() bool { return true }
 func (f *fakeTakeoverController) Audit() ([]ChatTakeoverImpact, string, error) {
 	return f.impacts, f.version, nil
 }
@@ -605,6 +637,27 @@ func TestChatQueueForceAuditsBeforeRestartAndRequiresConfirmation(t *testing.T) 
 	}
 }
 
+func TestSystemTakeoverIsUnavailableForSharedDaemon(t *testing.T) {
+	previousCfg := cfg
+	t.Cleanup(func() { cfg = previousCfg })
+	cfg.CodexMode = "shared"
+
+	q, _ := openChatQueue(filepath.Join(t.TempDir(), "queue.json"))
+	item, _ := q.Enqueue(ChatQueueItem{ClientMessageID: "c", Assistant: "codex", SessionID: "s", Text: "x"})
+	item, _ = q.updateExpected(item.ID, []string{chatQueueQueued}, func(item *ChatQueueItem) error {
+		item.Status = chatQueueWriterConfirmation
+		return nil
+	})
+	service := newChatTakeoverService(q, systemTakeoverController{}, nil)
+	if _, err := service.Decide(item.ID, "force", "", item.StateVersion); !errors.Is(err, errChatTakeoverUnavailable) {
+		t.Fatalf("shared takeover err=%v", err)
+	}
+	got, _ := q.get(item.ID)
+	if got.Status != chatQueueWriterConfirmation || got.StateVersion != item.StateVersion {
+		t.Fatalf("unavailable takeover mutated queue item: %+v", got)
+	}
+}
+
 func TestChatQueuePersistsFailedTakeover(t *testing.T) {
 	q, _ := openChatQueue(filepath.Join(t.TempDir(), "queue.json"))
 	item, _ := q.Enqueue(ChatQueueItem{ClientMessageID: "c", Assistant: "codex", SessionID: "s", Text: "x"})
@@ -624,16 +677,19 @@ func TestChatQueuePersistsFailedTakeover(t *testing.T) {
 }
 
 func TestSystemTakeoverControllerAuditsAndStopsOnlyExternalWriters(t *testing.T) {
+	previousCfg := cfg
 	previousExternal := codexExternalWriterSessions
 	previousFleet := codexFleetWriterSessions
 	previousState := codexActiveRolloutTaskState
 	previousRestart := stopCodexExternalWriters
 	t.Cleanup(func() {
+		cfg = previousCfg
 		codexExternalWriterSessions = previousExternal
 		codexFleetWriterSessions = previousFleet
 		codexActiveRolloutTaskState = previousState
 		stopCodexExternalWriters = previousRestart
 	})
+	cfg.CodexMode = "isolated"
 	codexExternalWriterSessions = func() []string { return []string{"thread-a", "thread-b"} }
 	codexFleetWriterSessions = func() []string { return []string{"thread-fleet-active"} }
 	codexActiveRolloutTaskState = func(sessionID string) (codexRolloutTaskState, bool) {

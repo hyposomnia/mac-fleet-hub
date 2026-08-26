@@ -17,6 +17,7 @@ import (
 )
 
 type chatTakeoverController interface {
+	Available() bool
 	Audit() ([]ChatTakeoverImpact, string, error)
 	Restart() error
 }
@@ -49,6 +50,9 @@ func (s *chatTakeoverService) Decide(id, action, audit string, expectedVersion i
 		return ChatQueueItem{}, errFleetChatReadOnly
 	}
 	if action == "force" || action == "confirm-force" {
+		if !s.controller.Available() {
+			return ChatQueueItem{}, errChatTakeoverUnavailable
+		}
 		s.mu.Lock()
 		defer s.mu.Unlock()
 	}
@@ -155,6 +159,8 @@ func (s *chatTakeoverService) takeoverFailed(id string, cause error) (ChatQueueI
 
 type systemTakeoverController struct{}
 
+func (systemTakeoverController) Available() bool { return codexUsesIsolatedSidecar() }
+
 func (systemTakeoverController) Audit() ([]ChatTakeoverImpact, string, error) {
 	var impacts []ChatTakeoverImpact
 	var audit strings.Builder
@@ -172,6 +178,9 @@ func (systemTakeoverController) Audit() ([]ChatTakeoverImpact, string, error) {
 	return impacts, hex.EncodeToString(h[:8]), nil
 }
 func (systemTakeoverController) Restart() error {
+	if !codexUsesIsolatedSidecar() {
+		return errChatTakeoverUnavailable
+	}
 	// All affected active turns were explicitly confirmed by the user. Stop the
 	// actual external lock/rollout holders; restarting Fleet's isolated sidecar
 	// cannot release a writer owned by Desktop or another Codex CLI.
