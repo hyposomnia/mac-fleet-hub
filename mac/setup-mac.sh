@@ -310,12 +310,15 @@ begin_shared_migration() {
   fi
 
   if [[ "$CODEX_APPSERVER_MODE" == "shared" && -S "$LEGACY_CODEX_CONTROL_SOCK" ]]; then
-    LEGACY_CODEX_DAEMON_WAS_RUNNING=1
-    echo "停止旧 Codex control-socket daemon；shared 将改由唯一的 loopback WebSocket LaunchAgent 承载。"
+    echo "尝试停止旧 Codex managed daemon；远程 SSH app-server 若共用 control socket 则保留。"
     CODEX_HOME="$CODEX_HOME_DIR" "$CODEX_BIN" app-server daemon stop >/dev/null 2>&1 || true
-    if [[ -S "$LEGACY_CODEX_CONTROL_SOCK" ]]; then
-      echo "旧 Codex control-socket daemon 未能停止：${LEGACY_CODEX_CONTROL_SOCK}" >&2
-      return 1
+    if [[ ! -S "$LEGACY_CODEX_CONTROL_SOCK" ]]; then
+      LEGACY_CODEX_DAEMON_WAS_RUNNING=1
+      echo "旧 Codex managed daemon 已停止。"
+    elif /usr/sbin/lsof -t -- "$LEGACY_CODEX_CONTROL_SOCK" >/dev/null 2>&1; then
+      echo "保留仍由远程/其他 Codex 客户端使用的 control socket：${LEGACY_CODEX_CONTROL_SOCK}"
+    else
+      echo "忽略无进程持有的旧 control socket：${LEGACY_CODEX_CONTROL_SOCK}"
     fi
   fi
 }
