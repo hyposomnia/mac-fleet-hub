@@ -52,7 +52,11 @@ source "$CONFIG_FILE"
 
 command -v git >/dev/null || die "未找到 git。"
 TAILSCALE_BIN="${FLEET_RELEASE_TAILSCALE_BIN:-$(command -v tailscale 2>/dev/null || true)}"
-[[ -n "$TAILSCALE_BIN" ]] || TAILSCALE_BIN="/Applications/Tailscale.app/Contents/MacOS/Tailscale"
+if [[ -z "$TAILSCALE_BIN" ]]; then
+  for candidate in /opt/homebrew/bin/tailscale /usr/local/bin/tailscale /Applications/Tailscale.app/Contents/MacOS/Tailscale; do
+    if [[ -x "$candidate" ]]; then TAILSCALE_BIN="$candidate"; break; fi
+  done
+fi
 [[ -x "$TAILSCALE_BIN" ]] || die "未找到 tailscale。"
 command -v ssh >/dev/null || die "未找到 ssh。"
 command -v scp >/dev/null || die "未找到 scp。"
