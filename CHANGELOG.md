@@ -1,5 +1,11 @@
 # Changelog
 
+## 2026-08-27
+
+- 真实 Desktop UAT 证明 ChatGPT/Codex 当前版本会为本地 host 注入 `features.code_mode_host` / App MCP 配置，因此不满足 `CODEX_APP_SERVER_USE_LOCAL_DAEMON` 的共享分支条件；即使 GUI 环境变量为 `1`，Desktop 仍启动独立 app-server。Fleet 打开同一 thread 后会让 Desktop 报“已在另一个应用中打开”。
+- Mac 安装与 fleet-agent 无显式环境变量时恢复默认 `isolated` / Desktop share `0`；`shared` 代码保留为实验选项。4 台生产节点已回滚到独立 sidecar，并停止不再使用的 managed daemon，避免残留 idle writer lock。
+- 修复 `setup-mac.sh` 在 `set -u` 下把紧邻全角中文标点的未加花括号变量解析成错误变量名，导致 shared 迁移版本校验异常；新增静态回归测试禁止同类写法。
+
 ## 2026-08-26
 
 - fleet-agent 自更新下载总超时由 60 秒提高到 5 分钟，允许家庭网络公网回环偶发低吞吐时完整下载约 8 MB 的统一签名产物，避免传输接近完成时被客户端主动取消。

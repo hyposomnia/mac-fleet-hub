@@ -102,10 +102,10 @@ curl -I https://<FLEET_HOST>[:GATEWAY_PORT]/auth    # 期望 200
 | 编号 / `MAC_INDEX` | 该 Mac 的路径标识 `/mN/` | **自动**，别问用户 |
 | `TTYD_PORT`/`FB_PORT`/`AGENT_PORT`/`FB_ROOT` | 服务端口 / 文件管理根目录 | 默认即可（FB_ROOT 默认整个 home） |
 | `FLEET_CLAUDE_HOME`/`FLEET_CLAUDE_BIN` | Claude 会话库与命令路径 | 默认 `~/.claude` / 自动发现 `claude` |
-| `FLEET_CODEX_HOME`/`FLEET_CODEX_BIN` | Codex 会话库与命令路径 | 默认 `~/.codex`；shared 未显式指定时优先 ChatGPT.app bundled Codex，再查找 PATH |
-| `FLEET_CODEX_APPSERVER_MODE` | Codex app-server 连接模式：`shared` 让 Fleet 与 Codex Desktop 复用官方 managed daemon；`isolated` 使用 Fleet 专属 sidecar，作为旧版 Desktop / 特殊环境的兼容回退；`auto`、`stdio` 为旧兼容模式 | `shared` |
+| `FLEET_CODEX_HOME`/`FLEET_CODEX_BIN` | Codex 会话库与命令路径 | 默认 `~/.codex` / 自动发现 Codex；可显式指定完整 standalone CLI |
+| `FLEET_CODEX_APPSERVER_MODE` | Codex app-server 连接模式：`isolated` 使用 Fleet 专属 sidecar；`shared` 为实验兼容模式；`auto`、`stdio` 为旧兼容模式 | `isolated` |
 | `FLEET_CODEX_APPSERVER_SOCK` | 自定义 app-server Unix socket；`shared` 默认使用 `~/.codex/app-server-control/app-server-control.sock`，`isolated` 留空时使用 `~/.macfleet/codex-app-server.sock` | （自动） |
-| `FLEET_CODEX_DESKTOP_SHARED_DAEMON` | `shared` 模式下让后续启动的 Codex.app 复用默认 daemon；设为 `0` 可显式关闭。`isolated` 始终取消该 GUI 环境开关 | `1` |
+| `FLEET_CODEX_DESKTOP_SHARED_DAEMON` | 仅实验 `shared` 模式下设置 Desktop 本地 daemon 开关；`isolated` 始终取消该开关 | `0` |
 | `FLEET_REPLACE_TAILNET` | 当前已连接其他 Tailscale 控制面时，明确允许退出并切换到 Fleet mesh | `0` | 仅确认可以替换当前 tailnet 时设为 `1` |
 
 ### 执行（二选一）
@@ -121,13 +121,9 @@ curl -fsSL https://<网关地址>/enroll/mac-bundle.tar.gz | tar xz
 LOGIN_SERVER=https://<网关地址>:8443 AUTHKEY=<预授权密钥> bash mac/install.sh
 #   网关用高位端口/封 443 时把 :8443 换成 Headscale 对外端口（如 :28443）
 ```
-两者都会装 Tailscale、入网 Headscale（需 sudo 密码）、起 ttyd / filebrowser / fleet-agent。Codex 默认使用 `shared`：安装脚本在用户没有显式指定 `FLEET_CODEX_BIN` / `CODEX_BIN` 时优先采用 `/Applications/ChatGPT.app/Contents/Resources/codex`，按官方 `releases/<version-triple>/` + `current` symlink 布局安全更新完整 standalone package（包括 `bin/codex`、`bin/codex-code-mode-host`、`codex-path/rg`、`codex-resources/zsh/bin/zsh` 和 `codex-package.json`；旧式真实 `current` 目录会先可恢复地改名保留），再执行 `codex app-server daemon bootstrap --remote-control`。managed package 需要升级时，脚本会先明确提示，随后官方 bootstrap 会重启 daemon；版本未变且 package 完整时不会为刷新文件而无谓中断任务。bootstrap 后脚本比较 `daemon version` JSON 的 `managedCodexVersion` 与 `appServerVersion`，只有仍不一致才额外执行一次 restart。随后设置 GUI 环境 `CODEX_APP_SERVER_USE_LOCAL_DAEMON=1`，让 Fleet 和之后启动的 Codex.app 连接同一个当前用户私有 Unix socket，不新增 TCP / 公网监听。
+两者都会装 Tailscale、入网 Headscale（需 sudo 密码）、起 ttyd / filebrowser / fleet-agent，并默认安装 `com.macfleet.codex-app-server`：它以同一个 `~/.codex` 为会话库，但使用 Fleet 专属进程和 `~/.macfleet/codex-app-server.sock`。安装会取消 GUI 环境中的 `CODEX_APP_SERVER_USE_LOCAL_DAEMON`。Fleet 浏览会话时只读 rollout / history，不调用 `thread/resume`；真正发送时才尝试取得 writer，Desktop 持有时消息由目标 Mac 服务端持久化排队，Fleet turn 完成后释放 subscription。浏览器只展示服务端权威的 access、writer、turn 与 queue 快照。
 
-安装脚本**不会自动退出或重启 Codex.app**。首次切换到 shared 后，必须把正在运行的 Codex.app 完全退出（Cmd+Q）并重新打开一次，新的 GUI 进程才会继承共享开关。从 `isolated` 升级时，脚本会先 unload 精确的 `~/Library/LaunchAgents/com.macfleet.codex-app-server.plist`，再把它移到 `~/.macfleet/migration-backups/` 留作恢复；managed release、bootstrap 或版本校验失败时，会恢复迁移前的 `current` 和旧 plist，并重新 load isolated sidecar。
-
-shared 只共享 app-server 进程，不混淆 turn 的操作归属：Fleet 只有在自己的 `turn/start` 明确返回 turn ID 后，才允许网页 steer、停止或处理该 turn 的审批；权限预设只缓存并随下一次 Fleet `turn/start` 原子生效，不调用缺少 expected-turn 校验的共享 `thread/settings/update`。同 daemon 上来源未知的 active turn 保守视为 Desktop，只做实时同步。shared 下不显示也不接受进程级“强制接管”，因为杀掉 shared daemon 会同时影响两端；占用中的外部 turn 走服务端排队，完成后自动投递。
-
-若目标机上的 Codex Desktop 太旧、不支持本地 managed daemon，或确实需要进程级隔离，可显式设置 `FLEET_CODEX_APPSERVER_MODE=isolated FLEET_CODEX_DESKTOP_SHARED_DAEMON=0`。此兼容模式才会安装 `com.macfleet.codex-app-server`，使用 `~/.macfleet/codex-app-server.sock`；它不再是默认路径。
+当前 ChatGPT/Codex Desktop 会为本地 host 注入 code-mode 与 App MCP config overrides，即使设置 `CODEX_APP_SERVER_USE_LOCAL_DAEMON=1` 也仍启动独立 app-server。因此 `shared` 不再作为默认或生产保证，只保留给明确验证过兼容性的旧版/实验环境。若显式试用 shared，安装脚本仍会完整构造 managed package、事务化备份/回滚旧 sidecar 与 `current`；真实 Desktop UAT 不通过时必须恢复 isolated。
 AI 执行 B 时：用 env 把 LOGIN_SERVER/AUTHKEY/MAC_INDEX 传入即可非交互；编号自行按现有数量 +1，别问用户。
 
 ### 验证
@@ -135,11 +131,10 @@ AI 执行 B 时：用 env 把 LOGIN_SERVER/AUTHKEY/MAC_INDEX 传入即可非交�
 ```bash
 tailscale ip -4                                   # 拿到 100.x mesh IP = 入网成功
 curl -s http://<本机meshIP>:7682/api/health       # 期望 ok
-codex app-server daemon version                   # 期望返回本机 CLI / daemon 版本 JSON
-test -S ~/.codex/app-server-control/app-server-control.sock # shared 默认：期望官方 control socket 存在
-launchctl getenv CODEX_APP_SERVER_USE_LOCAL_DAEMON # shared 默认：期望为 1
+test -S ~/.macfleet/codex-app-server.sock         # isolated 默认：期望 Fleet 专属 sidecar socket 存在
+launchctl getenv CODEX_APP_SERVER_USE_LOCAL_DAEMON # isolated 默认：期望为空
 ```
-`codex app-server daemon version` 输出中的 `managedCodexVersion` 与 `appServerVersion` 应相同。只有显式 `isolated` 时才改为检查 `~/.macfleet/codex-app-server.sock`，并期望 `launchctl getenv CODEX_APP_SERVER_USE_LOCAL_DAEMON` 为空。
+显式 `shared` 时才改为检查 `~/.codex/app-server-control/app-server-control.sock`、daemon 版本一致与 GUI 环境值 `1`；这些配置本身不等于 Desktop 已共享，仍须用真实同 thread writer UAT 验证。
 回到手机/浏览器打开网关入口 → 登录 → 应能看到这台 Mac 并进入它的终端 / 文件。
 
 ---

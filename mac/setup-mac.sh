@@ -29,9 +29,9 @@ command -v brew >/dev/null 2>&1 || { echo "未找到 Homebrew，请先装：http
 BREW_PREFIX="$(brew --prefix)"
 CLAUDE_BIN="$(command -v claude || echo "$BREW_PREFIX/bin/claude")"
 CODEX_HOME_DIR="${FLEET_CODEX_HOME:-$HOME/.codex}"
-CODEX_APPSERVER_MODE="${FLEET_CODEX_APPSERVER_MODE:-shared}"
+CODEX_APPSERVER_MODE="${FLEET_CODEX_APPSERVER_MODE:-isolated}"
 CODEX_APPSERVER_SOCK="${FLEET_CODEX_APPSERVER_SOCK:-}"
-CODEX_DESKTOP_SHARED_DAEMON="${FLEET_CODEX_DESKTOP_SHARED_DAEMON:-1}"
+CODEX_DESKTOP_SHARED_DAEMON="${FLEET_CODEX_DESKTOP_SHARED_DAEMON:-0}"
 case "$CODEX_APPSERVER_MODE" in
   isolated|shared|auto|daemon|stdio) ;;
   *) echo "非法 FLEET_CODEX_APPSERVER_MODE=${CODEX_APPSERVER_MODE}（应为 isolated/shared/auto/daemon/stdio）" >&2; exit 1 ;;
