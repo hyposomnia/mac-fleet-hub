@@ -34,14 +34,14 @@ CODEX_APPSERVER_SOCK="${FLEET_CODEX_APPSERVER_SOCK:-}"
 CODEX_DESKTOP_SHARED_DAEMON="${FLEET_CODEX_DESKTOP_SHARED_DAEMON:-1}"
 case "$CODEX_APPSERVER_MODE" in
   isolated|shared|auto|daemon|stdio) ;;
-  *) echo "非法 FLEET_CODEX_APPSERVER_MODE=$CODEX_APPSERVER_MODE（应为 isolated/shared/auto/daemon/stdio）" >&2; exit 1 ;;
+  *) echo "非法 FLEET_CODEX_APPSERVER_MODE=${CODEX_APPSERVER_MODE}（应为 isolated/shared/auto/daemon/stdio）" >&2; exit 1 ;;
 esac
 if [[ "$CODEX_APPSERVER_MODE" == "isolated" && -z "$CODEX_APPSERVER_SOCK" ]]; then
   CODEX_APPSERVER_SOCK="$HOME/.macfleet/codex-app-server.sock"
 fi
 case "$CODEX_DESKTOP_SHARED_DAEMON" in
   0|1) ;;
-  *) echo "非法 FLEET_CODEX_DESKTOP_SHARED_DAEMON=$CODEX_DESKTOP_SHARED_DAEMON（应为 0/1）" >&2; exit 1 ;;
+  *) echo "非法 FLEET_CODEX_DESKTOP_SHARED_DAEMON=${CODEX_DESKTOP_SHARED_DAEMON}（应为 0/1）" >&2; exit 1 ;;
 esac
 
 # 显式指定的 Codex 路径始终优先。默认 shared 模式必须优先使用当前
@@ -290,7 +290,7 @@ rollback_shared_migration() {
     echo "已恢复迁移前的 Codex current 与 isolated sidecar。" >&2
     return 0
   fi
-  echo "警告：自动回滚未完整成功，请检查 $MANAGED_STANDALONE_DIR 与 $LA_EARLY。" >&2
+  echo "警告：自动回滚未完整成功，请检查 ${MANAGED_STANDALONE_DIR} 与 ${LA_EARLY}。" >&2
   return 1
 }
 commit_shared_migration() {
@@ -411,7 +411,7 @@ bootstrap_shared_codex_daemon() {
   [[ -n "$managed_version" && -n "$app_server_version" ]] || return 1
 
   if [[ "$managed_version" != "$app_server_version" ]]; then
-    echo "检测到 Codex managed daemon 版本不一致（managed=$managed_version, running=$app_server_version），将重启 daemon ..."
+    echo "检测到 Codex managed daemon 版本不一致（managed=${managed_version}, running=${app_server_version}），将重启 daemon ..."
     CODEX_HOME="$CODEX_HOME_DIR" "$CODEX_BIN" app-server daemon restart >/dev/null 2>&1 || return 1
     refreshed_json="$(CODEX_HOME="$CODEX_HOME_DIR" "$CODEX_BIN" app-server daemon version 2>/dev/null)" || return 1
     managed_version="$(daemon_version_field "$refreshed_json" managedCodexVersion)" || return 1
@@ -419,7 +419,7 @@ bootstrap_shared_codex_daemon() {
     [[ -n "$managed_version" && "$managed_version" == "$refreshed_app_server_version" ]] || return 1
     echo "Codex managed daemon 已刷新到 $managed_version"
   else
-    echo "Codex managed daemon 版本已一致（$managed_version），无需重启"
+    echo "Codex managed daemon 版本已一致（${managed_version}），无需重启"
   fi
 }
 
@@ -449,7 +449,7 @@ if [[ "$CODEX_APPSERVER_MODE" != "stdio" && -x "$CODEX_BIN" ]]; then
     echo "警告：Codex daemon 不可用，fleet-agent 将回退独立 stdio；更新 agent 仍可能中断活动 turn。" >&2
   fi
 elif [[ "$CODEX_APPSERVER_MODE" == "shared" || "$CODEX_APPSERVER_MODE" == "daemon" ]]; then
-  echo "Codex 可执行文件不可用：$CODEX_BIN；shared 模式无法配置 managed daemon。" >&2
+  echo "Codex 可执行文件不可用：${CODEX_BIN}；shared 模式无法配置 managed daemon。" >&2
   exit 1
 fi
 
@@ -589,7 +589,7 @@ if [[ -n "${FLEET_UPDATE_BASE:-}" ]]; then
     tmp="$(mktemp)"; awk -v b="$MB" -v e="$ME" '$0==b{skip=1} !skip{print} $0==e{skip=0}' "$ZRC" > "$tmp" && mv "$tmp" "$ZRC"
   fi
   { echo "$MB"; echo "export FLEET_UPDATE_BASE=\"$FLEET_UPDATE_BASE\""; echo "$ME"; } >> "$ZRC"
-  echo "已写入 ~/.zshrc：FLEET_UPDATE_BASE=$FLEET_UPDATE_BASE（新开终端后 'fleet-agent update' 即可用）"
+  echo "已写入 ~/.zshrc：FLEET_UPDATE_BASE=${FLEET_UPDATE_BASE}（新开终端后 'fleet-agent update' 即可用）"
 fi
 
 cat <<EOF

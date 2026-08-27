@@ -1,9 +1,22 @@
 package main
 
 import (
+	"os"
 	"reflect"
+	"regexp"
 	"testing"
 )
+
+func TestSetupMacBracesVariablesBeforeNonASCIIText(t *testing.T) {
+	script, err := os.ReadFile("../setup-mac.sh")
+	if err != nil {
+		t.Fatal(err)
+	}
+	unsafeExpansion := regexp.MustCompile(`\$[A-Za-z_][A-Za-z0-9_]*[^\x00-\x7F]`)
+	if match := unsafeExpansion.Find(script); match != nil {
+		t.Fatalf("setup-mac.sh has an unbraced variable before non-ASCII text: %q", match)
+	}
+}
 
 func TestLoadConfigDefaultsToSharedCodexDaemon(t *testing.T) {
 	t.Setenv("HOME", "/Users/tester")
