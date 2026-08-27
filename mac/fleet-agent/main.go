@@ -51,9 +51,9 @@ type Config struct {
 	ClaudeBin         string // claude 可执行文件
 	CodexHome         string // ~/.codex
 	CodexBin          string // codex 可执行文件
-	CodexMode         string // app-server 连接模式：isolated / shared / auto / stdio
-	CodexSock         string // Fleet 独立 app-server unix socket
-	CodexDesktopShare bool   // 让 Codex.app 与 Fleet 连接同一个 managed daemon
+	CodexMode         string // app-server 连接模式：shared / isolated / daemon / auto / stdio
+	CodexSock         string // app-server endpoint：shared 为 loopback ws(s) URL，其余模式可为 unix socket
+	CodexDesktopShare bool   // 让 Codex.app 与 Fleet 连接同一个 loopback WebSocket app-server
 	MacIndex          string // 1/2/3 → 终端入口 /m{idx}/term
 	IdleSec           int64  // 空闲回收秒数（默认 1800）
 	AutoCmdR          bool   // 会话结束自动给 Desktop 发 Cmd+R
@@ -129,9 +129,9 @@ func loadConfig() Config {
 		ClaudeBin:         envOr("FLEET_CLAUDE_BIN", "claude"),
 		CodexHome:         envOr("FLEET_CODEX_HOME", filepath.Join(home, ".codex")),
 		CodexBin:          envOr("FLEET_CODEX_BIN", "codex"),
-		CodexMode:         envOr("FLEET_CODEX_APPSERVER_MODE", "isolated"),
+		CodexMode:         envOr("FLEET_CODEX_APPSERVER_MODE", "shared"),
 		CodexSock:         strings.TrimSpace(os.Getenv("FLEET_CODEX_APPSERVER_SOCK")),
-		CodexDesktopShare: envOr("FLEET_CODEX_DESKTOP_SHARED_DAEMON", "0") == "1",
+		CodexDesktopShare: envOr("FLEET_CODEX_DESKTOP_SHARED_DAEMON", "1") == "1",
 		MacIndex:          envOr("FLEET_MAC_INDEX", "1"),
 		IdleSec:           idle,
 		AutoCmdR:          envOr("FLEET_AUTO_CMDR", "1") == "1",
@@ -1783,8 +1783,22 @@ func handleInfo(w http.ResponseWriter, r *http.Request) {
 	proxyMu.Lock()
 	p := proxyCfg
 	proxyMu.Unlock()
+	codexConnected := false
+	codexAppToolsReady := false
+	codexEndpoint, _ := codexAppServerSocketPath()
+	if backend, ok := agentChatBackend.(*codexChatBackend); ok {
+		backend.mu.Lock()
+		codexConnected = backend.rpc != nil
+		codexAppToolsReady = backend.appToolsPipe != ""
+		backend.mu.Unlock()
+	}
 	writeJSON(w, map[string]interface{}{
 		"macIndex": cfg.MacIndex, "meshIP": host, "fileRoot": cfg.FileRoot, "proxy": p,
+		"codexAppServerMode":      normalizeCodexAppServerMode(cfg.CodexMode),
+		"codexAppServerEndpoint":  codexEndpoint,
+		"codexAppServerConnected": codexConnected,
+		"codexAppToolsSupported":  codexDesktopAppToolsSupported(),
+		"codexAppToolsReady":      codexAppToolsReady,
 	})
 }
 

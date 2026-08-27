@@ -33,6 +33,7 @@
         <key>FLEET_CODEX_APPSERVER_MODE</key>
         <string>__CODEX_APPSERVER_MODE__</string>
         <key>FLEET_CODEX_APPSERVER_SOCK</key>
+        <!-- 兼容字段名：shared 时保存 loopback ws:// URL，isolated 时保存 Unix socket 路径。 -->
         <string>__CODEX_APPSERVER_SOCK__</string>
         <key>FLEET_CODEX_DESKTOP_SHARED_DAEMON</key>
         <string>__CODEX_DESKTOP_SHARED_DAEMON__</string>

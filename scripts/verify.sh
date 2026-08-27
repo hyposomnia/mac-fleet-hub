@@ -21,4 +21,10 @@ step "Shell 工具测试：tests/tailscale-utils_test.sh"
 bash "$ROOT/tests/tailscale-utils_test.sh"
 echo "tailscale-utils tests passed"
 
+step "Mac shared 安装测试：tests/setup-mac-shared_test.sh"
+bash "$ROOT/tests/setup-mac-shared_test.sh"
+
+step "Codex 空闲迁移守卫测试：tests/check-codex-idle_test.sh"
+bash "$ROOT/tests/check-codex-idle_test.sh"
+
 printf '\n==> 全部验证通过 ✓\n'

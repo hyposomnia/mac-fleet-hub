@@ -6,17 +6,19 @@
     <string>com.macfleet.codex-app-server</string>
     <key>ProgramArguments</key>
     <array>
-        <string>__MANAGED_CODEX_BIN__</string>
-        <string>-c</string>
-        <string>features.code_mode_host=true</string>
-        <string>app-server</string>
-        <string>--listen</string>
-        <string>__CODEX_APPSERVER_LISTEN__</string>
+        <string>__CODEX_KEEPER_NODE__</string>
+        <string>__CODEX_KEEPER_SCRIPT__</string>
     </array>
     <key>EnvironmentVariables</key>
     <dict>
         <key>CODEX_HOME</key>
         <string>__CODEX_HOME__</string>
+        <key>FLEET_CODEX_BIN</key>
+        <string>__CODEX_BIN__</string>
+        <key>FLEET_CODEX_APPSERVER_LISTEN</key>
+        <string>__CODEX_APPSERVER_LISTEN__</string>
+        <key>FLEET_CODEX_DESKTOP_APP_PATH</key>
+        <string>/Applications/ChatGPT.app</string>
         <key>LANG</key>
         <string>en_US.UTF-8</string>
         <key>LC_ALL</key>

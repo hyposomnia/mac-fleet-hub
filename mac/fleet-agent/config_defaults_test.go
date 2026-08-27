@@ -18,28 +18,11 @@ func TestSetupMacBracesVariablesBeforeNonASCIIText(t *testing.T) {
 	}
 }
 
-func TestLoadConfigDefaultsToIsolatedCodexDaemon(t *testing.T) {
+func TestLoadConfigDefaultsToSharedCodexWebSocket(t *testing.T) {
 	t.Setenv("HOME", "/Users/tester")
 	t.Setenv("FLEET_CODEX_APPSERVER_MODE", "")
+	t.Setenv("FLEET_CODEX_APPSERVER_SOCK", "")
 	t.Setenv("FLEET_CODEX_DESKTOP_SHARED_DAEMON", "")
-
-	config := loadConfig()
-	if config.CodexMode != "isolated" {
-		t.Fatalf("CodexMode got %q want isolated", config.CodexMode)
-	}
-	if config.CodexDesktopShare {
-		t.Fatal("CodexDesktopShare got true want false")
-	}
-	wantLaunchctl := []string{"unsetenv", codexDesktopLocalDaemonEnv}
-	if got := codexDesktopSharedDaemonLaunchctlArgs(config, "/Users/tester", "darwin"); !reflect.DeepEqual(got, wantLaunchctl) {
-		t.Fatalf("default launchctl args got %#v want %#v", got, wantLaunchctl)
-	}
-}
-
-func TestLoadConfigAllowsExplicitSharedCodexDaemon(t *testing.T) {
-	t.Setenv("HOME", "/Users/tester")
-	t.Setenv("FLEET_CODEX_APPSERVER_MODE", "shared")
-	t.Setenv("FLEET_CODEX_DESKTOP_SHARED_DAEMON", "1")
 
 	config := loadConfig()
 	if config.CodexMode != "shared" {
@@ -48,8 +31,41 @@ func TestLoadConfigAllowsExplicitSharedCodexDaemon(t *testing.T) {
 	if !config.CodexDesktopShare {
 		t.Fatal("CodexDesktopShare got false want true")
 	}
-	wantLaunchctl := []string{"setenv", codexDesktopLocalDaemonEnv, "1"}
-	if got := codexDesktopSharedDaemonLaunchctlArgs(config, "/Users/tester", "darwin"); !reflect.DeepEqual(got, wantLaunchctl) {
-		t.Fatalf("shared launchctl args got %#v want %#v", got, wantLaunchctl)
+	wantLaunchctl := [][]string{
+		{"unsetenv", codexDesktopLocalDaemonEnv},
+		{"setenv", codexDesktopWebSocketEnv, codexSharedWebSocketEndpoint},
+	}
+	operations, err := codexDesktopLaunchctlOperations(config, "darwin")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := launchctlArgs(operations); !reflect.DeepEqual(got, wantLaunchctl) {
+		t.Fatalf("default launchctl operations got %#v want %#v", got, wantLaunchctl)
+	}
+}
+
+func TestLoadConfigAllowsExplicitIsolatedCodexDaemon(t *testing.T) {
+	t.Setenv("HOME", "/Users/tester")
+	t.Setenv("FLEET_CODEX_APPSERVER_MODE", "isolated")
+	t.Setenv("FLEET_CODEX_APPSERVER_SOCK", "/Users/tester/.macfleet/codex-app-server.sock")
+	t.Setenv("FLEET_CODEX_DESKTOP_SHARED_DAEMON", "0")
+
+	config := loadConfig()
+	if config.CodexMode != "isolated" {
+		t.Fatalf("CodexMode got %q want isolated", config.CodexMode)
+	}
+	if config.CodexDesktopShare {
+		t.Fatal("CodexDesktopShare got true want false")
+	}
+	wantLaunchctl := [][]string{
+		{"unsetenv", codexDesktopLocalDaemonEnv},
+		{"unsetenv", codexDesktopWebSocketEnv},
+	}
+	operations, err := codexDesktopLaunchctlOperations(config, "darwin")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := launchctlArgs(operations); !reflect.DeepEqual(got, wantLaunchctl) {
+		t.Fatalf("isolated launchctl operations got %#v want %#v", got, wantLaunchctl)
 	}
 }

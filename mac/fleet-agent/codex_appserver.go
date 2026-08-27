@@ -9,6 +9,7 @@ import (
 	"io"
 	"log"
 	"net"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -89,6 +90,8 @@ const (
 	codexAppServerModeAuto     = "auto"
 	codexAppServerModeDaemon   = "daemon"
 	codexAppServerModeStdio    = "stdio"
+
+	codexSharedWebSocketEndpoint = "ws://127.0.0.1:47682/rpc"
 )
 
 type codexProcessConnector func(context.Context, string, ...string) (codexRPCConn, func(), error)
@@ -410,8 +413,10 @@ func normalizeCodexAppServerMode(mode string) string {
 	switch strings.ToLower(strings.TrimSpace(mode)) {
 	case codexAppServerModeIsolated:
 		return codexAppServerModeIsolated
-	case codexAppServerModeShared, codexAppServerModeDaemon:
+	case codexAppServerModeShared:
 		return codexAppServerModeShared
+	case codexAppServerModeDaemon:
+		return codexAppServerModeDaemon
 	case codexAppServerModeStdio:
 		return codexAppServerModeStdio
 	default:
@@ -475,7 +480,24 @@ func connectCodexAppServer(ctx context.Context) (codexRPCConn, func(), error) {
 		}
 		return rpc, cleanup, nil
 	}
-	if mode != codexAppServerModeStdio {
+	if mode == codexAppServerModeShared {
+		endpoint, endpointErr := codexAppServerSocketPath()
+		if endpointErr != nil {
+			return nil, nil, endpointErr
+		}
+		if _, err := validateSharedCodexEndpoint(endpoint); err != nil {
+			return nil, nil, err
+		}
+		rpc, cleanup, err := connectCodexSocket(ctx, endpoint)
+		if err != nil {
+			return nil, nil, fmt.Errorf("connect shared Codex app-server: %w", err)
+		}
+		return rpc, cleanup, nil
+	}
+	if mode == codexAppServerModeStdio {
+		return connectCodexProcess(ctx, codexBin, "app-server", "--stdio")
+	}
+	if mode == codexAppServerModeAuto || mode == codexAppServerModeDaemon {
 		socketPath, socketErr := codexAppServerSocketPath()
 		if socketErr == nil {
 			if rpc, cleanup, err := connectCodexSocket(ctx, socketPath); err == nil {
@@ -495,12 +517,12 @@ func connectCodexAppServer(ctx context.Context) (codexRPCConn, func(), error) {
 					socketErr = err
 				}
 			}
-			if mode == codexAppServerModeShared {
+			if mode == codexAppServerModeDaemon {
 				return nil, nil, fmt.Errorf("connect managed Codex app-server: %w", socketErr)
 			}
 			log.Printf("managed Codex app-server socket unavailable; falling back to stdio: %v", socketErr)
 		} else {
-			if mode == codexAppServerModeShared {
+			if mode == codexAppServerModeDaemon {
 				return nil, nil, startErr
 			}
 			log.Printf("Codex app-server socket and managed daemon unavailable; falling back to stdio: %v", startErr)
@@ -510,8 +532,15 @@ func connectCodexAppServer(ctx context.Context) (codexRPCConn, func(), error) {
 }
 
 func codexAppServerSocketPath() (string, error) {
-	if socketPath := strings.TrimSpace(cfg.CodexSock); socketPath != "" {
-		return socketPath, nil
+	mode := normalizeCodexAppServerMode(cfg.CodexMode)
+	if endpoint := strings.TrimSpace(cfg.CodexSock); endpoint != "" {
+		if mode == codexAppServerModeShared {
+			return validateSharedCodexEndpoint(endpoint)
+		}
+		return endpoint, nil
+	}
+	if mode == codexAppServerModeShared {
+		return codexSharedWebSocketEndpoint, nil
 	}
 	codexHome := strings.TrimSpace(cfg.CodexHome)
 	if codexHome == "" {
@@ -521,19 +550,41 @@ func codexAppServerSocketPath() (string, error) {
 		}
 		codexHome = filepath.Join(home, ".codex")
 	}
-	if normalizeCodexAppServerMode(cfg.CodexMode) == codexAppServerModeIsolated {
+	if mode == codexAppServerModeIsolated {
 		return filepath.Join(filepath.Dir(codexHome), ".macfleet", "codex-app-server.sock"), nil
 	}
 	return filepath.Join(codexHome, "app-server-control", "app-server-control.sock"), nil
 }
 
-func connectCodexAppServerSocket(ctx context.Context, socketPath string) (codexRPCConn, func(), error) {
-	dialer := websocket.Dialer{
-		NetDialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
-			return (&net.Dialer{}).DialContext(ctx, "unix", socketPath)
-		},
+func validateSharedCodexEndpoint(endpoint string) (string, error) {
+	endpoint = strings.TrimSpace(endpoint)
+	parsed, err := url.Parse(endpoint)
+	if err != nil || (parsed.Scheme != "ws" && parsed.Scheme != "wss") || parsed.Host == "" {
+		return "", fmt.Errorf("shared Codex app-server endpoint must be a ws:// or wss:// loopback URL: %q", endpoint)
 	}
-	conn, response, err := dialer.DialContext(ctx, "ws://localhost/", nil)
+	if parsed.User != nil {
+		return "", fmt.Errorf("shared Codex app-server endpoint must not contain user info: %q", endpoint)
+	}
+	host := parsed.Hostname()
+	ip := net.ParseIP(host)
+	if !strings.EqualFold(host, "localhost") && (ip == nil || !ip.IsLoopback()) {
+		return "", fmt.Errorf("shared Codex app-server endpoint must use a loopback host: %q", endpoint)
+	}
+	return endpoint, nil
+}
+
+func connectCodexAppServerSocket(ctx context.Context, endpoint string) (codexRPCConn, func(), error) {
+	dialer := websocket.Dialer{}
+	webSocketURL := endpoint
+	parsed, parseErr := url.Parse(endpoint)
+	if parseErr != nil || (parsed.Scheme != "ws" && parsed.Scheme != "wss") {
+		socketPath := strings.TrimPrefix(endpoint, "unix://")
+		dialer.NetDialContext = func(ctx context.Context, _, _ string) (net.Conn, error) {
+			return (&net.Dialer{}).DialContext(ctx, "unix", socketPath)
+		}
+		webSocketURL = "ws://localhost/"
+	}
+	conn, response, err := dialer.DialContext(ctx, webSocketURL, nil)
 	if err != nil {
 		if response != nil && response.Body != nil {
 			_ = response.Body.Close()

@@ -2,6 +2,9 @@
 
 ## 2026-08-27
 
+- 新增真正的 shared WebSocket 路径：Mac 默认由 `com.macfleet.codex-app-server` 启动唯一一份 `features.code_mode_host=true` app-server，只监听 `ws://127.0.0.1:47682`；fleet-agent 与 Desktop 显式连接 `ws://127.0.0.1:47682/rpc`，不再依赖会被 Desktop config overrides 绕开的 `CODEX_APP_SERVER_USE_LOCAL_DAEMON` 分支，也不再为 shared bootstrap 官方 control-socket daemon。
+- shared 安装通过 Aqua one-shot LaunchAgent 写入 `CODEX_APP_SERVER_WS_URL` 并取消旧 local-daemon 开关，但绝不打断活动 turn；旧 agent/plist/keeper/helper 纳入可恢复迁移，loopback readyz、监听地址和 agent health 全部通过后才提交。正式 release 会从同一不可变 bundle 执行现有节点迁移，用 `open --env` 重开 Desktop，并逐台验证 Desktop/Fleet 两条连接落在同一 server PID。监听地址仅允许 `127.0.0.1`；`isolated` 保留为显式回退。
+- shared LaunchAgent 用 ChatGPT 自带的 OpenAI 签名 Node keeper 启动 app-server，维持 `node keeper → codex server → node codex_app MCP` 的受信父子链；keeper 读取目标 Desktop 的 `desktop-mcp.json`，只认 ChatGPT 主进程持有且权限为 `0600` 的 App Tools pipe，并通过稳定软链承接重启后的 UUID 轮换。Desktop 必须用 macOS 原生 `open --env CODEX_APP_SERVER_WS_URL=...` 确定性重开；仅设置 launchctl 环境后从旧 Dock/Finder 进程启动不算完成。
 - 真实 Desktop UAT 证明 ChatGPT/Codex 当前版本会为本地 host 注入 `features.code_mode_host` / App MCP 配置，因此不满足 `CODEX_APP_SERVER_USE_LOCAL_DAEMON` 的共享分支条件；即使 GUI 环境变量为 `1`，Desktop 仍启动独立 app-server。Fleet 打开同一 thread 后会让 Desktop 报“已在另一个应用中打开”。
 - Mac 安装与 fleet-agent 无显式环境变量时恢复默认 `isolated` / Desktop share `0`；`shared` 代码保留为实验选项。4 台生产节点已回滚到独立 sidecar，并停止不再使用的 managed daemon，避免残留 idle writer lock。
 - 修复 `setup-mac.sh` 在 `set -u` 下把紧邻全角中文标点的未加花括号变量解析成错误变量名，导致 shared 迁移版本校验异常；新增静态回归测试禁止同类写法。

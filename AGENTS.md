@@ -18,7 +18,7 @@ Claude 项目命令 `/dev`、`/ui`、`/deploy` 在 Codex 中分别使用 `$dev`�
 
 - **网关**：一台常驻 Linux 服务器（VPS、家里的小主机 / NAS 均可），是整套系统对外的唯一入口，跑 nginx + Headscale + Authelia。
 - **mesh**：Headscale 自建的私有组网（类 Tailscale）。各 Mac 只在 mesh 内可达，不直接暴露公网。
-- **Mac 客户端**：被远程操作的 Mac，跑 ttyd（网页终端）/ filebrowser（文件）/ fleet-agent（会话管理）；Codex 自绘聊天通过独立的 pid-backed app-server daemon 执行，fleet-agent 直接连接它的私有 Unix WebSocket。
+- **Mac 客户端**：被远程操作的 Mac，跑 ttyd（网页终端）/ filebrowser（文件）/ fleet-agent（会话管理）；Codex 自绘聊天与 Codex Desktop 默认连接同一个仅监听 `127.0.0.1` 的 app-server WebSocket，因此同一会话只有一个底层 writer。
 
 ---
 
@@ -102,10 +102,10 @@ curl -I https://<FLEET_HOST>[:GATEWAY_PORT]/auth    # 期望 200
 | 编号 / `MAC_INDEX` | 该 Mac 的路径标识 `/mN/` | **自动**，别问用户 |
 | `TTYD_PORT`/`FB_PORT`/`AGENT_PORT`/`FB_ROOT` | 服务端口 / 文件管理根目录 | 默认即可（FB_ROOT 默认整个 home） |
 | `FLEET_CLAUDE_HOME`/`FLEET_CLAUDE_BIN` | Claude 会话库与命令路径 | 默认 `~/.claude` / 自动发现 `claude` |
-| `FLEET_CODEX_HOME`/`FLEET_CODEX_BIN` | Codex 会话库与命令路径 | 默认 `~/.codex` / 自动发现 Codex；可显式指定完整 standalone CLI |
-| `FLEET_CODEX_APPSERVER_MODE` | Codex app-server 连接模式：`isolated` 使用 Fleet 专属 sidecar；`shared` 为实验兼容模式；`auto`、`stdio` 为旧兼容模式 | `isolated` |
-| `FLEET_CODEX_APPSERVER_SOCK` | 自定义 app-server Unix socket；`shared` 默认使用 `~/.codex/app-server-control/app-server-control.sock`，`isolated` 留空时使用 `~/.macfleet/codex-app-server.sock` | （自动） |
-| `FLEET_CODEX_DESKTOP_SHARED_DAEMON` | 仅实验 `shared` 模式下设置 Desktop 本地 daemon 开关；`isolated` 始终取消该开关 | `0` |
+| `FLEET_CODEX_HOME`/`FLEET_CODEX_BIN` | Codex 会话库与命令路径 | 默认 `~/.codex`；shared 未显式指定时优先 ChatGPT.app bundled Codex，再查找 PATH |
+| `FLEET_CODEX_APPSERVER_MODE` | Codex app-server 连接模式：`shared` 让 Fleet 与 Codex Desktop 复用同一 loopback WebSocket；`isolated` 使用 Fleet 专属 Unix-socket sidecar；`auto`、`daemon`、`stdio` 为旧兼容模式 | `shared` |
+| `FLEET_CODEX_APPSERVER_SOCK` | 兼容字段：`shared` 时是客户端 WebSocket URL，只允许 `ws://127.0.0.1:<端口>[/路径]`；`isolated` 时是 Unix socket 绝对路径 | shared：`ws://127.0.0.1:47682/rpc`；isolated：`~/.macfleet/codex-app-server.sock` |
+| `FLEET_CODEX_DESKTOP_SHARED_DAEMON` | `shared` 模式下记录 Desktop WebSocket 接入意图并让 agent 持续校正 GUI 环境；设为 `0` 可显式关闭 Desktop 接入 | `1` |
 | `FLEET_REPLACE_TAILNET` | 当前已连接其他 Tailscale 控制面时，明确允许退出并切换到 Fleet mesh | `0` | 仅确认可以替换当前 tailnet 时设为 `1` |
 
 ### 执行（二选一）
@@ -121,9 +121,13 @@ curl -fsSL https://<网关地址>/enroll/mac-bundle.tar.gz | tar xz
 LOGIN_SERVER=https://<网关地址>:8443 AUTHKEY=<预授权密钥> bash mac/install.sh
 #   网关用高位端口/封 443 时把 :8443 换成 Headscale 对外端口（如 :28443）
 ```
-两者都会装 Tailscale、入网 Headscale（需 sudo 密码）、起 ttyd / filebrowser / fleet-agent，并默认安装 `com.macfleet.codex-app-server`：它以同一个 `~/.codex` 为会话库，但使用 Fleet 专属进程和 `~/.macfleet/codex-app-server.sock`。安装会取消 GUI 环境中的 `CODEX_APP_SERVER_USE_LOCAL_DAEMON`。Fleet 浏览会话时只读 rollout / history，不调用 `thread/resume`；真正发送时才尝试取得 writer，Desktop 持有时消息由目标 Mac 服务端持久化排队，Fleet turn 完成后释放 subscription。浏览器只展示服务端权威的 access、writer、turn 与 queue 快照。
+两者都会装 Tailscale、入网 Headscale（需 sudo 密码）、起 ttyd / filebrowser / fleet-agent，并默认安装 `com.macfleet.codex-app-server`。默认 `shared` 的 LaunchAgent 先用 ChatGPT 自带、OpenAI 签名的 Node 启动 keeper，再由 keeper 启动唯一一份 `codex -c features.code_mode_host=true app-server --listen ws://127.0.0.1:47682`；Fleet 与 Desktop 都连接 `ws://127.0.0.1:47682/rpc`。这条父子链同时保留 Desktop 对 `codex_app` MCP 的签名校验。监听地址写死为 loopback，不绑定 mesh IP，也不暴露公网。shared 不再 bootstrap 或依赖官方 control socket daemon。
 
-当前 ChatGPT/Codex Desktop 会为本地 host 注入 code-mode 与 App MCP config overrides，即使设置 `CODEX_APP_SERVER_USE_LOCAL_DAEMON=1` 也仍启动独立 app-server。因此 `shared` 不再作为默认或生产保证，只保留给明确验证过兼容性的旧版/实验环境。若显式试用 shared，安装脚本仍会完整构造 managed package、事务化备份/回滚旧 sidecar 与 `current`；真实 Desktop UAT 不通过时必须恢复 isolated。
+首次从旧 `isolated` / control-socket 方案切换时，安装会停止现有 Fleet app-server 与仍在运行的旧 control-socket daemon，把旧 agent、plist 与 keeper/helper 留在 `~/.macfleet/migration-backups/`，加载新的 shared LaunchAgent，并在提交迁移前验证 loopback `/readyz`、监听地址和 agent health；失败会恢复旧文件与服务。Aqua one-shot LaunchAgent 会在当前及后续登录会话中设置 Desktop 环境，但脚本**不会自动中断 ChatGPT.app 的活动 turn**；确认 turn 完成并退出 App 后，用 `/usr/bin/open --env CODEX_APP_SERVER_WS_URL=ws://127.0.0.1:47682/rpc -a /Applications/ChatGPT.app` 确定性重开。
+
+shared 只让两端共用同一个 app-server 与物理 writer，不混淆 turn 的操作归属：同一服务上的未知 active turn 保守视为 Desktop，只有 Fleet 自己成功 `turn/start` 返回的 turn 才能由网页 steer、停止或处理审批；外部 turn 走服务端持久化队列。keeper 读取目标版本的 `desktop-mcp.json`，只认 ChatGPT 主进程持有、同 UID 且权限为 `0600` 的 App Tools socket，并原子更新稳定软链；pipe 换代时只 reload MCP，不重启 shared app-server。App tools 仍须在目标 Desktop 版本上以 `runtimeStatus=connected` 和实际工具清单做 UAT。
+
+若目标机需要进程级隔离，可显式设置 `FLEET_CODEX_APPSERVER_MODE=isolated FLEET_CODEX_DESKTOP_SHARED_DAEMON=0`。该回退使用 `~/.macfleet/codex-app-server.sock`，并同时取消 GUI 中的 `CODEX_APP_SERVER_WS_URL` 与 `CODEX_APP_SERVER_USE_LOCAL_DAEMON`。
 AI 执行 B 时：用 env 把 LOGIN_SERVER/AUTHKEY/MAC_INDEX 传入即可非交互；编号自行按现有数量 +1，别问用户。
 
 ### 验证
@@ -131,10 +135,13 @@ AI 执行 B 时：用 env 把 LOGIN_SERVER/AUTHKEY/MAC_INDEX 传入即可非交�
 ```bash
 tailscale ip -4                                   # 拿到 100.x mesh IP = 入网成功
 curl -s http://<本机meshIP>:7682/api/health       # 期望 ok
-test -S ~/.macfleet/codex-app-server.sock         # isolated 默认：期望 Fleet 专属 sidecar socket 存在
-launchctl getenv CODEX_APP_SERVER_USE_LOCAL_DAEMON # isolated 默认：期望为空
+curl -fsS http://127.0.0.1:47682/readyz            # shared 默认：期望成功
+launchctl getenv CODEX_APP_SERVER_WS_URL           # shared 默认：期望 ws://127.0.0.1:47682/rpc
+launchctl getenv CODEX_APP_SERVER_USE_LOCAL_DAEMON # shared 默认：期望为空
+launchctl print gui/$(id -u)/com.macfleet.codex-app-server | grep state
 ```
-显式 `shared` 时才改为检查 `~/.codex/app-server-control/app-server-control.sock`、daemon 版本一致与 GUI 环境值 `1`；这些配置本身不等于 Desktop 已共享，仍须用真实同 thread writer UAT 验证。
+上述配置和健康检查只证明 shared server 已启动；必须在完全重开的 Desktop 与 Fleet 中打开同一个 thread，确认不会出现“已在另一个应用中打开”，并用 `lsof -nP -iTCP:47682` 证明两端连接到同一个监听 PID。显式 `isolated` 时改为检查 `test -S ~/.macfleet/codex-app-server.sock`，并期望两个 GUI 环境变量都为空。
+当前 Desktop 的 WebSocket client 无法附加认证 header，所以 listener 必须保持 loopback；它隔离 mesh/公网，但不是同机多用户之间的安全边界。多用户共享 Mac 不应启用该模式。
 回到手机/浏览器打开网关入口 → 登录 → 应能看到这台 Mac 并进入它的终端 / 文件。
 
 ---

@@ -17,7 +17,7 @@
       ▼
    Mac① · Mac② · … · Mac︎N
    每台跑：网页终端 (ttyd→tmux→claude/codex) · 文件管理 (filebrowser)
-           会话服务 (fleet-agent→Unix WebSocket→独立 app-server sidecar)
+           会话服务 (fleet-agent + Desktop→loopback WebSocket→同一 app-server)
 ```
 
 - **网关**：整套系统对外的唯一入口。VPS、云主机、家里的小主机 / NAS 都行（Linux）。
@@ -41,10 +41,10 @@
 经网关入口（两步验证登录后）选一台 Mac，即可在网页里续接它的 Claude Code / Codex 会话、浏览 / 传它的文件。每台 Mac 的前置：
 
 - **已装 Claude Code 或 Codex**：网页终端续接的就是这台机器的本地会话；要用 Claude 需 `claude` 命令可用，要用 Codex 需 `codex` 命令可用。
-- **Codex 后台隔离运行**：fleet-agent 默认连接 Fleet 专属 app-server sidecar 与 `~/.macfleet/codex-app-server.sock`，Desktop 继续使用自己的 app-server。网页浏览不抢 Desktop writer；输入由目标 Mac 的服务端队列持久化，等待 Desktop 释放后投递。`shared` 仅保留为实验兼容选项，不再作为默认。
+- **Codex 真共享后台**：安装脚本默认起一份只监听 `127.0.0.1:47682` 的 app-server，并让 fleet-agent 与完全退出后重开的 Desktop 都连接它。两端共享同一底层 writer，不再由两个 app-server 互相抢锁；显式 `isolated` 仍可作为兼容回退。
 - **已装 Homebrew**：安装脚本用它装 ttyd / tmux 等依赖。
 - **磁盘访问**：文件管理默认根目录是整个用户主目录。macOS 会保护「桌面 / 文档 / 下载」等目录——要在网页里浏览这几个，需给文件服务（filebrowser，经 launchd 运行）授予「完全磁盘访问权限」（系统设置 ›  隐私与安全性 ›  完全磁盘访问权限，把 filebrowser 二进制加进去）；主目录其余文件无需额外授权即可读。
-- 这些服务**只绑私有组网地址**、不对公网；任何外部访问都经网关 + 两步验证。
+- 对 Fleet 提供的服务**只绑私有组网地址**、不对公网；共享 Codex WebSocket 更严格，只绑本机 loopback，任何外部访问仍经网关 + 两步验证。
 
 ### fleet-agent 发布签名
 
@@ -132,7 +132,7 @@ LOGIN_SERVER=https://<你的网关地址>:8443 AUTHKEY=<预授权密钥> bash ma
 #   网关若用高位端口（封 443），把 :8443 换成你的 Headscale 对外端口（如 :28443）。
 ```
 
-装完即出现在控制台里，点进去就能接它的终端 / 文件。首次启用 Codex 会话共控时，退出并重新打开一次已经运行的 Codex.app；此后 App 与 Fleet 会复用同一个本机 app-server daemon，可以同时查看和操作同一会话。**加更多 Mac 重复这一步就行**，编号由网关自动分配。
+装完即出现在控制台里，点进去就能接它的终端 / 文件。首次启用 Codex 会话共控时，确认当前 turn 完成、完全退出 ChatGPT/Codex Desktop，然后运行 `/usr/bin/open --env CODEX_APP_SERVER_WS_URL=ws://127.0.0.1:47682/rpc -a /Applications/ChatGPT.app`；此后 App 与 Fleet 会显式连接同一个本机 app-server，可以同时查看和操作同一会话。安装脚本不会擅自中断正在运行的 App。**加更多 Mac 重复这一步就行**，编号由网关自动分配。
 
 ### 用起来
 

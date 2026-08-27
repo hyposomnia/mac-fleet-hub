@@ -9,6 +9,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -379,6 +380,57 @@ func TestConnectCodexAppServerSocketUsesWebSocketFrames(t *testing.T) {
 	}
 }
 
+func TestConnectCodexAppServerSocketUsesTCPWebSocketURLAndPath(t *testing.T) {
+	upgrader := websocket.Upgrader{}
+	requestedPath := make(chan string, 1)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requestedPath <- r.URL.Path
+		conn, err := upgrader.Upgrade(w, r, nil)
+		if err != nil {
+			t.Errorf("upgrade: %v", err)
+			return
+		}
+		defer conn.Close()
+		for {
+			_, message, err := conn.ReadMessage()
+			if err != nil {
+				return
+			}
+			var request rpcRequest
+			if err := json.Unmarshal(message, &request); err != nil {
+				t.Errorf("decode request: %v", err)
+				return
+			}
+			if err := conn.WriteJSON(map[string]interface{}{
+				"id": request.ID, "result": map[string]interface{}{"data": []interface{}{}},
+			}); err != nil {
+				return
+			}
+		}
+	}))
+	defer server.Close()
+	endpoint := "ws" + strings.TrimPrefix(server.URL, "http") + "/rpc"
+
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	rpc, cleanup, err := connectCodexAppServerSocket(ctx, endpoint)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer cleanup()
+	if _, err := rpc.call(ctx, "thread/list", map[string]int{"limit": 1}); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case got := <-requestedPath:
+		if got != "/rpc" {
+			t.Fatalf("websocket request path got %q want /rpc", got)
+		}
+	case <-ctx.Done():
+		t.Fatal("websocket request path timeout")
+	}
+}
+
 func TestConnectCodexAppServerSocketLive(t *testing.T) {
 	socketPath := os.Getenv("FLEET_TEST_CODEX_SOCKET")
 	if socketPath == "" {
@@ -480,6 +532,71 @@ func TestCodexAppServerIsolatedFailsClosed(t *testing.T) {
 	}
 	if len(*started) != 0 || len(*processes) != 0 {
 		t.Fatalf("isolated failure fell back: starts=%v processes=%v", *started, *processes)
+	}
+}
+
+func TestCodexAppServerSharedUsesOnlyLoopbackWebSocket(t *testing.T) {
+	started, endpoints, processes := installCodexLauncherFakes(t, "shared", "")
+	_, cleanup, err := connectCodexAppServer(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	cleanup()
+	if !reflect.DeepEqual(*endpoints, []string{codexSharedWebSocketEndpoint}) {
+		t.Fatalf("shared endpoint attempts got %v", *endpoints)
+	}
+	if len(*started) != 0 || len(*processes) != 0 {
+		t.Fatalf("shared mode must not start a legacy daemon or stdio: starts=%v processes=%v", *started, *processes)
+	}
+}
+
+func TestCodexAppServerSharedFailsClosed(t *testing.T) {
+	started, endpoints, processes := installCodexLauncherFakes(t, "shared", "ws://localhost:47682/rpc")
+	connectCodexSocket = func(_ context.Context, endpoint string) (codexRPCConn, func(), error) {
+		*endpoints = append(*endpoints, endpoint)
+		return nil, nil, errors.New("websocket unavailable")
+	}
+	if _, _, err := connectCodexAppServer(context.Background()); err == nil || !strings.Contains(err.Error(), "connect shared") {
+		t.Fatalf("shared websocket failure got %v", err)
+	}
+	if !reflect.DeepEqual(*endpoints, []string{"ws://localhost:47682/rpc"}) {
+		t.Fatalf("shared endpoint attempts got %v", *endpoints)
+	}
+	if len(*started) != 0 || len(*processes) != 0 {
+		t.Fatalf("shared failure fell back: starts=%v processes=%v", *started, *processes)
+	}
+}
+
+func TestCodexAppServerSharedRejectsNonLoopbackWebSocket(t *testing.T) {
+	started, endpoints, processes := installCodexLauncherFakes(t, "shared", "ws://100.64.0.2:47682/rpc")
+	if _, _, err := connectCodexAppServer(context.Background()); err == nil || !strings.Contains(err.Error(), "loopback") {
+		t.Fatalf("non-loopback shared endpoint error got %v", err)
+	}
+	if len(*endpoints) != 0 || len(*started) != 0 || len(*processes) != 0 {
+		t.Fatalf("invalid shared endpoint attempted a connection or fallback: endpoints=%v starts=%v processes=%v", *endpoints, *started, *processes)
+	}
+}
+
+func TestValidateSharedCodexEndpoint(t *testing.T) {
+	for _, endpoint := range []string{
+		"ws://127.0.0.1:47682/rpc",
+		"ws://localhost:47682/rpc",
+		"wss://[::1]:47682/rpc",
+	} {
+		if got, err := validateSharedCodexEndpoint(endpoint); err != nil || got != endpoint {
+			t.Errorf("valid endpoint %q got %q, %v", endpoint, got, err)
+		}
+	}
+	for _, endpoint := range []string{
+		"/tmp/codex.sock",
+		"http://127.0.0.1:47682/rpc",
+		"ws://100.64.0.2:47682/rpc",
+		"ws://example.com:47682/rpc",
+		"ws://user@127.0.0.1:47682/rpc",
+	} {
+		if _, err := validateSharedCodexEndpoint(endpoint); err == nil {
+			t.Errorf("invalid endpoint %q accepted", endpoint)
+		}
 	}
 }
 

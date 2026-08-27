@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.macfleet.codex-desktop-env</string>
+    <key>LimitLoadToSessionType</key>
+    <string>Aqua</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>__CODEX_DESKTOP_ENV_HELPER__</string>
+        <string>__CODEX_DESKTOP_ENV_MODE__</string>
+        <string>__CODEX_DESKTOP_WS_URL__</string>
+    </array>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>StandardOutPath</key>
+    <string>/tmp/macfleet-codex-desktop-env.log</string>
+    <key>StandardErrorPath</key>
+    <string>/tmp/macfleet-codex-desktop-env.err</string>
+</dict>
+</plist>

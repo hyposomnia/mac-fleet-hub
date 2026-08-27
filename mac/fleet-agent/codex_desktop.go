@@ -3,48 +3,71 @@ package main
 import (
 	"fmt"
 	"os/exec"
-	"path/filepath"
 	"strings"
 )
 
-const codexDesktopLocalDaemonEnv = "CODEX_APP_SERVER_USE_LOCAL_DAEMON"
+const (
+	codexDesktopLocalDaemonEnv = "CODEX_APP_SERVER_USE_LOCAL_DAEMON"
+	codexDesktopWebSocketEnv   = "CODEX_APP_SERVER_WS_URL"
+)
 
 var runCodexDesktopLaunchctl = func(args ...string) ([]byte, error) {
 	return exec.Command("launchctl", args...).CombinedOutput()
 }
 
-// codexDesktopSharedDaemonLaunchctlArgs returns the GUI launchd environment
-// mutation needed for future Codex.app launches. Codex Desktop only supports
-// its default $CODEX_HOME/app-server-control socket, so custom Fleet homes or
-// sockets must leave Desktop on its own stdio app-server.
-func codexDesktopSharedDaemonLaunchctlArgs(config Config, home, goos string) []string {
-	if goos != "darwin" {
-		return nil
-	}
-	defaultCodexHome := filepath.Join(home, ".codex")
-	defaultSocket := filepath.Join(defaultCodexHome, "app-server-control", "app-server-control.sock")
-	mode := normalizeCodexAppServerMode(config.CodexMode)
-	compatibleSocket := strings.TrimSpace(config.CodexSock) == "" || filepath.Clean(config.CodexSock) == defaultSocket
-	compatible := config.CodexDesktopShare && mode == codexAppServerModeShared &&
-		filepath.Clean(config.CodexHome) == defaultCodexHome && compatibleSocket
-	if compatible {
-		return []string{"setenv", codexDesktopLocalDaemonEnv, "1"}
-	}
-	return []string{"unsetenv", codexDesktopLocalDaemonEnv}
+type codexDesktopLaunchctlOperation struct {
+	Args []string
 }
 
-func configureCodexDesktopSharedDaemon(config Config, home, goos string) error {
-	args := codexDesktopSharedDaemonLaunchctlArgs(config, home, goos)
-	if len(args) == 0 {
-		return nil
+// codexDesktopLaunchctlOperations returns the complete GUI launchd environment
+// mutation for future Codex.app launches. True shared mode points Desktop at
+// the same loopback WebSocket app-server as Fleet. Every other mode removes
+// both sharing mechanisms so stale launchctl state cannot override the mode.
+func codexDesktopLaunchctlOperations(config Config, goos string) ([]codexDesktopLaunchctlOperation, error) {
+	if goos != "darwin" {
+		return nil, nil
 	}
-	out, err := runCodexDesktopLaunchctl(args...)
-	if err == nil {
-		return nil
+	operations := []codexDesktopLaunchctlOperation{
+		{Args: []string{"unsetenv", codexDesktopLocalDaemonEnv}},
 	}
-	detail := strings.TrimSpace(string(out))
-	if detail == "" {
-		return fmt.Errorf("launchctl %s: %w", strings.Join(args, " "), err)
+	if config.CodexDesktopShare && normalizeCodexAppServerMode(config.CodexMode) == codexAppServerModeShared {
+		endpoint := strings.TrimSpace(config.CodexSock)
+		if endpoint == "" {
+			endpoint = codexSharedWebSocketEndpoint
+		}
+		endpoint, err := validateSharedCodexEndpoint(endpoint)
+		if err != nil {
+			return nil, err
+		}
+		return append(operations, codexDesktopLaunchctlOperation{
+			Args: []string{"setenv", codexDesktopWebSocketEnv, endpoint},
+		}), nil
 	}
-	return fmt.Errorf("launchctl %s: %w: %s", strings.Join(args, " "), err, detail)
+	return append(operations, codexDesktopLaunchctlOperation{
+		Args: []string{"unsetenv", codexDesktopWebSocketEnv},
+	}), nil
+}
+
+func configureCodexDesktopSharedDaemon(config Config, _ string, goos string) error {
+	operations, err := codexDesktopLaunchctlOperations(config, goos)
+	if err != nil {
+		return err
+	}
+	var failures []string
+	for _, operation := range operations {
+		out, runErr := runCodexDesktopLaunchctl(operation.Args...)
+		if runErr == nil {
+			continue
+		}
+		detail := strings.TrimSpace(string(out))
+		failure := fmt.Sprintf("launchctl %s: %v", strings.Join(operation.Args, " "), runErr)
+		if detail != "" {
+			failure += ": " + detail
+		}
+		failures = append(failures, failure)
+	}
+	if len(failures) > 0 {
+		return fmt.Errorf("%s", strings.Join(failures, "; "))
+	}
+	return nil
 }

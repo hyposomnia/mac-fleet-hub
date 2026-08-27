@@ -111,6 +111,7 @@ release_tmp="$(mktemp -d)"
 cleanup_release_tmp() { [[ -n "${release_tmp:-}" && -d "$release_tmp" ]] && rm -rf -- "$release_tmp"; }
 trap cleanup_release_tmp EXIT
 git archive "$release_commit" mac | gzip -9 > "$release_tmp/mac-bundle.tar.gz"
+bundle_sha="$(shasum -a 256 "$release_tmp/mac-bundle.tar.gz" | awk '{print $1}')"
 cp "$AMD_ASSET" "$ARM_ASSET" "$release_tmp/"
 
 remote_prefix="fleet-agent-release-$release_short"
@@ -144,16 +145,36 @@ curl -fsSL "${FLEET_RELEASE_WEB_BASE%/}/enroll/dist/fleet-agent-darwin-arm64" \
 [[ "$(shasum -a 256 "$release_tmp/public-arm64" | awk '{print $1}')" == "$arm_sha" ]] \
   || die "公网分发包 SHA 不一致。"
 codesign --verify --deep --strict "$release_tmp/public-arm64"
+curl -fsSL "${FLEET_RELEASE_WEB_BASE%/}/enroll/mac-bundle.tar.gz" \
+  -o "$release_tmp/public-mac-bundle.tar.gz"
+[[ "$(shasum -a 256 "$release_tmp/public-mac-bundle.tar.gz" | awk '{print $1}')" == "$bundle_sha" ]] \
+  || die "公网客户端 bundle SHA 不一致。"
 
-step "逐台备份、更新并验证 fleet-agent"
+step "逐台备份、更新、迁移 shared WebSocket 并完成 Desktop/Fleet UAT"
 for target in $FLEET_RELEASE_MAC_TARGETS; do
-  ssh_retry 22 "$target" "备份、fleet-agent update、验签、核 PID/SHA/health" \
+  ssh_retry 22 "$target" "空闲守卫、更新、shared 迁移、Desktop/Fleet 同 PID UAT" \
     "set -e
+     export PATH=/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
      bin=\"\$HOME/.local/bin/fleet-agent\"
      stamp=\$(date +%Y%m%d%H%M%S)
+     work=\$(mktemp -d /tmp/macfleet-release-$release_short.XXXXXX)
+     trap 'rm -rf \"\$work\"' EXIT
+     curl -fsSL '${FLEET_RELEASE_WEB_BASE%/}/enroll/mac-bundle.tar.gz' -o \"\$work/mac-bundle.tar.gz\"
+     test \"\$(shasum -a 256 \"\$work/mac-bundle.tar.gz\" | awk '{print \$1}')\" = '$bundle_sha'
+     tar -xzf \"\$work/mac-bundle.tar.gz\" -C \"\$work\"
+     FLEET_CODEX_HOME=\"\$(/usr/bin/plutil -extract EnvironmentVariables.FLEET_CODEX_HOME raw -o - \"\$HOME/Library/LaunchAgents/com.macfleet.fleet-agent.plist\" 2>/dev/null || printf '%s' \"\$HOME/.codex\")\" \
+       bash \"\$work/mac/check-codex-idle.sh\"
+     sleep 2
+     FLEET_CODEX_HOME=\"\$(/usr/bin/plutil -extract EnvironmentVariables.FLEET_CODEX_HOME raw -o - \"\$HOME/Library/LaunchAgents/com.macfleet.fleet-agent.plist\" 2>/dev/null || printf '%s' \"\$HOME/.codex\")\" \
+       bash \"\$work/mac/check-codex-idle.sh\"
      oldpid=\$(launchctl print gui/\$(id -u)/com.macfleet.fleet-agent | awk '/pid =/{print \$3; exit}')
      cp -p \"\$bin\" \"\$bin.bak.\$stamp\"
      FLEET_UPDATE_BASE='${FLEET_RELEASE_WEB_BASE%/}/enroll/dist' \"\$bin\" update
+     FLEET_UPDATE_BASE='${FLEET_RELEASE_WEB_BASE%/}/enroll/dist' \
+       FLEET_CODEX_APPSERVER_MODE=shared \
+       FLEET_CODEX_APPSERVER_SOCK=ws://127.0.0.1:47682/rpc \
+       FLEET_CODEX_DESKTOP_SHARED_DAEMON=1 \
+       bash \"\$work/mac/migrate-existing-client-to-shared.sh\"
      ip=\$(/opt/homebrew/bin/tailscale ip -4 | head -n1)
      ok=0
      for n in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15; do
@@ -165,7 +186,10 @@ for target in $FLEET_RELEASE_MAC_TARGETS; do
      test -n \"\$newpid\"
      codesign --verify --deep --strict \"\$bin\"
      test \"\$(shasum -a 256 \"\$bin\" | awk '{print \$1}')\" = '$arm_sha'
-     echo node_ok host=\$(hostname) oldpid=\$oldpid newpid=\$newpid backup=\$stamp"
+     info=\$(curl -fsS --max-time 3 http://\$ip:7682/api/info)
+     test \"\$(printf '%s' \"\$info\" | /usr/bin/plutil -extract codexAppServerMode raw -o - -)\" = shared
+     test \"\$(printf '%s' \"\$info\" | /usr/bin/plutil -extract codexAppServerConnected raw -o - -)\" = true
+     echo node_ok host=\$(hostname) oldpid=\$oldpid newpid=\$newpid binary_backup=\$stamp"
 done
 
 echo

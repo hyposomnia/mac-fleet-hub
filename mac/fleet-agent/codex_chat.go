@@ -121,6 +121,7 @@ type codexChatBackend struct {
 	rolloutTools     map[string]*codexRolloutToolsCache
 	orphanFirstSeen  map[string]time.Time
 	orphanRequested  map[string]bool
+	appToolsPipe     string
 	stallTimeout     time.Duration
 	now              func() time.Time
 }
@@ -160,6 +161,9 @@ func newCodexChatBackend(connect codexConnector) *codexChatBackend {
 func newAgentChatBackend() chatBackend {
 	b := newCodexChatBackend(connectCodexAppServer)
 	go b.runWriterLeaseReaper(context.Background(), 30*time.Second)
+	if codexUsesSharedDaemon() {
+		go b.runCodexAppToolsPipeWatcher(context.Background(), 10*time.Second)
+	}
 	return b
 }
 
@@ -208,6 +212,7 @@ func (b *codexChatBackend) resetRPC() {
 	b.cleanup = nil
 	b.loadedThreads = map[string]bool{}
 	b.writerOwners = map[string]string{}
+	b.appToolsPipe = ""
 	b.mu.Unlock()
 	if cleanup != nil {
 		cleanup()

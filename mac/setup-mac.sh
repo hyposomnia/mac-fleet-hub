@@ -22,6 +22,12 @@ FB_DB="$HOME/.macfleet-filebrowser.db"
 TTYD_BASE="/m${MAC_INDEX}/term"
 FB_BASE="/m${MAC_INDEX}/files"
 BIN_DIR="$HOME/.local/bin"
+CODEX_KEEPER_DIR="$HOME/.local/lib/macfleet"
+CODEX_KEEPER_SCRIPT="$CODEX_KEEPER_DIR/codex-shared-app-server.mjs"
+CODEX_KEEPER_NODE="/Applications/ChatGPT.app/Contents/Resources/cua_node/bin/node"
+CODEX_DESKTOP_ENV_HELPER="$CODEX_KEEPER_DIR/codex-desktop-env.sh"
+CODEX_DESKTOP_ENV_MODE="clear"
+CODEX_DESKTOP_ENV_URL=""
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # --- 0. Homebrew ---
@@ -29,20 +35,57 @@ command -v brew >/dev/null 2>&1 || { echo "未找到 Homebrew，请先装：http
 BREW_PREFIX="$(brew --prefix)"
 CLAUDE_BIN="$(command -v claude || echo "$BREW_PREFIX/bin/claude")"
 CODEX_HOME_DIR="${FLEET_CODEX_HOME:-$HOME/.codex}"
-CODEX_APPSERVER_MODE="${FLEET_CODEX_APPSERVER_MODE:-isolated}"
+CODEX_APPSERVER_MODE="${FLEET_CODEX_APPSERVER_MODE:-shared}"
 CODEX_APPSERVER_SOCK="${FLEET_CODEX_APPSERVER_SOCK:-}"
-CODEX_DESKTOP_SHARED_DAEMON="${FLEET_CODEX_DESKTOP_SHARED_DAEMON:-0}"
+CODEX_DESKTOP_SHARED_DAEMON="${FLEET_CODEX_DESKTOP_SHARED_DAEMON:-1}"
+CODEX_APPSERVER_LISTEN=""
 case "$CODEX_APPSERVER_MODE" in
   isolated|shared|auto|daemon|stdio) ;;
   *) echo "非法 FLEET_CODEX_APPSERVER_MODE=${CODEX_APPSERVER_MODE}（应为 isolated/shared/auto/daemon/stdio）" >&2; exit 1 ;;
 esac
-if [[ "$CODEX_APPSERVER_MODE" == "isolated" && -z "$CODEX_APPSERVER_SOCK" ]]; then
-  CODEX_APPSERVER_SOCK="$HOME/.macfleet/codex-app-server.sock"
-fi
 case "$CODEX_DESKTOP_SHARED_DAEMON" in
   0|1) ;;
   *) echo "非法 FLEET_CODEX_DESKTOP_SHARED_DAEMON=${CODEX_DESKTOP_SHARED_DAEMON}（应为 0/1）" >&2; exit 1 ;;
 esac
+if [[ "$CODEX_APPSERVER_MODE" == "shared" ]]; then
+  [[ -x "$CODEX_KEEPER_NODE" ]] || {
+    echo "shared 模式需要 ChatGPT 自带的签名 Node：${CODEX_KEEPER_NODE}" >&2
+    exit 1
+  }
+  [[ -f "$SCRIPT_DIR/codex-shared-app-server.mjs" ]] || {
+    echo "缺少 shared app-server keeper：$SCRIPT_DIR/codex-shared-app-server.mjs" >&2
+    exit 1
+  }
+fi
+case "$CODEX_APPSERVER_MODE" in
+  shared)
+    CODEX_APPSERVER_SOCK="${CODEX_APPSERVER_SOCK:-ws://127.0.0.1:47682/rpc}"
+    if [[ ! "$CODEX_APPSERVER_SOCK" =~ ^ws://127\.0\.0\.1:([0-9]{1,5})(/[^[:space:]?#]*)?$ ]]; then
+      echo "非法 shared app-server 地址：${CODEX_APPSERVER_SOCK}" >&2
+      echo "为避免暴露到 mesh/公网，只允许 ws://127.0.0.1:<端口>[/路径]。" >&2
+      exit 1
+    fi
+    CODEX_APPSERVER_PORT="${BASH_REMATCH[1]}"
+    if (( CODEX_APPSERVER_PORT < 1 || CODEX_APPSERVER_PORT > 65535 )); then
+      echo "非法 shared app-server 端口：${CODEX_APPSERVER_PORT}" >&2
+      exit 1
+    fi
+    # Codex CLI 的 --listen 只接受 ws://IP:PORT；客户端 URL 可以带 /rpc。
+    CODEX_APPSERVER_LISTEN="ws://127.0.0.1:${CODEX_APPSERVER_PORT}"
+    ;;
+  isolated)
+    CODEX_APPSERVER_SOCK="${CODEX_APPSERVER_SOCK:-$HOME/.macfleet/codex-app-server.sock}"
+    [[ "$CODEX_APPSERVER_SOCK" == /* ]] || {
+      echo "isolated app-server socket 必须是绝对路径：${CODEX_APPSERVER_SOCK}" >&2
+      exit 1
+    }
+    CODEX_APPSERVER_LISTEN="unix://${CODEX_APPSERVER_SOCK}"
+    ;;
+esac
+if [[ "$CODEX_APPSERVER_MODE" == "shared" && "$CODEX_DESKTOP_SHARED_DAEMON" == "1" ]]; then
+  CODEX_DESKTOP_ENV_MODE="shared"
+  CODEX_DESKTOP_ENV_URL="$CODEX_APPSERVER_SOCK"
+fi
 
 # 显式指定的 Codex 路径始终优先。默认 shared 模式必须优先使用当前
 # ChatGPT.app 自带的 Codex，避免新版 Desktop 连接到旧 PATH CLI 刷新的 daemon。
@@ -77,7 +120,7 @@ brew install ttyd tmux
 [[ -x "$BREW_PREFIX/bin/ttyd" ]] || { echo "ttyd 安装失败：$BREW_PREFIX/bin/ttyd 不存在。" >&2; exit 1; }
 [[ -x "$BREW_PREFIX/bin/tmux" ]] || { echo "tmux 安装失败：$BREW_PREFIX/bin/tmux 不存在。" >&2; exit 1; }
 
-# shared（默认）让 Fleet 与 Codex Desktop 连接同一个官方 managed daemon。
+# shared（默认）让 Fleet 与 Codex Desktop 连接同一个仅监听 loopback 的 app-server。
 # isolated 是兼容回退：Fleet sidecar 独立常驻，只连接专用 Unix WebSocket。
 MANAGED_CODEX="$CODEX_HOME_DIR/packages/standalone/current/codex"
 MANAGED_STANDALONE_DIR="$(dirname "$(dirname "$MANAGED_CODEX")")"
@@ -85,6 +128,19 @@ MANAGED_RELEASES_DIR="$MANAGED_STANDALONE_DIR/releases"
 MANAGED_CODEX_CHANGED=0
 MANAGED_MIGRATION_ACTIVE=0
 SHARED_MIGRATION_COMMITTED=0
+CLIENT_FILES_TOUCHED=0
+SHARED_BACKUP_DIR=""
+OLD_AGENT_BIN_BACKUP=""
+OLD_FLEET_AGENT_PLIST_BACKUP=""
+OLD_KEEPER_SCRIPT_BACKUP=""
+OLD_DESKTOP_ENV_HELPER_BACKUP=""
+OLD_DESKTOP_ENV_PLIST_BACKUP=""
+CODEX_APPSERVER_PLIST_RENDERED=0
+GUI_ENV_TOUCHED=0
+PREVIOUS_CODEX_APP_SERVER_WS_URL=""
+PREVIOUS_CODEX_APP_SERVER_USE_LOCAL_DAEMON=""
+LEGACY_CODEX_DAEMON_WAS_RUNNING=0
+LEGACY_CODEX_CONTROL_SOCK="$CODEX_HOME_DIR/app-server-control/app-server-control.sock"
 MANAGED_CURRENT_KIND="absent"
 MANAGED_CURRENT_LINK_TARGET=""
 MANAGED_CURRENT_LEGACY_BACKUP=""
@@ -95,6 +151,9 @@ LA_EARLY="$HOME/Library/LaunchAgents"
 OLD_ISOLATED_CODEX_PLIST="$LA_EARLY/com.macfleet.codex-app-server.plist"
 OLD_ISOLATED_CODEX_PLIST_PRESENT=0
 OLD_ISOLATED_CODEX_PLIST_BACKUP=""
+FLEET_AGENT_TARGET="$BIN_DIR/fleet-agent"
+FLEET_AGENT_PLIST_TARGET="$LA_EARLY/com.macfleet.fleet-agent.plist"
+DESKTOP_ENV_PLIST_TARGET="$LA_EARLY/com.macfleet.codex-desktop-env.plist"
 daemon_version_field() {
   local version_json="$1" field="$2"
   printf '%s' "$version_json" | /usr/bin/plutil -extract "$field" raw -o - - 2>/dev/null
@@ -200,6 +259,30 @@ begin_shared_migration() {
   OLD_ISOLATED_CODEX_PLIST_BACKUP=""
   trap 'rollback_shared_migration >/dev/null 2>&1 || true' EXIT
 
+  backup_dir="$HOME/.macfleet/migration-backups/app-server-to-shared-ws.$(date +%Y%m%d%H%M%S).$$"
+  install -d -m 0700 "$backup_dir" || return 1
+  SHARED_BACKUP_DIR="$backup_dir"
+  if [[ -f "$FLEET_AGENT_TARGET" ]]; then
+    OLD_AGENT_BIN_BACKUP="$backup_dir/fleet-agent"
+    cp -p "$FLEET_AGENT_TARGET" "$OLD_AGENT_BIN_BACKUP" || return 1
+  fi
+  if [[ -f "$FLEET_AGENT_PLIST_TARGET" ]]; then
+    OLD_FLEET_AGENT_PLIST_BACKUP="$backup_dir/com.macfleet.fleet-agent.plist"
+    cp -p "$FLEET_AGENT_PLIST_TARGET" "$OLD_FLEET_AGENT_PLIST_BACKUP" || return 1
+  fi
+  if [[ -f "$CODEX_KEEPER_SCRIPT" ]]; then
+    OLD_KEEPER_SCRIPT_BACKUP="$backup_dir/codex-shared-app-server.mjs"
+    cp -p "$CODEX_KEEPER_SCRIPT" "$OLD_KEEPER_SCRIPT_BACKUP" || return 1
+  fi
+  if [[ -f "$CODEX_DESKTOP_ENV_HELPER" ]]; then
+    OLD_DESKTOP_ENV_HELPER_BACKUP="$backup_dir/codex-desktop-env.sh"
+    cp -p "$CODEX_DESKTOP_ENV_HELPER" "$OLD_DESKTOP_ENV_HELPER_BACKUP" || return 1
+  fi
+  if [[ -f "$DESKTOP_ENV_PLIST_TARGET" ]]; then
+    OLD_DESKTOP_ENV_PLIST_BACKUP="$backup_dir/com.macfleet.codex-desktop-env.plist"
+    cp -p "$DESKTOP_ENV_PLIST_TARGET" "$OLD_DESKTOP_ENV_PLIST_BACKUP" || return 1
+  fi
+
   if [[ -L "$current_path" ]]; then
     MANAGED_CURRENT_KIND="symlink"
     MANAGED_CURRENT_LINK_TARGET="$(readlink "$current_path")" || return 1
@@ -212,13 +295,21 @@ begin_shared_migration() {
 
   if [[ -e "$OLD_ISOLATED_CODEX_PLIST" || -L "$OLD_ISOLATED_CODEX_PLIST" ]]; then
     OLD_ISOLATED_CODEX_PLIST_PRESENT=1
-    backup_dir="$HOME/.macfleet/migration-backups/isolated-to-shared.$(date +%Y%m%d%H%M%S).$$"
-    install -d -m 0700 "$backup_dir" || return 1
     OLD_ISOLATED_CODEX_PLIST_BACKUP="$backup_dir/com.macfleet.codex-app-server.plist"
-    echo "迁移到 shared daemon：先停止旧 Fleet isolated sidecar，并把 plist 备份到 ${OLD_ISOLATED_CODEX_PLIST_BACKUP}。"
-    echo "若旧 sidecar 有正在运行的 Codex turn，该 turn 会被中断。"
+    echo "迁移到 shared WebSocket：先停止现有 Fleet app-server，并把 plist 备份到 ${OLD_ISOLATED_CODEX_PLIST_BACKUP}。"
+    echo "若现有 app-server 有正在运行的 Codex turn，该 turn 会被中断。"
     launchctl unload "$OLD_ISOLATED_CODEX_PLIST" 2>/dev/null || true
     mv "$OLD_ISOLATED_CODEX_PLIST" "$OLD_ISOLATED_CODEX_PLIST_BACKUP" || return 1
+  fi
+
+  if [[ "$CODEX_APPSERVER_MODE" == "shared" && -S "$LEGACY_CODEX_CONTROL_SOCK" ]]; then
+    LEGACY_CODEX_DAEMON_WAS_RUNNING=1
+    echo "停止旧 Codex control-socket daemon；shared 将改由唯一的 loopback WebSocket LaunchAgent 承载。"
+    CODEX_HOME="$CODEX_HOME_DIR" "$CODEX_BIN" app-server daemon stop >/dev/null 2>&1 || true
+    if [[ -S "$LEGACY_CODEX_CONTROL_SOCK" ]]; then
+      echo "旧 Codex control-socket daemon 未能停止：${LEGACY_CODEX_CONTROL_SOCK}" >&2
+      return 1
+    fi
   fi
 }
 quarantine_path() {
@@ -227,12 +318,48 @@ quarantine_path() {
   quarantined="${path}.${label}.$(date +%Y%m%d%H%M%S).$$.${RANDOM}"
   mv "$path" "$quarantined"
 }
+restore_migration_file() {
+  local target="$1" backup="$2" label="$3"
+  quarantine_path "$target" "failed-${label}" || return 1
+  if [[ -n "$backup" && ( -e "$backup" || -L "$backup" ) ]]; then
+    install -d -m 0700 "$(dirname "$target")" || return 1
+    mv "$backup" "$target" || return 1
+  fi
+}
 rollback_shared_migration() {
   local current_path="$MANAGED_STANDALONE_DIR/current" restore_link rollback_ok=0 step_ok=0
   [[ "$MANAGED_MIGRATION_ACTIVE" == "1" ]] || return 0
   MANAGED_MIGRATION_ACTIVE=0
   trap - EXIT
-  echo "shared daemon 迁移失败，正在恢复原 Codex current 与 isolated sidecar ..." >&2
+  echo "shared WebSocket 迁移失败，正在恢复原 Codex current、app-server 与 GUI 环境 ..." >&2
+
+  if [[ "$CLIENT_FILES_TOUCHED" == "1" ]]; then
+    launchctl unload "$FLEET_AGENT_PLIST_TARGET" >/dev/null 2>&1 || true
+    launchctl bootout "gui/$(id -u)/com.macfleet.codex-desktop-env" >/dev/null 2>&1 || true
+    restore_migration_file "$FLEET_AGENT_TARGET" "$OLD_AGENT_BIN_BACKUP" "fleet-agent" || rollback_ok=1
+    restore_migration_file "$FLEET_AGENT_PLIST_TARGET" "$OLD_FLEET_AGENT_PLIST_BACKUP" "fleet-agent-plist" || rollback_ok=1
+    restore_migration_file "$CODEX_KEEPER_SCRIPT" "$OLD_KEEPER_SCRIPT_BACKUP" "codex-keeper" || rollback_ok=1
+    restore_migration_file "$CODEX_DESKTOP_ENV_HELPER" "$OLD_DESKTOP_ENV_HELPER_BACKUP" "desktop-env-helper" || rollback_ok=1
+    restore_migration_file "$DESKTOP_ENV_PLIST_TARGET" "$OLD_DESKTOP_ENV_PLIST_BACKUP" "desktop-env-plist" || rollback_ok=1
+  fi
+
+  if [[ "$GUI_ENV_TOUCHED" == "1" ]]; then
+    if [[ -n "$PREVIOUS_CODEX_APP_SERVER_WS_URL" ]]; then
+      launchctl setenv CODEX_APP_SERVER_WS_URL "$PREVIOUS_CODEX_APP_SERVER_WS_URL" >/dev/null 2>&1 || rollback_ok=1
+    else
+      launchctl unsetenv CODEX_APP_SERVER_WS_URL >/dev/null 2>&1 || rollback_ok=1
+    fi
+    if [[ -n "$PREVIOUS_CODEX_APP_SERVER_USE_LOCAL_DAEMON" ]]; then
+      launchctl setenv CODEX_APP_SERVER_USE_LOCAL_DAEMON "$PREVIOUS_CODEX_APP_SERVER_USE_LOCAL_DAEMON" >/dev/null 2>&1 || rollback_ok=1
+    else
+      launchctl unsetenv CODEX_APP_SERVER_USE_LOCAL_DAEMON >/dev/null 2>&1 || rollback_ok=1
+    fi
+  fi
+
+  if [[ "$CODEX_APPSERVER_PLIST_RENDERED" == "1" ]]; then
+    launchctl unload "$OLD_ISOLATED_CODEX_PLIST" >/dev/null 2>&1 || true
+    quarantine_path "$OLD_ISOLATED_CODEX_PLIST" "failed-shared-ws-plist" || rollback_ok=1
+  fi
 
   # If an incomplete canonical release was replaced, restore its exact contents before
   # restoring a current symlink that may point at it.
@@ -275,7 +402,6 @@ rollback_shared_migration() {
     step_ok=0
     install -d -m 0700 "$LA_EARLY" || step_ok=1
     if [[ -n "$OLD_ISOLATED_CODEX_PLIST_BACKUP" && ( -e "$OLD_ISOLATED_CODEX_PLIST_BACKUP" || -L "$OLD_ISOLATED_CODEX_PLIST_BACKUP" ) ]]; then
-      quarantine_path "$OLD_ISOLATED_CODEX_PLIST" "failed-shared-plist" || step_ok=1
       [[ "$step_ok" != "0" ]] || mv "$OLD_ISOLATED_CODEX_PLIST_BACKUP" "$OLD_ISOLATED_CODEX_PLIST" || step_ok=1
     fi
     if [[ -e "$OLD_ISOLATED_CODEX_PLIST" || -L "$OLD_ISOLATED_CODEX_PLIST" ]]; then
@@ -286,8 +412,19 @@ rollback_shared_migration() {
     [[ "$step_ok" == "0" ]] || rollback_ok=1
   fi
 
+  if [[ "$LEGACY_CODEX_DAEMON_WAS_RUNNING" == "1" ]]; then
+    CODEX_HOME="$CODEX_HOME_DIR" "$CODEX_BIN" app-server daemon start >/dev/null 2>&1 || rollback_ok=1
+  fi
+
+  if [[ "$CLIENT_FILES_TOUCHED" == "1" && -f "$FLEET_AGENT_PLIST_TARGET" ]]; then
+    launchctl load "$FLEET_AGENT_PLIST_TARGET" >/dev/null 2>&1 || rollback_ok=1
+  fi
+  if [[ "$CLIENT_FILES_TOUCHED" == "1" && -f "$DESKTOP_ENV_PLIST_TARGET" ]]; then
+    launchctl bootstrap "gui/$(id -u)" "$DESKTOP_ENV_PLIST_TARGET" >/dev/null 2>&1 || rollback_ok=1
+  fi
+
   if [[ "$rollback_ok" == "0" ]]; then
-    echo "已恢复迁移前的 Codex current 与 isolated sidecar。" >&2
+    echo "已恢复迁移前的 Codex current、app-server 与 GUI 环境。" >&2
     return 0
   fi
   echo "警告：自动回滚未完整成功，请检查 ${MANAGED_STANDALONE_DIR} 与 ${LA_EARLY}。" >&2
@@ -298,7 +435,7 @@ commit_shared_migration() {
   SHARED_MIGRATION_COMMITTED=1
   trap - EXIT
   if [[ -n "$OLD_ISOLATED_CODEX_PLIST_BACKUP" ]]; then
-    echo "旧 isolated plist 的可恢复备份保留于：$OLD_ISOLATED_CODEX_PLIST_BACKUP"
+    echo "旧 app-server plist 的可恢复备份保留于：$OLD_ISOLATED_CODEX_PLIST_BACKUP"
   fi
   if [[ -n "$MANAGED_CURRENT_LEGACY_BACKUP" ]]; then
     echo "旧式 Codex current 目录的可恢复备份保留于：$MANAGED_CURRENT_LEGACY_BACKUP"
@@ -397,12 +534,12 @@ refresh_managed_codex_binary() {
   MANAGED_CODEX_CHANGED=1
   echo "Codex managed binary 已更新：${managed_version:-未安装} → $selected_version"
 }
-bootstrap_shared_codex_daemon() {
+bootstrap_legacy_codex_daemon() {
   local version_json managed_version app_server_version refreshed_json refreshed_app_server_version
 
   refresh_managed_codex_binary || return 1
   if [[ "$MANAGED_CODEX_CHANGED" == "1" ]]; then
-    echo "注意：下一步官方 daemon bootstrap 将重启 Codex managed daemon；正在运行的 turn 需先结束。"
+    echo "注意：legacy daemon bootstrap 将重启 Codex managed daemon；正在运行的 turn 需先结束。"
   fi
   CODEX_HOME="$CODEX_HOME_DIR" "$CODEX_BIN" app-server daemon bootstrap --remote-control >/dev/null 2>&1 || return 1
   version_json="$(CODEX_HOME="$CODEX_HOME_DIR" "$CODEX_BIN" app-server daemon version 2>/dev/null)" || return 1
@@ -424,59 +561,96 @@ bootstrap_shared_codex_daemon() {
 }
 
 if [[ "$CODEX_APPSERVER_MODE" != "stdio" && -x "$CODEX_BIN" ]]; then
-  echo "配置 Codex app-server daemon ..."
+  echo "配置 Codex app-server ..."
   if [[ "$CODEX_APPSERVER_MODE" == "isolated" && ! -x "$MANAGED_CODEX" ]]; then
-    # daemon 固定从 managed 路径启动。目标机已有 Codex CLI 时复用该签名二进制，
+    # LaunchAgent 固定从 managed 路径启动。目标机已有 Codex CLI 时复用该签名二进制，
     # 后续 bootstrap updater 仍可按 Codex 官方安装器正常更新此路径。
     install -d -m 0700 "$(dirname "$MANAGED_CODEX")"
     install -m 0755 "$CODEX_BIN" "$MANAGED_CODEX"
   fi
-  if [[ "$CODEX_APPSERVER_MODE" == "isolated" ]]; then
-    install -d -m 0700 "$(dirname "$CODEX_APPSERVER_SOCK")"
-    echo "Fleet 独立 Codex app-server 将使用 $CODEX_APPSERVER_SOCK"
-  elif begin_shared_migration && bootstrap_shared_codex_daemon; then
-    commit_shared_migration
-    echo "Codex app-server daemon 已就绪"
-  elif [[ "$CODEX_APPSERVER_MODE" == "shared" || "$CODEX_APPSERVER_MODE" == "daemon" ]]; then
-    rollback_shared_migration || true
-    echo "Codex app-server daemon 刷新或版本校验失败；shared 模式无法继续，请更新 Codex/ChatGPT 后重试。" >&2
-    exit 1
-  elif [[ -S "${CODEX_APPSERVER_SOCK:-$CODEX_HOME_DIR/app-server-control/app-server-control.sock}" ]]; then
-    rollback_shared_migration || true
-    echo "检测到现有 Codex control socket；fleet-agent 将先直接连接并验证，失败才回退 stdio。"
-  else
-    rollback_shared_migration || true
-    echo "警告：Codex daemon 不可用，fleet-agent 将回退独立 stdio；更新 agent 仍可能中断活动 turn。" >&2
-  fi
+  case "$CODEX_APPSERVER_MODE" in
+    isolated)
+      install -d -m 0700 "$(dirname "$CODEX_APPSERVER_SOCK")"
+      echo "Fleet 独立 Codex app-server 将使用 ${CODEX_APPSERVER_SOCK}"
+      ;;
+    shared)
+      if ! begin_shared_migration; then
+        rollback_shared_migration || true
+        echo "Codex shared WebSocket 迁移预检失败；请更新 Codex/ChatGPT 后重试。" >&2
+        exit 1
+      fi
+      echo "shared app-server 将直接使用当前 ChatGPT bundled Codex：${CODEX_BIN}"
+      echo "shared app-server 将只监听 ${CODEX_APPSERVER_LISTEN}，Fleet/Desktop 连接 ${CODEX_APPSERVER_SOCK}"
+      ;;
+    daemon)
+      if begin_shared_migration && bootstrap_legacy_codex_daemon; then
+        commit_shared_migration
+        echo "Legacy Codex control-socket daemon 已就绪"
+      else
+        rollback_shared_migration || true
+        echo "Codex control-socket daemon 刷新或版本校验失败；daemon 模式无法继续。" >&2
+        exit 1
+      fi
+      ;;
+    auto)
+      if begin_shared_migration && bootstrap_legacy_codex_daemon; then
+        commit_shared_migration
+        echo "Legacy Codex control-socket daemon 已就绪"
+      elif [[ -S "${CODEX_APPSERVER_SOCK:-$CODEX_HOME_DIR/app-server-control/app-server-control.sock}" ]]; then
+        rollback_shared_migration || true
+        echo "检测到现有 Codex control socket；fleet-agent 将先直接连接并验证，失败才回退 stdio。"
+      else
+        rollback_shared_migration || true
+        echo "警告：Codex daemon 不可用，fleet-agent 将回退独立 stdio；更新 agent 仍可能中断活动 turn。" >&2
+      fi
+      ;;
+  esac
 elif [[ "$CODEX_APPSERVER_MODE" == "shared" || "$CODEX_APPSERVER_MODE" == "daemon" ]]; then
-  echo "Codex 可执行文件不可用：${CODEX_BIN}；shared 模式无法配置 managed daemon。" >&2
+  echo "Codex 可执行文件不可用：${CODEX_BIN}；${CODEX_APPSERVER_MODE} 模式无法配置 app-server。" >&2
   exit 1
 fi
 
-# shared 默认让 Codex Desktop 与 Fleet 复用默认 Unix socket。这里只更新后续
-# GUI 进程继承的 launchd 环境；脚本不会擅自退出或重启正在运行的 Codex.app。
-DEFAULT_CODEX_HOME="$HOME/.codex"
-DEFAULT_CODEX_SOCK="$DEFAULT_CODEX_HOME/app-server-control/app-server-control.sock"
+# shared 默认让 Codex Desktop 与 Fleet 显式连接同一个 loopback WebSocket。
+# launchctl 环境记录供 launchd 子进程使用；从 Dock/Finder 手工重开时 macOS
+# 不保证继承它，因此收尾同时给出 open --env 的确定性启动命令。
 CODEX_DESKTOP_REOPEN_REQUIRED=0
-if [[ "$CODEX_DESKTOP_SHARED_DAEMON" == "1" && ( "$CODEX_APPSERVER_MODE" == "shared" || "$CODEX_APPSERVER_MODE" == "daemon" ) && \
-      "$CODEX_HOME_DIR" == "$DEFAULT_CODEX_HOME" && \
-      ( -z "$CODEX_APPSERVER_SOCK" || "$CODEX_APPSERVER_SOCK" == "$DEFAULT_CODEX_SOCK" ) ]]; then
-  if launchctl setenv CODEX_APP_SERVER_USE_LOCAL_DAEMON 1; then
+PREVIOUS_CODEX_APP_SERVER_WS_URL="$(launchctl getenv CODEX_APP_SERVER_WS_URL 2>/dev/null || true)"
+PREVIOUS_CODEX_APP_SERVER_USE_LOCAL_DAEMON="$(launchctl getenv CODEX_APP_SERVER_USE_LOCAL_DAEMON 2>/dev/null || true)"
+if [[ "$CODEX_APPSERVER_MODE" == "shared" ]]; then
+  GUI_ENV_TOUCHED=1
+  if ! launchctl unsetenv CODEX_APP_SERVER_USE_LOCAL_DAEMON; then
+    echo "无法取消 Codex Desktop 旧 local-daemon 环境开关。" >&2
+    exit 1
+  fi
+  if [[ "$CODEX_DESKTOP_SHARED_DAEMON" == "1" ]]; then
+    if ! launchctl setenv CODEX_APP_SERVER_WS_URL "$CODEX_APPSERVER_SOCK"; then
+      echo "无法写入 Codex Desktop shared WebSocket 地址。" >&2
+      exit 1
+    fi
     CODEX_DESKTOP_REOPEN_REQUIRED=1
-    echo "Codex.app 已配置为在下次启动时复用 managed daemon。"
-    echo "注意：本脚本不会自动重启 Codex.app；安装完成后必须完全退出（Cmd+Q）再重新打开一次。"
+    echo "ChatGPT.app 的 shared WebSocket 地址已记录为 ${CODEX_APPSERVER_SOCK}。"
+    echo "注意：本脚本不会自动中断正在运行的 ChatGPT.app；安装完成后需用下方命令确定性重开。"
   else
-    echo "警告：无法写入 Codex.app GUI 环境；fleet-agent 启动后会重试。" >&2
+    launchctl unsetenv CODEX_APP_SERVER_WS_URL 2>/dev/null || true
   fi
 else
+  launchctl unsetenv CODEX_APP_SERVER_WS_URL 2>/dev/null || true
   launchctl unsetenv CODEX_APP_SERVER_USE_LOCAL_DAEMON 2>/dev/null || true
 fi
 
 # --- 3. 安装 fleet-agent / filebrowser 二进制 + ttyd 附着脚本 ---
+if [[ "$MANAGED_MIGRATION_ACTIVE" == "1" ]]; then
+  CLIENT_FILES_TOUCHED=1
+fi
 mkdir -p "$BIN_DIR"
+install -d -m 0700 "$CODEX_KEEPER_DIR"
 ARCH="$(uname -m)"; [[ "$ARCH" == "arm64" ]] && AB="arm64" || AB="amd64"
 install -m 0755 "$SCRIPT_DIR/fleet-agent/dist/fleet-agent-darwin-${AB}" "$BIN_DIR/fleet-agent"
 install -m 0755 "$SCRIPT_DIR/fleet-agent/fleet-attach.sh" "$BIN_DIR/fleet-attach"
+install -m 0700 "$SCRIPT_DIR/codex-desktop-env.sh" "$CODEX_DESKTOP_ENV_HELPER"
+if [[ "$CODEX_APPSERVER_MODE" == "shared" ]]; then
+  install -m 0700 "$SCRIPT_DIR/codex-shared-app-server.mjs" "$CODEX_KEEPER_SCRIPT"
+fi
 AGENT_BIN="$BIN_DIR/fleet-agent"
 FLEET_ATTACH="$BIN_DIR/fleet-attach"
 
@@ -520,7 +694,7 @@ fi
 for svc in com.macfleet.ttyd com.macfleet.filebrowser com.macfleet.fleet-agent; do
   launchctl unload "$LA_EARLY/$svc.plist" 2>/dev/null || true
 done
-if [[ "$CODEX_APPSERVER_MODE" == "isolated" ]]; then
+if [[ "$CODEX_APPSERVER_MODE" == "isolated" || "$CODEX_APPSERVER_MODE" == "shared" ]]; then
   launchctl unload "$OLD_ISOLATED_CODEX_PLIST" 2>/dev/null || true
 elif [[ "$SHARED_MIGRATION_COMMITTED" == "1" ]]; then
   # 防御性幂等清理：即使安装过程中旧 plist 被外部流程重新写入，也不能留到下次登录。
@@ -562,24 +736,67 @@ render() { # src dst
       -e "s#__CODEX_HOME__#${CODEX_HOME_DIR}#g" \
       -e "s#__CODEX_APPSERVER_MODE__#${CODEX_APPSERVER_MODE}#g" \
       -e "s#__CODEX_APPSERVER_SOCK__#${CODEX_APPSERVER_SOCK}#g" \
+      -e "s#__CODEX_APPSERVER_LISTEN__#${CODEX_APPSERVER_LISTEN}#g" \
+      -e "s#__CODEX_KEEPER_NODE__#${CODEX_KEEPER_NODE}#g" \
+      -e "s#__CODEX_KEEPER_SCRIPT__#${CODEX_KEEPER_SCRIPT}#g" \
+      -e "s#__CODEX_DESKTOP_ENV_HELPER__#${CODEX_DESKTOP_ENV_HELPER}#g" \
+      -e "s#__CODEX_DESKTOP_ENV_MODE__#${CODEX_DESKTOP_ENV_MODE}#g" \
+      -e "s#__CODEX_DESKTOP_WS_URL__#${CODEX_DESKTOP_ENV_URL}#g" \
       -e "s#__CODEX_DESKTOP_SHARED_DAEMON__#${CODEX_DESKTOP_SHARED_DAEMON}#g" \
       "$1" > "$2"
 }
 PORT="$TTYD_PORT" render "$SCRIPT_DIR/com.macfleet.ttyd.plist"        "$LA/com.macfleet.ttyd.plist"
 PORT="$FB_PORT"   render "$SCRIPT_DIR/com.macfleet.filebrowser.plist" "$LA/com.macfleet.filebrowser.plist"
                   render "$SCRIPT_DIR/com.macfleet.fleet-agent.plist" "$LA/com.macfleet.fleet-agent.plist"
-if [[ "$CODEX_APPSERVER_MODE" == "isolated" ]]; then
+                  render "$SCRIPT_DIR/com.macfleet.codex-desktop-env.plist" "$LA/com.macfleet.codex-desktop-env.plist"
+if [[ "$CODEX_APPSERVER_MODE" == "shared" ]]; then
+                  render "$SCRIPT_DIR/com.macfleet.codex-shared-app-server.plist" "$LA/com.macfleet.codex-app-server.plist"
+  CODEX_APPSERVER_PLIST_RENDERED=1
+elif [[ "$CODEX_APPSERVER_MODE" == "isolated" ]]; then
                   render "$SCRIPT_DIR/com.macfleet.codex-app-server.plist" "$LA/com.macfleet.codex-app-server.plist"
+  CODEX_APPSERVER_PLIST_RENDERED=1
 fi
 
 SERVICES=(com.macfleet.ttyd com.macfleet.filebrowser)
-if [[ "$CODEX_APPSERVER_MODE" == "isolated" ]]; then SERVICES+=(com.macfleet.codex-app-server); fi
+if [[ "$CODEX_APPSERVER_MODE" == "isolated" || "$CODEX_APPSERVER_MODE" == "shared" ]]; then
+  SERVICES+=(com.macfleet.codex-app-server)
+fi
 SERVICES+=(com.macfleet.fleet-agent)
 for svc in "${SERVICES[@]}"; do
   launchctl unload "$LA/$svc.plist" 2>/dev/null || true
   launchctl load  "$LA/$svc.plist"
   echo "已加载服务: $svc"
 done
+if [[ "$CODEX_APPSERVER_MODE" == "shared" ]]; then
+  SHARED_READY=0
+  for _ in {1..30}; do
+    if curl -fsS --max-time 1 "http://127.0.0.1:${CODEX_APPSERVER_PORT}/readyz" >/dev/null 2>&1 \
+      && curl -fsS --max-time 1 "http://${TS_IP}:${AGENT_PORT}/api/health" 2>/dev/null | grep -qx ok \
+      && /usr/sbin/lsof -n -P -iTCP:"${CODEX_APPSERVER_PORT}" -sTCP:LISTEN 2>/dev/null | grep -q "127.0.0.1:${CODEX_APPSERVER_PORT} (LISTEN)"; then
+      SHARED_READY=1
+      break
+    fi
+    sleep 1
+  done
+  if [[ "$SHARED_READY" != "1" ]]; then
+    rollback_shared_migration || true
+    echo "shared app-server/agent 未通过就绪检查；已回滚迁移。" >&2
+    exit 1
+  fi
+fi
+GUI_DOMAIN="gui/$(id -u)"
+if launchctl print "$GUI_DOMAIN" >/dev/null 2>&1; then
+  launchctl bootout "$GUI_DOMAIN/com.macfleet.codex-desktop-env" >/dev/null 2>&1 || true
+  if ! launchctl bootstrap "$GUI_DOMAIN" "$LA/com.macfleet.codex-desktop-env.plist"; then
+    rollback_shared_migration || true
+    echo "无法在 Aqua 会话中安装 Codex Desktop 环境；已回滚 shared 迁移。" >&2
+    exit 1
+  fi
+fi
+if [[ "$CODEX_APPSERVER_MODE" == "shared" && "$MANAGED_MIGRATION_ACTIVE" == "1" ]]; then
+  commit_shared_migration
+  echo "shared app-server LaunchAgent 已就绪：${CODEX_APPSERVER_SOCK}"
+fi
 
 # fleet-agent 自更新源：写进 ~/.zshrc 受管块，使交互式 `fleet-agent update` 开箱即用
 # （update 是手动 CLI，读交互 shell 环境变量，不读 launchd plist）。幂等：先删旧块再追加。
@@ -605,5 +822,6 @@ cat <<EOF
 EOF
 
 if [[ "$CODEX_DESKTOP_REOPEN_REQUIRED" == "1" ]]; then
-  echo "Codex Desktop：请现在完全退出（Cmd+Q）并重新打开；脚本没有替你重启 App。"
+  echo "ChatGPT/Codex Desktop：确认当前 turn 完成后完全退出，再运行："
+  echo "/usr/bin/open --env CODEX_APP_SERVER_WS_URL=${CODEX_APPSERVER_SOCK} -a /Applications/ChatGPT.app"
 fi
