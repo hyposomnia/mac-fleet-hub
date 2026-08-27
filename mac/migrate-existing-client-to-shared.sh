@@ -85,7 +85,14 @@ for _ in {1..30}; do
   sleep 1
 done
 if [[ -n "$(desktop_process_pid)" ]]; then
-  die "ChatGPT did not quit cleanly; refusing to force-kill it"
+  desktop_pid="$(desktop_process_pid)"
+  echo "ChatGPT 未响应 AppleScript quit；向已确认空闲的 PID ${desktop_pid} 发送 SIGTERM。"
+  kill -TERM "$desktop_pid"
+  for _ in {1..15}; do
+    kill -0 "$desktop_pid" 2>/dev/null || break
+    sleep 1
+  done
+  kill -0 "$desktop_pid" 2>/dev/null && die "ChatGPT ignored SIGTERM; refusing to use SIGKILL"
 fi
 /usr/bin/open --env "CODEX_APP_SERVER_WS_URL=$SHARED_WS_URL" -a "$DESKTOP_APP"
 
