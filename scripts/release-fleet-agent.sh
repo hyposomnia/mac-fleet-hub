@@ -51,10 +51,12 @@ source "$CONFIG_FILE"
 : "${FLEET_RELEASE_MAC_TARGETS:?配置 FLEET_RELEASE_MAC_TARGETS}"
 
 command -v git >/dev/null || die "未找到 git。"
-command -v tailscale >/dev/null || die "未找到 tailscale。"
+TAILSCALE_BIN="${FLEET_RELEASE_TAILSCALE_BIN:-$(command -v tailscale 2>/dev/null || true)}"
+[[ -n "$TAILSCALE_BIN" ]] || TAILSCALE_BIN="/Applications/Tailscale.app/Contents/MacOS/Tailscale"
+[[ -x "$TAILSCALE_BIN" ]] || die "未找到 tailscale。"
 command -v ssh >/dev/null || die "未找到 ssh。"
 command -v scp >/dev/null || die "未找到 scp。"
-[[ "$(tailscale ip -4 2>/dev/null | head -n1)" == "$FLEET_RELEASE_BUILDER_IP" ]] \
+[[ "$("$TAILSCALE_BIN" ip -4 2>/dev/null | head -n1)" == "$FLEET_RELEASE_BUILDER_IP" ]] \
   || die "当前机器不是签名构建机 $FLEET_RELEASE_BUILDER_IP。"
 
 if [[ "$MODE" == "check" ]]; then
