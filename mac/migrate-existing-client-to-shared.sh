@@ -76,21 +76,22 @@ curl -fsS --max-time 3 "http://${ip}:7682/api/health" | grep -qx ok \
 
 echo "确认 turn 仍为空闲，然后确定性重启 ChatGPT Desktop ..."
 FLEET_CODEX_HOME="$CODEX_HOME_DIR" bash "$SCRIPT_DIR/check-codex-idle.sh"
-/usr/bin/osascript -e 'tell application "ChatGPT" to quit' >/dev/null 2>&1 || true
+desktop_process_pid() {
+  /bin/ps -axo pid=,command= | awk -v cmd="$DESKTOP_APP/Contents/MacOS/ChatGPT" '$2 == cmd && NF == 2 {print $1; exit}'
+}
+/usr/bin/osascript -e 'tell application id "com.openai.codex" to quit' >/dev/null 2>&1 || true
 for _ in {1..30}; do
-  if ! /bin/ps -axo command= | grep -Fxq "$DESKTOP_APP/Contents/MacOS/ChatGPT"; then
-    break
-  fi
+  [[ -n "$(desktop_process_pid)" ]] || break
   sleep 1
 done
-if /bin/ps -axo command= | grep -Fxq "$DESKTOP_APP/Contents/MacOS/ChatGPT"; then
+if [[ -n "$(desktop_process_pid)" ]]; then
   die "ChatGPT did not quit cleanly; refusing to force-kill it"
 fi
 /usr/bin/open --env "CODEX_APP_SERVER_WS_URL=$SHARED_WS_URL" -a "$DESKTOP_APP"
 
 desktop_pid=""
 for _ in {1..30}; do
-  desktop_pid="$(/bin/ps -axo pid=,command= | awk -v cmd="$DESKTOP_APP/Contents/MacOS/ChatGPT" '$2 == cmd && NF == 2 {print $1; exit}')"
+  desktop_pid="$(desktop_process_pid)"
   if [[ -n "$desktop_pid" ]] && /usr/sbin/lsof -n -P -a -p "$desktop_pid" -iTCP:"$SHARED_PORT" 2>/dev/null | grep -q ESTABLISHED; then
     break
   fi
