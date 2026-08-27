@@ -2,6 +2,10 @@
 # 在唯一签名构建机上发布 fleet-agent：测试 → 签名/公证 → commit/push → 网关 → 全 Fleet。
 set -euo pipefail
 
+# Remote SSH sessions on the signing Mac do not necessarily source Homebrew's
+# shell initialization. Use deterministic tool paths for verify/build/release.
+export PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:${PATH:-}"
+
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 CONFIG_FILE="${FLEET_RELEASE_CONFIG:-$HOME/.config/mac-fleet-hub/release.env}"
 EXPECTED_BRANCH="${FLEET_RELEASE_BRANCH:-master}"
