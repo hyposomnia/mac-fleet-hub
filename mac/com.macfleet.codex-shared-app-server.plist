@@ -17,6 +17,8 @@
         <string>__CODEX_BIN__</string>
         <key>FLEET_CODEX_APPSERVER_LISTEN</key>
         <string>__CODEX_APPSERVER_LISTEN__</string>
+        <key>FLEET_CODEX_APPSERVER_PROXY_SOCK</key>
+        <string>__CODEX_APPSERVER_SOCK__</string>
         <key>FLEET_CODEX_DESKTOP_APP_PATH</key>
         <string>/Applications/ChatGPT.app</string>
         <key>LANG</key>

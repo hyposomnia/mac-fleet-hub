@@ -31,7 +31,10 @@ func codexDesktopLaunchctlOperations(config Config, goos string) ([]codexDesktop
 		{Args: []string{"unsetenv", codexDesktopLocalDaemonEnv}},
 	}
 	if config.CodexDesktopShare && normalizeCodexAppServerMode(config.CodexMode) == codexAppServerModeShared {
-		endpoint := strings.TrimSpace(config.CodexSock)
+		endpoint := strings.TrimSpace(config.CodexDesktopURL)
+		if endpoint == "" && (strings.HasPrefix(config.CodexSock, "ws://") || strings.HasPrefix(config.CodexSock, "wss://")) {
+			endpoint = strings.TrimSpace(config.CodexSock)
+		}
 		if endpoint == "" {
 			endpoint = codexSharedWebSocketEndpoint
 		}

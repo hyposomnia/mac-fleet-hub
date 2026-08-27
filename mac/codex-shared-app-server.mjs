@@ -2,6 +2,7 @@
 
 import { execFileSync, spawn } from "node:child_process";
 import fs from "node:fs";
+import net from "node:net";
 import os from "node:os";
 import path from "node:path";
 
@@ -9,6 +10,7 @@ const appPath = process.env.FLEET_CODEX_DESKTOP_APP_PATH || "/Applications/ChatG
 const resourcesPath = path.join(appPath, "Contents", "Resources");
 const codexBin = process.env.FLEET_CODEX_BIN;
 const listenURL = process.env.FLEET_CODEX_APPSERVER_LISTEN;
+const proxySocket = process.env.FLEET_CODEX_APPSERVER_PROXY_SOCK;
 const codexHome = process.env.CODEX_HOME || path.join(os.homedir(), ".codex");
 const stateDir = path.join(os.homedir(), ".macfleet");
 const stablePipe = path.join(stateDir, "codex-app-tools.sock");
@@ -93,6 +95,22 @@ function appToolsPipeCandidates() {
 }
 
 let linkedPipe = "";
+let reloadTimer = null;
+let appToolsConfigured = false;
+function scheduleMCPReload(attempt = 0) {
+  if (!appToolsConfigured) return;
+  if (reloadTimer) clearTimeout(reloadTimer);
+  reloadTimer = setTimeout(async () => {
+    reloadTimer = null;
+    try {
+      await reloadAppToolsMCP();
+    } catch (error) {
+      if (attempt < 14) scheduleMCPReload(attempt + 1);
+      else process.stderr.write(`mac-fleet shared app-server: App tools reload failed: ${error.message}\n`);
+    }
+  }, attempt === 0 ? 1500 : 3000);
+}
+
 function refreshStablePipe() {
   const candidates = appToolsPipeCandidates();
   if (candidates.length === 0) return;
@@ -124,6 +142,7 @@ function refreshStablePipe() {
   fs.renameSync(temporary, stablePipe);
   linkedPipe = candidate;
   process.stderr.write(`mac-fleet shared app-server: Desktop app-tools pipe ${path.basename(candidate)}\n`);
+  scheduleMCPReload();
 }
 
 function appToolsOverride() {
@@ -150,6 +169,95 @@ function appToolsOverride() {
   return `mcp_servers.codex_app=${tomlValue(config)}`;
 }
 
+function appServerRPC() {
+  const endpoint = new URL(listenURL);
+  endpoint.pathname = "/rpc";
+  return new Promise((resolve, reject) => {
+    const socket = new WebSocket(endpoint.href);
+    const pending = new Map();
+    let nextId = 1;
+    const timeout = setTimeout(() => {
+      socket.close();
+      reject(new Error("app-server RPC connection timed out"));
+    }, 5000);
+    socket.addEventListener("error", () => reject(new Error("app-server RPC connection failed")), { once: true });
+    socket.addEventListener("message", (event) => {
+      let message;
+      try { message = JSON.parse(String(event.data)); } catch { return; }
+      if (message.id == null || !pending.has(message.id)) return;
+      const waiter = pending.get(message.id);
+      pending.delete(message.id);
+      if (message.error) waiter.reject(new Error(message.error.message || "app-server RPC error"));
+      else waiter.resolve(message.result);
+    });
+    socket.addEventListener("open", () => {
+      clearTimeout(timeout);
+      const call = (method, params) => new Promise((resolveCall, rejectCall) => {
+        const id = nextId++;
+        pending.set(id, { resolve: resolveCall, reject: rejectCall });
+        socket.send(JSON.stringify({ id, method, ...(params === undefined ? {} : { params }) }));
+      });
+      const notify = (method, params) => socket.send(JSON.stringify({ method, ...(params === undefined ? {} : { params }) }));
+      resolve({ socket, call, notify });
+    }, { once: true });
+  });
+}
+
+async function reloadAppToolsMCP() {
+  const rpc = await appServerRPC();
+  try {
+    await rpc.call("initialize", {
+      clientInfo: { name: "mac_fleet_keeper", title: "mac-fleet keeper", version: "1" },
+      capabilities: { experimentalApi: true },
+    });
+    rpc.notify("initialized", null);
+    await rpc.call("config/mcpServer/reload", null);
+    const status = await rpc.call("mcpServerStatus/list", { cursor: null, limit: 100, detail: "full" });
+    const appTools = status?.data?.find((entry) => entry.name === "codex_app");
+    const toolCount = appTools?.tools ? Object.keys(appTools.tools).length : 0;
+    if (toolCount === 0 || (appTools.runtimeStatus && appTools.runtimeStatus !== "connected")) {
+      throw new Error(`codex_app status=${appTools?.runtimeStatus || "unknown"} tools=${toolCount}`);
+    }
+    process.stderr.write(`mac-fleet shared app-server: codex_app ready tools=${toolCount}\n`);
+  } finally {
+    rpc.socket.close();
+  }
+}
+
+function startUnixProxy() {
+  if (!proxySocket || !path.isAbsolute(proxySocket)) fail(`invalid Unix proxy socket: ${proxySocket || "(empty)"}`);
+  fs.mkdirSync(path.dirname(proxySocket), { mode: 0o700, recursive: true });
+  try {
+    const existing = fs.lstatSync(proxySocket);
+    if (!existing.isSocket() && !existing.isSymbolicLink()) fail(`refusing to replace ${proxySocket}`);
+    fs.unlinkSync(proxySocket);
+  } catch (error) {
+    if (error?.code !== "ENOENT") throw error;
+  }
+  const target = new URL(listenURL);
+  const server = net.createServer((client) => {
+    let upstream = null;
+    let attempts = 0;
+    const connect = () => {
+      attempts += 1;
+      upstream = net.createConnection({ host: "127.0.0.1", port: Number(target.port) });
+      upstream.once("connect", () => {
+        client.pipe(upstream);
+        upstream.pipe(client);
+      });
+      upstream.once("error", () => {
+        upstream.destroy();
+        if (!client.destroyed && attempts < 20) setTimeout(connect, 100);
+        else client.destroy();
+      });
+    };
+    client.on("error", () => upstream?.destroy());
+    connect();
+  });
+  server.listen(proxySocket, () => fs.chmodSync(proxySocket, 0o600));
+  return server;
+}
+
 if (!codexBin || !fs.existsSync(codexBin)) fail(`Codex binary is unavailable: ${codexBin || "(empty)"}`);
 assertSharedListenURL(listenURL);
 try {
@@ -160,7 +268,10 @@ try {
 
 const args = ["-c", "features.code_mode_host=true"];
 const mcpOverride = appToolsOverride();
-if (mcpOverride) args.push("-c", mcpOverride);
+if (mcpOverride) {
+  appToolsConfigured = true;
+  args.push("-c", mcpOverride);
+}
 args.push("app-server", "--analytics-default-enabled", "--listen", listenURL);
 
 const child = spawn(codexBin, args, {
@@ -171,6 +282,7 @@ const child = spawn(codexBin, args, {
   },
   stdio: ["ignore", "inherit", "inherit"],
 });
+const unixProxy = startUnixProxy();
 
 const pipeTimer = setInterval(() => {
   try {
@@ -186,6 +298,14 @@ for (const signal of ["SIGINT", "SIGTERM", "SIGHUP"]) {
 child.on("error", (error) => fail(`could not start Codex: ${error.message}`));
 child.on("exit", (code, signal) => {
   clearInterval(pipeTimer);
+  if (reloadTimer) clearTimeout(reloadTimer);
+  unixProxy.close();
+  try {
+    const existing = fs.lstatSync(proxySocket);
+    if (existing.isSocket()) fs.unlinkSync(proxySocket);
+  } catch {
+    // Already removed by launchd teardown or a replacement keeper.
+  }
   if (signal) process.stderr.write(`mac-fleet shared app-server: Codex exited on ${signal}\n`);
   process.exit(code ?? 1);
 });

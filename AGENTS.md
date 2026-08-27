@@ -104,7 +104,8 @@ curl -I https://<FLEET_HOST>[:GATEWAY_PORT]/auth    # 期望 200
 | `FLEET_CLAUDE_HOME`/`FLEET_CLAUDE_BIN` | Claude 会话库与命令路径 | 默认 `~/.claude` / 自动发现 `claude` |
 | `FLEET_CODEX_HOME`/`FLEET_CODEX_BIN` | Codex 会话库与命令路径 | 默认 `~/.codex`；shared 未显式指定时优先 ChatGPT.app bundled Codex，再查找 PATH |
 | `FLEET_CODEX_APPSERVER_MODE` | Codex app-server 连接模式：`shared` 让 Fleet 与 Codex Desktop 复用同一 loopback WebSocket；`isolated` 使用 Fleet 专属 Unix-socket sidecar；`auto`、`daemon`、`stdio` 为旧兼容模式 | `shared` |
-| `FLEET_CODEX_APPSERVER_SOCK` | 兼容字段：`shared` 时是客户端 WebSocket URL，只允许 `ws://127.0.0.1:<端口>[/路径]`；`isolated` 时是 Unix socket 绝对路径 | shared：`ws://127.0.0.1:47682/rpc`；isolated：`~/.macfleet/codex-app-server.sock` |
+| `FLEET_CODEX_APPSERVER_SOCK` | Fleet 的 app-server endpoint；shared 默认使用 keeper 提供的 `0600` Unix proxy，以兼容现有已公证 agent，isolated 使用同路径的独立 sidecar；新版 agent 也支持显式 loopback WS | `~/.macfleet/codex-app-server.sock` |
+| `FLEET_CODEX_DESKTOP_WS_URL` | Desktop 直连同一 shared server 的 loopback WebSocket；只能是 `ws://127.0.0.1:<端口>[/路径]` | `ws://127.0.0.1:47682/rpc` |
 | `FLEET_CODEX_DESKTOP_SHARED_DAEMON` | `shared` 模式下记录 Desktop WebSocket 接入意图并让 agent 持续校正 GUI 环境；设为 `0` 可显式关闭 Desktop 接入 | `1` |
 | `FLEET_REPLACE_TAILNET` | 当前已连接其他 Tailscale 控制面时，明确允许退出并切换到 Fleet mesh | `0` | 仅确认可以替换当前 tailnet 时设为 `1` |
 
@@ -121,7 +122,7 @@ curl -fsSL https://<网关地址>/enroll/mac-bundle.tar.gz | tar xz
 LOGIN_SERVER=https://<网关地址>:8443 AUTHKEY=<预授权密钥> bash mac/install.sh
 #   网关用高位端口/封 443 时把 :8443 换成 Headscale 对外端口（如 :28443）
 ```
-两者都会装 Tailscale、入网 Headscale（需 sudo 密码）、起 ttyd / filebrowser / fleet-agent，并默认安装 `com.macfleet.codex-app-server`。默认 `shared` 的 LaunchAgent 先用 ChatGPT 自带、OpenAI 签名的 Node 启动 keeper，再由 keeper 启动唯一一份 `codex -c features.code_mode_host=true app-server --listen ws://127.0.0.1:47682`；Fleet 与 Desktop 都连接 `ws://127.0.0.1:47682/rpc`。这条父子链同时保留 Desktop 对 `codex_app` MCP 的签名校验。监听地址写死为 loopback，不绑定 mesh IP，也不暴露公网。shared 不再 bootstrap 或依赖官方 control socket daemon。
+两者都会装 Tailscale、入网 Headscale（需 sudo 密码）、起 ttyd / filebrowser / fleet-agent，并默认安装 `com.macfleet.codex-app-server`。默认 `shared` 的 LaunchAgent 先用 ChatGPT 自带、OpenAI 签名的 Node 启动 keeper，再由 keeper 启动唯一一份 `codex -c features.code_mode_host=true app-server --listen ws://127.0.0.1:47682`；Desktop 直连 TCP WebSocket，Fleet 通过 keeper 的 `0600` Unix→TCP 透明桥进入同一 listener（现有已签名/公证 agent 无需换二进制）。这条父子链同时保留 Desktop 对 `codex_app` MCP 的签名校验。监听地址写死为 loopback，不绑定 mesh IP，也不暴露公网。shared 不再 bootstrap 或依赖官方 control socket daemon。
 
 首次从旧 `isolated` / control-socket 方案切换时，安装会停止现有 Fleet app-server 与仍在运行的旧 control-socket daemon，把旧 agent、plist 与 keeper/helper 留在 `~/.macfleet/migration-backups/`，加载新的 shared LaunchAgent，并在提交迁移前验证 loopback `/readyz`、监听地址和 agent health；失败会恢复旧文件与服务。Aqua one-shot LaunchAgent 会在当前及后续登录会话中设置 Desktop 环境，但脚本**不会自动中断 ChatGPT.app 的活动 turn**；确认 turn 完成并退出 App 后，用 `/usr/bin/open --env CODEX_APP_SERVER_WS_URL=ws://127.0.0.1:47682/rpc -a /Applications/ChatGPT.app` 确定性重开。
 
@@ -140,7 +141,7 @@ launchctl getenv CODEX_APP_SERVER_WS_URL           # shared 默认：期望 ws:/
 launchctl getenv CODEX_APP_SERVER_USE_LOCAL_DAEMON # shared 默认：期望为空
 launchctl print gui/$(id -u)/com.macfleet.codex-app-server | grep state
 ```
-上述配置和健康检查只证明 shared server 已启动；必须在完全重开的 Desktop 与 Fleet 中打开同一个 thread，确认不会出现“已在另一个应用中打开”，并用 `lsof -nP -iTCP:47682` 证明两端连接到同一个监听 PID。显式 `isolated` 时改为检查 `test -S ~/.macfleet/codex-app-server.sock`，并期望两个 GUI 环境变量都为空。
+上述配置和健康检查只证明 shared server 已启动；必须在完全重开的 Desktop 与 Fleet 中打开同一个 thread，确认不会出现“已在另一个应用中打开”。用 `lsof -nP -iTCP:47682` 验证 Desktop 与 keeper proxy 均连接同一 listener，再用 thread writer lock 验证物理 writer 只有该 listener PID。显式 `isolated` 时应期望两个 GUI 环境变量都为空。
 当前 Desktop 的 WebSocket client 无法附加认证 header，所以 listener 必须保持 loopback；它隔离 mesh/公网，但不是同机多用户之间的安全边界。多用户共享 Mac 不应启用该模式。
 回到手机/浏览器打开网关入口 → 登录 → 应能看到这台 Mac 并进入它的终端 / 文件。
 
@@ -177,6 +178,9 @@ bash scripts/release-fleet-agent.sh           # 完整发布
 真实基础设施值只放在签名机 `~/.config/mac-fleet-hub/release.env`（`0600`），格式参考
 `scripts/release-fleet-agent.env.example`。证书、私钥、App 专用密码、notarytool 凭据和真实节点配置
 不得进入仓库。其他开发机只提交源码；正式签名、公证和 rollout 统一由签名机构建脚本完成。
+若只迁移 plist/keeper/Desktop 启动环境、并明确保留仓库内已有的已签名公证 agent，可在签名机运行
+`bash scripts/deploy-shared-config.sh`；它只替换 `mac-bundle.tar.gz`，不构建或发布新二进制，并逐台执行
+空闲守卫、shared UAT 与 SHA/验签。不得用它冒充新 agent 的正式发布。
 签名构建机 mesh IP 由每套 Headscale/Fleet 当前分配，并非 mac-fleet-hub 的固定/保留地址，重新入网
 后可能变化。AI 必须从该部署的私有 `FLEET_RELEASE_BUILDER_IP`、节点列表或 `tailscale ip -4` 取证，
 不得把文档示例或其他部署的 `100.x` 地址当作通用配置。

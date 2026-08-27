@@ -52,7 +52,8 @@ type Config struct {
 	CodexHome         string // ~/.codex
 	CodexBin          string // codex 可执行文件
 	CodexMode         string // app-server 连接模式：shared / isolated / daemon / auto / stdio
-	CodexSock         string // app-server endpoint：shared 为 loopback ws(s) URL，其余模式可为 unix socket
+	CodexSock         string // Fleet app-server endpoint：Unix socket 或 shared loopback WS
+	CodexDesktopURL   string // Desktop 直连 shared app-server 的 loopback WS URL
 	CodexDesktopShare bool   // 让 Codex.app 与 Fleet 连接同一个 loopback WebSocket app-server
 	MacIndex          string // 1/2/3 → 终端入口 /m{idx}/term
 	IdleSec           int64  // 空闲回收秒数（默认 1800）
@@ -131,6 +132,7 @@ func loadConfig() Config {
 		CodexBin:          envOr("FLEET_CODEX_BIN", "codex"),
 		CodexMode:         envOr("FLEET_CODEX_APPSERVER_MODE", "shared"),
 		CodexSock:         strings.TrimSpace(os.Getenv("FLEET_CODEX_APPSERVER_SOCK")),
+		CodexDesktopURL:   strings.TrimSpace(os.Getenv("FLEET_CODEX_DESKTOP_WS_URL")),
 		CodexDesktopShare: envOr("FLEET_CODEX_DESKTOP_SHARED_DAEMON", "1") == "1",
 		MacIndex:          envOr("FLEET_MAC_INDEX", "1"),
 		IdleSec:           idle,

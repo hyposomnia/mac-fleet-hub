@@ -22,6 +22,7 @@ func TestLoadConfigDefaultsToSharedCodexWebSocket(t *testing.T) {
 	t.Setenv("HOME", "/Users/tester")
 	t.Setenv("FLEET_CODEX_APPSERVER_MODE", "")
 	t.Setenv("FLEET_CODEX_APPSERVER_SOCK", "")
+	t.Setenv("FLEET_CODEX_DESKTOP_WS_URL", "")
 	t.Setenv("FLEET_CODEX_DESKTOP_SHARED_DAEMON", "")
 
 	config := loadConfig()
@@ -48,6 +49,7 @@ func TestLoadConfigAllowsExplicitIsolatedCodexDaemon(t *testing.T) {
 	t.Setenv("HOME", "/Users/tester")
 	t.Setenv("FLEET_CODEX_APPSERVER_MODE", "isolated")
 	t.Setenv("FLEET_CODEX_APPSERVER_SOCK", "/Users/tester/.macfleet/codex-app-server.sock")
+	t.Setenv("FLEET_CODEX_DESKTOP_WS_URL", "")
 	t.Setenv("FLEET_CODEX_DESKTOP_SHARED_DAEMON", "0")
 
 	config := loadConfig()

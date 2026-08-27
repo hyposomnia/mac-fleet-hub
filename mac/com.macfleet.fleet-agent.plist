@@ -33,8 +33,10 @@
         <key>FLEET_CODEX_APPSERVER_MODE</key>
         <string>__CODEX_APPSERVER_MODE__</string>
         <key>FLEET_CODEX_APPSERVER_SOCK</key>
-        <!-- 兼容字段名：shared 时保存 loopback ws:// URL，isolated 时保存 Unix socket 路径。 -->
+        <!-- shared 可使用本机 Unix proxy（兼容已公证旧 agent）或 loopback ws:// URL。 -->
         <string>__CODEX_APPSERVER_SOCK__</string>
+        <key>FLEET_CODEX_DESKTOP_WS_URL</key>
+        <string>__CODEX_DESKTOP_WS_URL__</string>
         <key>FLEET_CODEX_DESKTOP_SHARED_DAEMON</key>
         <string>__CODEX_DESKTOP_SHARED_DAEMON__</string>
         <key>FLEET_IDLE_SEC</key>

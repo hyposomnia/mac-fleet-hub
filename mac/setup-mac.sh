@@ -37,6 +37,7 @@ CLAUDE_BIN="$(command -v claude || echo "$BREW_PREFIX/bin/claude")"
 CODEX_HOME_DIR="${FLEET_CODEX_HOME:-$HOME/.codex}"
 CODEX_APPSERVER_MODE="${FLEET_CODEX_APPSERVER_MODE:-shared}"
 CODEX_APPSERVER_SOCK="${FLEET_CODEX_APPSERVER_SOCK:-}"
+CODEX_DESKTOP_WS_URL="${FLEET_CODEX_DESKTOP_WS_URL:-ws://127.0.0.1:47682/rpc}"
 CODEX_DESKTOP_SHARED_DAEMON="${FLEET_CODEX_DESKTOP_SHARED_DAEMON:-1}"
 CODEX_APPSERVER_LISTEN=""
 case "$CODEX_APPSERVER_MODE" in
@@ -59,9 +60,15 @@ if [[ "$CODEX_APPSERVER_MODE" == "shared" ]]; then
 fi
 case "$CODEX_APPSERVER_MODE" in
   shared)
-    CODEX_APPSERVER_SOCK="${CODEX_APPSERVER_SOCK:-ws://127.0.0.1:47682/rpc}"
-    if [[ ! "$CODEX_APPSERVER_SOCK" =~ ^ws://127\.0\.0\.1:([0-9]{1,5})(/[^[:space:]?#]*)?$ ]]; then
-      echo "非法 shared app-server 地址：${CODEX_APPSERVER_SOCK}" >&2
+    # Fleet 走 0600 Unix proxy，以兼容已正式签名/公证的旧 agent；Desktop
+    # 直连同一个 server 的 loopback TCP WebSocket。
+    CODEX_APPSERVER_SOCK="${CODEX_APPSERVER_SOCK:-$HOME/.macfleet/codex-app-server.sock}"
+    [[ "$CODEX_APPSERVER_SOCK" == /* ]] || {
+      echo "shared Fleet proxy socket 必须是绝对路径：${CODEX_APPSERVER_SOCK}" >&2
+      exit 1
+    }
+    if [[ ! "$CODEX_DESKTOP_WS_URL" =~ ^ws://127\.0\.0\.1:([0-9]{1,5})(/[^[:space:]?#]*)?$ ]]; then
+      echo "非法 shared Desktop 地址：${CODEX_DESKTOP_WS_URL}" >&2
       echo "为避免暴露到 mesh/公网，只允许 ws://127.0.0.1:<端口>[/路径]。" >&2
       exit 1
     fi
@@ -84,7 +91,7 @@ case "$CODEX_APPSERVER_MODE" in
 esac
 if [[ "$CODEX_APPSERVER_MODE" == "shared" && "$CODEX_DESKTOP_SHARED_DAEMON" == "1" ]]; then
   CODEX_DESKTOP_ENV_MODE="shared"
-  CODEX_DESKTOP_ENV_URL="$CODEX_APPSERVER_SOCK"
+  CODEX_DESKTOP_ENV_URL="$CODEX_DESKTOP_WS_URL"
 fi
 
 # 显式指定的 Codex 路径始终优先。默认 shared 模式必须优先使用当前
@@ -580,7 +587,7 @@ if [[ "$CODEX_APPSERVER_MODE" != "stdio" && -x "$CODEX_BIN" ]]; then
         exit 1
       fi
       echo "shared app-server 将直接使用当前 ChatGPT bundled Codex：${CODEX_BIN}"
-      echo "shared app-server 将只监听 ${CODEX_APPSERVER_LISTEN}，Fleet/Desktop 连接 ${CODEX_APPSERVER_SOCK}"
+      echo "shared app-server 将只监听 ${CODEX_APPSERVER_LISTEN}；Fleet 走 ${CODEX_APPSERVER_SOCK}，Desktop 走 ${CODEX_DESKTOP_WS_URL}"
       ;;
     daemon)
       if begin_shared_migration && bootstrap_legacy_codex_daemon; then
@@ -623,12 +630,12 @@ if [[ "$CODEX_APPSERVER_MODE" == "shared" ]]; then
     exit 1
   fi
   if [[ "$CODEX_DESKTOP_SHARED_DAEMON" == "1" ]]; then
-    if ! launchctl setenv CODEX_APP_SERVER_WS_URL "$CODEX_APPSERVER_SOCK"; then
+    if ! launchctl setenv CODEX_APP_SERVER_WS_URL "$CODEX_DESKTOP_WS_URL"; then
       echo "无法写入 Codex Desktop shared WebSocket 地址。" >&2
       exit 1
     fi
     CODEX_DESKTOP_REOPEN_REQUIRED=1
-    echo "ChatGPT.app 的 shared WebSocket 地址已记录为 ${CODEX_APPSERVER_SOCK}。"
+    echo "ChatGPT.app 的 shared WebSocket 地址已记录为 ${CODEX_DESKTOP_WS_URL}。"
     echo "注意：本脚本不会自动中断正在运行的 ChatGPT.app；安装完成后需用下方命令确定性重开。"
   else
     launchctl unsetenv CODEX_APP_SERVER_WS_URL 2>/dev/null || true
@@ -741,7 +748,7 @@ render() { # src dst
       -e "s#__CODEX_KEEPER_SCRIPT__#${CODEX_KEEPER_SCRIPT}#g" \
       -e "s#__CODEX_DESKTOP_ENV_HELPER__#${CODEX_DESKTOP_ENV_HELPER}#g" \
       -e "s#__CODEX_DESKTOP_ENV_MODE__#${CODEX_DESKTOP_ENV_MODE}#g" \
-      -e "s#__CODEX_DESKTOP_WS_URL__#${CODEX_DESKTOP_ENV_URL}#g" \
+      -e "s#__CODEX_DESKTOP_WS_URL__#${CODEX_DESKTOP_WS_URL}#g" \
       -e "s#__CODEX_DESKTOP_SHARED_DAEMON__#${CODEX_DESKTOP_SHARED_DAEMON}#g" \
       "$1" > "$2"
 }
@@ -772,7 +779,8 @@ if [[ "$CODEX_APPSERVER_MODE" == "shared" ]]; then
   for _ in {1..30}; do
     if curl -fsS --max-time 1 "http://127.0.0.1:${CODEX_APPSERVER_PORT}/readyz" >/dev/null 2>&1 \
       && curl -fsS --max-time 1 "http://${TS_IP}:${AGENT_PORT}/api/health" 2>/dev/null | grep -qx ok \
-      && /usr/sbin/lsof -n -P -iTCP:"${CODEX_APPSERVER_PORT}" -sTCP:LISTEN 2>/dev/null | grep -q "127.0.0.1:${CODEX_APPSERVER_PORT} (LISTEN)"; then
+      && /usr/sbin/lsof -n -P -iTCP:"${CODEX_APPSERVER_PORT}" -sTCP:LISTEN 2>/dev/null | grep -q "127.0.0.1:${CODEX_APPSERVER_PORT} (LISTEN)" \
+      && [[ -S "$CODEX_APPSERVER_SOCK" && "$(/usr/bin/stat -f '%Lp' "$CODEX_APPSERVER_SOCK" 2>/dev/null)" == "600" ]]; then
       SHARED_READY=1
       break
     fi
@@ -795,7 +803,7 @@ if launchctl print "$GUI_DOMAIN" >/dev/null 2>&1; then
 fi
 if [[ "$CODEX_APPSERVER_MODE" == "shared" && "$MANAGED_MIGRATION_ACTIVE" == "1" ]]; then
   commit_shared_migration
-  echo "shared app-server LaunchAgent 已就绪：${CODEX_APPSERVER_SOCK}"
+  echo "shared app-server 已就绪：Fleet=${CODEX_APPSERVER_SOCK} Desktop=${CODEX_DESKTOP_WS_URL}"
 fi
 
 # fleet-agent 自更新源：写进 ~/.zshrc 受管块，使交互式 `fleet-agent update` 开箱即用
@@ -823,5 +831,5 @@ EOF
 
 if [[ "$CODEX_DESKTOP_REOPEN_REQUIRED" == "1" ]]; then
   echo "ChatGPT/Codex Desktop：确认当前 turn 完成后完全退出，再运行："
-  echo "/usr/bin/open --env CODEX_APP_SERVER_WS_URL=${CODEX_APPSERVER_SOCK} -a /Applications/ChatGPT.app"
+  echo "/usr/bin/open --env CODEX_APP_SERVER_WS_URL=${CODEX_DESKTOP_WS_URL} -a /Applications/ChatGPT.app"
 fi

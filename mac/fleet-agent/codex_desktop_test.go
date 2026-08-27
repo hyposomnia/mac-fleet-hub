@@ -47,6 +47,18 @@ func TestCodexDesktopLaunchctlOperations(t *testing.T) {
 			},
 		},
 		{
+			name: "shared Unix proxy keeps a separate Desktop websocket",
+			goos: "darwin",
+			config: Config{
+				CodexMode: "shared", CodexSock: "/Users/tester/.macfleet/codex-app-server.sock",
+				CodexDesktopURL: "ws://127.0.0.1:47682/rpc", CodexDesktopShare: true,
+			},
+			want: [][]string{
+				{"unsetenv", codexDesktopLocalDaemonEnv},
+				{"setenv", codexDesktopWebSocketEnv, "ws://127.0.0.1:47682/rpc"},
+			},
+		},
+		{
 			name: "isolated clears both sharing mechanisms",
 			goos: "darwin",
 			config: Config{

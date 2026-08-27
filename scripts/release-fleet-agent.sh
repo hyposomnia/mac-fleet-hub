@@ -182,7 +182,8 @@ for target in $FLEET_RELEASE_MAC_TARGETS; do
      FLEET_UPDATE_BASE='${FLEET_RELEASE_WEB_BASE%/}/enroll/dist' \"\$bin\" update
      FLEET_UPDATE_BASE='${FLEET_RELEASE_WEB_BASE%/}/enroll/dist' \
        FLEET_CODEX_APPSERVER_MODE=shared \
-       FLEET_CODEX_APPSERVER_SOCK=ws://127.0.0.1:47682/rpc \
+       FLEET_CODEX_APPSERVER_SOCK=\"\$HOME/.macfleet/codex-app-server.sock\" \
+       FLEET_CODEX_DESKTOP_WS_URL=ws://127.0.0.1:47682/rpc \
        FLEET_CODEX_DESKTOP_SHARED_DAEMON=1 \
        bash \"\$work/mac/migrate-existing-client-to-shared.sh\"
      ip=\$(/opt/homebrew/bin/tailscale ip -4 | head -n1)
@@ -196,9 +197,9 @@ for target in $FLEET_RELEASE_MAC_TARGETS; do
      test -n \"\$newpid\"
      codesign --verify --deep --strict \"\$bin\"
      test \"\$(shasum -a 256 \"\$bin\" | awk '{print \$1}')\" = '$arm_sha'
-     info=\$(curl -fsS --max-time 3 http://\$ip:7682/api/info)
-     test \"\$(printf '%s' \"\$info\" | /usr/bin/plutil -extract codexAppServerMode raw -o - -)\" = shared
-     test \"\$(printf '%s' \"\$info\" | /usr/bin/plutil -extract codexAppServerConnected raw -o - -)\" = true
+     plist=\"\$HOME/Library/LaunchAgents/com.macfleet.fleet-agent.plist\"
+     test \"\$(/usr/bin/plutil -extract EnvironmentVariables.FLEET_CODEX_APPSERVER_MODE raw -o - \"\$plist\")\" = shared
+     test \"\$(/usr/bin/plutil -extract EnvironmentVariables.FLEET_CODEX_DESKTOP_WS_URL raw -o - \"\$plist\")\" = ws://127.0.0.1:47682/rpc
      echo node_ok host=\$(hostname) oldpid=\$oldpid newpid=\$newpid binary_backup=\$stamp"
 done
 

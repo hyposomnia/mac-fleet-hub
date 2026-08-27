@@ -550,6 +550,22 @@ func TestCodexAppServerSharedUsesOnlyLoopbackWebSocket(t *testing.T) {
 	}
 }
 
+func TestCodexAppServerSharedUsesUnixCompatibilityProxy(t *testing.T) {
+	proxy := "/Users/tester/.macfleet/codex-app-server.sock"
+	started, endpoints, processes := installCodexLauncherFakes(t, "shared", proxy)
+	_, cleanup, err := connectCodexAppServer(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	cleanup()
+	if !reflect.DeepEqual(*endpoints, []string{proxy}) {
+		t.Fatalf("shared Unix proxy attempts got %v", *endpoints)
+	}
+	if len(*started) != 0 || len(*processes) != 0 {
+		t.Fatalf("shared Unix proxy must not start daemon or stdio: starts=%v processes=%v", *started, *processes)
+	}
+}
+
 func TestCodexAppServerSharedFailsClosed(t *testing.T) {
 	started, endpoints, processes := installCodexLauncherFakes(t, "shared", "ws://localhost:47682/rpc")
 	connectCodexSocket = func(_ context.Context, endpoint string) (codexRPCConn, func(), error) {
@@ -597,6 +613,19 @@ func TestValidateSharedCodexEndpoint(t *testing.T) {
 		if _, err := validateSharedCodexEndpoint(endpoint); err == nil {
 			t.Errorf("invalid endpoint %q accepted", endpoint)
 		}
+	}
+}
+
+func TestSharedCodexEndpointAllowsAbsoluteUnixCompatibilityProxy(t *testing.T) {
+	previous := cfg
+	t.Cleanup(func() { cfg = previous })
+	cfg = Config{CodexMode: "shared", CodexSock: "/Users/tester/.macfleet/codex-app-server.sock"}
+	got, err := codexAppServerSocketPath()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != cfg.CodexSock {
+		t.Fatalf("shared Unix proxy got %q want %q", got, cfg.CodexSock)
 	}
 }
 

@@ -485,9 +485,6 @@ func connectCodexAppServer(ctx context.Context) (codexRPCConn, func(), error) {
 		if endpointErr != nil {
 			return nil, nil, endpointErr
 		}
-		if _, err := validateSharedCodexEndpoint(endpoint); err != nil {
-			return nil, nil, err
-		}
 		rpc, cleanup, err := connectCodexSocket(ctx, endpoint)
 		if err != nil {
 			return nil, nil, fmt.Errorf("connect shared Codex app-server: %w", err)
@@ -535,6 +532,13 @@ func codexAppServerSocketPath() (string, error) {
 	mode := normalizeCodexAppServerMode(cfg.CodexMode)
 	if endpoint := strings.TrimSpace(cfg.CodexSock); endpoint != "" {
 		if mode == codexAppServerModeShared {
+			if strings.HasPrefix(endpoint, "/") || strings.HasPrefix(endpoint, "unix://") {
+				socketPath := strings.TrimPrefix(endpoint, "unix://")
+				if !filepath.IsAbs(socketPath) {
+					return "", fmt.Errorf("shared Codex Unix proxy must use an absolute path: %q", endpoint)
+				}
+				return socketPath, nil
+			}
 			return validateSharedCodexEndpoint(endpoint)
 		}
 		return endpoint, nil
