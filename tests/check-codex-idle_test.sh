@@ -25,4 +25,10 @@ printf '%s\n' \
   >> "$rollout"
 FLEET_CODEX_HOME="$tmpdir" bash "$CHECK" | grep -qx codex_turns_idle
 
+printf '%s\n' \
+  '{"type":"event_msg","payload":{"type":"task_started","turn_id":"turn-2"}}' \
+  '{"type":"event_msg","payload":{"type":"turn_aborted","turn_id":"turn-2"}}' \
+  >> "$rollout"
+FLEET_CODEX_HOME="$tmpdir" bash "$CHECK" | grep -qx codex_turns_idle
+
 echo "check-codex-idle tests passed"

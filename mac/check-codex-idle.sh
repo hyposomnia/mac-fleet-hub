@@ -17,7 +17,7 @@ for lock_path in "$LOCK_DIR"/*.lock; do
     active=1
     continue
   fi
-  marker="$(tail -n 2000 "$rollout" | grep -Eo '"type":"task_(started|complete)"' | tail -n1 || true)"
+  marker="$(tail -n 2000 "$rollout" | grep -Eo '"type":"(task_started|task_complete|turn_aborted)"' | tail -n1 || true)"
   if [[ "$marker" == '"type":"task_started"' || -z "$marker" ]]; then
     echo "active_or_unknown session=${session_id} marker=${marker:-none}" >&2
     active=1
