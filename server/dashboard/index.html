@@ -17,7 +17,7 @@
        内联以避免首屏闪烁。 -->
   <script>(function () { var t; try { t = localStorage.getItem('fleet-theme'); } catch (e) {} if (t !== 'light' && t !== 'dark') t = matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark'; document.documentElement.dataset.theme = t; document.querySelector('meta[name="theme-color"]').content = t === 'light' ? '#f6f7f9' : '#090c12'; })();</script>
   <link rel="stylesheet" href="vendor/codemirror/lib/codemirror.css?v=5.65.20" />
-  <link rel="stylesheet" href="style.css?v=121" />
+  <link rel="stylesheet" href="style.css?v=122" />
 </head>
 <body>
   <div id="network-status" class="network-status" role="status" hidden>
@@ -474,8 +474,19 @@
     </div>
 
     <div id="chat-image-viewer" class="chat-image-viewer" role="dialog" aria-modal="true" aria-label="图片预览" hidden>
+      <div id="chat-image-viewer-stage" class="chat-image-viewer-stage">
+        <div id="chat-image-viewer-canvas" class="chat-image-viewer-canvas">
+          <img id="chat-image-viewer-image" alt="" draggable="false" />
+        </div>
+      </div>
+      <div class="chat-image-viewer-tools" role="toolbar" aria-label="图片查看工具">
+        <button id="chat-image-viewer-zoom-out" class="chat-image-viewer-tool" type="button" title="缩小（−）" aria-label="缩小图片"><svg class="ic" viewBox="0 0 24 24"><line x1="5" y1="12" x2="19" y2="12"/></svg></button>
+        <button id="chat-image-viewer-zoom-reset" class="chat-image-viewer-zoom-reset" type="button" title="适应窗口（0）" aria-label="适应窗口">100%</button>
+        <button id="chat-image-viewer-zoom-in" class="chat-image-viewer-tool" type="button" title="放大（+）" aria-label="放大图片"><svg class="ic" viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg></button>
+        <span class="chat-image-viewer-separator" aria-hidden="true"></span>
+        <a id="chat-image-viewer-download" class="chat-image-viewer-tool" href="#" download target="_blank" rel="noopener" aria-label="下载图片" title="下载图片"><svg class="ic" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg></a>
+      </div>
       <button id="chat-image-viewer-close" class="chat-image-viewer-close" type="button" title="关闭大图" aria-label="关闭大图"><svg class="ic" viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
-      <img id="chat-image-viewer-image" alt="" />
     </div>
 
     <!-- toast 区（状态反馈，取代 alert） -->
@@ -496,9 +507,9 @@
   <script src="vendor/codemirror/mode/yaml/yaml.js?v=5.65.20"></script>
   <script src="vendor/codemirror/mode/toml/toml.js?v=5.65.20"></script>
   <script src="vendor/codemirror/mode/properties/properties.js?v=5.65.20"></script>
-  <script src="markdown.js?v=121"></script>
-  <script src="preview.js?v=121"></script>
-  <script src="chat_model.js?v=121"></script>
-  <script src="app.js?v=121"></script>
+  <script src="markdown.js?v=122"></script>
+  <script src="preview.js?v=122"></script>
+  <script src="chat_model.js?v=122"></script>
+  <script src="app.js?v=122"></script>
 </body>
 </html>

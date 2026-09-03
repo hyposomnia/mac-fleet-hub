@@ -963,13 +963,37 @@ textarea.chat-request-input { resize: vertical; }
 .chat-image-button:focus-visible { outline: 2px solid var(--chat-link); outline-offset: 3px; }
 .chat-image-button .chat-img, .chat-image-button .chat-tool-media { width: auto; height: auto; }
 .chat-image-viewer {
-  position: fixed; inset: 0; z-index: 160; display: grid; place-items: center; overflow: hidden;
+  position: fixed; inset: 0; z-index: 160; overflow: hidden;
   padding: 0;
   background: rgba(0, 0, 0, .94); overscroll-behavior: contain;
 }
-.chat-image-viewer > img { display: block; width: 100%; height: 100%; object-fit: contain; touch-action: pinch-zoom; user-select: none; -webkit-user-drag: none; }
+.chat-image-viewer-stage { position: absolute; inset: 0; overflow: auto; overscroll-behavior: contain; scrollbar-color: rgba(255, 255, 255, .28) transparent; touch-action: pan-x pan-y; }
+.chat-image-viewer-canvas {
+  width: 100%; height: 100%; min-width: 100%; min-height: 100%; display: grid; place-items: center;
+  padding: calc(env(safe-area-inset-top, 0px) + 18px) max(18px, env(safe-area-inset-right, 0px)) calc(env(safe-area-inset-bottom, 0px) + 82px) max(18px, env(safe-area-inset-left, 0px));
+}
+.chat-image-viewer-canvas > img { display: block; width: auto; height: auto; max-width: 100%; max-height: 100%; object-fit: contain; touch-action: pan-x pan-y; user-select: none; -webkit-user-drag: none; }
+.chat-image-viewer[data-zoomed="true"] .chat-image-viewer-stage { cursor: grab; }
+.chat-image-viewer[data-panning="true"] .chat-image-viewer-stage { cursor: grabbing; }
+.chat-image-viewer-tools {
+  position: absolute; z-index: 2; left: 50%; bottom: calc(env(safe-area-inset-bottom, 0px) + 14px); transform: translateX(-50%);
+  height: 52px; display: flex; align-items: center; gap: 2px; padding: 4px;
+  border: 1px solid rgba(255, 255, 255, .14); border-radius: 16px;
+  background: rgba(32, 32, 32, .82); color: #fff; box-shadow: 0 4px 20px rgba(0, 0, 0, .34); backdrop-filter: blur(16px);
+}
+.chat-image-viewer-tool, .chat-image-viewer-zoom-reset {
+  height: 42px; display: grid; place-items: center; padding: 0; border: 0; border-radius: 12px;
+  background: transparent; color: inherit; text-decoration: none; cursor: pointer;
+}
+.chat-image-viewer-tool { width: 42px; }
+.chat-image-viewer-zoom-reset { min-width: 58px; padding: 0 8px; font: 600 var(--t-secondary)/1 var(--font); font-variant-numeric: tabular-nums; }
+.chat-image-viewer-tool:hover, .chat-image-viewer-zoom-reset:hover { background: rgba(255, 255, 255, .12); }
+.chat-image-viewer-tool:focus-visible, .chat-image-viewer-zoom-reset:focus-visible { outline: 2px solid #fff; outline-offset: -2px; }
+.chat-image-viewer-tool:disabled { opacity: .38; cursor: default; background: transparent; }
+.chat-image-viewer-tool .ic { width: 21px; height: 21px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.chat-image-viewer-separator { width: 1px; height: 24px; margin: 0 2px; background: rgba(255, 255, 255, .18); }
 .chat-image-viewer-close {
-  position: absolute; z-index: 2; top: calc(env(safe-area-inset-top, 0px) + 10px); right: max(12px, env(safe-area-inset-right, 0px));
+  position: absolute; z-index: 3; top: calc(env(safe-area-inset-top, 0px) + 10px); right: max(12px, env(safe-area-inset-right, 0px));
   width: 44px; height: 44px; display: grid; place-items: center; padding: 0; border: 0; border-radius: 50%;
   background: rgba(32, 32, 32, .82); color: #fff; box-shadow: 0 2px 12px rgba(0, 0, 0, .34); backdrop-filter: blur(12px);
 }

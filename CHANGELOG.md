@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-09-03
+
+- 聊天图片查看器改为按宽高两个约束中的较小缩放比完整适配视口，不再强制把图片元素铺满全屏；新增 50%–400% 缩放、100% 复位、滚动与拖动查看、触控板/双指缩放、键盘快捷键和原图下载，并在关闭时清理查看状态、恢复触发点焦点。Dashboard PWA 缓存升级到 v122。
+
 ## 2026-08-27
 
 - 新增真正的 shared WebSocket 路径：Mac 默认由 `com.macfleet.codex-app-server` 启动唯一一份 `features.code_mode_host=true` app-server，只监听 `ws://127.0.0.1:47682`；fleet-agent 与 Desktop 显式连接 `ws://127.0.0.1:47682/rpc`，不再依赖会被 Desktop config overrides 绕开的 `CODEX_APP_SERVER_USE_LOCAL_DAEMON` 分支，也不再为 shared bootstrap 官方 control-socket daemon。

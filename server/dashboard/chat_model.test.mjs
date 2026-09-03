@@ -37,6 +37,9 @@ function testElement(tag) {
     appendChild(node) { this.children.push(node); return node; },
     replaceChildren(...nodes) { this.children = [...nodes]; },
     setAttribute(name, value) { this.attributes[name] = String(value); },
+    getAttribute(name) { return this.attributes[name] ?? null; },
+    removeAttribute(name) { delete this.attributes[name]; },
+    focus() { this.focused = true; },
   };
 }
 function testTextNode(text) {
@@ -79,8 +82,8 @@ const appSandbox = {
   Date: FixedAppDate,
 };
 vm.createContext(appSandbox);
-vm.runInContext(`${appSrc}\n;globalThis.__chatCacheTest = { chatCacheVictim, isChatConnectionKept, isSessionRunning, updateChatUpdatedAt, formatChatDate, chatAssistantMetaText, chatUserMetaText, chatMessageMetaVisibility, applyChatMetadataDefaults, normalizeChatDraft, isNoActiveTurnError, createDeviceScopeButton, chatSkillTriggerAt, parseChatSkillInput, chatSkillTokenNames, mergeChatComposerText, mergeChatAttachments, chatComposerAction: typeof chatComposerAction === 'function' ? chatComposerAction : null, isNewerChatControlSnapshot: typeof isNewerChatControlSnapshot === 'function' ? isNewerChatControlSnapshot : null, isCompleteChatControlSnapshot: typeof isCompleteChatControlSnapshot === 'function' ? isCompleteChatControlSnapshot : null, applyChatControlSnapshot: typeof applyChatControlSnapshot === 'function' ? applyChatControlSnapshot : null, isChatControlFresh: typeof isChatControlFresh === 'function' ? isChatControlFresh : null, markChatControlSyncFailure: typeof markChatControlSyncFailure === 'function' ? markChatControlSyncFailure : null, chatOwnershipPresentation: typeof chatOwnershipPresentation === 'function' ? chatOwnershipPresentation : null, chatImageSrc, chatToolStatus, chatToolDuration, chatToolActivityLabel, chatToolHasExpandableBody, isChatActivityItem, isChatTraceItem: typeof isChatTraceItem === 'function' ? isChatTraceItem : null, chatRenderUnits: typeof chatRenderUnits === 'function' ? chatRenderUnits : null, renderChatTurnProgress: typeof renderChatTurnProgress === 'function' ? renderChatTurnProgress : null, chatActivityGroupSummaryText, chatActivityActiveSummarySegments, chatActivityGroupIconKind, renderChatActivityGroup, renderChatActivityRun: typeof renderChatActivityRun === 'function' ? renderChatActivityRun : null, renderChatItem: typeof renderChatItem === 'function' ? renderChatItem : null, sessionProjectInfo: typeof sessionProjectInfo === 'function' ? sessionProjectInfo : null, groupSessionsByProject: typeof groupSessionsByProject === 'function' ? groupSessionsByProject : null, sessionRow, sessionStatus, filterFileEntries, sortFileEntries: typeof sortFileEntries === 'function' ? sortFileEntries : null, normalizeFileView: typeof normalizeFileView === 'function' ? normalizeFileView : null, truncateFileColumns: typeof truncateFileColumns === 'function' ? truncateFileColumns : null, fileColumnRequestCurrent: typeof fileColumnRequestCurrent === 'function' ? fileColumnRequestCurrent : null, fileIconName: typeof fileIconName === 'function' ? fileIconName : null, activeFileLocationID: typeof activeFileLocationID === 'function' ? activeFileLocationID : null, applyTheme: typeof applyTheme === 'function' ? applyTheme : null, visualKeyboardInset: typeof visualKeyboardInset === 'function' ? visualKeyboardInset : null, sessionBackDragOffset: typeof sessionBackDragOffset === 'function' ? sessionBackDragOffset : null, isSessionBackSwipe: typeof isSessionBackSwipe === 'function' ? isSessionBackSwipe : null, ensurePendingChatStarted: typeof ensurePendingChatStarted === 'function' ? ensurePendingChatStarted : null, filePreviewTypeLabel, filePreviewLocation, chatTurnPinText: typeof chatTurnPinText === 'function' ? chatTurnPinText : () => '', isInternalChatTool: typeof isInternalChatTool === 'function' ? isInternalChatTool : () => false, state };`, appSandbox);
-const { chatCacheVictim, isChatConnectionKept, isSessionRunning, updateChatUpdatedAt, formatChatDate, chatAssistantMetaText, chatUserMetaText, chatMessageMetaVisibility, applyChatMetadataDefaults, normalizeChatDraft, isNoActiveTurnError, createDeviceScopeButton, chatSkillTriggerAt, parseChatSkillInput, chatSkillTokenNames, mergeChatComposerText, mergeChatAttachments, chatComposerAction, isNewerChatControlSnapshot, isCompleteChatControlSnapshot, applyChatControlSnapshot, isChatControlFresh, markChatControlSyncFailure, chatOwnershipPresentation, chatImageSrc, chatToolStatus, chatToolDuration, chatToolActivityLabel, chatToolHasExpandableBody, isChatActivityItem, isChatTraceItem, chatRenderUnits, renderChatTurnProgress, chatActivityGroupSummaryText, chatActivityActiveSummarySegments, chatActivityGroupIconKind, renderChatActivityGroup, renderChatActivityRun, renderChatItem, sessionProjectInfo, groupSessionsByProject, sessionRow, sessionStatus, filterFileEntries, sortFileEntries, normalizeFileView, truncateFileColumns, fileColumnRequestCurrent, fileIconName, activeFileLocationID, applyTheme, visualKeyboardInset, sessionBackDragOffset, isSessionBackSwipe, ensurePendingChatStarted, filePreviewTypeLabel, filePreviewLocation, chatTurnPinText, isInternalChatTool, state: appState } = appSandbox.__chatCacheTest;
+vm.runInContext(`${appSrc}\n;globalThis.__chatCacheTest = { chatCacheVictim, isChatConnectionKept, isSessionRunning, updateChatUpdatedAt, formatChatDate, chatAssistantMetaText, chatUserMetaText, chatMessageMetaVisibility, applyChatMetadataDefaults, normalizeChatDraft, isNoActiveTurnError, createDeviceScopeButton, chatSkillTriggerAt, parseChatSkillInput, chatSkillTokenNames, mergeChatComposerText, mergeChatAttachments, chatComposerAction: typeof chatComposerAction === 'function' ? chatComposerAction : null, isNewerChatControlSnapshot: typeof isNewerChatControlSnapshot === 'function' ? isNewerChatControlSnapshot : null, isCompleteChatControlSnapshot: typeof isCompleteChatControlSnapshot === 'function' ? isCompleteChatControlSnapshot : null, applyChatControlSnapshot: typeof applyChatControlSnapshot === 'function' ? applyChatControlSnapshot : null, isChatControlFresh: typeof isChatControlFresh === 'function' ? isChatControlFresh : null, markChatControlSyncFailure: typeof markChatControlSyncFailure === 'function' ? markChatControlSyncFailure : null, chatOwnershipPresentation: typeof chatOwnershipPresentation === 'function' ? chatOwnershipPresentation : null, chatImageSrc, chatImageDownloadName: typeof chatImageDownloadName === 'function' ? chatImageDownloadName : null, clampChatImageViewerZoom: typeof clampChatImageViewerZoom === 'function' ? clampChatImageViewerZoom : null, chatImageViewerFitScale: typeof chatImageViewerFitScale === 'function' ? chatImageViewerFitScale : null, chatImageViewerWheelZoom: typeof chatImageViewerWheelZoom === 'function' ? chatImageViewerWheelZoom : null, chatImageViewerPinchZoom: typeof chatImageViewerPinchZoom === 'function' ? chatImageViewerPinchZoom : null, chatImageViewerViewportAnchor: typeof chatImageViewerViewportAnchor === 'function' ? chatImageViewerViewportAnchor : null, chatImageViewerViewportCenter: typeof chatImageViewerViewportCenter === 'function' ? chatImageViewerViewportCenter : null, openChatImageViewer: typeof openChatImageViewer === 'function' ? openChatImageViewer : null, closeChatImageViewer: typeof closeChatImageViewer === 'function' ? closeChatImageViewer : null, setChatImageViewerZoom: typeof setChatImageViewerZoom === 'function' ? setChatImageViewerZoom : null, handleChatImageViewerKeydown: typeof handleChatImageViewerKeydown === 'function' ? handleChatImageViewerKeydown : null, chatToolStatus, chatToolDuration, chatToolActivityLabel, chatToolHasExpandableBody, isChatActivityItem, isChatTraceItem: typeof isChatTraceItem === 'function' ? isChatTraceItem : null, chatRenderUnits: typeof chatRenderUnits === 'function' ? chatRenderUnits : null, renderChatTurnProgress: typeof renderChatTurnProgress === 'function' ? renderChatTurnProgress : null, chatActivityGroupSummaryText, chatActivityActiveSummarySegments, chatActivityGroupIconKind, renderChatActivityGroup, renderChatActivityRun: typeof renderChatActivityRun === 'function' ? renderChatActivityRun : null, renderChatItem: typeof renderChatItem === 'function' ? renderChatItem : null, sessionProjectInfo: typeof sessionProjectInfo === 'function' ? sessionProjectInfo : null, groupSessionsByProject: typeof groupSessionsByProject === 'function' ? groupSessionsByProject : null, sessionRow, sessionStatus, filterFileEntries, sortFileEntries: typeof sortFileEntries === 'function' ? sortFileEntries : null, normalizeFileView: typeof normalizeFileView === 'function' ? normalizeFileView : null, truncateFileColumns: typeof truncateFileColumns === 'function' ? truncateFileColumns : null, fileColumnRequestCurrent: typeof fileColumnRequestCurrent === 'function' ? fileColumnRequestCurrent : null, fileIconName: typeof fileIconName === 'function' ? fileIconName : null, activeFileLocationID: typeof activeFileLocationID === 'function' ? activeFileLocationID : null, applyTheme: typeof applyTheme === 'function' ? applyTheme : null, visualKeyboardInset: typeof visualKeyboardInset === 'function' ? visualKeyboardInset : null, sessionBackDragOffset: typeof sessionBackDragOffset === 'function' ? sessionBackDragOffset : null, isSessionBackSwipe: typeof isSessionBackSwipe === 'function' ? isSessionBackSwipe : null, ensurePendingChatStarted: typeof ensurePendingChatStarted === 'function' ? ensurePendingChatStarted : null, filePreviewTypeLabel, filePreviewLocation, chatTurnPinText: typeof chatTurnPinText === 'function' ? chatTurnPinText : () => '', isInternalChatTool: typeof isInternalChatTool === 'function' ? isInternalChatTool : () => false, state };`, appSandbox);
+const { chatCacheVictim, isChatConnectionKept, isSessionRunning, updateChatUpdatedAt, formatChatDate, chatAssistantMetaText, chatUserMetaText, chatMessageMetaVisibility, applyChatMetadataDefaults, normalizeChatDraft, isNoActiveTurnError, createDeviceScopeButton, chatSkillTriggerAt, parseChatSkillInput, chatSkillTokenNames, mergeChatComposerText, mergeChatAttachments, chatComposerAction, isNewerChatControlSnapshot, isCompleteChatControlSnapshot, applyChatControlSnapshot, isChatControlFresh, markChatControlSyncFailure, chatOwnershipPresentation, chatImageSrc, chatImageDownloadName, clampChatImageViewerZoom, chatImageViewerFitScale, chatImageViewerWheelZoom, chatImageViewerPinchZoom, chatImageViewerViewportAnchor, chatImageViewerViewportCenter, openChatImageViewer, closeChatImageViewer, setChatImageViewerZoom, handleChatImageViewerKeydown, chatToolStatus, chatToolDuration, chatToolActivityLabel, chatToolHasExpandableBody, isChatActivityItem, isChatTraceItem, chatRenderUnits, renderChatTurnProgress, chatActivityGroupSummaryText, chatActivityActiveSummarySegments, chatActivityGroupIconKind, renderChatActivityGroup, renderChatActivityRun, renderChatItem, sessionProjectInfo, groupSessionsByProject, sessionRow, sessionStatus, filterFileEntries, sortFileEntries, normalizeFileView, truncateFileColumns, fileColumnRequestCurrent, fileIconName, activeFileLocationID, applyTheme, visualKeyboardInset, sessionBackDragOffset, isSessionBackSwipe, ensurePendingChatStarted, filePreviewTypeLabel, filePreviewLocation, chatTurnPinText, isInternalChatTool, state: appState } = appSandbox.__chatCacheTest;
 vm.runInContext('globalThis.__updateChatSkillMenuTest = updateChatSkillMenu;', appSandbox);
 const updateChatSkillMenu = appSandbox.__updateChatSkillMenuTest;
 vm.runInContext('globalThis.__chatQueuePresentationTest = chatQueuePresentation;', appSandbox);
@@ -1471,7 +1474,7 @@ test('mobile chat composer uses the root canvas and follows a resized visual vie
   assert.match(appSrc, /setTimeout\(syncKbFromActiveElement,\s*350\)/);
 });
 
-test('chat image attachments open through one accessible fullscreen viewer', () => {
+test('chat image attachments open through one accessible fullscreen viewer with fit, zoom, and download controls', () => {
   const row = renderChatItem({ type: 'user', text: '', images: [{ url: 'blob:shot', name: 'shot.png' }] });
   const controls = nodesWithClass(row, 'chat-attachment-preview');
   assert.equal(controls.length, 1);
@@ -1480,11 +1483,131 @@ test('chat image attachments open through one accessible fullscreen viewer', () 
   assert.equal(typeof controls[0].onclick, 'function');
   assert.match(indexHTML, /id="chat-image-viewer"[^>]*role="dialog"[^>]*aria-modal="true"/);
   assert.match(indexHTML, /id="chat-image-viewer-close"/);
+  assert.match(indexHTML, /id="chat-image-viewer-stage"/);
+  assert.match(indexHTML, /id="chat-image-viewer-zoom-out"[^>]*aria-label="缩小图片"/);
+  assert.match(indexHTML, /id="chat-image-viewer-zoom-reset"[^>]*aria-label="适应窗口"/);
+  assert.match(indexHTML, /id="chat-image-viewer-zoom-in"[^>]*aria-label="放大图片"/);
+  assert.match(indexHTML, /<a id="chat-image-viewer-download"[^>]*download[^>]*aria-label="下载图片"/);
   assert.match(styleCSS, /\.chat-image-viewer\s*\{[^}]*position:\s*fixed;[^}]*inset:\s*0;[^}]*z-index:\s*160;[^}]*padding:\s*0;/s);
-  assert.match(styleCSS, /\.chat-image-viewer > img\s*\{[^}]*width:\s*100%;[^}]*height:\s*100%;[^}]*object-fit:\s*contain;/s);
+  assert.match(styleCSS, /\.chat-image-viewer-canvas > img\s*\{[^}]*width:\s*auto;[^}]*height:\s*auto;[^}]*max-width:\s*100%;[^}]*max-height:\s*100%;[^}]*object-fit:\s*contain;/s);
+  assert.doesNotMatch(styleCSS, /\.chat-image-viewer(?:-canvas)? > img\s*\{[^}]*(?<!max-)width:\s*100%;[^}]*(?<!max-)height:\s*100%;/s);
+  assert.match(styleCSS, /\.chat-image-viewer-stage\s*\{[^}]*overflow:\s*auto;/s);
   assert.match(styleCSS, /\.chat-image-viewer-close\s*\{[^}]*position:\s*absolute;[^}]*top:\s*calc\(env\(safe-area-inset-top,\s*0px\) \+ 10px\);[^}]*right:/s);
   assert.match(appSrc, /event\.target\.closest\?\.\('\.chat-markdown img'\)[\s\S]*?event\.preventDefault\(\);/);
-  assert.match(appSrc, /if \(!\$\('#chat-image-viewer'\)\.hidden\)\s*\{\s*closeChatImageViewer\(\);/s);
+  assert.match(appSrc, /if \(handleChatImageViewerKeydown\(e\)\) return;/);
+  assert.match(appSrc, /captureTarget:\s*event\.target[\s\S]*?event\.target\.setPointerCapture\?\./);
+  assert.match(appSrc, /pan\.captureTarget\?\.releasePointerCapture\?\./);
+  assert.match(appSrc, /addEventListener\('touchmove',\s*moveChatImageViewerPinch,\s*\{ passive: false \}\)/);
+});
+
+test('chat image viewer keeps zoom bounded and derives a useful download filename', () => {
+  assert.equal(typeof clampChatImageViewerZoom, 'function');
+  assert.equal(typeof chatImageDownloadName, 'function');
+  assert.equal(typeof chatImageViewerFitScale, 'function');
+  assert.equal(typeof chatImageViewerWheelZoom, 'function');
+  assert.equal(typeof chatImageViewerPinchZoom, 'function');
+  assert.equal(typeof chatImageViewerViewportAnchor, 'function');
+  assert.equal(typeof chatImageViewerViewportCenter, 'function');
+  assert.equal(clampChatImageViewerZoom(0.1), 0.5);
+  assert.equal(clampChatImageViewerZoom(1.25), 1.25);
+  assert.equal(clampChatImageViewerZoom(9), 4);
+  assert.equal(clampChatImageViewerZoom(Number.NaN), 1);
+  assert.ok(chatImageViewerWheelZoom(1, -10) > 1);
+  assert.ok(chatImageViewerWheelZoom(1, -10) < 1.1);
+  assert.equal(chatImageViewerPinchZoom(1, 100, 200), 2);
+  assert.equal(chatImageViewerFitScale(1080, 2400, 1200, 800), 1 / 3);
+  assert.equal(chatImageViewerFitScale(2400, 1080, 800, 1200), 1 / 3);
+  assert.equal(chatImageViewerFitScale(320, 240, 1200, 800), 1);
+  const center = chatImageViewerViewportCenter(
+    { clientWidth: 800, clientHeight: 400, scrollWidth: 800, scrollHeight: 1600, scrollLeft: 0, scrollTop: 0 },
+    { clientWidth: 400, clientHeight: 800, scrollWidth: 800, scrollHeight: 1600, scrollLeft: 200, scrollTop: 400 },
+  );
+  assert.equal(center.x, 0.5);
+  assert.equal(center.y, 0.5);
+  const liveCenter = chatImageViewerViewportCenter(
+    { clientWidth: 400, clientHeight: 800, scrollWidth: 800, scrollHeight: 1600, scrollLeft: 100, scrollTop: 200 },
+    { clientWidth: 400, clientHeight: 800, scrollWidth: 800, scrollHeight: 1600, scrollLeft: 0, scrollTop: 0 },
+  );
+  assert.equal(liveCenter.x, 0.375);
+  assert.equal(liveCenter.y, 0.375);
+  const focalAnchor = chatImageViewerViewportAnchor(
+    {
+      clientWidth: 400, clientHeight: 300, scrollWidth: 800, scrollHeight: 600,
+      scrollLeft: 200, scrollTop: 150,
+      getBoundingClientRect: () => ({ left: 20, top: 30 }),
+    },
+    { clientWidth: 400, clientHeight: 300, scrollWidth: 800, scrollHeight: 600, scrollLeft: 200, scrollTop: 150 },
+    { focalClientX: 120, focalClientY: 105 },
+  );
+  assert.equal(focalAnchor.x, 0.375);
+  assert.equal(focalAnchor.y, 0.375);
+  assert.equal(focalAnchor.viewportX, 100);
+  assert.equal(focalAnchor.viewportY, 75);
+  assert.equal(
+    chatImageDownloadName('/m2/api/chat/media?path=%2FUsers%2Ftest%2Fcaptures%2Fscreen.png', '截图'),
+    'screen.png',
+  );
+  assert.equal(chatImageDownloadName('blob:shot', 'shot.png'), 'shot.png');
+  assert.equal(chatImageDownloadName('https://example.test/assets/result.webp?raw=1', ''), 'result.webp');
+});
+
+test('opening the chat image viewer resets zoom, prepares download, and restores focus on close', () => {
+  assert.equal(typeof openChatImageViewer, 'function');
+  assert.equal(typeof closeChatImageViewer, 'function');
+  assert.equal(typeof setChatImageViewerZoom, 'function');
+  const elements = Object.fromEntries([
+    'chat-image-viewer', 'chat-image-viewer-image', 'chat-image-viewer-stage', 'chat-image-viewer-canvas',
+    'chat-image-viewer-close', 'chat-image-viewer-zoom-out', 'chat-image-viewer-zoom-reset',
+    'chat-image-viewer-zoom-in', 'chat-image-viewer-download',
+  ].map((id) => [`#${id}`, testElement(id === 'chat-image-viewer-download' ? 'a' : 'div')]));
+  const viewer = elements['#chat-image-viewer'];
+  const image = elements['#chat-image-viewer-image'];
+  const download = elements['#chat-image-viewer-download'];
+  const reset = elements['#chat-image-viewer-zoom-reset'];
+  const trigger = testElement('button');
+  viewer.hidden = true;
+  image.complete = false;
+  trigger.isConnected = true;
+  trigger.closest = () => trigger;
+  const previousQuerySelector = appSandbox.document.querySelector;
+  const previousActiveElement = appSandbox.document.activeElement;
+  appSandbox.document.querySelector = (selector) => elements[selector] || null;
+  for (const control of [...Object.values(elements), trigger]) {
+    control.focus = function focus() {
+      this.focused = true;
+      appSandbox.document.activeElement = this;
+    };
+  }
+  try {
+    setChatImageViewerZoom(2);
+    openChatImageViewer('blob:shot', 'shot.png', trigger);
+    assert.equal(viewer.hidden, false);
+    assert.equal(image.src, 'blob:shot');
+    assert.equal(image.alt, 'shot.png');
+    assert.equal(reset.textContent, '100%');
+    assert.equal(download.getAttribute('href'), 'blob:shot');
+    assert.equal(download.getAttribute('download'), 'shot.png');
+    assert.equal(elements['#chat-image-viewer-close'].focused, true);
+    let prevented = false;
+    assert.equal(handleChatImageViewerKeydown({ key: '+', preventDefault() { prevented = true; } }), true);
+    assert.equal(prevented, true);
+    assert.equal(reset.textContent, '125%');
+    appSandbox.document.activeElement = download;
+    assert.equal(handleChatImageViewerKeydown({ key: 'Tab', shiftKey: false, preventDefault() {} }), true);
+    assert.equal(appSandbox.document.activeElement, elements['#chat-image-viewer-close']);
+    assert.equal(handleChatImageViewerKeydown({ key: 'Tab', shiftKey: true, preventDefault() {} }), true);
+    assert.equal(appSandbox.document.activeElement, download);
+    setChatImageViewerZoom(1.5);
+    assert.equal(reset.textContent, '150%');
+    closeChatImageViewer();
+    assert.equal(viewer.hidden, true);
+    assert.equal(download.getAttribute('href'), null);
+    assert.equal(download.getAttribute('download'), null);
+    assert.equal(trigger.focused, true);
+  } finally {
+    appSandbox.document.querySelector = previousQuerySelector;
+    appSandbox.document.activeElement = previousActiveElement;
+  }
 });
 
 test('self-drawn approval menu mirrors Codex three presets', () => {

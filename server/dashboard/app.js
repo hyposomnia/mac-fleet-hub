@@ -2983,7 +2983,17 @@ function chatImageSrc(img) {
   return img.url || '';
 }
 
+const CHAT_IMAGE_VIEWER_ZOOM_MIN = 0.5;
+const CHAT_IMAGE_VIEWER_ZOOM_MAX = 4;
+const CHAT_IMAGE_VIEWER_ZOOM_STEP = 0.25;
+const CHAT_IMAGE_VIEWER_WHEEL_RATE = 0.0025;
 let chatImageViewerReturnFocus = null;
+let chatImageViewerZoom = 1;
+let chatImageViewerPan = null;
+let chatImageViewerPinch = null;
+let chatImageViewerSuppressClick = false;
+let chatImageViewerSuppressClickTimer = null;
+let chatImageViewerLayoutMetrics = null;
 
 function chatImagePreview(src, alt, imageClass, buttonClass = '') {
   const label = alt || '图片';
@@ -2994,15 +3004,238 @@ function chatImagePreview(src, alt, imageClass, buttonClass = '') {
   }, h('img', { class: imageClass, src, alt: label }));
 }
 
+function clampChatImageViewerZoom(value) {
+  const zoom = Number(value);
+  if (!Number.isFinite(zoom)) return 1;
+  return Math.min(CHAT_IMAGE_VIEWER_ZOOM_MAX, Math.max(CHAT_IMAGE_VIEWER_ZOOM_MIN, zoom));
+}
+
+function chatImageViewerWheelZoom(zoom, deltaY) {
+  const delta = Math.max(-120, Math.min(120, Number(deltaY) || 0));
+  return clampChatImageViewerZoom(zoom * Math.exp(-delta * CHAT_IMAGE_VIEWER_WHEEL_RATE));
+}
+
+function chatImageViewerPinchZoom(zoom, startDistance, currentDistance) {
+  const start = Number(startDistance);
+  const current = Number(currentDistance);
+  if (![start, current].every((value) => Number.isFinite(value) && value > 0)) return clampChatImageViewerZoom(zoom);
+  return clampChatImageViewerZoom(zoom * current / start);
+}
+
+function chatImageViewerFitScale(naturalWidth, naturalHeight, availableWidth, availableHeight) {
+  const width = Number(naturalWidth);
+  const height = Number(naturalHeight);
+  const viewportWidth = Number(availableWidth);
+  const viewportHeight = Number(availableHeight);
+  if (![width, height, viewportWidth, viewportHeight].every((value) => Number.isFinite(value) && value > 0)) return 1;
+  return Math.min(1, viewportWidth / width, viewportHeight / height);
+}
+
+function chatImageViewerTouchDistance(touches) {
+  if (!touches || touches.length < 2) return 0;
+  return Math.hypot(touches[1].clientX - touches[0].clientX, touches[1].clientY - touches[0].clientY);
+}
+
+function chatImageViewerTouchMidpoint(touches) {
+  if (!touches || touches.length < 2) return null;
+  return {
+    x: (touches[0].clientX + touches[1].clientX) / 2,
+    y: (touches[0].clientY + touches[1].clientY) / 2,
+  };
+}
+
+function resetChatImageViewerClickSuppression() {
+  if (chatImageViewerSuppressClickTimer !== null) clearTimeout(chatImageViewerSuppressClickTimer);
+  chatImageViewerSuppressClickTimer = null;
+  chatImageViewerSuppressClick = false;
+}
+
+function suppressNextChatImageViewerClick() {
+  if (chatImageViewerSuppressClickTimer !== null) clearTimeout(chatImageViewerSuppressClickTimer);
+  chatImageViewerSuppressClick = true;
+  chatImageViewerSuppressClickTimer = setTimeout(() => {
+    chatImageViewerSuppressClick = false;
+    chatImageViewerSuppressClickTimer = null;
+  }, 400);
+}
+
+function chatImageDownloadName(src, alt = '') {
+  const source = String(src || '');
+  const decode = (value) => {
+    try { return decodeURIComponent(value); } catch (_) { return value; }
+  };
+  const basename = (value) => decode(String(value || '').split(/[\\/]/).pop() || '')
+    .replace(/[<>:"|?*\u0000-\u001f]/g, '_')
+    .trim();
+  const encodedPath = source.match(/[?&]path=([^&#]*)/)?.[1] || '';
+  const sourcePath = encodedPath ? decode(encodedPath) : source.split(/[?#]/)[0];
+  const sourceName = basename(sourcePath);
+  const labelName = basename(alt);
+  if (/\.[a-z0-9]{1,12}$/i.test(sourceName)) return sourceName;
+  if (labelName && labelName !== '图片') return labelName;
+  return sourceName && !sourceName.includes(':') ? sourceName : 'image';
+}
+
+function chatImageViewerPadding(canvas) {
+  const style = typeof getComputedStyle === 'function' ? getComputedStyle(canvas) : null;
+  const value = (name) => Math.max(0, Number.parseFloat(style?.getPropertyValue(name) || '0') || 0);
+  return {
+    horizontal: value('padding-left') + value('padding-right'),
+    vertical: value('padding-top') + value('padding-bottom'),
+  };
+}
+
+function syncChatImageViewerControls() {
+  const percent = `${Math.round(chatImageViewerZoom * 100)}%`;
+  const viewer = $('#chat-image-viewer');
+  const zoomOut = $('#chat-image-viewer-zoom-out');
+  const zoomReset = $('#chat-image-viewer-zoom-reset');
+  const zoomIn = $('#chat-image-viewer-zoom-in');
+  if (viewer) viewer.dataset.zoomed = String(chatImageViewerZoom > 1);
+  if (zoomOut) zoomOut.disabled = chatImageViewerZoom <= CHAT_IMAGE_VIEWER_ZOOM_MIN;
+  if (zoomIn) zoomIn.disabled = chatImageViewerZoom >= CHAT_IMAGE_VIEWER_ZOOM_MAX;
+  if (zoomReset) {
+    zoomReset.textContent = percent;
+    zoomReset.setAttribute('aria-label', `适应窗口，当前缩放 ${percent}`);
+  }
+}
+
+function chatImageViewerViewportAnchor(stage, metrics = null, options = {}) {
+  const viewportResized = metrics?.clientWidth > 0 && metrics?.clientHeight > 0 &&
+    (metrics.clientWidth !== stage.clientWidth || metrics.clientHeight !== stage.clientHeight);
+  const clientWidth = viewportResized ? metrics.clientWidth : stage.clientWidth;
+  const clientHeight = viewportResized ? metrics.clientHeight : stage.clientHeight;
+  const scrollWidth = viewportResized && metrics.scrollWidth > 0 ? metrics.scrollWidth : stage.scrollWidth;
+  const scrollHeight = viewportResized && metrics.scrollHeight > 0 ? metrics.scrollHeight : stage.scrollHeight;
+  const scrollLeft = viewportResized && Number.isFinite(metrics.scrollLeft) ? metrics.scrollLeft : stage.scrollLeft;
+  const scrollTop = viewportResized && Number.isFinite(metrics.scrollTop) ? metrics.scrollTop : stage.scrollTop;
+  const hasFocalX = Number.isFinite(options.focalClientX);
+  const hasFocalY = Number.isFinite(options.focalClientY);
+  const rect = (hasFocalX || hasFocalY) ? stage.getBoundingClientRect?.() : null;
+  const focalX = hasFocalX
+    ? Math.min(stage.clientWidth, Math.max(0, options.focalClientX - (rect?.left || 0)))
+    : stage.clientWidth / 2;
+  const focalY = hasFocalY
+    ? Math.min(stage.clientHeight, Math.max(0, options.focalClientY - (rect?.top || 0)))
+    : stage.clientHeight / 2;
+  const sourceX = hasFocalX ? focalX : clientWidth / 2;
+  const sourceY = hasFocalY ? focalY : clientHeight / 2;
+  const normalizedX = Number.isFinite(options.anchorX)
+    ? options.anchorX
+    : (scrollWidth > 0 ? (scrollLeft + sourceX) / scrollWidth : 0.5);
+  const normalizedY = Number.isFinite(options.anchorY)
+    ? options.anchorY
+    : (scrollHeight > 0 ? (scrollTop + sourceY) / scrollHeight : 0.5);
+  return {
+    x: Math.min(1, Math.max(0, normalizedX)),
+    y: Math.min(1, Math.max(0, normalizedY)),
+    viewportX: focalX,
+    viewportY: focalY,
+  };
+}
+
+function chatImageViewerViewportCenter(stage, metrics = null) {
+  const anchor = chatImageViewerViewportAnchor(stage, metrics);
+  return { x: anchor.x, y: anchor.y };
+}
+
+function rememberChatImageViewerLayout(stage) {
+  chatImageViewerLayoutMetrics = {
+    clientWidth: stage.clientWidth,
+    clientHeight: stage.clientHeight,
+    scrollWidth: stage.scrollWidth,
+    scrollHeight: stage.scrollHeight,
+    scrollLeft: stage.scrollLeft,
+    scrollTop: stage.scrollTop,
+  };
+}
+
+function rememberChatImageViewerPosition(stage) {
+  if (!chatImageViewerLayoutMetrics ||
+      chatImageViewerLayoutMetrics.clientWidth !== stage.clientWidth ||
+      chatImageViewerLayoutMetrics.clientHeight !== stage.clientHeight) return;
+  chatImageViewerLayoutMetrics.scrollLeft = stage.scrollLeft;
+  chatImageViewerLayoutMetrics.scrollTop = stage.scrollTop;
+}
+
+function syncChatImageViewerLayout({ preserveCenter = true, ...anchorOptions } = {}) {
+  const stage = $('#chat-image-viewer-stage');
+  const canvas = $('#chat-image-viewer-canvas');
+  const image = $('#chat-image-viewer-image');
+  if (!stage || !canvas || !image?.naturalWidth || !image?.naturalHeight) return;
+  const anchor = chatImageViewerViewportAnchor(stage, chatImageViewerLayoutMetrics, anchorOptions);
+  const padding = chatImageViewerPadding(canvas);
+  const availableWidth = Math.max(1, stage.clientWidth - padding.horizontal);
+  const availableHeight = Math.max(1, stage.clientHeight - padding.vertical);
+  const fit = chatImageViewerFitScale(image.naturalWidth, image.naturalHeight, availableWidth, availableHeight);
+  const imageWidth = Math.max(1, Math.round(image.naturalWidth * fit * chatImageViewerZoom));
+  const imageHeight = Math.max(1, Math.round(image.naturalHeight * fit * chatImageViewerZoom));
+  canvas.style.width = `${Math.max(stage.clientWidth, imageWidth + padding.horizontal)}px`;
+  canvas.style.height = `${Math.max(stage.clientHeight, imageHeight + padding.vertical)}px`;
+  image.style.width = `${imageWidth}px`;
+  image.style.height = `${imageHeight}px`;
+  if (!preserveCenter) {
+    stage.scrollLeft = 0;
+    stage.scrollTop = 0;
+    rememberChatImageViewerLayout(stage);
+    return;
+  }
+  // Reading scrollWidth/scrollHeight flushes the new canvas dimensions. Restore synchronously so
+  // rapid wheel/button zooms always derive their next center from the position just committed.
+  stage.scrollLeft = Math.max(0, anchor.x * stage.scrollWidth - anchor.viewportX);
+  stage.scrollTop = Math.max(0, anchor.y * stage.scrollHeight - anchor.viewportY);
+  rememberChatImageViewerLayout(stage);
+}
+
+function setChatImageViewerZoom(value, options = {}) {
+  chatImageViewerZoom = clampChatImageViewerZoom(value);
+  syncChatImageViewerControls();
+  syncChatImageViewerLayout(options);
+  return chatImageViewerZoom;
+}
+
+function resetChatImageViewerLayout() {
+  const stage = $('#chat-image-viewer-stage');
+  const canvas = $('#chat-image-viewer-canvas');
+  const image = $('#chat-image-viewer-image');
+  canvas?.style?.removeProperty?.('width');
+  canvas?.style?.removeProperty?.('height');
+  image?.style?.removeProperty?.('width');
+  image?.style?.removeProperty?.('height');
+  if (stage) {
+    stage.scrollLeft = 0;
+    stage.scrollTop = 0;
+  }
+  chatImageViewerLayoutMetrics = null;
+}
+
+function chatImageViewerFocusTarget(trigger) {
+  const focusable = trigger?.closest?.('button, a[href], input, select, textarea, [tabindex]:not([tabindex="-1"])');
+  if (focusable) return focusable;
+  const active = document.activeElement;
+  return active && active !== document.body ? active : null;
+}
+
 function openChatImageViewer(src, alt = '图片', trigger = null) {
   if (!src) return;
   const viewer = $('#chat-image-viewer');
   const image = $('#chat-image-viewer-image');
   if (!viewer || !image) return;
-  chatImageViewerReturnFocus = trigger || document.activeElement;
+  chatImageViewerReturnFocus = chatImageViewerFocusTarget(trigger);
+  resetChatImageViewerClickSuppression();
+  chatImageViewerPinch = null;
+  resetChatImageViewerLayout();
+  image.onload = () => syncChatImageViewerLayout({ preserveCenter: false });
   image.src = src;
   image.alt = alt || '图片';
+  const download = $('#chat-image-viewer-download');
+  if (download) {
+    download.setAttribute('href', src);
+    download.setAttribute('download', chatImageDownloadName(src, alt));
+  }
   viewer.hidden = false;
+  setChatImageViewerZoom(1, { preserveCenter: false });
+  if (image.complete && image.naturalWidth) syncChatImageViewerLayout({ preserveCenter: false });
   $('#chat-image-viewer-close')?.focus({ preventScroll: true });
 }
 
@@ -3010,10 +3243,126 @@ function closeChatImageViewer({ restoreFocus = true } = {}) {
   const viewer = $('#chat-image-viewer');
   if (!viewer || viewer.hidden) return;
   viewer.hidden = true;
-  $('#chat-image-viewer-image')?.removeAttribute('src');
+  viewer.dataset.panning = 'false';
+  chatImageViewerPan = null;
+  chatImageViewerPinch = null;
+  resetChatImageViewerClickSuppression();
+  const image = $('#chat-image-viewer-image');
+  if (image) {
+    image.onload = null;
+    image.removeAttribute('src');
+  }
+  const download = $('#chat-image-viewer-download');
+  download?.removeAttribute('href');
+  download?.removeAttribute('download');
+  chatImageViewerZoom = 1;
+  syncChatImageViewerControls();
+  resetChatImageViewerLayout();
   const returnFocus = chatImageViewerReturnFocus;
   chatImageViewerReturnFocus = null;
   if (restoreFocus && returnFocus?.isConnected) returnFocus.focus({ preventScroll: true });
+}
+
+function handleChatImageViewerKeydown(event) {
+  const viewer = $('#chat-image-viewer');
+  if (!viewer || viewer.hidden) return false;
+  if (event.key === 'Tab') {
+    const controls = [
+      $('#chat-image-viewer-close'), $('#chat-image-viewer-zoom-out'), $('#chat-image-viewer-zoom-reset'),
+      $('#chat-image-viewer-zoom-in'), $('#chat-image-viewer-download'),
+    ].filter((control) => control && !control.disabled && !control.hidden);
+    if (!controls.length) return false;
+    const current = controls.indexOf(document.activeElement);
+    const offset = event.shiftKey ? -1 : 1;
+    const next = current < 0 ? 0 : (current + offset + controls.length) % controls.length;
+    controls[next].focus({ preventScroll: true });
+  } else if (event.key === 'Escape') closeChatImageViewer();
+  else if (event.key === '+' || event.key === '=') setChatImageViewerZoom(chatImageViewerZoom + CHAT_IMAGE_VIEWER_ZOOM_STEP);
+  else if (event.key === '-' || event.key === '_') setChatImageViewerZoom(chatImageViewerZoom - CHAT_IMAGE_VIEWER_ZOOM_STEP);
+  else if (event.key === '0') setChatImageViewerZoom(1);
+  else return false;
+  event.preventDefault();
+  return true;
+}
+
+function beginChatImageViewerPan(event) {
+  if (chatImageViewerZoom <= 1 || event.pointerType === 'touch' || event.button !== 0) return;
+  const stage = $('#chat-image-viewer-stage');
+  const viewer = $('#chat-image-viewer');
+  if (!stage || !viewer) return;
+  chatImageViewerPan = {
+    pointerId: event.pointerId, x: event.clientX, y: event.clientY,
+    left: stage.scrollLeft, top: stage.scrollTop, moved: false,
+    captureTarget: event.target,
+  };
+  viewer.dataset.panning = 'true';
+  event.target.setPointerCapture?.(event.pointerId);
+  event.preventDefault();
+}
+
+function moveChatImageViewerPan(event) {
+  const stage = $('#chat-image-viewer-stage');
+  if (!stage || !chatImageViewerPan || event.pointerId !== chatImageViewerPan.pointerId) return;
+  const dx = event.clientX - chatImageViewerPan.x;
+  const dy = event.clientY - chatImageViewerPan.y;
+  if (Math.hypot(dx, dy) >= 4) chatImageViewerPan.moved = true;
+  stage.scrollLeft = chatImageViewerPan.left - dx;
+  stage.scrollTop = chatImageViewerPan.top - dy;
+  rememberChatImageViewerPosition(stage);
+  event.preventDefault();
+}
+
+function endChatImageViewerPan(event) {
+  if (!chatImageViewerPan || (event && event.pointerId !== chatImageViewerPan.pointerId)) return;
+  const pan = chatImageViewerPan;
+  chatImageViewerPan = null;
+  if (event) pan.captureTarget?.releasePointerCapture?.(event.pointerId);
+  const viewer = $('#chat-image-viewer');
+  if (viewer) viewer.dataset.panning = 'false';
+  if (pan.moved) {
+    suppressNextChatImageViewerClick();
+  }
+}
+
+function beginChatImageViewerPinch(event) {
+  const distance = chatImageViewerTouchDistance(event.touches);
+  const midpoint = chatImageViewerTouchMidpoint(event.touches);
+  const stage = $('#chat-image-viewer-stage');
+  if (!distance || !midpoint || !stage) return;
+  const anchor = chatImageViewerViewportAnchor(stage, chatImageViewerLayoutMetrics, {
+    focalClientX: midpoint.x,
+    focalClientY: midpoint.y,
+  });
+  chatImageViewerPinch = {
+    distance, zoom: chatImageViewerZoom, moved: false,
+    anchorX: anchor.x, anchorY: anchor.y,
+  };
+  event.preventDefault();
+}
+
+function moveChatImageViewerPinch(event) {
+  if (!chatImageViewerPinch) return;
+  const distance = chatImageViewerTouchDistance(event.touches);
+  const midpoint = chatImageViewerTouchMidpoint(event.touches);
+  if (!distance || !midpoint) return;
+  if (Math.abs(distance - chatImageViewerPinch.distance) >= 3) chatImageViewerPinch.moved = true;
+  setChatImageViewerZoom(
+    chatImageViewerPinchZoom(chatImageViewerPinch.zoom, chatImageViewerPinch.distance, distance),
+    {
+      anchorX: chatImageViewerPinch.anchorX,
+      anchorY: chatImageViewerPinch.anchorY,
+      focalClientX: midpoint.x,
+      focalClientY: midpoint.y,
+    },
+  );
+  event.preventDefault();
+}
+
+function endChatImageViewerPinch(event) {
+  if (!chatImageViewerPinch || event.touches?.length >= 2) return;
+  const moved = chatImageViewerPinch.moved;
+  chatImageViewerPinch = null;
+  if (moved) suppressNextChatImageViewerClick();
 }
 
 function chatMediaSrc(source) {
@@ -6000,6 +6349,42 @@ function init() {
   });
   $('#chat-jump').onclick = () => { const sc = $('#chat-scroll'); sc.scrollTop = sc.scrollHeight; $('#chat-jump').hidden = true; };
   $('#chat-image-viewer-close').onclick = () => closeChatImageViewer();
+  $('#chat-image-viewer-zoom-out').onclick = () => setChatImageViewerZoom(chatImageViewerZoom - CHAT_IMAGE_VIEWER_ZOOM_STEP);
+  $('#chat-image-viewer-zoom-reset').onclick = () => setChatImageViewerZoom(1);
+  $('#chat-image-viewer-zoom-in').onclick = () => setChatImageViewerZoom(chatImageViewerZoom + CHAT_IMAGE_VIEWER_ZOOM_STEP);
+  $('#chat-image-viewer-image').addEventListener('dblclick', (event) => {
+    event.preventDefault();
+    setChatImageViewerZoom(chatImageViewerZoom === 1 ? 2 : 1, {
+      focalClientX: event.clientX,
+      focalClientY: event.clientY,
+    });
+  });
+  const chatImageViewerStage = $('#chat-image-viewer-stage');
+  chatImageViewerStage.addEventListener('scroll', () => rememberChatImageViewerPosition(chatImageViewerStage));
+  chatImageViewerStage.addEventListener('click', (event) => {
+    if (chatImageViewerSuppressClick) {
+      chatImageViewerSuppressClick = false;
+      return;
+    }
+    if (event.target === event.currentTarget || event.target === $('#chat-image-viewer-canvas')) closeChatImageViewer();
+  });
+  chatImageViewerStage.addEventListener('wheel', (event) => {
+    if (!event.ctrlKey && !event.metaKey) return;
+    event.preventDefault();
+    setChatImageViewerZoom(chatImageViewerWheelZoom(chatImageViewerZoom, event.deltaY), {
+      focalClientX: event.clientX,
+      focalClientY: event.clientY,
+    });
+  }, { passive: false });
+  chatImageViewerStage.addEventListener('pointerdown', beginChatImageViewerPan);
+  chatImageViewerStage.addEventListener('pointermove', moveChatImageViewerPan);
+  chatImageViewerStage.addEventListener('pointerup', endChatImageViewerPan);
+  chatImageViewerStage.addEventListener('pointercancel', endChatImageViewerPan);
+  chatImageViewerStage.addEventListener('lostpointercapture', endChatImageViewerPan);
+  chatImageViewerStage.addEventListener('touchstart', beginChatImageViewerPinch, { passive: false });
+  chatImageViewerStage.addEventListener('touchmove', moveChatImageViewerPinch, { passive: false });
+  chatImageViewerStage.addEventListener('touchend', endChatImageViewerPinch);
+  chatImageViewerStage.addEventListener('touchcancel', endChatImageViewerPinch);
   $('#chat-image-viewer').addEventListener('click', (event) => {
     if (event.target === event.currentTarget) closeChatImageViewer();
   });
@@ -6063,11 +6448,8 @@ function init() {
     if (!e.target.closest('#chat-skill-menu') && !e.target.closest('#chat-input')) closeChatSkillMenu();
   });
   document.addEventListener('keydown', (e) => {
+    if (handleChatImageViewerKeydown(e)) return;
     if (e.key !== 'Escape') return;
-    if (!$('#chat-image-viewer').hidden) {
-      closeChatImageViewer();
-      return;
-    }
     if (!$('#file-settings-menu').hidden) {
       closeFileSettings({ restoreFocus: true });
       return;
@@ -6093,6 +6475,7 @@ function init() {
     if (state.mode === 'sessions' && state.termSid) $('#mobile-input').hidden = !isMobile();
     if (!$('#file-settings-menu').hidden) positionFileSettings(fileSettingsTrigger);
     if (state.mode === 'files' && state.fileView === 'columns') scrollFileColumnsToEnd();
+    if (!$('#chat-image-viewer').hidden) syncChatImageViewerLayout();
     syncChatTurnPin();
   });
   // iOS 26 simultaneously shrinks the layout viewport and pans VisualViewport on focus.
