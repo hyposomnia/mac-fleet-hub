@@ -859,11 +859,16 @@ func (b *codexChatBackend) rememberResumedThread(ctx context.Context, rpc codexR
 	status := codexThreadStatus(res.Thread.Status)
 	activeTurnID := ""
 	latestTurns := res.Thread.Turns
+	// thread/resume embeds turns oldest first; the paginated fallback below
+	// explicitly requests newest first. Preserve the current turn's Fleet lease
+	// when a browser resumes a conversation with completed history.
+	latestIndex := len(latestTurns) - 1
 	if codexStatusIsRunning(status) && len(latestTurns) == 0 {
 		latestTurns = b.latestTurns(ctx, rpc, sessionID)
+		latestIndex = 0
 	}
 	if codexStatusIsRunning(status) && len(latestTurns) > 0 {
-		latest := latestTurns[0]
+		latest := latestTurns[latestIndex]
 		if latest.Status == "" || codexStatusIsRunning(latest.Status) {
 			activeTurnID = latest.ID
 		}
