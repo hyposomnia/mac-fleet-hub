@@ -77,7 +77,7 @@ curl -fsS --max-time 3 "http://${ip}:7682/api/health" | grep -qx ok \
 echo "确认 turn 仍为空闲，然后确定性重启 ChatGPT Desktop ..."
 FLEET_CODEX_HOME="$CODEX_HOME_DIR" bash "$SCRIPT_DIR/check-codex-idle.sh"
 desktop_process_pid() {
-  /bin/ps -axo pid=,command= | awk -v cmd="$DESKTOP_APP/Contents/MacOS/ChatGPT" '$2 == cmd && NF == 2 {print $1; exit}'
+  /bin/ps -axo pid=,command= | awk -v cmd="$DESKTOP_APP/Contents/MacOS/ChatGPT" '$2 == cmd && NF == 2 && !found {print $1; found=1}'
 }
 /usr/bin/osascript -e 'tell application id "com.openai.codex" to quit' >/dev/null 2>&1 || true
 for _ in {1..30}; do
