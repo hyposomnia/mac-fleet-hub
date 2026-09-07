@@ -112,18 +112,16 @@ type codexChatBackend struct {
 	assistantSyncCounts map[string]map[string]int
 	syncInterval        time.Duration
 	rolloutStamp        func(string) (codexRolloutStamp, bool)
-	// -1 means thread/items/list is unsupported, 0 unknown, 1 supported.
-	itemsListSupport int
-	historyPages     map[string]codexTurnsPage
-	historyPageOrder []string
-	historyUsage     map[string]codexTurnUsageCache
-	rolloutToolsMu   sync.Mutex
-	rolloutTools     map[string]*codexRolloutToolsCache
-	orphanFirstSeen  map[string]time.Time
-	orphanRequested  map[string]bool
-	appToolsPipe     string
-	stallTimeout     time.Duration
-	now              func() time.Time
+	historyPages        map[string]codexTurnsPage
+	historyPageOrder    []string
+	historyUsage        map[string]codexTurnUsageCache
+	rolloutToolsMu      sync.Mutex
+	rolloutTools        map[string]*codexRolloutToolsCache
+	orphanFirstSeen     map[string]time.Time
+	orphanRequested     map[string]bool
+	appToolsPipe        string
+	stallTimeout        time.Duration
+	now                 func() time.Time
 }
 
 func newCodexChatBackend(connect codexConnector) *codexChatBackend {
@@ -1185,12 +1183,9 @@ func (b *codexChatBackend) listHistory(ctx context.Context, rpc codexRPCConn, se
 	if strings.HasPrefix(cursor, codexTurnsCursorPrefix) {
 		return b.listHistoryByTurns(ctx, rpc, sessionID, cursor)
 	}
-	b.mu.Lock()
-	itemsListSupport := b.itemsListSupport
-	b.mu.Unlock()
-	if itemsListSupport < 0 {
-		return b.listHistoryByTurns(ctx, rpc, sessionID, cursor)
-	}
+	// Availability is per thread: imported histories can reject items/list
+	// while native histories support it on the same connection. Only the
+	// namespaced turns cursor selects turns paging for subsequent pages.
 	params := map[string]interface{}{
 		"threadId": sessionID, "limit": chatHistoryPageSize, "sortDirection": "desc",
 	}
@@ -1200,16 +1195,10 @@ func (b *codexChatBackend) listHistory(ctx context.Context, rpc codexRPCConn, se
 	raw, err := rpc.call(ctx, "thread/items/list", params)
 	if err != nil {
 		if codexItemsListUnsupported(err) && cursor == "" {
-			b.mu.Lock()
-			b.itemsListSupport = -1
-			b.mu.Unlock()
 			return b.listHistoryByTurns(ctx, rpc, sessionID, "")
 		}
 		return ChatHistoryPage{}, err
 	}
-	b.mu.Lock()
-	b.itemsListSupport = 1
-	b.mu.Unlock()
 	var page codexItemsPage
 	if err := json.Unmarshal(raw, &page); err != nil {
 		return ChatHistoryPage{}, fmt.Errorf("decode Codex history: %w", err)

@@ -3560,3 +3560,38 @@ func mapFromParams(t *testing.T, params interface{}) map[string]interface{} {
 	}
 	return out
 }
+
+func TestCodexHistoryUnsupportedThreadDoesNotRedirectOtherItemsCursors(t *testing.T) {
+	rpc := newFakeRPCConn()
+	rpc.errs["thread/items/list"] = []error{errors.New("thread/items/list is not supported yet")}
+	rpc.reply["thread/turns/list"] = json.RawMessage(`{"data":[]}`)
+	rpc.reply["thread/items/list"] = json.RawMessage(`{"data":[{"turnId":"turn-native","item":{"id":"answer","type":"agentMessage","text":"native history"}}]}`)
+	b := newCodexChatBackend(func(context.Context) (codexRPCConn, func(), error) {
+		return rpc, func() {}, nil
+	})
+	if _, err := b.History(context.Background(), "codex", "imported", ""); err != nil {
+		t.Fatal(err)
+	}
+	cursor := `{"requestedThreadId":"native","rolloutOrdinal":1994,"includeAnchor":false,"scope":{"kind":"itemsByCreatedAtOrdinal"}}`
+	for _, c := range []string{"", cursor} {
+		page, err := b.History(context.Background(), "codex", "native", c)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(page.Events) != 1 || page.Events[0].ItemID != "answer" {
+			t.Fatalf("native history lost: %+v", page)
+		}
+		call := rpc.calls[len(rpc.calls)-1]
+		if call.method != "thread/items/list" {
+			t.Fatalf("items cursor routed to %s", call.method)
+		}
+		if c != "" && mapFromParams(t, call.params)["cursor"] != c {
+			t.Fatal("items cursor changed")
+		}
+	}
+	// Reopening the imported thread still falls back, without poisoning native threads.
+	rpc.errs["thread/items/list"] = []error{errors.New("thread/items/list is not supported yet")}
+	if _, err := b.History(context.Background(), "codex", "imported", ""); err != nil {
+		t.Fatal(err)
+	}
+}
