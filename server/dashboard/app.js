@@ -1646,12 +1646,6 @@ function chatOwnershipPresentation(chat) {
       action: 'enable-write', actionLabel: chat.changingAccess ? '恢复中…' : '恢复 Fleet 写入',
     };
   }
-  if (chat.writerOwner === 'fleet') {
-    return {
-      className: '', text: '会话已被 Fleet 占有，如果 Codex 操作受限，可先',
-      action: 'release', actionLabel: chat.releasingWriter ? '释放中…' : '释放会话',
-    };
-  }
   if (isDesktopChatOwned(chat)) {
     return { className: 'readonly', text: '其他 Codex 客户端正在使用 · Fleet 只读同步', action: '' };
   }

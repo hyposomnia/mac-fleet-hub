@@ -633,8 +633,16 @@ test('external Codex writer keeps Fleet visible and queues confirmed input witho
   assert.match(styleCSS, /\.chat-desktop-running/);
 });
 
-test('Fleet writer ownership is shown in the header and can be released into read-only mode', () => {
-  assert.match(appSrc, /会话已被 Fleet 占有，如果 Codex 操作受限，可先/);
+test('normal Fleet writer ownership does not show an ownership warning', () => {
+  for (const turnPhase of ['idle', 'running']) {
+    assert.equal(chatOwnershipPresentation({
+      controlReady: true, accessMode: 'read_write', writerOwner: 'fleet',
+      turnOwner: 'fleet', turnPhase,
+    }), null);
+  }
+});
+
+test('Fleet retains release and read-only controls for actionable states', () => {
   assert.match(appSrc, /actionLabel: chat\.releasingWriter \? '释放中…' : '释放会话'/);
   assert.match(appSrc, /chat\/access/);
   assert.match(appSrc, /action: 'release'/);
