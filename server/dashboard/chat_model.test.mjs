@@ -1360,6 +1360,45 @@ test('same-name skill parsing keeps app-server first-result priority', () => {
   assert.equal(parsed.skills[0].id, 'agents-copy');
 });
 
+test('plugin skill menu hides opaque IDs and short aliases retain exact invocation identity', () => {
+  const fullName = 'app-69312da8e4dc81919370cb86fd172b6c:adobe-create-mockups';
+  const skills = [
+    { id: 'plugin', name: fullName },
+    { id: 'first', name: 'agent-with-memory' },
+    { id: 'second', name: 'agent-with-memory' },
+    { id: 'edit', name: 'edit' },
+  ];
+  const previousQuerySelector = appSandbox.document.querySelector;
+  const previousChat = appState.chat;
+  const input = { value: '/e', selectionStart: 2 };
+  const menu = testElement('div');
+  appSandbox.document.querySelector = (selector) => ({ '#chat-input': input, '#chat-skill-menu': menu })[selector] || null;
+  appState.chat = { skillsLoaded: true, skills, skillMenu: null };
+  try {
+    updateChatSkillMenu();
+    assert.deepEqual(Array.from(appState.chat.skillMenu.items, item => item.id), ['edit', 'plugin', 'first']);
+    assert.equal(menu.children[1].children[0].textContent, '/adobe-create-mockups');
+    const parsed = parseChatSkillInput('/adobe-create-mockups draw', skills);
+    assert.equal(parsed.text, 'draw');
+    assert.equal(parsed.skills[0].id, 'plugin');
+    assert.equal(parsed.skills[0].name, fullName);
+    assert.equal(parseChatSkillInput('$' + fullName + ' draw', skills).skills[0].id, 'plugin');
+  } finally {
+    appSandbox.document.querySelector = previousQuerySelector;
+    appState.chat = previousChat;
+  }
+});
+
+test('short plugin names never shadow another skill and explicit duplicate selection is retained', () => {
+  const skills = [
+    { id: 'plugin', name: 'app-69312da8e4dc81919370cb86fd172b6c:edit' },
+    { id: 'local', name: 'edit' },
+    { id: 'other', name: 'edit' },
+  ];
+  assert.equal(parseChatSkillInput('/edit', skills).skills[0].id, 'local');
+  assert.equal(parseChatSkillInput('/edit', skills, { edit: 'other' }).skills[0].id, 'other');
+});
+
 test('skill token detection covers plugin-prefixed names before a list retry', () => {
   assert.deepEqual(
     Array.from(chatSkillTokenNames('$browser:control-in-app-browser inspect /dev')),

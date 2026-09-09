@@ -1453,7 +1453,7 @@ function chatSkillTokenNames(value) {
   return Array.from(String(value || '').matchAll(/(?<!\S)[$/]([A-Za-z0-9_.:-]+)(?=$|\s)/g), (match) => match[1]);
 }
 
-function parseChatSkillInput(value, available, preferredIDs = {}) {
+function chatSkillChoices(available, preferredIDs = {}) {
   const byName = new Map();
   for (const skill of available || []) {
     if (!skill?.name) continue;
@@ -1461,6 +1461,25 @@ function parseChatSkillInput(value, available, preferredIDs = {}) {
     if (!current || (preferredIDs?.[skill.name] && preferredIDs[skill.name] === skill.id)) {
       byName.set(skill.name, skill);
     }
+  }
+  const choices = Array.from(byName.values());
+  const shortName = (name) => name.replace(/^app-[a-f0-9]{32}:/i, '');
+  const labelCounts = new Map();
+  for (const skill of choices) {
+    const label = shortName(skill.name);
+    labelCounts.set(label, (labelCounts.get(label) || 0) + 1);
+  }
+  return choices.map((skill) => ({
+    ...skill,
+    label: labelCounts.get(shortName(skill.name)) === 1 ? shortName(skill.name) : skill.name,
+  }));
+}
+
+function parseChatSkillInput(value, available, preferredIDs = {}) {
+  const byName = new Map();
+  for (const skill of chatSkillChoices(available, preferredIDs)) {
+    byName.set(skill.name, skill);
+    byName.set(skill.label, skill);
   }
   const skills = [];
   const seen = new Set();
@@ -1533,7 +1552,7 @@ function renderChatSkillMenu(chat) {
       onmousedown: (event) => event.preventDefault(),
       onclick: () => selectChatSkill(itemIndex),
     },
-    h('span', { class: 'chat-skill-name', text: `${marker}${skill.name}` }),
+    h('span', { class: 'chat-skill-name', text: `${marker}${skill.label}` }),
     h('span', { class: 'chat-skill-description', text: skill.description || '' })));
   });
   menu.hidden = items.length === 0;
@@ -1552,7 +1571,10 @@ function updateChatSkillMenu() {
     return;
   }
   const query = trigger.query.toLowerCase();
-  const items = chat.skills.filter((skill) => skill.name.toLowerCase().includes(query)).slice(0, 12);
+  const items = chatSkillChoices(chat.skills, chat.skillPreferences)
+    .filter((skill) => skill.label.toLowerCase().includes(query))
+    .sort((a, b) => Number(b.label.toLowerCase().startsWith(query)) - Number(a.label.toLowerCase().startsWith(query)))
+    .slice(0, 12);
   if (!items.length) { closeChatSkillMenu(); return; }
   const previousID = chat.skillMenu?.items?.[chat.skillMenu.index]?.id;
   const previousIndex = items.findIndex((skill) => skill.id === previousID);
@@ -1566,7 +1588,7 @@ function selectChatSkill(index = state.chat?.skillMenu?.index || 0) {
   const menu = chat?.skillMenu;
   const skill = menu?.items?.[index];
   if (!input || !skill) return;
-  const token = `${menu.marker}${skill.name} `;
+  const token = `${menu.marker}${skill.label} `;
   input.value = input.value.slice(0, menu.start) + token + input.value.slice(menu.end);
   const caret = menu.start + token.length;
   input.setSelectionRange(caret, caret);
