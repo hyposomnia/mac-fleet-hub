@@ -112,7 +112,7 @@ test('视图行按队列顺序给出名称/目录/大小/状态文案', () => {
 test('汇总给面板头部用：计数、总进度、是否仍在忙、是否有失败', () => {
   const queue = M.createQueue();
   assert.deepEqual(plain(M.summary(queue)), {
-    total: 0, counter: '0/0', activeName: '', percent: 0, busy: false, failed: 0, hasRows: false,
+    total: 0, counter: '0/0', activeName: '', percent: 0, busy: false, failed: 0, skipped: 0, hasRows: false,
   });
   const items = M.addFiles(queue, [file('a', 200), file('b', 200), file('c', 200)],
     { macId: 'm1', path: '/tmp' });
@@ -148,6 +148,48 @@ test('清除只摘掉已完成行，失败与待传行保留', () => {
   assert.deepEqual(plain(queue.items.map((i) => i.name)), ['b']);
   assert.equal(M.basename('/Users/hjc/Downloads/'), 'Downloads');
   assert.equal(M.basename(''), '');
+});
+
+test('校验阶段先占住串行位，校验通过再转上传', () => {
+  const queue = M.createQueue();
+  const [a, b] = M.addFiles(queue, [file('a.dmg', 100), file('b.zip', 100)], { macId: 'm2', path: '/tmp' });
+  assert.equal(M.beginItem(queue, a.id, 'checking'), true);
+  assert.equal(a.status, 'checking');
+  assert.equal(queue.activeId, a.id);
+  assert.equal(M.nextPending(queue), null, '校验中也不许放行下一个');
+  assert.equal(M.markUploading(queue, a.id), true);
+  assert.equal(a.status, 'uploading');
+  assert.equal(M.markUploading(queue, b.id), false, '没在传的条目不能直接转上传');
+  M.finishItem(queue, a.id);
+  assert.equal(M.nextPending(queue).name, 'b.zip');
+});
+
+test('同名跳过：标记 conflict、给出原因、释放串行位并计入汇总', () => {
+  const queue = M.createQueue();
+  const items = M.addFiles(queue, [file('a.dmg', 1), file('b.zip', 1)], { macId: 'm2', path: '/tmp' });
+  M.beginItem(queue, items[0].id, 'checking');
+  assert.equal(M.skipItem(queue, items[0].id, '已存在，已跳过'), true);
+  assert.equal(items[0].status, 'conflict');
+  assert.equal(items[0].reason, '已存在，已跳过');
+  assert.equal(queue.activeId, '');
+  const rows = M.rows(queue);
+  assert.equal(rows[0].stateText, '已存在，已跳过');
+  assert.equal(rows[0].tone, 'conflict');
+  assert.equal(rows[0].percent, 0);
+  const summary = M.summary(queue);
+  assert.equal(summary.skipped, 1);
+  assert.equal(summary.failed, 0);
+  assert.equal(summary.busy, true, '还有待传项');
+  M.beginItem(queue, items[1].id, 'checking');
+  M.skipItem(queue, items[1].id, '已存在，已跳过');
+  assert.equal(M.summary(queue).busy, false);
+  assert.equal(M.summary(queue).skipped, 2);
+});
+
+test('同名比较在 macOS 默认的文件系统语义下不区分大小写', () => {
+  assert.equal(M.sameName('A.dmg', 'a.DMG'), true);
+  assert.equal(M.sameName('a.dmg', 'b.dmg'), false);
+  assert.equal(M.sameName('', ''), false);
 });
 
 // ---------- app.js / 外壳契约 ----------
@@ -208,7 +250,10 @@ const appSandbox = {
     querySelectorAll: () => [],
   },
   XMLHttpRequest: FakeXHR,
-  FormData: class { append() {} },
+  FormData: class {
+    constructor() { this.entries = []; }
+    append(key, value, name) { this.entries.push([key, name || value?.name || String(value)]); }
+  },
   setTimeout: (fn, ms) => { timers.push({ fn, ms }); return timers.length; },
   clearTimeout: (id) => { if (timers[id - 1]) timers[id - 1].cancelled = true; },
   EventSource: class { constructor(url) { this.url = url; } close() {} },
@@ -226,6 +271,13 @@ const app = appSandbox.__uploadQueueTest;
 // 目录刷新会去摸真实 DOM/网络，这里换成一个记录器，顺便验证「只在还停在该目录时刷新」。
 const refreshes = [];
 appSandbox.loadFileDirectory = (path) => { refreshes.push(path); };
+// 上传前的同名校验会去问 agent 要目标目录清单，这里换成可控的假实现。
+const remoteDirs = new Map();   // 'macId|path' -> [{ name, kind }]
+const checks = [];
+appSandbox.fetchFileDirectory = async (macId, path = '') => {
+  checks.push(`${macId}|${path}`);
+  return { entries: remoteDirs.get(`${macId}|${path}`) || [] };
+};
 
 function nodesWithClass(node, className, matches = []) {
   if (!node) return matches;
@@ -234,6 +286,10 @@ function nodesWithClass(node, className, matches = []) {
   for (const child of node.children || []) nodesWithClass(child, className, matches);
   return matches;
 }
+function textOf(node) {
+  if (!node) return '';
+  return String(node.textContent || '') + (node.children || []).map(textOf).join('');
+}
 const rowTexts = (host) => nodesWithClass(host, 'file-upload-name').map((n) => n.textContent);
 const stateTexts = (host) => nodesWithClass(host, 'file-upload-state').map((n) => n.textContent);
 
@@ -241,6 +297,8 @@ function resetQueue() {
   FakeXHR.instances.length = 0;
   timers.length = 0;
   refreshes.length = 0;
+  checks.length = 0;
+  remoteDirs.clear();
   app.state.fileUploads = M.createQueue();
   app.state.fileUploadPumping = false;
   app.state.fileUploadPanelOpen = false;
@@ -267,9 +325,10 @@ function clearHost(selector) {
   host.hidden = false;
 }
 
-test('选中多个文件后排成队列：只发一个请求，其余显示等待', () => {
+test('选中多个文件后排成队列：只发一个请求，其余显示等待', async () => {
   resetQueue();
   app.enqueueFileUploads([file('a.dmg', 1000), file('b.zip', 2000), file('c.txt', 3000)]);
+  await tick();   // 上传前先做同名校验，校验是异步的
   assert.equal(FakeXHR.instances.length, 1, '同一时刻只应有一个上传请求在跑');
   assert.match(FakeXHR.last.url, /\/m2\/api\/file\/upload\?path=%2FUsers%2Fhjc%2FDownloads$/);
   for (const selector of ['#file-upload-queue', '#file-upload-queue-mobile']) {
@@ -283,6 +342,7 @@ test('选中多个文件后排成队列：只发一个请求，其余显示等�
 test('进度事件实时反映到进度条与百分比，且请求完成后自动接下一个', async () => {
   resetQueue();
   app.enqueueFileUploads([file('a.dmg', 1000), file('b.zip', 2000)]);
+  await tick();
   const first = FakeXHR.instances[0];
   first.upload.onprogress({ loaded: 500, total: 1000 });
   flushTimers();   // 进度回写是节流的，等一拍再断言
@@ -292,6 +352,7 @@ test('进度事件实时反映到进度条与百分比，且请求完成后自�
   assert.equal(bar.attributes.style, 'width:50%');
   first.respond(201, '{"size":1000}');
   await tick();
+  await tick();
   assert.equal(FakeXHR.instances.length, 2, '第一个完成后应自动开始第二个');
   assert.deepEqual(stateTexts(host), ['完成', '上传中']);
 });
@@ -299,7 +360,9 @@ test('进度事件实时反映到进度条与百分比，且请求完成后自�
 test('单个文件失败不阻塞队列，失败原因留在该行', async () => {
   resetQueue();
   app.enqueueFileUploads([file('a.dmg', 10), file('b.zip', 20)]);
+  await tick();
   FakeXHR.instances[0].respond(409, '{"error":"file_exists","message":"同名文件已经存在。"}');
+  await tick();
   await tick();
   assert.equal(FakeXHR.instances.length, 2);
   assert.deepEqual(stateTexts(hostFor('#file-upload-queue')), ['同名文件已经存在。', '上传中']);
@@ -314,6 +377,7 @@ test('单个文件失败不阻塞队列，失败原因留在该行', async () =>
 test('队列跑完且没有失败时自动收起面板', async () => {
   resetQueue();
   app.enqueueFileUploads([file('a.dmg', 10)]);
+  await tick();
   FakeXHR.instances[0].respond(201, '{"size":10}');
   await tick();
   assert.equal(hostFor('#file-upload-queue').hidden, false, '跑完先留着让用户看到「完成」');
@@ -325,7 +389,9 @@ test('队列跑完且没有失败时自动收起面板', async () => {
 test('上传完成后只在还停在该目录时才刷新列表', async () => {
   resetQueue();
   app.enqueueFileUploads([file('a.dmg', 10), file('b.zip', 10)]);
+  await tick();
   FakeXHR.instances[0].respond(201, '{"size":10}');
+  await tick();
   await tick();
   flushTimers();
   assert.deepEqual(refreshes, ['/Users/hjc/Downloads']);
@@ -334,8 +400,63 @@ test('上传完成后只在还停在该目录时才刷新列表', async () => {
   app.state.filePath = '/Users/hjc/Documents';
   FakeXHR.instances[1].respond(201, '{"size":10}');
   await tick();
+  await tick();
   flushTimers();
   assert.deepEqual(refreshes, []);
+});
+
+test('目标目录已有同名文件：先校验，不发一个字节，队列继续下一个', async () => {
+  resetQueue();
+  remoteDirs.set('m2|/Users/hjc/Downloads', [
+    { name: 'dsh-desktop-mac-arm64.dmg', kind: 'file' },
+    { name: 'Other', kind: 'folder' },
+  ]);
+  app.enqueueFileUploads([file('dsh-desktop-mac-arm64.dmg', 190468772), file('b.zip', 10)]);
+  await tick();
+  assert.deepEqual(checks, ['m2|/Users/hjc/Downloads', 'm2|/Users/hjc/Downloads'], '每个文件上传前各查一次目标目录');
+  assert.equal(FakeXHR.instances.length, 1, '同名文件不该发起上传');
+  assert.equal(FakeXHR.last.body.entries[0][1], 'b.zip', '第二个文件应当已开始上传');
+  const host = hostFor('#file-upload-queue');
+  assert.deepEqual(stateTexts(host), ['已存在，已跳过', '上传中']);
+  assert.equal(nodesWithClass(host, 'file-upload-item')[0].dataset.status, 'conflict');
+});
+
+test('目录名相同也算同名（agent 用 O_EXCL 建文件，同名文件夹一样会 409）', async () => {
+  resetQueue();
+  remoteDirs.set('m2|/Users/hjc/Downloads', [{ name: 'lampp', kind: 'folder' }]);
+  app.enqueueFileUploads([file('LAMPP', 10)]);
+  await tick();
+  assert.equal(FakeXHR.instances.length, 0);
+  assert.deepEqual(stateTexts(hostFor('#file-upload-queue')), ['已存在，已跳过']);
+});
+
+test('有同名跳过时面板不自动收起，并提示跳过了几个', async () => {
+  resetQueue();
+  remoteDirs.set('m2|/Users/hjc/Downloads', [{ name: 'a.dmg', kind: 'file' }]);
+  app.enqueueFileUploads([file('a.dmg', 10)]);
+  await tick();
+  flushTimers();
+  assert.equal(hostFor('#file-upload-queue').hidden, false, '跳过也要让用户看见原因');
+  const host = hostFor('#file-upload-queue');
+  assert.match(textOf(host), /同名文件未上传：先在文件页删除它/, '跳过时要告诉用户怎么继续');
+  assert.equal(nodesWithClass(host, 'file-upload-bar').length, 0, '跳过的行不画进度条');
+  const toastText = textOf(hostFor('#toast-wrap'));
+  assert.match(toastText, /同名已存在/);
+});
+
+test('校验失败（拿不到目录）不阻塞上传，仍交给服务端兜底', async () => {
+  resetQueue();
+  appSandbox.fetchFileDirectory = async () => { throw new Error('agent_unreachable'); };
+  try {
+    app.enqueueFileUploads([file('a.dmg', 10)]);
+    await tick();
+    assert.equal(FakeXHR.instances.length, 1, '拿不到清单时按老路子上传，由 409 兜底');
+  } finally {
+    appSandbox.fetchFileDirectory = async (macId, path = '') => {
+      checks.push(`${macId}|${path}`);
+      return { entries: remoteDirs.get(`${macId}|${path}`) || [] };
+    };
+  }
 });
 
 test('外壳契约：两个挂载点、资源版本一致、上传走 XHR 且不再用转圈光标', () => {
@@ -345,7 +466,8 @@ test('外壳契约：两个挂载点、资源版本一致、上传走 XHR 且不
   assert.ok(modelURL, 'index.html 应引入 upload_model.js');
   assert.ok(indexHTML.indexOf('<script src="upload_model.js') < indexHTML.indexOf('<script src="app.js'));
   assert.match(serviceWorker, new RegExp(`/upload_model\\.js\\?v=${modelURL[1]}`));
-  assert.match(serviceWorker, /const CACHE = 'fleet-shell-v123'/);
+  assert.match(serviceWorker, /const CACHE = 'fleet-shell-v124'/);
+  assert.match(styleCSS, /\.file-upload-item\[data-status="conflict"\] \.file-upload-state \{ color: var\(--wait\); \}/);
   assert.match(appSrc, /new XMLHttpRequest\(\)/);
   assert.match(appSrc, /xhr\.upload\.onprogress/);
   assert.match(appSrc, /FleetUploadModel\.nextPending/);

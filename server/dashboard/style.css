@@ -1473,6 +1473,9 @@ textarea.chat-request-input { resize: vertical; }
 }
 .file-upload-item[data-status="uploading"] .file-upload-name { color: var(--text); }
 .file-upload-item[data-status="uploading"] .file-upload-state { color: var(--accent-text); }
+.file-upload-item[data-status="checking"] .file-upload-state { color: var(--text-2); }
+.file-upload-item[data-status="conflict"] .file-upload-state { color: var(--wait); }
+.file-upload-item[data-status="conflict"] .file-upload-name { color: var(--text-2); }
 .file-upload-item[data-status="done"] .file-upload-state { color: var(--online); }
 .file-upload-item[data-status="error"] .file-upload-state { color: var(--danger); }
 .file-upload-meta {
@@ -1480,6 +1483,7 @@ textarea.chat-request-input { resize: vertical; }
 }
 .file-upload-meta > span:first-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .file-upload-meta > span:last-child { flex: none; margin-left: auto; font-variant-numeric: tabular-nums; }
+.file-upload-hint { margin: 0; color: var(--text-2); font-size: var(--t-caption); line-height: 1.5; }
 .file-upload-bar {
   height: 3px; overflow: hidden; border-radius: var(--r-pill); background: var(--surface-2);
 }

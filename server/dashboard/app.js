@@ -5858,7 +5858,8 @@ function cancelFileUploadPanelHide() {
 function scheduleFileUploadPanelHide() {
   cancelFileUploadPanelHide();
   const summary = FleetUploadModel.summary(state.fileUploads);
-  if (summary.busy || summary.failed > 0) return;
+  // 有失败或同名跳过时把面板留在屏幕上，让用户看清原因
+  if (summary.busy || summary.failed > 0 || summary.skipped > 0) return;
   state.fileUploadHideTimer = setTimeout(() => {
     state.fileUploadHideTimer = null;
     state.fileUploadPanelOpen = false;
@@ -5922,6 +5923,21 @@ function renderFileUploadQueue() {
     const list = h('ul', { class: 'file-upload-list' });
     for (const row of rows) list.append(fileUploadRowNode(row));
     host.append(head, list);
+    // 同名文件不会自动覆盖：告诉用户怎么继续
+    if (summary.skipped) {
+      host.append(h('p', { class: 'file-upload-hint', text: '同名文件未上传：先在文件页删除它，再重新选择该文件。' }));
+    }
+  }
+}
+
+// 上传前的同名校验：直接问 agent 要目标目录清单，避免几十上百 MB 传完才被 409 顶回来。
+// 拿不到清单（agent 不可达 / 目录没了）时返回 false 照旧上传，让服务端兜底。
+async function targetHasSameName(item) {
+  try {
+    const data = await fetchFileDirectory(item.macId, item.path);
+    return (data.entries || []).some((entry) => FleetUploadModel.sameName(entry.name, item.name));
+  } catch (_) {
+    return false;
   }
 }
 
@@ -5969,6 +5985,7 @@ function finishFileUploadBatch() {
   const summary = FleetUploadModel.summary(state.fileUploads);
   const failed = state.fileUploads.items.find((item) => item.status === 'error');
   if (failed) toast(`${failed.name}：${failed.error}`, 'err');
+  else if (summary.skipped) toast(`${summary.skipped} 个文件同名已存在，已跳过`, 'err');
   else if (summary.total) toast(`已上传 ${summary.total} 个文件`, 'ok');
   scheduleFileUploadPanelHide();
 }
@@ -5980,7 +5997,14 @@ async function pumpFileUploads() {
     for (;;) {
       const item = FleetUploadModel.nextPending(state.fileUploads);
       if (!item) break;
-      FleetUploadModel.beginItem(state.fileUploads, item.id);
+      FleetUploadModel.beginItem(state.fileUploads, item.id, 'checking');
+      renderFileUploadQueue();
+      if (await targetHasSameName(item)) {
+        FleetUploadModel.skipItem(state.fileUploads, item.id, '已存在，已跳过');
+        renderFileUploadQueue();
+        continue;
+      }
+      FleetUploadModel.markUploading(state.fileUploads, item.id);
       renderFileUploadQueue();
       const result = await sendFileUpload(item);
       if (result.ok) {

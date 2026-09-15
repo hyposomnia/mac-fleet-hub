@@ -14,6 +14,13 @@
     return parts.length ? parts[parts.length - 1] : '';
   }
 
+  // macOS 默认卷不区分大小写：`A.dmg` 与 `a.dmg` 会撞同一个文件，预检按不区分大小写比。
+  function sameName(left, right) {
+    const a = String(left || '');
+    const b = String(right || '');
+    return !!a && !!b && a.toLowerCase() === b.toLowerCase();
+  }
+
   function find(queue, id) {
     return (queue.items || []).find((item) => item.id === id) || null;
   }
@@ -50,13 +57,34 @@
     return queue.items.find((item) => item.status === 'pending') || null;
   }
 
-  function beginItem(queue, id) {
+  // phase: 'checking'（上传前同名校验）或 'uploading'；两者都占用串行位。
+  function beginItem(queue, id, phase = 'uploading') {
     const item = find(queue, id);
     if (!item || item.status !== 'pending' || queue.activeId) return false;
-    item.status = 'uploading';
+    item.status = phase === 'checking' ? 'checking' : 'uploading';
     item.loaded = 0;
     item.progress = 0;
     queue.activeId = id;
+    return true;
+  }
+
+  function markUploading(queue, id) {
+    const item = find(queue, id);
+    if (!item || item.status !== 'checking') return false;
+    item.status = 'uploading';
+    item.loaded = 0;
+    item.progress = 0;
+    return true;
+  }
+
+  // 目标目录已有同名文件（或文件夹）：不发一个字节，直接记为跳过。
+  function skipItem(queue, id, reason) {
+    const item = find(queue, id);
+    if (!item) return false;
+    item.status = 'conflict';
+    item.reason = String(reason || '已存在，已跳过');
+    item.progress = 0;
+    release(queue, id);
     return true;
   }
 
@@ -111,15 +139,19 @@
 
   function stateText(item) {
     if (item.status === 'pending') return '等待';
+    if (item.status === 'checking') return '校验中…';
     if (item.status === 'uploading') return item.progress > 0 ? `${item.progress}%` : '上传中';
     if (item.status === 'done') return '完成';
+    if (item.status === 'conflict') return item.reason || '已存在，已跳过';
     return item.error || '上传失败。';
   }
 
   function tone(item) {
     if (item.status === 'uploading') return 'active';
+    if (item.status === 'checking') return 'checking';
     if (item.status === 'done') return 'done';
     if (item.status === 'error') return 'error';
+    if (item.status === 'conflict') return 'conflict';
     return 'pending';
   }
 
@@ -143,7 +175,8 @@
     const items = queue.items || [];
     const done = items.filter((item) => item.status === 'done').length;
     const failed = items.filter((item) => item.status === 'error').length;
-    const active = items.find((item) => item.status === 'uploading') || null;
+    const skipped = items.filter((item) => item.status === 'conflict').length;
+    const active = items.find((item) => item.status === 'uploading' || item.status === 'checking') || null;
     const pending = items.filter((item) => item.status === 'pending').length;
     return {
       total: items.length,
@@ -152,13 +185,14 @@
       percent: active ? active.progress : 0,
       busy: !!active || pending > 0,
       failed,
+      skipped,
       hasRows: items.length > 0,
     };
   }
 
   const api = {
-    createQueue, addFiles, nextPending, beginItem, setProgress,
-    finishItem, failItem, removeItem, clearSettled, rows, summary, basename,
+    createQueue, addFiles, nextPending, beginItem, markUploading, setProgress,
+    finishItem, failItem, skipItem, removeItem, clearSettled, rows, summary, basename, sameName,
   };
   root.FleetUploadModel = api;
   if (typeof module !== 'undefined') module.exports = api;
