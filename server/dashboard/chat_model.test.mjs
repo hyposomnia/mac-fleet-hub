@@ -4,6 +4,7 @@ import { readFile } from 'node:fs/promises';
 import vm from 'node:vm';
 
 const src = await readFile(new URL('./chat_model.js', import.meta.url), 'utf8');
+const uploadModelSrc = await readFile(new URL('./upload_model.js', import.meta.url), 'utf8');
 const appSrc = await readFile(new URL('./app.js', import.meta.url), 'utf8');
 const markdownSrc = await readFile(new URL('./markdown.js', import.meta.url), 'utf8');
 const previewSrc = await readFile(new URL('./preview.js', import.meta.url), 'utf8');
@@ -15,6 +16,10 @@ const markedSrc = await readFile(new URL('./vendor/marked.min.js', import.meta.u
 const sandbox = { globalThis: {} };
 vm.createContext(sandbox);
 vm.runInContext(src, sandbox);
+// app.js 启动时会建上传队列，沙箱里要像浏览器一样先备好这个模块
+const uploadSandbox = { globalThis: {} };
+vm.createContext(uploadSandbox);
+vm.runInContext(uploadModelSrc, uploadSandbox);
 const { createChatState, appendUserMessage, appendSteeringMessage, removeMessage, prependHistory, reduceChatEvent, normalizeDiffFiles, chatPhase, chatTurnProgress, followupAckId, uuidV7TimeMs } = sandbox.globalThis.FleetChatModel;
 
 const fixedAppNowMs = new Date(2026, 6, 23, 23, 0, 0).getTime();
@@ -71,6 +76,7 @@ const appSandbox = {
   },
   EventSource: TestEventSource,
   FleetChatModel: sandbox.globalThis.FleetChatModel,
+  FleetUploadModel: uploadSandbox.globalThis.FleetUploadModel,
   FleetMarkdown: {
     renderMarkdown(text) {
       const node = testElement('div');

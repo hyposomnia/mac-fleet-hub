@@ -1260,7 +1260,7 @@ textarea.chat-request-input { resize: vertical; }
 .file-sources-head { display: flex; align-items: center; gap: 10px; padding: 0 5px; }
 .file-sources-head h1, .file-title-row h1 { margin: 0; color: var(--text); font-size: var(--t-display); font-weight: 600; }
 .file-source-label { margin: 22px 8px 7px; color: var(--text-2); font-size: var(--t-caption); font-weight: 600; }
-.file-location-list { display: grid; gap: 3px; }
+.file-location-list { display: grid; gap: 3px; min-height: 0; overflow-y: auto; }
 .file-location {
   display: flex; align-items: center; gap: 10px; width: 100%; min-height: 42px; padding: 6px 9px;
   border-radius: 7px; color: var(--text-1); text-align: left;
@@ -1443,8 +1443,55 @@ textarea.chat-request-input { resize: vertical; }
 }
 .file-empty, .file-loading { display: grid; place-items: center; min-height: 240px; padding: 30px; color: var(--text-2); text-align: center; }
 .file-empty small { display: block; max-width: 420px; margin-top: 7px; overflow-wrap: anywhere; }
-.file-layout.is-uploading { cursor: progress; }
-.file-layout.is-uploading .file-actions, .file-layout.is-uploading .file-sources-head .iconbtn { opacity: .55; pointer-events: none; }
+
+/* ---- 上传队列面板（桌面：左侧栏底部；移动端：文件标题下方，见 860px 断点） ---- */
+.file-upload-queue {
+  display: grid; gap: 8px; margin-top: auto; padding: 10px 10px 11px;
+  border: 1px solid var(--border); border-radius: var(--r-sm); background: var(--surface-1);
+}
+/* 隐藏属性必须压过下面的 display，否则断点里的 display 会把它顶掉 */
+.file-upload-queue[hidden] { display: none !important; }
+.file-upload-queue-inline { display: none; }
+.file-upload-head { display: flex; align-items: center; gap: 8px; }
+.file-upload-title { color: var(--text); font-size: var(--t-secondary); font-weight: 600; }
+.file-upload-count { margin-left: auto; color: var(--text-2); font-size: var(--t-caption); font-variant-numeric: tabular-nums; }
+.file-upload-clear { width: 22px; height: 22px; }
+.file-upload-clear-glyph { font-size: var(--t-caption); line-height: 1; }
+.file-upload-list {
+  display: grid; gap: 9px; max-height: 208px; margin: 0; padding: 0; overflow-y: auto; list-style: none;
+  overscroll-behavior: contain;
+}
+.file-upload-item { display: grid; gap: 4px; min-width: 0; }
+.file-upload-line { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
+.file-upload-name {
+  min-width: 0; overflow: hidden; color: var(--text-1); font-size: var(--t-secondary);
+  text-overflow: ellipsis; white-space: nowrap;
+}
+.file-upload-state {
+  flex: none; margin-left: auto; color: var(--text-2); font-size: var(--t-caption);
+  font-variant-numeric: tabular-nums; text-align: right;
+}
+.file-upload-item[data-status="uploading"] .file-upload-name { color: var(--text); }
+.file-upload-item[data-status="uploading"] .file-upload-state { color: var(--accent-text); }
+.file-upload-item[data-status="done"] .file-upload-state { color: var(--online); }
+.file-upload-item[data-status="error"] .file-upload-state { color: var(--danger); }
+.file-upload-meta {
+  display: flex; gap: 8px; min-width: 0; color: var(--text-2); font-size: var(--t-caption);
+}
+.file-upload-meta > span:first-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.file-upload-meta > span:last-child { flex: none; margin-left: auto; font-variant-numeric: tabular-nums; }
+.file-upload-bar {
+  height: 3px; overflow: hidden; border-radius: var(--r-pill); background: var(--surface-2);
+}
+.file-upload-fill {
+  display: block; height: 100%; border-radius: inherit; background: var(--accent-text);
+  transition: width var(--dur-2) var(--ease);
+}
+.file-upload-bar[data-tone="done"] .file-upload-fill { background: var(--online); }
+.file-upload-bar[data-tone="error"] .file-upload-fill { background: var(--danger); }
+@media (prefers-reduced-motion: reduce) {
+  .file-upload-fill { transition: none; }
+}
 .file-settings-menu {
   position: fixed; z-index: 75; width: min(270px, calc(100vw - 16px)); padding: 6px;
   border: 1px solid var(--border); border-radius: 7px; background: var(--surface); box-shadow: var(--e2);
@@ -1616,6 +1663,10 @@ textarea.chat-request-input { resize: vertical; }
   .file-toolbar { padding: 10px 14px 9px; }
   .file-title-row h1 { font-size: var(--t-title); }
   .file-title-row .iconbtn { width: 44px; height: 44px; }
+  /* 移动端没有左侧栏，上传队列挂在文件夹标题正下方 */
+  .file-upload-queue-inline { display: grid; margin-top: 9px; padding: 9px 10px 10px; }
+  .file-upload-list { max-height: 176px; }
+  .file-upload-name { font-size: var(--t-body); }
   .file-breadcrumbs { margin-top: 7px; }
   .file-searchbar { min-height: 44px; margin-top: 9px; }
   .file-searchbar input { font-size: var(--t-title); }
