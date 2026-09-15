@@ -1,5 +1,10 @@
 # Changelog
 
+## 2026-09-15
+
+- 修复给其它 Mac 上传大文件时浏览器只报 `file/upload?...: 500`：nginx `auth_request` 的子请求（`location = /authz`）也按自身 location 的 `client_max_body_size` 校验原始请求体，继承 http 级默认 8m，超过 8 MB 的上传在鉴权阶段就被 413，`auth_request` 再把非预期状态转成 500。`/authz` 现在显式放宽到 513m，`/mN/files/`（filebrowser 上传）同样放宽，与 fleet-agent 的 512 MiB 上限对齐；dashboard 对 413 给出可读提示而不是裸状态码。
+- 修复 `scripts/setup-server.sh` 渲染 nginx 站点时把整段 Mac 反代块插进文件头注释：模板注释里也写了 `__MAC_LOCATIONS__` 占位名，按行匹配会命中注释，造成 location 重复、`nginx -t` 失败。渲染现在跳过注释行。
+
 ## 2026-09-09
 
 - 修复 Codex 技能菜单直接展示插件内部 app ID、重复列出同名技能的问题；使用无歧义的简短名称显示和插入，按前缀匹配优先排序，并保留完整技能身份用于调用。

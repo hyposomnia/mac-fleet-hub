@@ -240,7 +240,8 @@ async function api(id, path, opts) {
   const r = await fetch(`${apiBase(id)}/api/${path}`, opts);
   if (!r.ok) {
     // 后端错误体 {error,message}：优先展示可读 message（如 pty 耗尽），回退状态码
-    let msg = `${path}: ${r.status}`;
+    // 413 由 nginx/agent 直接返回 HTML，解析不出 message，给一句可读的兜底文案。
+    let msg = r.status === 413 ? '文件太大，超过了上传上限（单文件最大 512 MB）。' : `${path}: ${r.status}`;
     let code = '';
     try {
       const j = await r.json();

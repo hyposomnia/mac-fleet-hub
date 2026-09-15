@@ -27,4 +27,7 @@ bash "$ROOT/tests/setup-mac-shared_test.sh"
 step "Codex 空闲迁移守卫测试：tests/check-codex-idle_test.sh"
 bash "$ROOT/tests/check-codex-idle_test.sh"
 
+step "nginx 站点配置测试：tests/nginx-config_test.sh"
+bash "$ROOT/tests/nginx-config_test.sh"
+
 printf '\n==> 全部验证通过 ✓\n'
