@@ -33,4 +33,7 @@ bash "$ROOT/tests/nginx-config_test.sh"
 step "shell 变量花括号守卫：tests/bash-var-brace_test.sh"
 bash "$ROOT/tests/bash-var-brace_test.sh"
 
+step "shared 迁移 agent API 重试：tests/migrate-agent-retry_test.sh"
+bash "$ROOT/tests/migrate-agent-retry_test.sh"
+
 printf '\n==> 全部验证通过 ✓\n'

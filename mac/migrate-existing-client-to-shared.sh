@@ -18,6 +18,41 @@ json_field() {
   local json="$1" field="$2"
   printf '%s' "$json" | /usr/bin/plutil -extract "$field" raw -o - - 2>/dev/null || true
 }
+# 本脚本上一步刚停掉旧 app-server、重开 Desktop，fleet-agent 的 WS 客户端正在这个
+# 窗口里重建：此时 agent 对 chat/sessions 类接口会回 503，且只可能是
+# appserver_unavailable / appserver_recovered / agent_restarting——三者都是「稍后
+# 重试即可」的瞬时态，也可能直接连不上端口（000）。UAT 探针一枪判死会让整台节点被
+# 判失败，而 release-fleet-agent.sh 的 ssh_retry 会整轮重跑、每次再杀一遍 Desktop，
+# 于是永远收敛不了（2026-09-16 实测三次重试各杀一次 Desktop 后失败）。
+#
+# 所以所有走 agent chat 接口的 UAT 探针都经这个助手：成功时把响应体写到 stdout，
+# 503/连不上按 deadline 重试（上限 $1 次），其它码视为真错误立刻停；最终失败时打印
+# HTTP 码与响应体——否则日志里只剩 curl 的 `error: 503`，分不清是哪种原因。
+#
+# 用法：agent_api_retry <最大次数> <curl 参数...>
+agent_api_retry() {
+  local attempts="$1"; shift
+  local n=0 resp code body
+  while :; do
+    n=$((n + 1))
+    resp="$(curl -sS --max-time 10 -w '\n%{http_code}' "$@" 2>/dev/null || true)"
+    code="$(printf '%s' "$resp" | tail -n1)"
+    body="$(printf '%s' "$resp" | sed '$d')"
+    if [[ "$code" == "200" ]]; then
+      printf '%s' "$body"
+      return 0
+    fi
+    if [[ -n "$code" && "$code" != "503" && "$code" != "000" ]]; then
+      break
+    fi
+    if [[ "$n" -ge "$attempts" ]]; then
+      break
+    fi
+    sleep 1
+  done
+  echo "shared migration failed: agent API 调用试了 ${n} 次仍失败：http=${code:-<连不上>} body=${body:-<空>} args=$*" >&2
+  exit 1
+}
 
 [[ -f "$FLEET_PLIST" ]] || die "missing installed fleet-agent plist"
 [[ -d "$DESKTOP_APP" ]] || die "missing $DESKTOP_APP"
@@ -112,38 +147,9 @@ if /bin/ps -axo ppid=,command= | awk -v pid="$desktop_pid" '$1 == pid && /codex 
 fi
 
 # A read-only skills request forces fleet-agent to initialize its own WS client.
-# 上一步刚换掉 app-server 并重开了 Desktop，agent 的 WS 客户端正是在这个窗口里重建，
-# 于是这一枪很容易撞上 503（appserver_unavailable / appserver_recovered /
-# agent_restarting）——三者都是「稍后重试即可」的瞬时态，也可能直接连上不端口。
-# 一枪判死会让整段发布被判失败并整轮重试，而每次重试都要再杀一次 Desktop，永远收不
-# 敛。所以这里按 deadline 重试，并在最终失败时打印 HTTP 码与响应体（否则日志里只有
-# curl 的 `error: 503`，分不清是哪种原因）。
-skills_attempt=0
-skills_code=""
-skills_body=""
-while :; do
-  skills_attempt=$((skills_attempt + 1))
-  skills_resp="$(curl -sS --max-time 30 -w '\n%{http_code}' \
-    -H 'Content-Type: application/json' \
-    -d "{\"assistant\":\"codex\",\"cwd\":\"$HOME\"}" \
-    "http://${ip}:7682/api/chat/skills" 2>/dev/null || true)"
-  skills_code="$(printf '%s' "$skills_resp" | tail -n1)"
-  skills_body="$(printf '%s' "$skills_resp" | sed '$d')"
-  if [[ "$skills_code" == "200" ]]; then
-    break
-  fi
-  # 503 与「连不上/无响应」都按瞬时态重试；其它码是真错误，立刻停。
-  if [[ -n "$skills_code" && "$skills_code" != "503" && "$skills_code" != "000" ]]; then
-    break
-  fi
-  if [[ "$skills_attempt" -ge 30 ]]; then
-    break
-  fi
-  sleep 1
-done
-if [[ "$skills_code" != "200" ]]; then
-  die "逼 agent 初始化 WS 客户端失败（试了 ${skills_attempt} 次）：http=${skills_code:-<连不上>} body=${skills_body:-<空>}"
-fi
+agent_api_retry 15 -H 'Content-Type: application/json' \
+  -d "{\"assistant\":\"codex\",\"cwd\":\"$HOME\"}" \
+  "http://${ip}:7682/api/chat/skills" >/dev/null
 
 server_pid="$(/usr/sbin/lsof -n -P -t -iTCP:"$SHARED_PORT" -sTCP:LISTEN 2>/dev/null | head -n1)"
 agent_pid="$(launchctl print "gui/$(id -u)/com.macfleet.fleet-agent" | awk '/pid =/{print $3; exit}')"
@@ -156,10 +162,10 @@ printf '%s\n' "$listener" | grep -q "127.0.0.1:${SHARED_PORT} (LISTEN)" \
 
 # Resume one existing idle thread and prove its physical writer is the same
 # shared server PID, not a private Desktop/Fleet process.
-sessions="$(curl -fsS --max-time 10 "http://${ip}:7682/api/sessions?assistant=codex&scope=active")"
+sessions="$(agent_api_retry 15 "http://${ip}:7682/api/sessions?assistant=codex&scope=active")"
 probe_session="$(json_field "$sessions" sessions.0.sessionId)"
 if [[ -n "$probe_session" ]]; then
-  curl -fsS --max-time 20 -H 'Content-Type: application/json' \
+  agent_api_retry 15 -H 'Content-Type: application/json' \
     -d "{\"assistant\":\"codex\",\"sessionId\":\"$probe_session\"}" \
     "http://${ip}:7682/api/chat/resume" >/dev/null
   lock_path="$CODEX_HOME_DIR/thread-writer-locks/$probe_session.lock"
