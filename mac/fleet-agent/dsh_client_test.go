@@ -203,9 +203,9 @@ func TestDSHClientCallErrorTranslation(t *testing.T) {
 			wantErr: errDSHProtocolChanged,
 		},
 		{
-			name:   "响应不是 envelope",
-			status: http.StatusOK,
-			body:   `{"nonsense":true}`,
+			name:    "响应不是 envelope",
+			status:  http.StatusOK,
+			body:    `{"nonsense":true}`,
 			wantErr: errDSHProtocolChanged,
 		},
 	}

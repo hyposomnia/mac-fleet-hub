@@ -227,9 +227,9 @@ func TestLiveFollowChunkExpansion(t *testing.T) {
 		chunkRows++
 		var row struct {
 			Event struct {
-				Type   string `json:"type"`
-				Seq0   int64  `json:"seq0"`
-				Data   struct {
+				Type string `json:"type"`
+				Seq0 int64  `json:"seq0"`
+				Data struct {
 					DT    []int64  `json:"dt"`
 					Texts []string `json:"texts"`
 					Args  []string `json:"args"`

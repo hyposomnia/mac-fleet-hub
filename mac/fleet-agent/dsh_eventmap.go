@@ -198,12 +198,12 @@ func dshMapSessionEvent(sessionID string, ev dshSessionEvent) []ChatEvent {
 			}
 			u := data.Chunk.Usage
 			return []ChatEvent{newChatEvent("turn_usage", "dsh", sessionID, turnID, "", map[string]any{
-				"turnId":             turnID,
-				"inputTokens":        u.InputTokens,
-				"outputTokens":       u.OutputTokens,
-				"totalTokens":        u.TotalTokens,
-				"cachedInputTokens":  u.CacheReadTokens,
-				"reasoningTokens":    u.ReasoningTokens,
+				"turnId":            turnID,
+				"inputTokens":       u.InputTokens,
+				"outputTokens":      u.OutputTokens,
+				"totalTokens":       u.TotalTokens,
+				"cachedInputTokens": u.CacheReadTokens,
+				"reasoningTokens":   u.ReasoningTokens,
 			})}
 		default:
 			// block-start / block-end / tool-call-delta / finish 都不单独成项：
