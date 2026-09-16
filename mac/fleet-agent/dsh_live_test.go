@@ -157,12 +157,22 @@ func TestLiveFollowChunkExpansion(t *testing.T) {
 	if err := json.Unmarshal(value, &listing); err != nil || len(listing.Items) == 0 {
 		t.Fatalf("拿不到会话列表: %v", err)
 	}
-	sessionID, _ := listing.Items[0]["sessionId"].(string)
-	if sessionID == "" {
-		sessionID, _ = listing.Items[0]["id"].(string)
+	// 必须挑一个用户在 GUI 里看得到的会话：列表里混着子代理会话（裸 uuid），
+	// 对它们开 follow 会得到 session/agent-busy（需要持久的父地址）。
+	// 这条规则与生产代码的 dshVisibleSessionID 是同一条。
+	var sessionID string
+	for _, item := range listing.Items {
+		id, _ := item["sessionId"].(string)
+		if id == "" {
+			id, _ = item["id"].(string)
+		}
+		if dshVisibleSessionID(id) {
+			sessionID = id
+			break
+		}
 	}
 	if sessionID == "" {
-		t.Fatalf("会话项里找不到 id 字段: %s", truncateJSON(value, 400))
+		t.Fatalf("列表里没有用户可见会话（session- 前缀）: %s", truncateJSON(value, 400))
 	}
 
 	// 参数名与嵌套形状取自生成产物 typert.host.js 的 descriptor，不是猜的：
