@@ -88,6 +88,37 @@ func (r *routingChatBackend) codexBackend() *codexChatBackend {
 	return r.codex
 }
 
+// 下面三个方法转发 Codex 的**会话目录**能力（/api/sessions、/api/sessions/action
+// 与 cwdForSession 项目解析）。它们必须由路由层显式实现，因为那三处调用点是对
+// agentChatBackend 做类型断言（codexThreadCatalog / codexThreadManager /
+// codexThreadReader），而装配点 newAgentChatBackend() 现在恒定返回 routingChatBackend：
+// 少转发一个，整条 Codex 会话列表就稳定返回 appserver_unavailable，而 chat 类接口
+// （Start/Resume/History/Skills…）照常可用，所以只看聊天功能不会发现。
+//
+// 2026-09-16 实测就是这个形态：四台 Mac 上 /api/sessions?assistant=claude 返回 200、
+// assistant=codex 返回 503，dashboard 的 Codex 会话列表与项目分组全挂。
+// 守卫见 TestAgentChatBackendSatisfiesCodexCatalogInterfaces。
+func (r *routingChatBackend) ListThreads(ctx context.Context, opts codexThreadListOptions) (codexThreadPage, error) {
+	if r == nil || r.codex == nil {
+		return codexThreadPage{}, errAppServerUnavailable
+	}
+	return r.codex.ListThreads(ctx, opts)
+}
+
+func (r *routingChatBackend) MutateThread(ctx context.Context, sessionID, action, value string) error {
+	if r == nil || r.codex == nil {
+		return errAppServerUnavailable
+	}
+	return r.codex.MutateThread(ctx, sessionID, action, value)
+}
+
+func (r *routingChatBackend) ThreadCwd(ctx context.Context, sessionID string) (string, error) {
+	if r == nil || r.codex == nil {
+		return "", errAppServerUnavailable
+	}
+	return r.codex.ThreadCwd(ctx, sessionID)
+}
+
 // dshBackend 暴露 DSH 后端（可能为 nil）。
 func (r *routingChatBackend) dshBackend() *dshChatBackend {
 	if r == nil {
