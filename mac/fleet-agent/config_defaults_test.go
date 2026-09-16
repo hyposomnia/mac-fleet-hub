@@ -71,3 +71,30 @@ func TestLoadConfigAllowsExplicitIsolatedCodexDaemon(t *testing.T) {
 		t.Fatalf("isolated launchctl operations got %#v want %#v", got, wantLaunchctl)
 	}
 }
+
+// DSH 默认开启：装了 DSH Desktop 的机器只要 Desktop 一起来就该立刻能用，
+// 不需要逐台配置。显式设 0 仍可让单机退出。
+func TestLoadConfigEnablesDSHByDefault(t *testing.T) {
+	t.Setenv("HOME", "/Users/tester")
+	t.Setenv("FLEET_DSH_ENABLED", "")
+	t.Setenv("FLEET_DSH_HOME", "")
+	t.Setenv("FLEET_DSH_LOG", "")
+
+	config := loadConfig()
+	if !config.DSHEnabled {
+		t.Fatal("DSHEnabled 默认应为 true（显式设 0 才退出）")
+	}
+	// 路径默认值必须是 DSH Desktop 的真实位置，而不是 DSH CLI 自己的 ~/.dsh——
+	// 指错就看不到 Desktop 的会话，而且这件事不会自己报错。
+	if want := "/Users/tester/Library/Application Support/dsh-desktop/harness"; config.DSHHome != want {
+		t.Fatalf("DSHHome got %q want %q", config.DSHHome, want)
+	}
+	if want := "/Users/tester/Library/Logs/DSH Desktop/harness.log"; config.DSHLog != want {
+		t.Fatalf("DSHLog got %q want %q", config.DSHLog, want)
+	}
+
+	t.Setenv("FLEET_DSH_ENABLED", "0")
+	if loadConfig().DSHEnabled {
+		t.Fatal("显式设 0 时应关闭")
+	}
+}

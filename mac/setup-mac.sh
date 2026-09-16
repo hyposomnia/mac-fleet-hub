@@ -728,15 +728,18 @@ if [[ -n "${FLEET_UPDATE_BASE:-}" ]]; then
 fi
 # 重渲染 fleet-agent plist 时，保留已安装 plist 里显式设过的 DSH 开关。
 #
-# FLEET_DSH_ENABLED 是按机器灰度的开关：哪些 Mac 接 DSH 是运维的显式选择。
-# 若每次重跑安装/发布都把模板默认值（0）写回去，已经开好的机器会在下次发布时
-# 被悄悄关掉——本机就是这么发现问题的（发布重渲染后 ENABLED 变回 0）。
+# FLEET_DSH_ENABLED 默认开启：装了 DSH Desktop 的机器一起 Desktop 就该立刻能用，
+# 不需要逐台配置。显式设 0 可让某台机器退出（例如不跑 DSH Desktop 的机器）。
+#
+# 这里读已安装 plist 的值作为默认，而不是直接用 0：若每次重跑安装/发布都把
+# 模板默认值写回去，已经显式关掉的机器会被重新打开（反之亦然）——本机踩过这个坑
+# （发布重渲染后 ENABLED 被写回 0，把已开好的机器关掉了）。
 # 显式传入 DSH_ENABLED 时仍然以传入值为准。
 dsh_enabled_default() {
   local installed="$HOME/Library/LaunchAgents/com.macfleet.fleet-agent.plist"
   local current
   current="$(/usr/bin/plutil -extract EnvironmentVariables.FLEET_DSH_ENABLED raw -o - "$installed" 2>/dev/null || true)"
-  printf '%s' "${current:-0}"
+  printf '%s' "${current:-1}"
 }
 
 render() { # src dst
