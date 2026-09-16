@@ -24,7 +24,8 @@ Fleet 的自绘聊天目前只支持 Codex：`chat.go` / `chat_queue.go` 用 `Ch
 2. fleet-agent 以**客户端身份**接入 Desktop 正在运行的 DSH host（shared 模式），由 agent 独占持有
    DSH 连接并把结果投影为现有 `ChatEvent`，浏览器不感知 DSH 协议。
 3. **不引入第二个 DSH 写入方**：Fleet 绝不自己启动 `dsh` 进程，绝不写 DSH 的 `sessions/` 或 `storages/`。
-4. Desktop 未运行或连接中断时**优雅降级**：会话列表退化为只读磁盘扫描，写操作明确报错，不静默失败。
+4. Desktop 未运行或连接中断时**明确报错**：写操作返回 `dsh_host_unavailable`，会话列表为空并带
+   `degraded: true`，dashboard 显示降级提示。**不做只读磁盘列表**——见下方"实现期的三处偏离"。
 5. 复用现有 `chatBackend` 接口与 `ChatEvent` 契约，**dashboard 的 `chat_model.js` reducer 不做语义改动**。
 
 ## 非目标
@@ -71,8 +72,9 @@ DSH 的 WS 连接是 agent↔host 的 loopback 连接，**不暴露给浏览器*
 |---|---|---|
 | `mac/fleet-agent/dsh_client.go` | DSH 线协议客户端：一元 envelope、`remote.mux` 多路复用、错误码翻译、重连 | 新建 |
 | `mac/fleet-agent/dsh_discovery.go` | 端点与凭据发现：解析 `harness.log` 取 (port, token)、token 换 cookie、`.credentials.yaml` 自签 cookie 兜底 | 新建 |
-| `mac/fleet-agent/dsh_chat.go` | `chatBackend` 实现：列表/历史/发送/steer/审批/打断/控制态；`$events` waterfall 订阅；事件 → `ChatEvent` 映射 | 新建 |
-| `mac/fleet-agent/dsh_scan.go` | host 不可用时的会话列表降级：扫 `sessions/--<projectKey(cwd)>--/<id>/session.jsonl.zstd` 只解第一帧 | 新建 |
+| `mac/fleet-agent/dsh_eventmap.go` | 纯映射层：会话事件 / 打包行 → `ChatEvent`（可表驱动测试） | 新建 |
+| `mac/fleet-agent/dsh_chat.go` | `chatBackend` 实现：列表/历史/发送/steer/审批/打断/控制态；`$events` waterfall 订阅与 follow 扇出 | 新建 |
+| `mac/fleet-agent/chat_backend_router.go` | 按 assistant 分派到 Codex / DSH 后端（唯一的装配点） | 新建 |
 | `mac/fleet-agent/main.go` | `normAssistant` 增加 `"dsh"`；`handleSessions` 增加 dsh 分支（走 `dsh` 列表，host 不可用时降级扫描）；`scanSessionsFor` 分发；`/api/info` 增加 dsh 能力字段；`cfg` 增加 DSH 配置 | 修改 |
 | `mac/fleet-agent/chat.go` | 32 处 `assistant != "codex"` 守卫改为按后端能力判定（见「能力化的 assistant 守卫」） | 修改 |
 | `mac/fleet-agent/chat_queue.go` | 同样是能力判定；队列键已按 `(assistant, sessionID)` 分区，无需改结构 | 修改 |
@@ -131,11 +133,10 @@ body = `{"version":1,"authority":"127.0.0.1:<port>","issuedAt":<ms>,"expiresAt":
   `sessionId/updatedAt/running/blank/cwd/projections{title,tokenUsage,contextPressure,…}`。
 - **过滤**：排除子代理会话（裸 uuid 形态的 id、header `origin == "subagent"` 或 `delegationDepth > 0`），
   与 Codex 侧排除 subagent 的规则对齐。
-- **降级路径**：host 不可用时，扫 `$DSH_HOME/sessions/--*/` 下每个 `session.jsonl.zstd`，
-  **只解压第一帧**取 header（`{type:"session",version,id,createdAt,cwd,delegationDepth,agentPreset}`），
-  得到 id/cwd/时间，无标题无用量。响应里带 `degraded: true`，dashboard 显示"Desktop 未运行，仅显示磁盘会话"。
-  该路径**不需要** `projectKey`：cwd 是从 header 读出来的，只正向遍历目录即可。
-  （`projectKey(cwd)` 的精确规则已记录在 dev 记忆 `dsh-control-plane.md`，等真出现 cwd→目录反查的调用方再实现。）
+- **降级路径：不做。** 原设计打算在 host 不可用时扫 `$DSH_HOME/sessions/--*/` 只解第一帧取 header，
+  实现期否决了它：Go 标准库没有 zstd 解码器，要读那些 `.jsonl.zstd` 就得新增第三方依赖或依赖 brew 的
+  `zstd` CLI（而已签名公证的 agent 不该依赖 brew）。更关键的是 shared 模式下没有 host 就没有可驱动的
+  会话——历史、发送、审批全都要经它，列出打不开的会话只会误导。host 不可用时列表为空 + `degraded: true`。
 
 ### 2. 历史与实时流（`session/follow`）
 
@@ -377,8 +378,6 @@ Desktop 重启会换 port/token，任何 401/连接拒绝触发一次"失效重�
 
 1. **`dsh_discovery_test.go`**
    - `harness.log` 尾部解析：多条 `dsh web:` 行取最后一条；行被截断/无匹配/文件不存在 → 返回明确错误。
-   - `projectKey(cwd)` 表驱动：ASCII、中文（`个` → `~4E2A`）、Windows 反斜杠、冒号、空串抛错、
-     `undefined` → `_no-cwd`、超长截断到 251。**用侦察里实测过的两个真实样例做断言**。
    - cookie 自签：给定固定 secret / authority / 时间戳，断言输出与手工计算的 HMAC 串一致（固定向量），
      并断言 `expiresAt - issuedAt > 30d` 时被拒绝。
 2. **`dsh_client_test.go`**（`httptest.Server` + `httptest` WS，不需要真实 Desktop）
@@ -419,11 +418,26 @@ Desktop 重启会换 port/token，任何 401/连接拒绝触发一次"失效重�
 
 ## 交付物
 
-1. 五个新 Go 文件 + 两处 Go 修改（`main.go`、`chat.go`/`chat_queue.go` 能力化）。
+1. 六个新 Go 文件（`chat_capabilities.go` / `chat_backend_router.go` / `dsh_discovery.go` / `dsh_client.go` / `dsh_eventmap.go` / `dsh_chat.go`）+ 三处 Go 修改（`main.go` 接线、`chat.go` 与 `chat_queue.go` 能力化、`codex_chat.go` 装配路由）。
 2. plist + `setup-mac.sh` 的配置注入。
 3. dashboard 三处改动（`index.html`、`app.js`；`chat_model.js` 不动）。
 4. 测试与 fixture：`mac/fleet-agent/testdata/dsh/` 下的真实帧样本。
 5. CHANGELOG 条目。
-6. 重建 `mac/fleet-agent/dist/` 双架构产物（改 `main.go` 后必须重建，否则二进制与源码不一致）。
+6. **不重建 `mac/fleet-agent/dist/`**：其中是签名构建机产出的 Developer ID 签名产物，按 AGENTS.md 禁止用本地未签名编译覆盖；正式发布由签名机重建并签名。
 7. **发布走现有正式通道**：`scripts/release-fleet-agent.sh`（签名构建机 Developer ID 签名 + 公证），
    不得在其他 Mac 本地编译后直接覆盖生产分发源。
+
+## 实现期的三处偏离（已落地）
+
+规格在实现过程中被真实证据修正了三处，均已在代码与测试中体现：
+
+1. **能力位从 3 个收敛为 2 个**（删掉 `Interactions`）。handler 层所有端点问的都是同一个问题——
+   "这个 assistant 有没有自绘聊天面"，审批属于这个面而不是独立能力；只有服务端队列/访问态是真正
+   可能缺席的一维。等出现第三种组合时再拆。
+2. **不做 `projectKey`**（原计划用于 cwd → 会话目录反查）。降级扫描被砍掉之后它就没有调用方了，
+   写了就是死代码。精确规则已记进 dev 记忆，等真有调用方再实现。
+3. **不做磁盘降级列表**（原 Phase F / `dsh_scan.go`）。理由见「数据流 1 → 降级路径」。
+
+另外两条规格里写了但 v1 明确不做的写入面，代码里以 `errDSHUnsupported` 可读报错：
+权限预设（`settings/mutate` 会改用户真实 DSH 配置）与技能目录（`skills/list` 是 stream，
+请求形状未在真机验证）。会话级授权 `acceptForSession` 同样明确拒绝，不降级成「允许一次」。
