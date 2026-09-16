@@ -491,7 +491,7 @@ func handleChatStart(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	assistant := normAssistant(req.Assistant)
-	if assistant != "codex" {
+	if !chatCapabilities(assistant).SelfDraw {
 		writeErr(w, http.StatusNotImplemented, "unsupported_assistant", "自绘界面暂只支持 Codex。")
 		return
 	}
@@ -538,7 +538,7 @@ func handleChatResume(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	assistant := normAssistant(req.Assistant)
-	if assistant != "codex" {
+	if !chatCapabilities(assistant).SelfDraw {
 		writeErr(w, http.StatusNotImplemented, "unsupported_assistant", "自绘界面暂只支持 Codex。")
 		return
 	}
@@ -573,7 +573,7 @@ func handleChatSettings(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	assistant := normAssistant(req.Assistant)
-	if assistant != "codex" {
+	if !chatCapabilities(assistant).SelfDraw {
 		writeErr(w, http.StatusNotImplemented, "unsupported_assistant", "自绘界面暂只支持 Codex。")
 		return
 	}
@@ -635,7 +635,7 @@ func handleChatInput(w http.ResponseWriter, r *http.Request) {
 		sendText = ""
 	}
 	assistant := normAssistant(req.Assistant)
-	if assistant != "codex" {
+	if !chatCapabilities(assistant).SelfDraw {
 		writeErr(w, http.StatusNotImplemented, "unsupported_assistant", "自绘界面暂只支持 Codex。")
 		return
 	}
@@ -711,7 +711,7 @@ func handleChatSteer(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	assistant := normAssistant(req.Assistant)
-	if assistant != "codex" {
+	if !chatCapabilities(assistant).SelfDraw {
 		writeErr(w, http.StatusNotImplemented, "unsupported_assistant", "自绘界面暂只支持 Codex。")
 		return
 	}
@@ -763,7 +763,7 @@ func handleChatSkills(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	assistant := normAssistant(req.Assistant)
-	if assistant != "codex" {
+	if !chatCapabilities(assistant).SelfDraw {
 		writeErr(w, http.StatusNotImplemented, "unsupported_assistant", "自绘界面暂只支持 Codex。")
 		return
 	}
@@ -871,7 +871,7 @@ func handleChatHistory(w http.ResponseWriter, r *http.Request) {
 	assistant := normAssistant(r.URL.Query().Get("assistant"))
 	sessionID := r.URL.Query().Get("sessionId")
 	cursor := r.URL.Query().Get("cursor")
-	if assistant != "codex" {
+	if !chatCapabilities(assistant).SelfDraw {
 		writeErr(w, http.StatusNotImplemented, "unsupported_assistant", "自绘界面暂只支持 Codex。")
 		return
 	}
@@ -924,7 +924,7 @@ func handleChatUpload(w http.ResponseWriter, r *http.Request) {
 	}
 	assistant := normAssistant(r.FormValue("assistant"))
 	sessionID := r.FormValue("sessionId")
-	if assistant != "codex" || sessionID == "" {
+	if !chatCapabilities(assistant).SelfDraw || sessionID == "" {
 		http.Error(w, "bad request", http.StatusBadRequest)
 		return
 	}
@@ -1098,7 +1098,7 @@ func handleChatEvents(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "bad request", http.StatusBadRequest)
 		return
 	}
-	if assistant != "codex" {
+	if !chatCapabilities(assistant).SelfDraw {
 		writeErr(w, http.StatusNotImplemented, "unsupported_assistant", "自绘界面暂只支持 Codex。")
 		return
 	}
@@ -1151,7 +1151,7 @@ func handleChatInterrupt(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	assistant := normAssistant(req.Assistant)
-	if assistant != "codex" {
+	if !chatCapabilities(assistant).SelfDraw {
 		writeErr(w, http.StatusNotImplemented, "unsupported_assistant", "自绘界面暂只支持 Codex。")
 		return
 	}
@@ -1180,7 +1180,7 @@ func handleChatRelease(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	assistant := normAssistant(req.Assistant)
-	if assistant != "codex" {
+	if !chatCapabilities(assistant).SelfDraw {
 		writeErr(w, http.StatusNotImplemented, "unsupported_assistant", "自绘界面暂只支持 Codex。")
 		return
 	}
@@ -1214,7 +1214,7 @@ func handleChatAccess(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	assistant := normAssistant(req.Assistant)
-	if assistant != "codex" {
+	if !chatCapabilities(assistant).SelfDraw {
 		writeErr(w, http.StatusNotImplemented, "unsupported_assistant", "自绘界面暂只支持 Codex。")
 		return
 	}
@@ -1274,7 +1274,7 @@ func handleChatRespond(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	assistant := normAssistant(req.Assistant)
-	if assistant != "codex" {
+	if !chatCapabilities(assistant).SelfDraw {
 		writeErr(w, http.StatusNotImplemented, "unsupported_assistant", "自绘界面暂只支持 Codex。")
 		return
 	}

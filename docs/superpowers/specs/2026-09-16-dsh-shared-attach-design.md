@@ -242,25 +242,31 @@ DSH 会话事件（`SessionEventMap` 取值域）→ `ChatEvent.Type`。映射�
 
 ## 能力化的 assistant 守卫
 
-现状是 32 处硬编码 `assistant != "codex"`。改为一处能力查询：
+现状是散落的硬编码 `assistant != "codex"`：**handler 层 16 处**（`chat.go` 13、`chat_queue.go` 3）需要能力化；
+`codex_chat.go` 里 12 处是 Codex 后端自身的契约检查（保留），`main.go` 里 4 处是路由分发（属 Phase G）。
 
 ```go
-// chat.go
+// chat_capabilities.go
 type assistantCapabilities struct {
-    SelfDraw     bool // 是否支持自绘聊天
-    Queue        bool // 是否支持持久队列与 steer
-    Interactions bool // 是否支持审批/提问往返
+    SelfDraw bool // 支持自绘聊天面：列表、历史、发送、流式、审批往返
+    Queue    bool // 支持服务端持久队列、steer 与访问态控制
 }
 
 func chatCapabilities(assistant string) assistantCapabilities
 ```
 
-- `codex` → 全 `true`
-- `dsh` → 全 `true`（v1 目标就是对齐 Codex）
-- `claude` / 未知 → 全 `false`（保持现有行为不变，Claude 仍走终端）
+- `codex` → 两位均 `true`
+- `dsh` → 两位均 `true`（接入完成时打开；实现期先保持 `false`，避免暴露半成品 tab）
+- `claude` / 未知 → 两位均 `false`（保持现有行为不变，Claude 仍走终端）
 
-所有 `assistant != "codex"` 的 501 分支改为 `if !cap.SelfDraw { 501 }`。
-`chat_queue.go` 里 `assistant != "codex"` 的分支同理（队列键已是 `(assistant, sessionID)`，结构不变）。
+**只保留两个维度，刻意不拆第三个。** 原设计里的 `Interactions`（审批/提问往返）被删掉：handler 层所有
+端点问的都是同一个问题——"这个 assistant 有没有自绘聊天面"，审批属于这个面的一部分而不是独立能力；
+只有服务端队列/访问态是真正可能缺席的一维（一个只读渲染磁盘会话、不参与排队与 writer 租约的
+assistant 就是 `SelfDraw` 有而 `Queue` 无）。等真的出现第三种组合时再拆，不预先发明维度。
+
+handler 层 501 分支改为 `if !chatCapabilities(assistant).SelfDraw { 501 }`；
+`chat_queue.go` 的三处改为 `if !chatCapabilities(assistant).Queue || sessionID == "" { … }`
+（队列键已是 `(assistant, sessionID)`，结构不变）。
 
 **这一步是纯重构，必须单独一次提交并先跑全绿测试**，确保 Claude 行为零变化，再在其上接 DSH。
 
