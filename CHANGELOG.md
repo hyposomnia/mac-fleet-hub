@@ -2,6 +2,9 @@
 
 ## 2026-09-16
 
+- 修复 `scripts/release-fleet-agent.sh` 在 macOS 自带 `/bin/bash` 3.2 下**第一步预检就崩**：脚本里 `$VAR` 后面紧跟全角字符（`「」（）`）时，bash 3.2 会把多字节字符的首字节并入变量名，`set -u` 下报 `NOTARY_PROFILE?: unbound variable` 直接退出，把唯一正式发布入口挡死。4 处改为 `${VAR}` 写法；其中两处在 `die` 错误分支，平时不触发因此一直没暴露。本机无 homebrew bash 5，只能靠写法规避。
+- 新增 `tests/bash-var-brace_test.sh`（已接入 `scripts/verify.sh`）：守卫全部 `*.sh`，禁止 `$VAR` 紧邻非 ASCII 字符；不豁免注释行，避免示例文字被自己的守卫命中。
+- **DSH 灰度开关默认值翻转为开启**（`FLEET_DSH_ENABLED` 缺省即 `1`，显式 `0` 单机退出）：装了 DSH Desktop 的机器装上 agent 就能直接看到 DSH 入口，不再需要逐台设环境变量；上方「默认关闭」的灰度描述以本条为准。`mac/setup-mac.sh` 重渲染 plist 时会保留机器上既有的 DSH 开关，不会被重跑覆盖。
 - 新增第三个自绘聊天 assistant **DeepSeek Harness（标识 `dsh`）**，能力对齐现有 Codex：会话列表、历史分页、发送/排队/steer、流式正文与思考、工具调用、审批与提问往返、打断。Fleet 以**客户端身份**挂到 DSH Desktop 已经跑着的 harness host 上（loopback `POST /api/<ns>/<method>` + WebSocket `/api/remote.mux`），由 host 持有唯一的持久化写入方，因此 Fleet 侧不引入第二个写入方、也没有 writer 租约可释放；agent 只用 loopback 连接，不新增 nginx location、不代理 DSH 原生 GUI、不接管模型凭据（模型调用由 host 自己完成）。默认关闭，由 `FLEET_DSH_ENABLED=1` 按机器灰度开启；`/api/info` 上报 `dsh.{enabled,installed,hostRunning,endpoint,authMode,degraded}` 供入口显隐与降级提示。
 - 自绘链路的 assistant 判定从散落的 16 处 `assistant != "codex"` 守卫收敛为 `assistantCapabilities{SelfDraw, Queue}` 单点判定，并新增按 assistant 分派的路由后端；这是纯重构，Claude 仍走 tmux/ttyd 终端、行为零变化。
 - DSH 会话事件映射按编解码器的不变式展开打包行（`chunkrow/text-chunks` 等）：成员数取 `texts`/`args` 长度、首成员身份取 `seq`/`time`、`dt` 长度必须恰为成员数 − 1，不成立时整行丢弃而不是静默错位。

@@ -46,14 +46,14 @@ require_notary_credentials() {
   local out
   out="$(xcrun notarytool history --keychain-profile "$NOTARY_PROFILE" 2>&1 || true)"
   if grep -q "No Keychain password item found" <<<"$out"; then
-    die "钥匙串中没有公证凭据 profile「$NOTARY_PROFILE」，无法提交 Apple 公证。先在图形会话的终端里执行：
+    die "钥匙串中没有公证凭据 profile「${NOTARY_PROFILE}」，无法提交 Apple 公证。先在图形会话的终端里执行：
     xcrun notarytool store-credentials $NOTARY_PROFILE --apple-id <Apple ID> --team-id <Team ID> --password <App 专用密码>"
   fi
   if grep -qi "keychainLocked\|User interaction is not allowed" <<<"$out"; then
     echo "⚠️  当前会话访问不到钥匙串，跳过公证凭据预检；请在图形会话的终端里执行正式发布。"
     return 0
   fi
-  echo "公证凭据 profile「$NOTARY_PROFILE」可用。"
+  echo "公证凭据 profile「${NOTARY_PROFILE}」可用。"
 }
 
 ssh_retry() { # port target description command
@@ -68,7 +68,7 @@ ssh_retry() { # port target description command
 }
 
 [[ "$(uname -s)" == "Darwin" ]] || die "发布必须在持有 Developer ID 私钥的 macOS 构建机运行。"
-[[ -r "$CONFIG_FILE" ]] || die "缺少私有配置：$CONFIG_FILE（参考 scripts/release-fleet-agent.env.example）。"
+[[ -r "$CONFIG_FILE" ]] || die "缺少私有配置：${CONFIG_FILE}（参考 scripts/release-fleet-agent.env.example）。"
 # shellcheck disable=SC1090
 source "$CONFIG_FILE"
 
@@ -89,7 +89,7 @@ fi
 command -v ssh >/dev/null || die "未找到 ssh。"
 command -v scp >/dev/null || die "未找到 scp。"
 [[ "$("$TAILSCALE_BIN" ip -4 2>/dev/null | head -n1)" == "$FLEET_RELEASE_BUILDER_IP" ]] \
-  || die "当前机器不是签名构建机 $FLEET_RELEASE_BUILDER_IP。"
+  || die "当前机器不是签名构建机 ${FLEET_RELEASE_BUILDER_IP}。"
 
 if [[ "$MODE" == "check" ]]; then
   step "检查签名构建机与 Developer ID"

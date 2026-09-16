@@ -30,4 +30,7 @@ bash "$ROOT/tests/check-codex-idle_test.sh"
 step "nginx 站点配置测试：tests/nginx-config_test.sh"
 bash "$ROOT/tests/nginx-config_test.sh"
 
+step "shell 变量花括号守卫：tests/bash-var-brace_test.sh"
+bash "$ROOT/tests/bash-var-brace_test.sh"
+
 printf '\n==> 全部验证通过 ✓\n'
