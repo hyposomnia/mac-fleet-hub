@@ -37,6 +37,11 @@ mac/fleet-agent/fleet-agent
 # 个人部署笔记 / 私有资料（本地保留，不入库）
 .private/
 
+# 并行开发用的嵌套 worktree 与构建缓存目录（本地工作区，不入库）
+.worktrees/
+.gocache/
+.gotmp/
+
 # 系统杂项
 .DS_Store
 *.log
