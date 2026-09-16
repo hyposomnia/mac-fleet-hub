@@ -119,6 +119,10 @@ if rg -qF -- '__DSH_' "$rendered_agent"; then
   fail "fleet-agent plist 渲染后仍残留 DSH 占位符"
 fi
 contains "$SETUP" '__DSH_ENABLED__'
+# DSH 开关必须"sticky"：重渲染 plist 时保留已安装里的值，
+# 否则下次发布会把已经开好的机器悄悄关回去。
+contains "$SETUP" 'dsh_enabled_default()'
+contains "$SETUP" 's#__DSH_ENABLED__#${DSH_ENABLED:-$(dsh_enabled_default)}#g'
 contains "$SETUP" '__DSH_HOME__'
 contains "$SETUP" '__DSH_LOG__'
 
