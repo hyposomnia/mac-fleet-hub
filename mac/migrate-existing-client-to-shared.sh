@@ -27,15 +27,21 @@ json_field() {
 #
 # 所以所有走 agent chat 接口的 UAT 探针都经这个助手：成功时把响应体写到 stdout，
 # 503/连不上按 deadline 重试（上限 $1 次），其它码视为真错误立刻停；最终失败时打印
-# HTTP 码与响应体——否则日志里只剩 curl 的 `error: 503`，分不清是哪种原因。
+# HTTP 码、**curl 退出码**与响应体。
 #
-# 用法：agent_api_retry <最大次数> <curl 参数...>
+# 退出码一定要打：`--max-time` 超时（rc=28）与连接被拒（rc=7）都表现为
+# `http=000` + 空 body，不打 rc 就分不清——2026-09-16 就因为探针超时被当成
+# 「agent 连不上」，白排查了一轮。超时值也按调用点给：chat/resume 首次恢复
+# 要拉整段历史，实测 17.6s，给 10s 会每次都超时。
+#
+# 用法：agent_api_retry <最大次数> <单次超时秒> <curl 参数...>
 agent_api_retry() {
-  local attempts="$1"; shift
-  local n=0 resp code body
+  local attempts="$1" timeout="$2"; shift 2
+  local n=0 resp code body rc
   while :; do
     n=$((n + 1))
-    resp="$(curl -sS --max-time 10 -w '\n%{http_code}' "$@" 2>/dev/null || true)"
+    rc=0
+    resp="$(curl -sS --max-time "$timeout" -w '\n%{http_code}' "$@" 2>/dev/null)" || rc=$?
     code="$(printf '%s' "$resp" | tail -n1)"
     body="$(printf '%s' "$resp" | sed '$d')"
     if [[ "$code" == "200" ]]; then
@@ -50,7 +56,7 @@ agent_api_retry() {
     fi
     sleep 1
   done
-  echo "shared migration failed: agent API 调用试了 ${n} 次仍失败：http=${code:-<连不上>} body=${body:-<空>} args=$*" >&2
+  echo "shared migration failed: agent API 调用试了 ${n} 次仍失败：http=${code:-<无响应>} curl_rc=${rc} timeout=${timeout}s body=${body:-<空>} args=$*" >&2
   exit 1
 }
 
@@ -147,7 +153,7 @@ if /bin/ps -axo ppid=,command= | awk -v pid="$desktop_pid" '$1 == pid && /codex 
 fi
 
 # A read-only skills request forces fleet-agent to initialize its own WS client.
-agent_api_retry 15 -H 'Content-Type: application/json' \
+agent_api_retry 10 30 -H 'Content-Type: application/json' \
   -d "{\"assistant\":\"codex\",\"cwd\":\"$HOME\"}" \
   "http://${ip}:7682/api/chat/skills" >/dev/null
 
@@ -162,10 +168,11 @@ printf '%s\n' "$listener" | grep -q "127.0.0.1:${SHARED_PORT} (LISTEN)" \
 
 # Resume one existing idle thread and prove its physical writer is the same
 # shared server PID, not a private Desktop/Fleet process.
-sessions="$(agent_api_retry 15 "http://${ip}:7682/api/sessions?assistant=codex&scope=active")"
+sessions="$(agent_api_retry 10 20 "http://${ip}:7682/api/sessions?assistant=codex&scope=active")"
 probe_session="$(json_field "$sessions" sessions.0.sessionId)"
 if [[ -n "$probe_session" ]]; then
-  agent_api_retry 15 -H 'Content-Type: application/json' \
+  # 首次恢复要拉整段历史（实测 mac2 上 17.6s），超时给足。
+  agent_api_retry 6 30 -H 'Content-Type: application/json' \
     -d "{\"assistant\":\"codex\",\"sessionId\":\"$probe_session\"}" \
     "http://${ip}:7682/api/chat/resume" >/dev/null
   lock_path="$CODEX_HOME_DIR/thread-writer-locks/$probe_session.lock"
