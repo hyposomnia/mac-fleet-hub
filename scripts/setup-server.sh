@@ -179,8 +179,9 @@ for ip in ${MAC_IPS}; do
 done
 echo "     渲染 ${i} 台 Mac 的反代块（MAC_IPS=${MAC_IPS}）"
 # 先用 awk 把 __MAC_LOCATIONS__ 标记行替换为生成的所有 Mac 块（从文件读，兼容 BSD/GNU awk），
-# 再 sed 替换标量占位。
-awk -v f="$MAC_BLOCKS" '/__MAC_LOCATIONS__/{while((getline line < f)>0) print line; close(f); next} {print}' "$SRV/nginx/fleet.conf" \
+# 再 sed 替换标量占位。注释行里也写了这个占位名（文档用），必须跳过，否则整段 Mac 块会被
+# 插进文件头注释里，造成 location 重复、nginx -t 失败。
+awk -v f="$MAC_BLOCKS" '!/^[[:space:]]*#/ && /__MAC_LOCATIONS__/{while((getline line < f)>0) print line; close(f); next} {print}' "$SRV/nginx/fleet.conf" \
   | sed -e "s|__FLEET_HOST__|${FLEET_HOST}|g" \
         -e "s|__SSL_CERT__|${SSL_CERT}|g" -e "s|__SSL_KEY__|${SSL_KEY}|g" \
         -e "s|__TTYD_PORT__|${TTYD_PORT}|g" -e "s|__FB_PORT__|${FB_PORT}|g" -e "s|__AGENT_PORT__|${AGENT_PORT}|g" \

@@ -17,7 +17,7 @@
        内联以避免首屏闪烁。 -->
   <script>(function () { var t; try { t = localStorage.getItem('fleet-theme'); } catch (e) {} if (t !== 'light' && t !== 'dark') t = matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark'; document.documentElement.dataset.theme = t; document.querySelector('meta[name="theme-color"]').content = t === 'light' ? '#f6f7f9' : '#090c12'; })();</script>
   <link rel="stylesheet" href="vendor/codemirror/lib/codemirror.css?v=5.65.20" />
-  <link rel="stylesheet" href="style.css?v=122" />
+  <link rel="stylesheet" href="style.css?v=124" />
 </head>
 <body>
   <div id="network-status" class="network-status" role="status" hidden>
@@ -160,6 +160,7 @@
             <div class="file-sources-head"><h1>文件</h1></div>
             <div class="file-source-label">个人收藏</div>
             <nav id="file-locations" class="file-location-list" aria-label="文件位置"></nav>
+            <div id="file-upload-queue" class="file-upload-queue" aria-label="上传队列" hidden></div>
           </aside>
           <section class="file-main">
             <header class="file-toolbar">
@@ -171,6 +172,7 @@
                   <button id="file-settings" class="iconbtn file-settings-trigger" title="文件设置" aria-label="文件设置" aria-haspopup="dialog" aria-controls="file-settings-menu" aria-expanded="false"><svg class="ic" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.87l.04.04-2.87 2.87-.04-.04A1.7 1.7 0 0 0 15 19.4a1.7 1.7 0 0 0-1 1.55V21h-4v-.05A1.7 1.7 0 0 0 9 19.4a1.7 1.7 0 0 0-1.87.34l-.04.04-2.87-2.87.04-.04A1.7 1.7 0 0 0 4.6 15a1.7 1.7 0 0 0-1.55-1H3v-4h.05A1.7 1.7 0 0 0 4.6 9a1.7 1.7 0 0 0-.34-1.87l-.04-.04 2.87-2.87.04.04A1.7 1.7 0 0 0 9 4.6a1.7 1.7 0 0 0 1-1.55V3h4v.05A1.7 1.7 0 0 0 15 4.6a1.7 1.7 0 0 0 1.87-.34l.04-.04 2.87 2.87-.04.04A1.7 1.7 0 0 0 19.4 9a1.7 1.7 0 0 0 1.55 1H21v4h-.05a1.7 1.7 0 0 0-1.55 1Z"/></svg></button>
                 </div>
               </div>
+              <div id="file-upload-queue-mobile" class="file-upload-queue file-upload-queue-inline" aria-label="上传队列" hidden></div>
               <nav id="file-breadcrumbs" class="file-breadcrumbs" aria-label="路径"></nav>
               <div class="file-searchbar">
                 <svg class="ic" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><line x1="16.5" y1="16.5" x2="21" y2="21"/></svg>
@@ -507,9 +509,10 @@
   <script src="vendor/codemirror/mode/yaml/yaml.js?v=5.65.20"></script>
   <script src="vendor/codemirror/mode/toml/toml.js?v=5.65.20"></script>
   <script src="vendor/codemirror/mode/properties/properties.js?v=5.65.20"></script>
-  <script src="markdown.js?v=122"></script>
-  <script src="preview.js?v=122"></script>
-  <script src="chat_model.js?v=122"></script>
-  <script src="app.js?v=122"></script>
+  <script src="markdown.js?v=124"></script>
+  <script src="preview.js?v=124"></script>
+  <script src="chat_model.js?v=124"></script>
+  <script src="upload_model.js?v=124"></script>
+  <script src="app.js?v=124"></script>
 </body>
 </html>

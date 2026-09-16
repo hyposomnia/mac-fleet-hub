@@ -153,6 +153,12 @@ const state = {
   fileEntries: [],
   fileLocations: [],
   filePaths: {},
+  fileUploads: FleetUploadModel.createQueue(), // 上传队列：串行，一次只传一个文件
+  fileUploadPumping: false,      // 队列泵是否在跑
+  fileUploadPanelOpen: false,    // 上传进度面板是否可见
+  fileUploadHideTimer: null,
+  fileUploadRenderTimer: null,
+  fileDirectoryRefreshTimer: null,
   fileSearch: '',
   fileShowHidden: false,
   fileView: 'list',     // icons | list | columns
@@ -236,11 +242,13 @@ function groupSessionsByProject(sessions) {
 }
 function macName(id) { return macNames[id] || ('Mac ' + id.slice(1)); }
 function assistantLabel(a = state.assistant) { return a === 'codex' ? 'Codex' : 'Claude'; }
+// nginx 或 agent 直接返回的 413 响应体是 HTML，解析不出 message，用它兜底。
+const TOO_LARGE_MESSAGE = '文件太大，超过了上传上限（单文件最大 512 MB）。';
 async function api(id, path, opts) {
   const r = await fetch(`${apiBase(id)}/api/${path}`, opts);
   if (!r.ok) {
     // 后端错误体 {error,message}：优先展示可读 message（如 pty 耗尽），回退状态码
-    let msg = `${path}: ${r.status}`;
+    let msg = r.status === 413 ? TOO_LARGE_MESSAGE : `${path}: ${r.status}`;
     let code = '';
     try {
       const j = await r.json();
@@ -1453,7 +1461,7 @@ function chatSkillTokenNames(value) {
   return Array.from(String(value || '').matchAll(/(?<!\S)[$/]([A-Za-z0-9_.:-]+)(?=$|\s)/g), (match) => match[1]);
 }
 
-function parseChatSkillInput(value, available, preferredIDs = {}) {
+function chatSkillChoices(available, preferredIDs = {}) {
   const byName = new Map();
   for (const skill of available || []) {
     if (!skill?.name) continue;
@@ -1461,6 +1469,25 @@ function parseChatSkillInput(value, available, preferredIDs = {}) {
     if (!current || (preferredIDs?.[skill.name] && preferredIDs[skill.name] === skill.id)) {
       byName.set(skill.name, skill);
     }
+  }
+  const choices = Array.from(byName.values());
+  const shortName = (name) => name.replace(/^app-[a-f0-9]{32}:/i, '');
+  const labelCounts = new Map();
+  for (const skill of choices) {
+    const label = shortName(skill.name);
+    labelCounts.set(label, (labelCounts.get(label) || 0) + 1);
+  }
+  return choices.map((skill) => ({
+    ...skill,
+    label: labelCounts.get(shortName(skill.name)) === 1 ? shortName(skill.name) : skill.name,
+  }));
+}
+
+function parseChatSkillInput(value, available, preferredIDs = {}) {
+  const byName = new Map();
+  for (const skill of chatSkillChoices(available, preferredIDs)) {
+    byName.set(skill.name, skill);
+    byName.set(skill.label, skill);
   }
   const skills = [];
   const seen = new Set();
@@ -1533,7 +1560,7 @@ function renderChatSkillMenu(chat) {
       onmousedown: (event) => event.preventDefault(),
       onclick: () => selectChatSkill(itemIndex),
     },
-    h('span', { class: 'chat-skill-name', text: `${marker}${skill.name}` }),
+    h('span', { class: 'chat-skill-name', text: `${marker}${skill.label}` }),
     h('span', { class: 'chat-skill-description', text: skill.description || '' })));
   });
   menu.hidden = items.length === 0;
@@ -1552,7 +1579,10 @@ function updateChatSkillMenu() {
     return;
   }
   const query = trigger.query.toLowerCase();
-  const items = chat.skills.filter((skill) => skill.name.toLowerCase().includes(query)).slice(0, 12);
+  const items = chatSkillChoices(chat.skills, chat.skillPreferences)
+    .filter((skill) => skill.label.toLowerCase().includes(query))
+    .sort((a, b) => Number(b.label.toLowerCase().startsWith(query)) - Number(a.label.toLowerCase().startsWith(query)))
+    .slice(0, 12);
   if (!items.length) { closeChatSkillMenu(); return; }
   const previousID = chat.skillMenu?.items?.[chat.skillMenu.index]?.id;
   const previousIndex = items.findIndex((skill) => skill.id === previousID);
@@ -1566,7 +1596,7 @@ function selectChatSkill(index = state.chat?.skillMenu?.index || 0) {
   const menu = chat?.skillMenu;
   const skill = menu?.items?.[index];
   if (!input || !skill) return;
-  const token = `${menu.marker}${skill.name} `;
+  const token = `${menu.marker}${skill.label} `;
   input.value = input.value.slice(0, menu.start) + token + input.value.slice(menu.end);
   const caret = menu.start + token.length;
   input.setSelectionRange(caret, caret);
@@ -1622,12 +1652,6 @@ function chatOwnershipPresentation(chat) {
       className: 'readonly',
       text: chat.writerOwner === 'desktop' ? 'Fleet 只读，其他 Codex 客户端正在使用' : 'Fleet 只读，Codex 可接管',
       action: 'enable-write', actionLabel: chat.changingAccess ? '恢复中…' : '恢复 Fleet 写入',
-    };
-  }
-  if (chat.writerOwner === 'fleet') {
-    return {
-      className: '', text: '会话已被 Fleet 占有，如果 Codex 操作受限，可先',
-      action: 'release', actionLabel: chat.releasingWriter ? '释放中…' : '释放会话',
     };
   }
   if (isDesktopChatOwned(chat)) {
@@ -5798,26 +5822,204 @@ async function deleteFileTarget() {
   }
 }
 
-async function uploadFiles(files) {
+// ============================================================
+//  文件上传队列（一次只传一个文件，其余排在队列里等）
+//  进度面板挂在两处：桌面是左侧栏底部，移动端是文件标题下方（CSS 按断点二选一）。
+// ============================================================
+const FILE_UPLOAD_HIDE_DELAY_MS = 4000;   // 队列跑完后进度面板再留多久
+const FILE_UPLOAD_PROGRESS_MS = 120;      // 进度回写节流
+const FILE_UPLOAD_REFRESH_MS = 300;       // 上传落盘后刷新当前目录的延迟（多文件时合并）
+
+function fileUploadQueueHosts() {
+  return ['#file-upload-queue', '#file-upload-queue-mobile'].map((selector) => $(selector)).filter(Boolean);
+}
+
+function enqueueFileUploads(files) {
   const selected = [...(files || [])];
   if (!selected.length || !state.fileMacId) return;
-  let uploaded = 0;
-  const failures = [];
-  $('.file-layout')?.classList.add('is-uploading');
-  for (const file of selected) {
-    const body = new FormData();
-    body.append('file', file, file.name);
-    try {
-      await api(state.fileMacId, `file/upload?path=${encodeURIComponent(state.filePath)}`, { method: 'POST', body });
-      uploaded++;
-    } catch (error) {
-      failures.push(`${file.name}：${error.message}`);
+  // 目标设备与目录在入队时固定：之后切目录/切设备不影响已排队的条目。
+  const created = FleetUploadModel.addFiles(
+    state.fileUploads,
+    selected.map((file) => ({ name: file.name, size: file.size })),
+    { macId: state.fileMacId, path: state.filePath },
+  );
+  created.forEach((item, index) => { item.file = selected[index]; });
+  cancelFileUploadPanelHide();
+  state.fileUploadPanelOpen = true;
+  renderFileUploadQueue();
+  pumpFileUploads();
+}
+
+function cancelFileUploadPanelHide() {
+  if (state.fileUploadHideTimer) { clearTimeout(state.fileUploadHideTimer); state.fileUploadHideTimer = null; }
+}
+
+// 队列跑完（且没有失败）之后面板再留一会儿，让用户看到「完成」。
+function scheduleFileUploadPanelHide() {
+  cancelFileUploadPanelHide();
+  const summary = FleetUploadModel.summary(state.fileUploads);
+  // 有失败或同名跳过时把面板留在屏幕上，让用户看清原因
+  if (summary.busy || summary.failed > 0 || summary.skipped > 0) return;
+  state.fileUploadHideTimer = setTimeout(() => {
+    state.fileUploadHideTimer = null;
+    state.fileUploadPanelOpen = false;
+    FleetUploadModel.clearSettled(state.fileUploads);
+    renderFileUploadQueue();
+  }, FILE_UPLOAD_HIDE_DELAY_MS);
+}
+
+function dismissFileUploadPanel() {
+  cancelFileUploadPanelHide();
+  for (const item of [...state.fileUploads.items]) FleetUploadModel.removeItem(state.fileUploads, item.id);
+  state.fileUploadPanelOpen = false;
+  renderFileUploadQueue();
+}
+
+// 进度事件很密（每个 TCP 分片一次），节流到 ~8fps 再改 DOM。
+function requestFileUploadRender() {
+  if (state.fileUploadRenderTimer) return;
+  state.fileUploadRenderTimer = setTimeout(() => {
+    state.fileUploadRenderTimer = null;
+    renderFileUploadQueue();
+  }, FILE_UPLOAD_PROGRESS_MS);
+}
+
+function fileUploadRowNode(row) {
+  const stateNode = h('span', { class: 'file-upload-state', text: row.stateText });
+  const line = h('div', { class: 'file-upload-line' },
+    h('span', { class: 'file-upload-name', title: row.name, text: row.name }),
+    stateNode);
+  const meta = h('div', { class: 'file-upload-meta' },
+    h('span', { text: `→ ${row.folder || '主目录'}` }),
+    row.size ? h('span', { text: formatBytes(row.size) }) : null);
+  // 只有正在传/刚结束的条目画进度条：整队一根动着的条，比每行都挂一根更清楚。
+  const bar = ['active', 'done', 'error'].includes(row.tone)
+    ? h('div', { class: 'file-upload-bar', dataset: { tone: row.tone } },
+        h('i', { class: 'file-upload-fill', style: `width:${row.percent}%` }))
+    : null;
+  return h('li', { class: 'file-upload-item', dataset: { status: row.status } }, line, meta, bar);
+}
+
+function renderFileUploadQueue() {
+  const hosts = fileUploadQueueHosts();
+  if (!hosts.length) return;
+  const queue = state.fileUploads;
+  const summary = FleetUploadModel.summary(queue);
+  const visible = state.fileUploadPanelOpen && summary.hasRows;
+  const rows = visible ? FleetUploadModel.rows(queue) : [];
+  for (const host of hosts) {
+    clear(host);
+    host.hidden = !visible;
+    if (!visible) continue;
+    const head = h('div', { class: 'file-upload-head' },
+      h('span', { class: 'file-upload-title', text: summary.busy ? '正在上传' : '上传结果' }),
+      h('span', { class: 'file-upload-count', 'aria-live': 'polite', text: summary.counter }));
+    if (!summary.busy) {
+      head.append(h('button', {
+        class: 'iconbtn bare file-upload-clear', type: 'button',
+        title: '清除上传记录', 'aria-label': '清除上传记录', onclick: dismissFileUploadPanel,
+      }, h('span', { class: 'file-upload-clear-glyph', text: '✕' })));
+    }
+    const list = h('ul', { class: 'file-upload-list' });
+    for (const row of rows) list.append(fileUploadRowNode(row));
+    host.append(head, list);
+    // 同名文件不会自动覆盖：告诉用户怎么继续
+    if (summary.skipped) {
+      host.append(h('p', { class: 'file-upload-hint', text: '同名文件未上传：先在文件页删除它，再重新选择该文件。' }));
     }
   }
-  $('.file-layout')?.classList.remove('is-uploading');
-  if (uploaded) toast(`已上传 ${uploaded} 个文件`, 'ok');
-  if (failures.length) toast(failures[0] + (failures.length > 1 ? `，另有 ${failures.length - 1} 个失败` : ''), 'err');
-  loadFileDirectory(state.filePath, { fallback: false });
+}
+
+// 上传前的同名校验：直接问 agent 要目标目录清单，避免几十上百 MB 传完才被 409 顶回来。
+// 拿不到清单（agent 不可达 / 目录没了）时返回 false 照旧上传，让服务端兜底。
+async function targetHasSameName(item) {
+  try {
+    const data = await fetchFileDirectory(item.macId, item.path);
+    return (data.entries || []).some((entry) => FleetUploadModel.sameName(entry.name, item.name));
+  } catch (_) {
+    return false;
+  }
+}
+
+function uploadFailureMessage(xhr) {
+  let payload = null;
+  try { payload = JSON.parse(xhr.responseText || ''); } catch (_) {}
+  if (payload && payload.message) return String(payload.message);
+  if (xhr.status === 413) return TOO_LARGE_MESSAGE;
+  return `上传失败（${xhr.status}）。`;
+}
+
+// fetch 拿不到上传进度，这里必须用 XHR。
+function sendFileUpload(item) {
+  return new Promise((resolve) => {
+    const body = new FormData();
+    body.append('file', item.file, item.name);
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', `${apiBase(item.macId)}/api/file/upload?path=${encodeURIComponent(item.path)}`);
+    if (xhr.upload) {
+      xhr.upload.onprogress = (event) => {
+        if (FleetUploadModel.setProgress(state.fileUploads, item.id, event.loaded, event.total)) requestFileUploadRender();
+      };
+    }
+    xhr.onload = () => {
+      if (xhr.status >= 200 && xhr.status < 300) resolve({ ok: true });
+      else resolve({ ok: false, message: uploadFailureMessage(xhr) });
+    };
+    xhr.onerror = () => resolve({ ok: false, message: '网络中断，上传失败。' });
+    xhr.onabort = () => resolve({ ok: false, message: '上传已取消。' });
+    xhr.send(body);
+  });
+}
+
+// 上传完成后，只有还停在这个目录才刷新列表（用户可能已经翻到别处去了）。
+function scheduleUploadedDirectoryRefresh(item) {
+  if (state.mode !== 'files' || state.fileMacId !== item.macId || state.filePath !== item.path) return;
+  if (state.fileDirectoryRefreshTimer) clearTimeout(state.fileDirectoryRefreshTimer);
+  state.fileDirectoryRefreshTimer = setTimeout(() => {
+    state.fileDirectoryRefreshTimer = null;
+    loadFileDirectory(state.filePath, { fallback: false });
+  }, FILE_UPLOAD_REFRESH_MS);
+}
+
+function finishFileUploadBatch() {
+  const summary = FleetUploadModel.summary(state.fileUploads);
+  const failed = state.fileUploads.items.find((item) => item.status === 'error');
+  if (failed) toast(`${failed.name}：${failed.error}`, 'err');
+  else if (summary.skipped) toast(`${summary.skipped} 个文件同名已存在，已跳过`, 'err');
+  else if (summary.total) toast(`已上传 ${summary.total} 个文件`, 'ok');
+  scheduleFileUploadPanelHide();
+}
+
+async function pumpFileUploads() {
+  if (state.fileUploadPumping) return;
+  state.fileUploadPumping = true;
+  try {
+    for (;;) {
+      const item = FleetUploadModel.nextPending(state.fileUploads);
+      if (!item) break;
+      FleetUploadModel.beginItem(state.fileUploads, item.id, 'checking');
+      renderFileUploadQueue();
+      if (await targetHasSameName(item)) {
+        FleetUploadModel.skipItem(state.fileUploads, item.id, '已存在，已跳过');
+        renderFileUploadQueue();
+        continue;
+      }
+      FleetUploadModel.markUploading(state.fileUploads, item.id);
+      renderFileUploadQueue();
+      const result = await sendFileUpload(item);
+      if (result.ok) {
+        FleetUploadModel.finishItem(state.fileUploads, item.id);
+        scheduleUploadedDirectoryRefresh(item);
+      } else {
+        // 单个文件失败只标记它自己，队列继续往下走。
+        FleetUploadModel.failItem(state.fileUploads, item.id, result.message);
+      }
+      renderFileUploadQueue();
+    }
+  } finally {
+    state.fileUploadPumping = false;
+    finishFileUploadBatch();
+  }
 }
 
 // ============================================================
@@ -6264,7 +6466,7 @@ function init() {
   };
   syncFileSettingsUI();
   $('#file-upload-input').onchange = (event) => {
-    uploadFiles(event.target.files);
+    enqueueFileUploads(event.target.files);
     event.target.value = '';
   };
 

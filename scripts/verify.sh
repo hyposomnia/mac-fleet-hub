@@ -15,7 +15,7 @@ step "Go 测试：mac/fleet-agent (go test ./...)"
 (cd "$ROOT/mac/fleet-agent" && go test ./...)
 
 step "Dashboard JS 测试：server/dashboard (node --test)"
-node --test "$ROOT/server/dashboard/chat_model.test.mjs"
+node --test "$ROOT/server/dashboard/chat_model.test.mjs" "$ROOT/server/dashboard/upload_model.test.mjs"
 
 step "Shell 工具测试：tests/tailscale-utils_test.sh"
 bash "$ROOT/tests/tailscale-utils_test.sh"
@@ -26,5 +26,8 @@ bash "$ROOT/tests/setup-mac-shared_test.sh"
 
 step "Codex 空闲迁移守卫测试：tests/check-codex-idle_test.sh"
 bash "$ROOT/tests/check-codex-idle_test.sh"
+
+step "nginx 站点配置测试：tests/nginx-config_test.sh"
+bash "$ROOT/tests/nginx-config_test.sh"
 
 printf '\n==> 全部验证通过 ✓\n'

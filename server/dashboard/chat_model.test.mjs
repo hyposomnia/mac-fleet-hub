@@ -4,6 +4,7 @@ import { readFile } from 'node:fs/promises';
 import vm from 'node:vm';
 
 const src = await readFile(new URL('./chat_model.js', import.meta.url), 'utf8');
+const uploadModelSrc = await readFile(new URL('./upload_model.js', import.meta.url), 'utf8');
 const appSrc = await readFile(new URL('./app.js', import.meta.url), 'utf8');
 const markdownSrc = await readFile(new URL('./markdown.js', import.meta.url), 'utf8');
 const previewSrc = await readFile(new URL('./preview.js', import.meta.url), 'utf8');
@@ -15,6 +16,10 @@ const markedSrc = await readFile(new URL('./vendor/marked.min.js', import.meta.u
 const sandbox = { globalThis: {} };
 vm.createContext(sandbox);
 vm.runInContext(src, sandbox);
+// app.js 启动时会建上传队列，沙箱里要像浏览器一样先备好这个模块
+const uploadSandbox = { globalThis: {} };
+vm.createContext(uploadSandbox);
+vm.runInContext(uploadModelSrc, uploadSandbox);
 const { createChatState, appendUserMessage, appendSteeringMessage, removeMessage, prependHistory, reduceChatEvent, normalizeDiffFiles, chatPhase, chatTurnProgress, followupAckId, uuidV7TimeMs } = sandbox.globalThis.FleetChatModel;
 
 const fixedAppNowMs = new Date(2026, 6, 23, 23, 0, 0).getTime();
@@ -71,6 +76,7 @@ const appSandbox = {
   },
   EventSource: TestEventSource,
   FleetChatModel: sandbox.globalThis.FleetChatModel,
+  FleetUploadModel: uploadSandbox.globalThis.FleetUploadModel,
   FleetMarkdown: {
     renderMarkdown(text) {
       const node = testElement('div');
@@ -633,8 +639,16 @@ test('external Codex writer keeps Fleet visible and queues confirmed input witho
   assert.match(styleCSS, /\.chat-desktop-running/);
 });
 
-test('Fleet writer ownership is shown in the header and can be released into read-only mode', () => {
-  assert.match(appSrc, /会话已被 Fleet 占有，如果 Codex 操作受限，可先/);
+test('normal Fleet writer ownership does not show an ownership warning', () => {
+  for (const turnPhase of ['idle', 'running']) {
+    assert.equal(chatOwnershipPresentation({
+      controlReady: true, accessMode: 'read_write', writerOwner: 'fleet',
+      turnOwner: 'fleet', turnPhase,
+    }), null);
+  }
+});
+
+test('Fleet retains release and read-only controls for actionable states', () => {
   assert.match(appSrc, /actionLabel: chat\.releasingWriter \? '释放中…' : '释放会话'/);
   assert.match(appSrc, /chat\/access/);
   assert.match(appSrc, /action: 'release'/);
@@ -1358,6 +1372,45 @@ test('same-name skill parsing keeps app-server first-result priority', () => {
   const parsed = parseChatSkillInput('$tavily search', available);
   assert.equal(parsed.skills.length, 1);
   assert.equal(parsed.skills[0].id, 'agents-copy');
+});
+
+test('plugin skill menu hides opaque IDs and short aliases retain exact invocation identity', () => {
+  const fullName = 'app-69312da8e4dc81919370cb86fd172b6c:adobe-create-mockups';
+  const skills = [
+    { id: 'plugin', name: fullName },
+    { id: 'first', name: 'agent-with-memory' },
+    { id: 'second', name: 'agent-with-memory' },
+    { id: 'edit', name: 'edit' },
+  ];
+  const previousQuerySelector = appSandbox.document.querySelector;
+  const previousChat = appState.chat;
+  const input = { value: '/e', selectionStart: 2 };
+  const menu = testElement('div');
+  appSandbox.document.querySelector = (selector) => ({ '#chat-input': input, '#chat-skill-menu': menu })[selector] || null;
+  appState.chat = { skillsLoaded: true, skills, skillMenu: null };
+  try {
+    updateChatSkillMenu();
+    assert.deepEqual(Array.from(appState.chat.skillMenu.items, item => item.id), ['edit', 'plugin', 'first']);
+    assert.equal(menu.children[1].children[0].textContent, '/adobe-create-mockups');
+    const parsed = parseChatSkillInput('/adobe-create-mockups draw', skills);
+    assert.equal(parsed.text, 'draw');
+    assert.equal(parsed.skills[0].id, 'plugin');
+    assert.equal(parsed.skills[0].name, fullName);
+    assert.equal(parseChatSkillInput('$' + fullName + ' draw', skills).skills[0].id, 'plugin');
+  } finally {
+    appSandbox.document.querySelector = previousQuerySelector;
+    appState.chat = previousChat;
+  }
+});
+
+test('short plugin names never shadow another skill and explicit duplicate selection is retained', () => {
+  const skills = [
+    { id: 'plugin', name: 'app-69312da8e4dc81919370cb86fd172b6c:edit' },
+    { id: 'local', name: 'edit' },
+    { id: 'other', name: 'edit' },
+  ];
+  assert.equal(parseChatSkillInput('/edit', skills).skills[0].id, 'local');
+  assert.equal(parseChatSkillInput('/edit', skills, { edit: 'other' }).skills[0].id, 'other');
 });
 
 test('skill token detection covers plugin-prefixed names before a list retry', () => {
