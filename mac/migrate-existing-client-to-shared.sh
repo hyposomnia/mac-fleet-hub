@@ -112,9 +112,38 @@ if /bin/ps -axo ppid=,command= | awk -v pid="$desktop_pid" '$1 == pid && /codex 
 fi
 
 # A read-only skills request forces fleet-agent to initialize its own WS client.
-curl -fsS --max-time 30 -H 'Content-Type: application/json' \
-  -d "{\"assistant\":\"codex\",\"cwd\":\"$HOME\"}" \
-  "http://${ip}:7682/api/chat/skills" >/dev/null
+# 上一步刚换掉 app-server 并重开了 Desktop，agent 的 WS 客户端正是在这个窗口里重建，
+# 于是这一枪很容易撞上 503（appserver_unavailable / appserver_recovered /
+# agent_restarting）——三者都是「稍后重试即可」的瞬时态，也可能直接连上不端口。
+# 一枪判死会让整段发布被判失败并整轮重试，而每次重试都要再杀一次 Desktop，永远收不
+# 敛。所以这里按 deadline 重试，并在最终失败时打印 HTTP 码与响应体（否则日志里只有
+# curl 的 `error: 503`，分不清是哪种原因）。
+skills_attempt=0
+skills_code=""
+skills_body=""
+while :; do
+  skills_attempt=$((skills_attempt + 1))
+  skills_resp="$(curl -sS --max-time 30 -w '\n%{http_code}' \
+    -H 'Content-Type: application/json' \
+    -d "{\"assistant\":\"codex\",\"cwd\":\"$HOME\"}" \
+    "http://${ip}:7682/api/chat/skills" 2>/dev/null || true)"
+  skills_code="$(printf '%s' "$skills_resp" | tail -n1)"
+  skills_body="$(printf '%s' "$skills_resp" | sed '$d')"
+  if [[ "$skills_code" == "200" ]]; then
+    break
+  fi
+  # 503 与「连不上/无响应」都按瞬时态重试；其它码是真错误，立刻停。
+  if [[ -n "$skills_code" && "$skills_code" != "503" && "$skills_code" != "000" ]]; then
+    break
+  fi
+  if [[ "$skills_attempt" -ge 30 ]]; then
+    break
+  fi
+  sleep 1
+done
+if [[ "$skills_code" != "200" ]]; then
+  die "逼 agent 初始化 WS 客户端失败（试了 ${skills_attempt} 次）：http=${skills_code:-<连不上>} body=${skills_body:-<空>}"
+fi
 
 server_pid="$(/usr/sbin/lsof -n -P -t -iTCP:"$SHARED_PORT" -sTCP:LISTEN 2>/dev/null | head -n1)"
 agent_pid="$(launchctl print "gui/$(id -u)/com.macfleet.fleet-agent" | awk '/pid =/{print $3; exit}')"
