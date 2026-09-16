@@ -685,8 +685,68 @@ func (b *dshChatBackend) Close() {
 
 // ---------------- 小工具 ----------------
 
+// dshSessionAddress 是 session/follow 与 session/page 的地址参数。
 func dshSessionAddress(sessionID string) map[string]any {
 	return map[string]any{"kind": "session", "sessionId": sessionID}
+}
+
+// dshVisibleSessionID 判断一个会话 id 是否属于用户在 GUI 里看得到的那一类。
+//
+// 只有 GUI 与 headless 创建的会话用 `session-<uuid>`；子代理会话是裸 uuid，
+// ACP automation 会话也是裸 uuid。它们都不该出现在 Fleet 的会话列表里。
+func dshVisibleSessionID(id string) bool {
+	return strings.HasPrefix(id, "session-")
+}
+
+// dshListSessions 通过 host 的 session/list 取会话列表并投影成 Fleet 的 Session。
+func (b *dshChatBackend) dshListSessions(ctx context.Context) ([]Session, error) {
+	client, err := b.ensure(ctx)
+	if err != nil {
+		return nil, err
+	}
+	value, err := client.call(ctx, "session/list", map[string]any{"_request": map[string]any{}})
+	if err != nil {
+		return nil, b.translateCallError(err)
+	}
+	var listing struct {
+		Items []struct {
+			SessionID   string `json:"sessionId"`
+			Cwd         string `json:"cwd"`
+			UpdatedAt   int64  `json:"updatedAt"`
+			Running     bool   `json:"running"`
+			Blank       bool   `json:"blank"`
+			Projections struct {
+				Values struct {
+					Title string `json:"title"`
+				} `json:"values"`
+			} `json:"projections"`
+		} `json:"items"`
+	}
+	if err := json.Unmarshal(value, &listing); err != nil {
+		return nil, fmt.Errorf("%w: session/list 返回无法解析", errDSHProtocolChanged)
+	}
+
+	out := make([]Session, 0, len(listing.Items))
+	for _, item := range listing.Items {
+		if !dshVisibleSessionID(item.SessionID) {
+			continue
+		}
+		status := "idle"
+		if item.Running {
+			status = "active"
+		}
+		out = append(out, Session{
+			SessionID:  item.SessionID,
+			Assistant:  "dsh",
+			Cwd:        item.Cwd,
+			Title:      item.Projections.Values.Title,
+			Mtime:      item.UpdatedAt,
+			Live:       !item.Blank,
+			Status:     status,
+			ProjectCwd: item.Cwd,
+		})
+	}
+	return out, nil
 }
 
 // dshHistoryPageFromRecords 把 session/page 的返回投影成历史分页。

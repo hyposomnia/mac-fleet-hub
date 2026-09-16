@@ -29,6 +29,12 @@ func chatCapabilities(assistant string) assistantCapabilities {
 	switch normAssistant(assistant) {
 	case "codex":
 		return assistantCapabilities{SelfDraw: true, Queue: true}
+	case "dsh":
+		// 只有真正启用时才给能力：半成品入口不该出现在其它 Mac 上。
+		if !cfg.DSHEnabled {
+			return assistantCapabilities{}
+		}
+		return assistantCapabilities{SelfDraw: true, Queue: true}
 	default:
 		return assistantCapabilities{}
 	}

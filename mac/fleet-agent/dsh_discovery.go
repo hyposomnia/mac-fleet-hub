@@ -285,8 +285,19 @@ func dshAuthority(port int) string {
 	return fmt.Sprintf("127.0.0.1:%d", port)
 }
 
-// defaultDSHHome 是 DSH Desktop 的默认 harness 主目录。
+// dshDesktopAppPath 是 DSH Desktop 的安装路径（能力探测 / 排障提示用）。
+const dshDesktopAppPath = "/Applications/DSH Desktop.app"
+
+// dshDesktopInstalled 报告本机是否装了 DSH Desktop。
 //
+// 只看安装不看运行：hostRunning 需要一次成功连接才能判定，两者在 /api/info 里
+// 分开上报，"没装"与"装了但没开"对用户是两种不同的提示。
+func dshDesktopInstalled() bool {
+	_, err := os.Stat(dshDesktopAppPath)
+	return err == nil
+}
+
+// defaultDSHHome 是 DSH Desktop 的默认 harness 主目录。
 // Desktop 用的是 join(app.getPath("userData"), "harness")，在 macOS 上就是这里。
 // 注意它与 DSH CLI 自己的默认值（~/.dsh）不是同一个目录：不显式指定就看不到
 // Desktop 的会话。
