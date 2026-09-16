@@ -96,3 +96,47 @@ test('codex 与 claude 的能力判定不受 dsh 能力块影响', () => {
   assert.equal(unknown.tabVisible, true, 'tab 显隐只看该 Mac 的 dsh 可用性，不看当前选中谁');
 });
 
+
+// ---- 文案归属：能力化重构解决的是"分派"，不是"措辞" ----
+
+function extractConst(name) {
+  const re = new RegExp(`const ${name} = [^;]+;`);
+  const match = appSrc.match(re);
+  assert.ok(match, `app.js 里找不到常量 ${name}`);
+  return match[0];
+}
+
+test('自绘对话的"连接中"文案随 assistant 走', () => {
+  const consts = [extractConst('ASSISTANTS'), extractConst('ASSISTANT_LABELS')].join('\n');
+  const fns = ['normalizeAssistant', 'assistantLabel', 'assistantConnectingText']
+    .map(extractFunction)
+    .join('\n');
+  const api = new Function(`${consts}\n${fns}\nreturn { assistantConnectingText, assistantLabel };`)();
+
+  assert.match(api.assistantConnectingText('codex'), /Codex app-server/);
+  assert.equal(api.assistantConnectingText('dsh'), '正在连接 DeepSeek Harness…');
+  // DSH 连的是 Desktop 已启动的 harness host，不是 app-server —— 术语不能串。
+  assert.ok(!api.assistantConnectingText('dsh').includes('Codex'));
+  assert.ok(!api.assistantConnectingText('claude').includes('Codex'));
+
+  assert.equal(api.assistantLabel('dsh'), 'DeepSeek');
+  assert.equal(api.assistantLabel('codex'), 'Codex');
+});
+
+test('共享对话界面里不再有写死的 Codex 文案', () => {
+  // 这些字符串都曾在 DeepSeek tab 上原样出现过（用户实际抓到的是连接中那一句）。
+  const forbidden = [
+    '给 Codex 发送消息',
+    'Codex 需要你的回答',
+    "'Codex 会话'",
+    "'Codex 图片'",
+    "'Codex 未返回有效的会话 ID'",
+  ];
+  for (const literal of forbidden) {
+    assert.ok(!appSrc.includes(literal), `仍有写死的 Codex 文案：${literal}`);
+  }
+  // "连接中"这句只允许作为字面量出现在它自己的函数里，不允许散在渲染代码中。
+  // 只数带引号的形态：注释里提到这句话是正常的（本条注释就提到了）。
+  const occurrences = appSrc.split("'正在连接 Codex app-server…'").length - 1;
+  assert.equal(occurrences, 1, '连接中文案应只在 assistantConnectingText 内出现一次');
+});

@@ -247,6 +247,14 @@ const ASSISTANTS = ['codex', 'claude', 'dsh'];
 function normalizeAssistant(a) { return ASSISTANTS.includes(a) ? a : 'codex'; }
 const ASSISTANT_LABELS = { codex: 'Codex', claude: 'Claude', dsh: 'DeepSeek' };
 function assistantLabel(a = state.assistant) { return ASSISTANT_LABELS[normalizeAssistant(a)]; }
+// 自绘对话的"连接中"文案。Codex 连的是 app-server，DSH 连的是 Desktop 已启动的
+// harness host——术语不同，不能共用一句，否则 DeepSeek tab 上会写"正在连接 Codex app-server…"。
+function assistantConnectingText(a = state.assistant) {
+  const assistant = normalizeAssistant(a);
+  if (assistant === 'dsh') return '正在连接 DeepSeek Harness…';
+  if (assistant === 'claude') return '正在连接 Claude…';
+  return '正在连接 Codex app-server…';
+}
 // nginx 或 agent 直接返回的 413 响应体是 HTML，解析不出 message，用它兜底。
 const TOO_LARGE_MESSAGE = '文件太大，超过了上传上限（单文件最大 512 MB）。';
 async function api(id, path, opts) {
@@ -1739,12 +1747,12 @@ function chatOwnershipPresentation(chat) {
   if (chat.accessMode === 'read_only') {
     return {
       className: 'readonly',
-      text: chat.writerOwner === 'desktop' ? 'Fleet 只读，其他 Codex 客户端正在使用' : 'Fleet 只读，Codex 可接管',
+      text: chat.writerOwner === 'desktop' ? `Fleet 只读，其他 ${assistantLabel()} 客户端正在使用` : `Fleet 只读，${assistantLabel()} 可接管`,
       action: 'enable-write', actionLabel: chat.changingAccess ? '恢复中…' : '恢复 Fleet 写入',
     };
   }
   if (isDesktopChatOwned(chat)) {
-    return { className: 'readonly', text: '其他 Codex 客户端正在使用 · Fleet 只读同步', action: '' };
+    return { className: 'readonly', text: `其他 ${assistantLabel()} 客户端正在使用 · Fleet 只读同步`, action: '' };
   }
   return null;
 }
@@ -1752,7 +1760,7 @@ function chatOwnershipPresentation(chat) {
 function renderChatOwnershipHead(chat = state.chat) {
   if (!chat || state.chat !== chat) return;
   const tt = $('#win-title'); clear(tt);
-  tt.append(h('span', { class: 'dot live' }), h('span', { class: 'ttl', text: chat.title || 'Codex 会话' }));
+  tt.append(h('span', { class: 'dot live' }), h('span', { class: 'ttl', text: chat.title || `${assistantLabel()} 会话` }));
   const presentation = chatOwnershipPresentation(chat);
   if (!presentation) return;
   const action = presentation.action === 'release' ? releaseChatWriter
@@ -2143,7 +2151,7 @@ function showChatPane(title, cwd, { connected = true } = {}) {
   $('#chat-pane').hidden = false;
   const tt = $('#win-title'); clear(tt);
   if (connected) tt.append(h('span', { class: 'dot live' }));
-  tt.append(h('span', { class: 'ttl', text: title || 'Codex 会话' }));
+  tt.append(h('span', { class: 'ttl', text: title || `${assistantLabel()} 会话` }));
   $('#win-meta').textContent = '';
   if (isMobile()) {
     if (!$('#app').classList.contains('term-open')) pushFleetHistory({ mode: 'sessions', term: true });
@@ -2215,7 +2223,7 @@ function renderChat({ preserveScroll = false, forceBottom = false } = {}) {
   if (chat.historyReady && chat.historyLoading) {
     stack.append(h('div', { class: 'chat-history-state', text: '正在加载更早记录…' }));
   }
-  if (chat.loading) stack.append(chatRow(h('div', { class: 'chat-card muted', text: '正在连接 Codex app-server…' })));
+  if (chat.loading) stack.append(chatRow(h('div', { class: 'chat-card muted', text: assistantConnectingText() })));
   const model = chat.model || FleetChatModel.createChatState();
   renderChatPendingInteraction(chat);
   renderChatOwnershipHead(chat);
@@ -2601,7 +2609,7 @@ function renderChatToolSurface(item, extraClass = '') {
   const cls = ['chat-tool compact', extraClass].filter(Boolean).join(' ');
   if (!hasBody) return h('div', { class: cls }, header);
   const body = h('div', { class: 'chat-tool-body' },
-    item.mediaPath ? chatImagePreview(chatMediaSrc(item.mediaPath), item.summary || 'Codex 图片', 'chat-tool-media', 'chat-tool-media-preview') : null,
+    item.mediaPath ? chatImagePreview(chatMediaSrc(item.mediaPath), item.summary || `${assistantLabel()} 图片`, 'chat-tool-media', 'chat-tool-media-preview') : null,
     item.progress ? h('div', { class: 'chat-tool-progress', text: item.progress }) : null,
     item.meta ? h('div', { class: 'chat-tool-meta mono', text: item.meta }) : null,
     (item.summary || item.output || item.detail) ? h('div', { class: 'chat-tool-section' },
@@ -2927,7 +2935,7 @@ function renderChatUserInputRequest(item) {
       }
     },
   },
-  h('div', { class: 'chat-approval-h', text: 'Codex 需要你的回答' }),
+  h('div', { class: 'chat-approval-h', text: `${assistantLabel()} 需要你的回答` }),
   h('div', { class: 'chat-approval-body' },
     ...(item.questions || []).map((question, index) => renderUserInputQuestion(item, question, index)),
     h('div', { class: 'chat-approval-actions' },
@@ -3539,7 +3547,7 @@ function updateChatComposerState() {
     input.disabled = mutationBlocked;
     input.placeholder = action === 'readonly' ? 'Fleet 已释放此会话'
       : (action === 'transition' ? '正在切换会话访问状态…'
-        : (action === 'loading' ? '正在同步会话控制状态…' : '给 Codex 发送消息…'));
+        : (action === 'loading' ? '正在同步会话控制状态…' : `给 ${assistantLabel()} 发送消息…`));
   }
   const attach = $('#chat-attach');
   const options = $('#chat-options-trigger');
@@ -3720,12 +3728,12 @@ async function openChatSession(s) {
   const key = chatCacheKey(macId, s.sessionId);
   let chat = state.chatCache.get(key);
   if (chat) {
-    chat.title = s.title || chat.title || 'Codex 会话';
+    chat.title = s.title || chat.title || `${assistantLabel()} 会话`;
     chat.cwd = s.cwd || chat.cwd || '';
   } else {
     chat = {
       cacheKey: key, macId,
-      sessionId: s.sessionId, title: s.title || 'Codex 会话', cwd: s.cwd || '',
+      sessionId: s.sessionId, title: s.title || `${assistantLabel()} 会话`, cwd: s.cwd || '',
       model: FleetChatModel.createChatState(), loading: true, events: null, resumePromise: null,
       pendingStart: !!s.pendingStart, unscoped: !!s.unscoped, startPromise: null,
       attachments: [], objectUrls: [], draft: '', updatedAt: Number(s.mtime) || Date.now(),
@@ -4315,7 +4323,7 @@ async function ensurePendingChatStarted(chat) {
       body: JSON.stringify({ assistant: state.assistant, cwd, mode: 'default' }),
     });
     const sessionId = String(started.sessionId || '').trim();
-    if (!sessionId) throw new Error('Codex 未返回有效的会话 ID');
+    if (!sessionId) throw new Error(`${assistantLabel()} 未返回有效的会话 ID`);
 
     const oldKey = chat.cacheKey;
     const newKey = chatCacheKey(chat.macId, sessionId);
