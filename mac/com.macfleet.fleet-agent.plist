@@ -49,10 +49,11 @@
         <string>1</string>
         <key>FLEET_DESKTOP_APP</key>
         <string>Claude</string>
-        <!-- DeepSeek Harness（DSH）shared 接入。默认关闭：它依赖 DSH Desktop 正在运行，
-             且用的是非公开的本地凭据路径（harness.log 里的每进程 token，或
-             .credentials.yaml 里的 cookie 签名密钥），因此按机器灰度开启。
-             开启后 agent 挂到 Desktop 已启动的 harness host 上，绝不自己拉起 DSH 进程。 -->
+        <!-- DeepSeek Harness（DSH）shared 接入，默认开启：装了 DSH Desktop 的机器
+             只要 Desktop 一起来就能立刻用，无需逐台配置。显式设 0 可让单机退出。
+             agent 只挂到 Desktop 已启动的 harness host 上（用 harness.log 里的每进程
+             token 或 .credentials.yaml 的 cookie 签名密钥做认证），绝不自己拉起 DSH 进程；
+             Desktop 没跑时入口仍在，但只显示降级提示、不放开写操作。 -->
         <key>FLEET_DSH_ENABLED</key>
         <string>__DSH_ENABLED__</string>
         <key>FLEET_DSH_HOME</key>

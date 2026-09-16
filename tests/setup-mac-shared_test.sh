@@ -123,6 +123,8 @@ contains "$SETUP" '__DSH_ENABLED__'
 # 否则下次发布会把已经开好的机器悄悄关回去。
 contains "$SETUP" 'dsh_enabled_default()'
 contains "$SETUP" 's#__DSH_ENABLED__#${DSH_ENABLED:-$(dsh_enabled_default)}#g'
+# 未安装过 plist 的机器默认开启（显式 0 才退出）。
+contains "$SETUP" 'current:-1' 
 contains "$SETUP" '__DSH_HOME__'
 contains "$SETUP" '__DSH_LOG__'
 

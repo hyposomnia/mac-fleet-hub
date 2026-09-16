@@ -66,7 +66,7 @@ type Config struct {
 
 	// DeepSeek Harness（DSH）shared 接入。默认关闭：这是一个按机器灰度的开关，
 	// 因为它依赖 DSH Desktop 正在运行，且用的是非公开的本地凭据路径。
-	DSHEnabled  bool   // FLEET_DSH_ENABLED=1 才启用
+	DSHEnabled  bool   // FLEET_DSH_ENABLED：默认开启（1），显式 0 可单机退出
 	DSHHome     string // DSH Desktop 的 harness 主目录（.credentials.yaml 与 sessions/ 都在这里）
 	DSHLog      string // Desktop 写 harness stdout 的日志（端点与每进程 token 的唯一来源）
 	DSHEndpoint string // 显式覆盖 127.0.0.1:<port>，仅供排障
@@ -150,7 +150,7 @@ func loadConfig() Config {
 		TmuxConf:          envOr("FLEET_TMUX_CONF", filepath.Join(home, ".macfleet-tmux.conf")),
 		ChatQueueFile:     envOr("FLEET_CHAT_QUEUE_FILE", filepath.Join(home, ".macfleet", "chat-queue.json")),
 
-		DSHEnabled:  envOr("FLEET_DSH_ENABLED", "0") == "1",
+		DSHEnabled:  envOr("FLEET_DSH_ENABLED", "1") == "1",
 		DSHHome:     envOr("FLEET_DSH_HOME", defaultDSHHome()),
 		DSHLog:      envOr("FLEET_DSH_LOG", defaultDSHLog()),
 		DSHEndpoint: strings.TrimSpace(os.Getenv("FLEET_DSH_ENDPOINT")),
