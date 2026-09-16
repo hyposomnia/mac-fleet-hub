@@ -726,6 +726,19 @@ FLEET_CONFIG_URL=""
 if [[ -n "${FLEET_UPDATE_BASE:-}" ]]; then
   FLEET_CONFIG_URL="${FLEET_UPDATE_BASE%/}"; FLEET_CONFIG_URL="${FLEET_CONFIG_URL%/dist}/agent-config"
 fi
+# 重渲染 fleet-agent plist 时，保留已安装 plist 里显式设过的 DSH 开关。
+#
+# FLEET_DSH_ENABLED 是按机器灰度的开关：哪些 Mac 接 DSH 是运维的显式选择。
+# 若每次重跑安装/发布都把模板默认值（0）写回去，已经开好的机器会在下次发布时
+# 被悄悄关掉——本机就是这么发现问题的（发布重渲染后 ENABLED 变回 0）。
+# 显式传入 DSH_ENABLED 时仍然以传入值为准。
+dsh_enabled_default() {
+  local installed="$HOME/Library/LaunchAgents/com.macfleet.fleet-agent.plist"
+  local current
+  current="$(/usr/bin/plutil -extract EnvironmentVariables.FLEET_DSH_ENABLED raw -o - "$installed" 2>/dev/null || true)"
+  printf '%s' "${current:-0}"
+}
+
 render() { # src dst
   sed -e "s#__BREW_PREFIX__#${BREW_PREFIX}#g" \
       -e "s#__FLEET_CONFIG_URL__#${FLEET_CONFIG_URL}#g" \
@@ -753,7 +766,7 @@ render() { # src dst
       -e "s#__CODEX_DESKTOP_ENV_MODE__#${CODEX_DESKTOP_ENV_MODE}#g" \
       -e "s#__CODEX_DESKTOP_WS_URL__#${CODEX_DESKTOP_WS_URL}#g" \
       -e "s#__CODEX_DESKTOP_SHARED_DAEMON__#${CODEX_DESKTOP_SHARED_DAEMON}#g" \
-      -e "s#__DSH_ENABLED__#${DSH_ENABLED:-0}#g" \
+      -e "s#__DSH_ENABLED__#${DSH_ENABLED:-$(dsh_enabled_default)}#g" \
       -e "s#__DSH_HOME__#${DSH_HOME_DIR:-$HOME/Library/Application Support/dsh-desktop/harness}#g" \
       -e "s#__DSH_LOG__#${DSH_LOG_PATH:-$HOME/Library/Logs/DSH Desktop/harness.log}#g" \
       "$1" > "$2"
