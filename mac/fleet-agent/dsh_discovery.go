@@ -1,12 +1,15 @@
 package main
 
 import (
+	"context"
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"net/http"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -220,4 +223,140 @@ func unquoteYAMLScalar(v string) string {
 		}
 	}
 	return v
+}
+
+// dshAuthMode 记录这次实际用上的凭据路径。
+//
+// 它不是实现细节：token 只在进程启动时打印一次且日志可能被轮转，secret 路径
+// 则是同机同用户可读的文件。排障时必须能从 /api/info 看出走的是哪条。
+type dshAuthMode string
+
+const (
+	dshAuthNone   dshAuthMode = "none"
+	dshAuthToken  dshAuthMode = "token"
+	dshAuthSecret dshAuthMode = "secret"
+)
+
+// dshExchangeToken 用启动 URL 里的 token 换取浏览器会话 cookie。
+//
+// 必须禁止跟随重定向：host 的成功响应是 303 + Set-Cookie 指向干净的 /，
+// 一旦跟随就会把 Set-Cookie 丢掉，只剩一个没有凭据的 200 页面。
+func dshExchangeToken(ctx context.Context, baseURL, token string) (string, error) {
+	if token == "" {
+		return "", errors.New("DSH 启动 token 为空")
+	}
+	target := strings.TrimRight(baseURL, "/") + "/?token=" + url.QueryEscape(token)
+	client := &http.Client{
+		Timeout:       10 * time.Second,
+		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, target, nil)
+	if err != nil {
+		return "", fmt.Errorf("构造 token 交换请求: %w", err)
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		if ctx.Err() != nil {
+			return "", ctx.Err()
+		}
+		return "", fmt.Errorf("%w: %v", errDSHHostUnavailable, err)
+	}
+	defer resp.Body.Close()
+	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 4096))
+
+	switch resp.StatusCode {
+	case http.StatusOK, http.StatusFound, http.StatusSeeOther, http.StatusTemporaryRedirect:
+	case http.StatusUnauthorized, http.StatusForbidden:
+		return "", fmt.Errorf("%w: token 交换 HTTP %d", errDSHAuthFailed, resp.StatusCode)
+	default:
+		return "", fmt.Errorf("%w: token 交换 HTTP %d", errDSHProtocolChanged, resp.StatusCode)
+	}
+
+	for _, c := range resp.Cookies() {
+		if strings.HasPrefix(c.Name, "dsh-auth-") && c.Value != "" {
+			return c.Name + "=" + c.Value, nil
+		}
+	}
+	return "", fmt.Errorf("%w: token 交换没有下发 dsh-auth cookie", errDSHAuthFailed)
+}
+
+// dshAuthority 是 host 侧 cookie 与信任栅栏使用的权威标识。
+func dshAuthority(port int) string {
+	return fmt.Sprintf("127.0.0.1:%d", port)
+}
+
+// defaultDSHHome 是 DSH Desktop 的默认 harness 主目录。
+//
+// Desktop 用的是 join(app.getPath("userData"), "harness")，在 macOS 上就是这里。
+// 注意它与 DSH CLI 自己的默认值（~/.dsh）不是同一个目录：不显式指定就看不到
+// Desktop 的会话。
+func defaultDSHHome() string {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return ""
+	}
+	return filepath.Join(home, "Library", "Application Support", "dsh-desktop", "harness")
+}
+
+// defaultDSHLog 是 Desktop 写 harness stdout/stderr 的日志路径。
+//
+// 端点与每进程 token 都只在这里出现，所以它是端点发现的唯一来源。
+func defaultDSHLog() string {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return ""
+	}
+	return filepath.Join(home, "Library", "Logs", "DSH Desktop", "harness.log")
+}
+
+// connectDSH 按「日志取端点 → token 换 cookie → secret 自签 cookie」建立客户端。
+//
+// endpointOverride 非空时跳过日志发现（形如 "127.0.0.1:43129"），供显式配置与排障使用。
+// 两条凭据路径都失败才返回错误；错误里带上两条路径各自的原因，否则排障时只能看到一半。
+func connectDSH(ctx context.Context, home, logPath, endpointOverride string) (*dshClient, dshEndpoint, dshAuthMode, error) {
+	var endpoint dshEndpoint
+	if endpointOverride != "" {
+		host, portText, ok := strings.Cut(endpointOverride, ":")
+		if !ok || host == "" {
+			return nil, dshEndpoint{}, dshAuthNone, fmt.Errorf("DSH endpoint 配置不合法: %q", endpointOverride)
+		}
+		port, err := strconv.Atoi(portText)
+		if err != nil || port <= 0 || port > 65535 {
+			return nil, dshEndpoint{}, dshAuthNone, fmt.Errorf("DSH endpoint 端口不合法: %q", endpointOverride)
+		}
+		endpoint = dshEndpoint{Port: port}
+	} else {
+		fromLog, err := dshEndpointFromLog(logPath)
+		if err != nil {
+			return nil, dshEndpoint{}, dshAuthNone, fmt.Errorf("%w: %v", errDSHHostUnavailable, err)
+		}
+		endpoint = fromLog
+	}
+
+	baseURL := fmt.Sprintf("http://%s", dshAuthority(endpoint.Port))
+	authority := dshAuthority(endpoint.Port)
+
+	if endpoint.Token != "" {
+		cookie, err := dshExchangeToken(ctx, baseURL, endpoint.Token)
+		if err == nil {
+			return newDSHClient(baseURL, cookie), endpoint, dshAuthToken, nil
+		}
+		// token 路径失败（多半是日志被轮转或 token 已随进程换代）时退回自签。
+		if secret, secretErr := dshCookieSecret(home); secretErr == nil {
+			if cookie, signErr := signDSHCookie(secret, authority, time.Now(), dshCookieMaxAge); signErr == nil {
+				return newDSHClient(baseURL, cookie), endpoint, dshAuthSecret, nil
+			}
+		}
+		return nil, endpoint, dshAuthNone, fmt.Errorf("token 与 secret 两条凭据路径都失败: %v", err)
+	}
+
+	secret, err := dshCookieSecret(home)
+	if err != nil {
+		return nil, endpoint, dshAuthNone, fmt.Errorf("%w: 日志里没有 token，且 %v", errDSHAuthFailed, err)
+	}
+	cookie, err := signDSHCookie(secret, authority, time.Now(), dshCookieMaxAge)
+	if err != nil {
+		return nil, endpoint, dshAuthNone, err
+	}
+	return newDSHClient(baseURL, cookie), endpoint, dshAuthSecret, nil
 }

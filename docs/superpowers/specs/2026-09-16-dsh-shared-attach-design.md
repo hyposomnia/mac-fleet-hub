@@ -127,36 +127,56 @@ body = `{"version":1,"authority":"127.0.0.1:<port>","issuedAt":<ms>,"expiresAt":
 
 - **主路径**：一元 `POST /api/session/list`，`payload.args` 为 **`{"_request":{}}`**
   （注意参数名是 `_request`，不是 `request`；传 `{}` 会得到 `gateway/arguments-invalid`）。
-  返回 `SessionListValue{items: SessionSummary[]}`。
-- **过滤**：排除子代理会话（header `origin == "subagent"` 或 `delegationDepth > 0`），
+  返回 `SessionListValue{items: SessionSummary[]}`；实测每项含
+  `sessionId/updatedAt/running/blank/cwd/projections{title,tokenUsage,contextPressure,…}`。
+- **过滤**：排除子代理会话（裸 uuid 形态的 id、header `origin == "subagent"` 或 `delegationDepth > 0`），
   与 Codex 侧排除 subagent 的规则对齐。
 - **降级路径**：host 不可用时，扫 `$DSH_HOME/sessions/--*/` 下每个 `session.jsonl.zstd`，
   **只解压第一帧**取 header（`{type:"session",version,id,createdAt,cwd,delegationDepth,agentPreset}`），
   得到 id/cwd/时间，无标题无用量。响应里带 `degraded: true`，dashboard 显示"Desktop 未运行，仅显示磁盘会话"。
-- **cwd 目录编码**（降级扫描与 cwd→目录反查用）：实现 `projectKey(cwd)` 的精确复制——
-  `/ \ :` 折叠成一个 `-`；`~` 与任何不匹配 `[A-Za-z0-9._-]` 的 UTF-16 code unit 转 `~` + 大写 4 位十六进制；
-  去掉结果开头的连字符；首尾包 `--`；`.slice(0,251)` 有损截断；空 cwd 抛错，`undefined` → `_no-cwd`。
-  **不可复用 Claude 的编码函数**（两者规则不同）。
+  该路径**不需要** `projectKey`：cwd 是从 header 读出来的，只正向遍历目录即可。
+  （`projectKey(cwd)` 的精确规则已记录在 dev 记忆 `dsh-control-plane.md`，等真出现 cwd→目录反查的调用方再实现。）
 
 ### 2. 历史与实时流（`session/follow`）
 
-打开 WS `session/follow`（`payload.args` 携带 session 地址）：
+**参数名与嵌套形状一律以生成产物为准，不要凭直觉写**。实测（写成 `sessionId` 会得到
+`gateway/arguments-invalid: missing "request"; unexpected "sessionId"`）：
+
+```
+session/follow  args = { "request": { "address": { "kind": "session", "sessionId": "<id>" },
+                                      "maxMessages": <可选> } }
+session/control args = {}                       // 无参数，全局控制流
+session/page    args = { "request": { "address": 同上, "throughSeq": <n>,
+                                      "beforeSeq": <可选>, "maxMessages": <可选> } }
+```
+
+打开后的帧：
 
 - 首帧 `{type:'snapshot', header, cursor, records[], hasMore, projections}` → 先灌历史再进实时。
 - 后续帧是 `SessionEventEntry`；`records` 里可能是 `{type:'event', event}` 或 `{type:'chunks', event}`。
-- **`{type:'chunks'}` 必须展开**：打包行 `text-chunks` / `reasoning-chunks` / `tool-call-chunks`
-  携带 `seq0`/`time0` + `data.dt[]` 与 `data.texts[]`/`data.args[]`，需按 `dt` 间隔逐条还原成
-  `assistant/chunk` 语义的增量，否则历史会丢字。展开逻辑必须与 `dsh-session` 的无损 codec 一致。
-- 向后分页走一元 `session/page`（`{address, throughSeq, beforeSeq?, maxMessages?}`），
-  映射为现有 `ChatHistoryPage{cursor}`。
+- **`{type:'chunks'}` 必须展开**，且线上形态与存储层文档不同（实测）：
+
+  ```json
+  {"type":"chunks","event":{"type":"chunkrow/reasoning-chunks","seq":81369,"time":1789549471330,
+   "data":{"turn":1,"step":229,"index":0,"dt":[…],"texts":[…]}}}
+  ```
+
+  内层 type 带 `chunkrow/` 前缀（`chunkrow/text-chunks` / `chunkrow/reasoning-chunks` /
+  `chunkrow/tool-call-chunks`）；首成员身份是 **`seq` + `time`**（不是 `seq0`/`time0`）；
+  成员数 = `texts`（或 `args`）长度；第 i 个成员 `seq = seq + i`、`time = time + Σdt[0..i-1]`；
+  **`dt` 长度 = 成员数 − 1**（codec 的 `validateRunData` 强制该等式，写成 N 会判畸形或静默错位）。
+  只有连续 ≥3 条同 block 的 `assistant/chunk` 才打包，短 run 仍是明文 `assistant/chunk`，
+  因此快照里两种形态并存，读取端必须都能吃。
+- 向后分页走 `session/page`，映射为现有 `ChatHistoryPage{cursor}`。
 
 ### 3. 发送 / 排队 / steer
 
-一元 `session/prompt`：
+一元 `session/prompt`（注意 `request` 包装层）：
 
 ```
-{requestId: <uuid>, sessionId, mode: 'queue' | 'steer',
- content: [{type:'text',text}|{type:'image',mediaType,data,name?}], clientTimeZone?}
+args = { "request": { requestId: <唯一串>, sessionId, mode: 'queue' | 'steer',
+                      content: [{type:'text',text}|{type:'image',mediaType,data,name?}],
+                      clientTimeZone? } }
 → {accepted: true}
 ```
 
@@ -165,7 +185,7 @@ body = `{"version":1,"authority":"127.0.0.1:<port>","issuedAt":<ms>,"expiresAt":
   用它做 `user_done` 对账与本地乐观队列项的精确移除。
 - Dashboard 的 `deliveryMode` 语义映射：`auto` → 当前有活跃 turn 时 `queue`、否则直接 prompt；
   `next` → `steer`。规则与 Codex 侧保持一致，由 agent 判定，浏览器不判断。
-- `session/cancel` → `{sessionId}` → `{accepted:true}`；host 内部用 `keepInbox: true`
+- `session/cancel` 的 args 是 `{request:{sessionId}}` → `{accepted:true}`；host 内部用 `keepInbox: true`
   （只中止轮次、保留排队项），与 Fleet 现有语义一致。
 
 ### 4. 审批与提问往返

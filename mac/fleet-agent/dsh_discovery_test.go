@@ -1,6 +1,10 @@
 package main
 
 import (
+	"context"
+	"errors"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"testing"
@@ -215,6 +219,43 @@ func TestParseCredentialsSecret(t *testing.T) {
 				t.Fatalf("secret = %q, want %q", got, tc.want)
 			}
 		})
+	}
+}
+
+func TestDSHExchangeToken(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Query().Get("token") != "good-token" {
+			w.WriteHeader(http.StatusUnauthorized)
+			_, _ = w.Write([]byte("dsh web authentication required; reopen the URL printed by dsh web."))
+			return
+		}
+		http.SetCookie(w, &http.Cookie{
+			Name: "dsh-auth-abc", Value: "v1.body.sig", Path: "/",
+			HttpOnly: true, SameSite: http.SameSiteStrictMode, MaxAge: 2592000,
+		})
+		w.Header().Set("Location", "/")
+		w.WriteHeader(http.StatusSeeOther)
+	}))
+	defer srv.Close()
+
+	ctx := context.Background()
+	got, err := dshExchangeToken(ctx, srv.URL, "good-token")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got != "dsh-auth-abc=v1.body.sig" {
+		t.Fatalf("cookie = %q, want dsh-auth-abc=v1.body.sig", got)
+	}
+
+	// 错误 token 是 401，必须报 errDSHAuthFailed 而不是把 401 页面当成功。
+	if _, err := dshExchangeToken(ctx, srv.URL, "bad-token"); !errors.Is(err, errDSHAuthFailed) {
+		t.Fatalf("err = %v, want errDSHAuthFailed", err)
+	}
+}
+
+func TestDSHExchangeTokenRequiresToken(t *testing.T) {
+	if _, err := dshExchangeToken(context.Background(), "http://127.0.0.1:1", ""); err == nil {
+		t.Fatal("空 token 不该发起请求")
 	}
 }
 
