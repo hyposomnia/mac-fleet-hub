@@ -1,5 +1,12 @@
 # Changelog
 
+## 2026-09-16
+
+- 新增第三个自绘聊天 assistant **DeepSeek Harness（标识 `dsh`）**，能力对齐现有 Codex：会话列表、历史分页、发送/排队/steer、流式正文与思考、工具调用、审批与提问往返、打断。Fleet 以**客户端身份**挂到 DSH Desktop 已经跑着的 harness host 上（loopback `POST /api/<ns>/<method>` + WebSocket `/api/remote.mux`），由 host 持有唯一的持久化写入方，因此 Fleet 侧不引入第二个写入方、也没有 writer 租约可释放；agent 只用 loopback 连接，不新增 nginx location、不代理 DSH 原生 GUI、不接管模型凭据（模型调用由 host 自己完成）。默认关闭，由 `FLEET_DSH_ENABLED=1` 按机器灰度开启；`/api/info` 上报 `dsh.{enabled,installed,hostRunning,endpoint,authMode,degraded}` 供入口显隐与降级提示。
+- 自绘链路的 assistant 判定从散落的 16 处 `assistant != "codex"` 守卫收敛为 `assistantCapabilities{SelfDraw, Queue}` 单点判定，并新增按 assistant 分派的路由后端；这是纯重构，Claude 仍走 tmux/ttyd 终端、行为零变化。
+- DSH 会话事件映射按编解码器的不变式展开打包行（`chunkrow/text-chunks` 等）：成员数取 `texts`/`args` 长度、首成员身份取 `seq`/`time`、`dt` 长度必须恰为成员数 − 1，不成立时整行丢弃而不是静默错位。
+- DSH v1 明确不支持并可读报错的两处：权限预设写入（`settings/mutate` 会改用户真实 DSH 配置，形状未在真机验证）与技能目录（`skills/list` 是流且请求形状未验证）；会话级授权（`acceptForSession`）也明确拒绝，不降级成「允许一次」。
+
 ## 2026-09-15
 
 - 文件上传改为队列式（一次只传一个文件，其余排队等待），并在文件页加入上传进度面板：桌面挂在左侧栏底部、移动端挂在文件夹标题下方，逐行显示文件名、目标目录、大小与状态（等待 / 校验中 / 进度百分比 / 完成 / 已存在 / 失败原因），当前上传项带进度条与百分比。上传改用 XHR 取真实进度（fetch 拿不到上传进度），进度回写按 120ms 节流；单个文件失败只标记该行、队列继续走，失败行保留原因直到用户清除；队列跑完且无失败时面板 4 秒后自动收起。原先上传期间的整体 `cursor: progress` 转圈与按钮禁用已移除，上传中仍可继续挑选文件入队。逻辑抽到 `server/dashboard/upload_model.js`，由 `upload_model.test.mjs` 覆盖（含串行泵、进度换算、失败不阻塞、目录刷新时机），PWA 外壳版本升到 v124。

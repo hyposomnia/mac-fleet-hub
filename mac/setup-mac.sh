@@ -753,6 +753,9 @@ render() { # src dst
       -e "s#__CODEX_DESKTOP_ENV_MODE__#${CODEX_DESKTOP_ENV_MODE}#g" \
       -e "s#__CODEX_DESKTOP_WS_URL__#${CODEX_DESKTOP_WS_URL}#g" \
       -e "s#__CODEX_DESKTOP_SHARED_DAEMON__#${CODEX_DESKTOP_SHARED_DAEMON}#g" \
+      -e "s#__DSH_ENABLED__#${DSH_ENABLED:-0}#g" \
+      -e "s#__DSH_HOME__#${DSH_HOME_DIR:-$HOME/Library/Application Support/dsh-desktop/harness}#g" \
+      -e "s#__DSH_LOG__#${DSH_LOG_PATH:-$HOME/Library/Logs/DSH Desktop/harness.log}#g" \
       "$1" > "$2"
 }
 PORT="$TTYD_PORT" render "$SCRIPT_DIR/com.macfleet.ttyd.plist"        "$LA/com.macfleet.ttyd.plist"

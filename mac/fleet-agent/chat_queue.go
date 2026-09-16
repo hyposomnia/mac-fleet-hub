@@ -244,7 +244,7 @@ func nextChatControlSnapshotVersion() (string, uint64) {
 func buildChatSessionControlSnapshot(ctx context.Context, assistant, sessionID string) (ChatSessionControlSnapshot, error) {
 	assistant = normAssistant(assistant)
 	sessionID = strings.TrimSpace(sessionID)
-	if assistant != "codex" || sessionID == "" {
+	if !chatCapabilities(assistant).Queue || sessionID == "" {
 		return ChatSessionControlSnapshot{}, errors.New("invalid chat control identity")
 	}
 	operation := agentChatQueue.sessionOperation(assistant, sessionID)
@@ -487,7 +487,7 @@ func (q *chatQueue) SetAccessMode(assistant, sessionID, mode string) (ChatSessio
 	assistant = normAssistant(assistant)
 	sessionID = strings.TrimSpace(sessionID)
 	mode = normalizeChatAccessMode(mode)
-	if assistant != "codex" || sessionID == "" {
+	if !chatCapabilities(assistant).Queue || sessionID == "" {
 		return ChatSessionState{}, errors.New("invalid session access state")
 	}
 	operation := q.sessionOperation(assistant, sessionID)
@@ -618,7 +618,7 @@ func handleChatQueue(w http.ResponseWriter, r *http.Request) {
 	case http.MethodGet:
 		assistant := normAssistant(r.URL.Query().Get("assistant"))
 		sessionID := strings.TrimSpace(r.URL.Query().Get("sessionId"))
-		if assistant != "codex" || sessionID == "" {
+		if !chatCapabilities(assistant).Queue || sessionID == "" {
 			http.Error(w, "bad request", http.StatusBadRequest)
 			return
 		}

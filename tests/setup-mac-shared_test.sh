@@ -82,4 +82,44 @@ if rg -qF -- '--remote-control' "$APPSERVER_PLIST"; then
   fail "shared LaunchAgent still enables the old remote-control mode"
 fi
 
+# fleet-agent plist 的 DSH 占位符必须能被渲染，且默认关闭。
+AGENT_PLIST="$ROOT/mac/com.macfleet.fleet-agent.plist"
+rendered_agent="$tmpdir/com.macfleet.fleet-agent.plist"
+sed -e 's#__BREW_PREFIX__#/opt/homebrew#g' \
+    -e 's#__FLEET_CONFIG_URL__##g' \
+    -e 's#__TS_IP__#100.64.0.2#g' \
+    -e 's#__PORT__#7681#g' \
+    -e 's#__ROOT__#/Users/test#g' \
+    -e 's#__DB__#/tmp/fb.db#g' \
+    -e 's#__TTYD_BASE__#/m1/term#g' \
+    -e 's#__FB_BASE__#/m1/files#g' \
+    -e 's#__FB_BIN__#/opt/homebrew/bin/filebrowser#g' \
+    -e 's#__FLEET_ATTACH__#/tmp/fleet-attach.sh#g' \
+    -e 's#__AGENT_BIN__#/tmp/fleet-agent#g' \
+    -e 's#__AGENT_PORT__#7682#g' \
+    -e 's#__MAC_INDEX__#1#g' \
+    -e 's#__CLAUDE_BIN__#/opt/homebrew/bin/claude#g' \
+    -e 's#__CODEX_BIN__#/tmp/codex#g' \
+    -e 's#__MANAGED_CODEX_BIN__#/tmp/codex#g' \
+    -e 's#__CODEX_HOME__#/tmp/.codex#g' \
+    -e 's#__CODEX_APPSERVER_MODE__#shared#g' \
+    -e 's#__CODEX_APPSERVER_SOCK__#/tmp/codex.sock#g' \
+    -e 's#__CODEX_DESKTOP_WS_URL__#ws://127.0.0.1:47682/rpc#g' \
+    -e 's#__CODEX_DESKTOP_SHARED_DAEMON__#1#g' \
+    -e 's#__DSH_ENABLED__#0#g' \
+    -e 's#__DSH_HOME__#/tmp/dsh-home#g' \
+    -e 's#__DSH_LOG__#/tmp/harness.log#g' \
+    "$AGENT_PLIST" > "$rendered_agent"
+/usr/bin/plutil -lint "$rendered_agent" >/dev/null
+[[ "$(/usr/bin/plutil -extract EnvironmentVariables.FLEET_DSH_ENABLED raw -o - "$rendered_agent")" == "0" ]]
+[[ "$(/usr/bin/plutil -extract EnvironmentVariables.FLEET_DSH_HOME raw -o - "$rendered_agent")" == "/tmp/dsh-home" ]]
+[[ "$(/usr/bin/plutil -extract EnvironmentVariables.FLEET_DSH_LOG raw -o - "$rendered_agent")" == "/tmp/harness.log" ]]
+# 渲染后不能残留任何未替换的占位符，否则 launchd 会把字面量当成配置值。
+if rg -qF -- '__DSH_' "$rendered_agent"; then
+  fail "fleet-agent plist 渲染后仍残留 DSH 占位符"
+fi
+contains "$SETUP" '__DSH_ENABLED__'
+contains "$SETUP" '__DSH_HOME__'
+contains "$SETUP" '__DSH_LOG__'
+
 echo "setup-mac shared tests passed"

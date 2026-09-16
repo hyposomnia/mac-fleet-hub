@@ -162,7 +162,13 @@ func newAgentChatBackend() chatBackend {
 	if codexUsesSharedDaemon() {
 		go b.runCodexAppToolsPipeWatcher(context.Background(), 10*time.Second)
 	}
-	return b
+	router := &routingChatBackend{codex: b}
+	// DSH 只在显式启用时装配：它依赖 DSH Desktop 正在运行，且用的是非公开的
+	// 本地凭据路径，不适合在不相关的机器上默认打开。
+	if cfg.DSHEnabled {
+		router.dsh = newDSHChatBackend(cfg.DSHHome, cfg.DSHLog, cfg.DSHEndpoint)
+	}
+	return router
 }
 
 func (b *codexChatBackend) ensure(ctx context.Context) (codexRPCConn, error) {

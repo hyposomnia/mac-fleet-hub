@@ -24,7 +24,8 @@ Fleet 的自绘聊天目前只支持 Codex：`chat.go` / `chat_queue.go` 用 `Ch
 2. fleet-agent 以**客户端身份**接入 Desktop 正在运行的 DSH host（shared 模式），由 agent 独占持有
    DSH 连接并把结果投影为现有 `ChatEvent`，浏览器不感知 DSH 协议。
 3. **不引入第二个 DSH 写入方**：Fleet 绝不自己启动 `dsh` 进程，绝不写 DSH 的 `sessions/` 或 `storages/`。
-4. Desktop 未运行或连接中断时**优雅降级**：会话列表退化为只读磁盘扫描，写操作明确报错，不静默失败。
+4. Desktop 未运行或连接中断时**明确报错**：写操作返回 `dsh_host_unavailable`，会话列表为空并带
+   `degraded: true`，dashboard 显示降级提示。**不做只读磁盘列表**——见下方"实现期的三处偏离"。
 5. 复用现有 `chatBackend` 接口与 `ChatEvent` 契约，**dashboard 的 `chat_model.js` reducer 不做语义改动**。
 
 ## 非目标
@@ -71,8 +72,9 @@ DSH 的 WS 连接是 agent↔host 的 loopback 连接，**不暴露给浏览器*
 |---|---|---|
 | `mac/fleet-agent/dsh_client.go` | DSH 线协议客户端：一元 envelope、`remote.mux` 多路复用、错误码翻译、重连 | 新建 |
 | `mac/fleet-agent/dsh_discovery.go` | 端点与凭据发现：解析 `harness.log` 取 (port, token)、token 换 cookie、`.credentials.yaml` 自签 cookie 兜底 | 新建 |
-| `mac/fleet-agent/dsh_chat.go` | `chatBackend` 实现：列表/历史/发送/steer/审批/打断/控制态；`$events` waterfall 订阅；事件 → `ChatEvent` 映射 | 新建 |
-| `mac/fleet-agent/dsh_scan.go` | host 不可用时的会话列表降级：扫 `sessions/--<projectKey(cwd)>--/<id>/session.jsonl.zstd` 只解第一帧 | 新建 |
+| `mac/fleet-agent/dsh_eventmap.go` | 纯映射层：会话事件 / 打包行 → `ChatEvent`（可表驱动测试） | 新建 |
+| `mac/fleet-agent/dsh_chat.go` | `chatBackend` 实现：列表/历史/发送/steer/审批/打断/控制态；`$events` waterfall 订阅与 follow 扇出 | 新建 |
+| `mac/fleet-agent/chat_backend_router.go` | 按 assistant 分派到 Codex / DSH 后端（唯一的装配点） | 新建 |
 | `mac/fleet-agent/main.go` | `normAssistant` 增加 `"dsh"`；`handleSessions` 增加 dsh 分支（走 `dsh` 列表，host 不可用时降级扫描）；`scanSessionsFor` 分发；`/api/info` 增加 dsh 能力字段；`cfg` 增加 DSH 配置 | 修改 |
 | `mac/fleet-agent/chat.go` | 32 处 `assistant != "codex"` 守卫改为按后端能力判定（见「能力化的 assistant 守卫」） | 修改 |
 | `mac/fleet-agent/chat_queue.go` | 同样是能力判定；队列键已按 `(assistant, sessionID)` 分区，无需改结构 | 修改 |
@@ -127,36 +129,55 @@ body = `{"version":1,"authority":"127.0.0.1:<port>","issuedAt":<ms>,"expiresAt":
 
 - **主路径**：一元 `POST /api/session/list`，`payload.args` 为 **`{"_request":{}}`**
   （注意参数名是 `_request`，不是 `request`；传 `{}` 会得到 `gateway/arguments-invalid`）。
-  返回 `SessionListValue{items: SessionSummary[]}`。
-- **过滤**：排除子代理会话（header `origin == "subagent"` 或 `delegationDepth > 0`），
+  返回 `SessionListValue{items: SessionSummary[]}`；实测每项含
+  `sessionId/updatedAt/running/blank/cwd/projections{title,tokenUsage,contextPressure,…}`。
+- **过滤**：排除子代理会话（裸 uuid 形态的 id、header `origin == "subagent"` 或 `delegationDepth > 0`），
   与 Codex 侧排除 subagent 的规则对齐。
-- **降级路径**：host 不可用时，扫 `$DSH_HOME/sessions/--*/` 下每个 `session.jsonl.zstd`，
-  **只解压第一帧**取 header（`{type:"session",version,id,createdAt,cwd,delegationDepth,agentPreset}`），
-  得到 id/cwd/时间，无标题无用量。响应里带 `degraded: true`，dashboard 显示"Desktop 未运行，仅显示磁盘会话"。
-- **cwd 目录编码**（降级扫描与 cwd→目录反查用）：实现 `projectKey(cwd)` 的精确复制——
-  `/ \ :` 折叠成一个 `-`；`~` 与任何不匹配 `[A-Za-z0-9._-]` 的 UTF-16 code unit 转 `~` + 大写 4 位十六进制；
-  去掉结果开头的连字符；首尾包 `--`；`.slice(0,251)` 有损截断；空 cwd 抛错，`undefined` → `_no-cwd`。
-  **不可复用 Claude 的编码函数**（两者规则不同）。
+- **降级路径：不做。** 原设计打算在 host 不可用时扫 `$DSH_HOME/sessions/--*/` 只解第一帧取 header，
+  实现期否决了它：Go 标准库没有 zstd 解码器，要读那些 `.jsonl.zstd` 就得新增第三方依赖或依赖 brew 的
+  `zstd` CLI（而已签名公证的 agent 不该依赖 brew）。更关键的是 shared 模式下没有 host 就没有可驱动的
+  会话——历史、发送、审批全都要经它，列出打不开的会话只会误导。host 不可用时列表为空 + `degraded: true`。
 
 ### 2. 历史与实时流（`session/follow`）
 
-打开 WS `session/follow`（`payload.args` 携带 session 地址）：
+**参数名与嵌套形状一律以生成产物为准，不要凭直觉写**。实测（写成 `sessionId` 会得到
+`gateway/arguments-invalid: missing "request"; unexpected "sessionId"`）：
+
+```
+session/follow  args = { "request": { "address": { "kind": "session", "sessionId": "<id>" },
+                                      "maxMessages": <可选> } }
+session/control args = {}                       // 无参数，全局控制流
+session/page    args = { "request": { "address": 同上, "throughSeq": <n>,
+                                      "beforeSeq": <可选>, "maxMessages": <可选> } }
+```
+
+打开后的帧：
 
 - 首帧 `{type:'snapshot', header, cursor, records[], hasMore, projections}` → 先灌历史再进实时。
 - 后续帧是 `SessionEventEntry`；`records` 里可能是 `{type:'event', event}` 或 `{type:'chunks', event}`。
-- **`{type:'chunks'}` 必须展开**：打包行 `text-chunks` / `reasoning-chunks` / `tool-call-chunks`
-  携带 `seq0`/`time0` + `data.dt[]` 与 `data.texts[]`/`data.args[]`，需按 `dt` 间隔逐条还原成
-  `assistant/chunk` 语义的增量，否则历史会丢字。展开逻辑必须与 `dsh-session` 的无损 codec 一致。
-- 向后分页走一元 `session/page`（`{address, throughSeq, beforeSeq?, maxMessages?}`），
-  映射为现有 `ChatHistoryPage{cursor}`。
+- **`{type:'chunks'}` 必须展开**，且线上形态与存储层文档不同（实测）：
+
+  ```json
+  {"type":"chunks","event":{"type":"chunkrow/reasoning-chunks","seq":81369,"time":1789549471330,
+   "data":{"turn":1,"step":229,"index":0,"dt":[…],"texts":[…]}}}
+  ```
+
+  内层 type 带 `chunkrow/` 前缀（`chunkrow/text-chunks` / `chunkrow/reasoning-chunks` /
+  `chunkrow/tool-call-chunks`）；首成员身份是 **`seq` + `time`**（不是 `seq0`/`time0`）；
+  成员数 = `texts`（或 `args`）长度；第 i 个成员 `seq = seq + i`、`time = time + Σdt[0..i-1]`；
+  **`dt` 长度 = 成员数 − 1**（codec 的 `validateRunData` 强制该等式，写成 N 会判畸形或静默错位）。
+  只有连续 ≥3 条同 block 的 `assistant/chunk` 才打包，短 run 仍是明文 `assistant/chunk`，
+  因此快照里两种形态并存，读取端必须都能吃。
+- 向后分页走 `session/page`，映射为现有 `ChatHistoryPage{cursor}`。
 
 ### 3. 发送 / 排队 / steer
 
-一元 `session/prompt`：
+一元 `session/prompt`（注意 `request` 包装层）：
 
 ```
-{requestId: <uuid>, sessionId, mode: 'queue' | 'steer',
- content: [{type:'text',text}|{type:'image',mediaType,data,name?}], clientTimeZone?}
+args = { "request": { requestId: <唯一串>, sessionId, mode: 'queue' | 'steer',
+                      content: [{type:'text',text}|{type:'image',mediaType,data,name?}],
+                      clientTimeZone? } }
 → {accepted: true}
 ```
 
@@ -165,7 +186,7 @@ body = `{"version":1,"authority":"127.0.0.1:<port>","issuedAt":<ms>,"expiresAt":
   用它做 `user_done` 对账与本地乐观队列项的精确移除。
 - Dashboard 的 `deliveryMode` 语义映射：`auto` → 当前有活跃 turn 时 `queue`、否则直接 prompt；
   `next` → `steer`。规则与 Codex 侧保持一致，由 agent 判定，浏览器不判断。
-- `session/cancel` → `{sessionId}` → `{accepted:true}`；host 内部用 `keepInbox: true`
+- `session/cancel` 的 args 是 `{request:{sessionId}}` → `{accepted:true}`；host 内部用 `keepInbox: true`
   （只中止轮次、保留排队项），与 Fleet 现有语义一致。
 
 ### 4. 审批与提问往返
@@ -242,25 +263,31 @@ DSH 会话事件（`SessionEventMap` 取值域）→ `ChatEvent.Type`。映射�
 
 ## 能力化的 assistant 守卫
 
-现状是 32 处硬编码 `assistant != "codex"`。改为一处能力查询：
+现状是散落的硬编码 `assistant != "codex"`：**handler 层 16 处**（`chat.go` 13、`chat_queue.go` 3）需要能力化；
+`codex_chat.go` 里 12 处是 Codex 后端自身的契约检查（保留），`main.go` 里 4 处是路由分发（属 Phase G）。
 
 ```go
-// chat.go
+// chat_capabilities.go
 type assistantCapabilities struct {
-    SelfDraw     bool // 是否支持自绘聊天
-    Queue        bool // 是否支持持久队列与 steer
-    Interactions bool // 是否支持审批/提问往返
+    SelfDraw bool // 支持自绘聊天面：列表、历史、发送、流式、审批往返
+    Queue    bool // 支持服务端持久队列、steer 与访问态控制
 }
 
 func chatCapabilities(assistant string) assistantCapabilities
 ```
 
-- `codex` → 全 `true`
-- `dsh` → 全 `true`（v1 目标就是对齐 Codex）
-- `claude` / 未知 → 全 `false`（保持现有行为不变，Claude 仍走终端）
+- `codex` → 两位均 `true`
+- `dsh` → 两位均 `true`（接入完成时打开；实现期先保持 `false`，避免暴露半成品 tab）
+- `claude` / 未知 → 两位均 `false`（保持现有行为不变，Claude 仍走终端）
 
-所有 `assistant != "codex"` 的 501 分支改为 `if !cap.SelfDraw { 501 }`。
-`chat_queue.go` 里 `assistant != "codex"` 的分支同理（队列键已是 `(assistant, sessionID)`，结构不变）。
+**只保留两个维度，刻意不拆第三个。** 原设计里的 `Interactions`（审批/提问往返）被删掉：handler 层所有
+端点问的都是同一个问题——"这个 assistant 有没有自绘聊天面"，审批属于这个面的一部分而不是独立能力；
+只有服务端队列/访问态是真正可能缺席的一维（一个只读渲染磁盘会话、不参与排队与 writer 租约的
+assistant 就是 `SelfDraw` 有而 `Queue` 无）。等真的出现第三种组合时再拆，不预先发明维度。
+
+handler 层 501 分支改为 `if !chatCapabilities(assistant).SelfDraw { 501 }`；
+`chat_queue.go` 的三处改为 `if !chatCapabilities(assistant).Queue || sessionID == "" { … }`
+（队列键已是 `(assistant, sessionID)`，结构不变）。
 
 **这一步是纯重构，必须单独一次提交并先跑全绿测试**，确保 Claude 行为零变化，再在其上接 DSH。
 
@@ -351,8 +378,6 @@ Desktop 重启会换 port/token，任何 401/连接拒绝触发一次"失效重�
 
 1. **`dsh_discovery_test.go`**
    - `harness.log` 尾部解析：多条 `dsh web:` 行取最后一条；行被截断/无匹配/文件不存在 → 返回明确错误。
-   - `projectKey(cwd)` 表驱动：ASCII、中文（`个` → `~4E2A`）、Windows 反斜杠、冒号、空串抛错、
-     `undefined` → `_no-cwd`、超长截断到 251。**用侦察里实测过的两个真实样例做断言**。
    - cookie 自签：给定固定 secret / authority / 时间戳，断言输出与手工计算的 HMAC 串一致（固定向量），
      并断言 `expiresAt - issuedAt > 30d` 时被拒绝。
 2. **`dsh_client_test.go`**（`httptest.Server` + `httptest` WS，不需要真实 Desktop）
@@ -393,11 +418,26 @@ Desktop 重启会换 port/token，任何 401/连接拒绝触发一次"失效重�
 
 ## 交付物
 
-1. 五个新 Go 文件 + 两处 Go 修改（`main.go`、`chat.go`/`chat_queue.go` 能力化）。
+1. 六个新 Go 文件（`chat_capabilities.go` / `chat_backend_router.go` / `dsh_discovery.go` / `dsh_client.go` / `dsh_eventmap.go` / `dsh_chat.go`）+ 三处 Go 修改（`main.go` 接线、`chat.go` 与 `chat_queue.go` 能力化、`codex_chat.go` 装配路由）。
 2. plist + `setup-mac.sh` 的配置注入。
 3. dashboard 三处改动（`index.html`、`app.js`；`chat_model.js` 不动）。
 4. 测试与 fixture：`mac/fleet-agent/testdata/dsh/` 下的真实帧样本。
 5. CHANGELOG 条目。
-6. 重建 `mac/fleet-agent/dist/` 双架构产物（改 `main.go` 后必须重建，否则二进制与源码不一致）。
+6. **不重建 `mac/fleet-agent/dist/`**：其中是签名构建机产出的 Developer ID 签名产物，按 AGENTS.md 禁止用本地未签名编译覆盖；正式发布由签名机重建并签名。
 7. **发布走现有正式通道**：`scripts/release-fleet-agent.sh`（签名构建机 Developer ID 签名 + 公证），
    不得在其他 Mac 本地编译后直接覆盖生产分发源。
+
+## 实现期的三处偏离（已落地）
+
+规格在实现过程中被真实证据修正了三处，均已在代码与测试中体现：
+
+1. **能力位从 3 个收敛为 2 个**（删掉 `Interactions`）。handler 层所有端点问的都是同一个问题——
+   "这个 assistant 有没有自绘聊天面"，审批属于这个面而不是独立能力；只有服务端队列/访问态是真正
+   可能缺席的一维。等出现第三种组合时再拆。
+2. **不做 `projectKey`**（原计划用于 cwd → 会话目录反查）。降级扫描被砍掉之后它就没有调用方了，
+   写了就是死代码。精确规则已记进 dev 记忆，等真有调用方再实现。
+3. **不做磁盘降级列表**（原 Phase F / `dsh_scan.go`）。理由见「数据流 1 → 降级路径」。
+
+另外两条规格里写了但 v1 明确不做的写入面，代码里以 `errDSHUnsupported` 可读报错：
+权限预设（`settings/mutate` 会改用户真实 DSH 配置）与技能目录（`skills/list` 是 stream，
+请求形状未在真机验证）。会话级授权 `acceptForSession` 同样明确拒绝，不降级成「允许一次」。

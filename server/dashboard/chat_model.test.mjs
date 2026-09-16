@@ -744,7 +744,8 @@ test('queue transcript cards render exactly the actions permitted by the state m
 });
 
 test('external writer messages use the agent queue and render takeover actions below the user message', () => {
-  assert.match(appSrc, /chat\/queue\?assistant=codex/);
+  // 队列按 (assistant, sessionId) 分区：assistant 随当前自绘助手走（原断言写死 codex）
+  assert.match(appSrc, /chat\/queue\?assistant=\$\{state\.assistant\}/);
   assert.match(appSrc, /chat\/queue\/decision/);
   assert.match(appSrc, /enqueueServerChatMessage/);
   assert.match(appSrc, /中断全部并接管/);
