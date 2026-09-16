@@ -131,6 +131,7 @@ const state = {
   killMacId: null,       // 待终止会话所在设备
   nodes: {},             // id -> online
   counts: {},            // id -> 活跃会话数（主机栏/主机条展示）
+  assistantInfo: {},     // id -> /api/info 响应（dsh 能力块：tab 显隐、自绘能力、降级横幅）
   collapsed: new Set(),  // 已折叠的分组 cwd
   watchTimer: null,
   pool: [],              // 终端 iframe 池：每个打开的会话一个常驻 iframe（见「终端 iframe 池」段）
@@ -241,7 +242,11 @@ function groupSessionsByProject(sessions) {
   return [...groups.values()];
 }
 function macName(id) { return macNames[id] || ('Mac ' + id.slice(1)); }
-function assistantLabel(a = state.assistant) { return a === 'codex' ? 'Codex' : 'Claude'; }
+// 助手白名单：localStorage/会话快照回读时用它校验，非法值（旧数据、手改）一律回退 codex。
+const ASSISTANTS = ['codex', 'claude', 'dsh'];
+function normalizeAssistant(a) { return ASSISTANTS.includes(a) ? a : 'codex'; }
+const ASSISTANT_LABELS = { codex: 'Codex', claude: 'Claude', dsh: 'DeepSeek' };
+function assistantLabel(a = state.assistant) { return ASSISTANT_LABELS[normalizeAssistant(a)]; }
 // nginx 或 agent 直接返回的 413 响应体是 HTML，解析不出 message，用它兜底。
 const TOO_LARGE_MESSAGE = '文件太大，超过了上传上限（单文件最大 512 MB）。';
 async function api(id, path, opts) {
@@ -332,11 +337,38 @@ function setSelfDraw(enabled) {
   if (!state.selfDraw) {
     closeChatPane();
     restoreTermOrEmpty();
-  } else if (state.assistant === 'codex' && state.selectedSid) {
+  } else if (canSelfDrawChat() && state.selectedSid) {
     loadSessions();
   }
 }
-function canSelfDrawChat() { return state.selfDraw && state.assistant === 'codex' && state.mode === 'sessions'; }
+
+// 助手能力表：对应 agent 的 chat_capabilities.go，「哪个助手支持什么」只在这里判定一份。
+//   selfDraw      自绘聊天面（历史分页、发送、流式、审批往返都在这个面里）
+//   sessionCursor 会话列表走游标 + 服务端筛选（archived/limit/search/cursor）；否则走 scope=active|all
+// DSH 的 selfDraw 还要求该 Mac 的 /api/info 报 dsh.enabled 且未降级（DSH Desktop 在跑）；
+// 拿不到 info（旧 agent / 离线）按不可用处理，不露出半成品入口。macId 省略时看会话列表覆盖的设备。
+function assistantCapabilities(assistant = state.assistant, macId = '') {
+  if (assistant === 'codex') return { selfDraw: true, sessionCursor: true };
+  if (assistant !== 'dsh') return { selfDraw: false, sessionCursor: false };
+  return { selfDraw: (macId ? [macId] : sessionTargetMacs()).some(dshReady), sessionCursor: true };
+}
+
+// 该 Mac 的 DSH 是否可用：agent 报了能力块、enabled 且未降级。旧 agent 不返回 dsh 块 → false。
+function dshReady(macId) {
+  const dsh = state.assistantInfo[macId]?.dsh;
+  return !!(dsh && dsh.enabled && !dsh.degraded);
+}
+
+// dsh 入口本身（含降级只读态）：只要 agent 报了 enabled 就保留 tab，降级时列表顶部出横幅。
+function dshEnabled(macId) {
+  const dsh = state.assistantInfo[macId]?.dsh;
+  return !!(dsh && dsh.enabled);
+}
+
+// 自绘聊天入口：自绘开关 + 会话模式 + 该助手在该设备上的能力。
+function canSelfDrawChat(assistant = state.assistant, macId = '') {
+  return state.selfDraw && state.mode === 'sessions' && assistantCapabilities(assistant, macId).selfDraw;
+}
 function isIMEComposing(e, composingFlag) {
   return !!(composingFlag || e.isComposing || e.keyCode === 229);
 }
@@ -535,7 +567,28 @@ async function refreshNodes() {
     if (state.mode === 'sessions' && (rosterChanged || !state.sessionResults.length)) loadSessions();
     else if (state.mode === 'files' && state.fileMacId && !state.fileEntries.length) loadFiles();
     refreshHostCounts();
+    refreshAssistantCapabilities();
   } catch (_) {}
+}
+
+// 探测在线 Mac 的 /api/info，取 dsh 能力块（第三个 tab 的显隐、自绘能力、降级横幅都吃它）。
+// 只缓存本轮探测成功的设备，整份替换：某台 Mac 探测失败就当它没有能力，不留上一轮的旧结论。
+async function refreshAssistantCapabilities() {
+  const probed = {};
+  await Promise.all(MACS.filter((m) => state.nodes[m.id]).map(async (m) => {
+    try { probed[m.id] = await api(m.id, 'info'); } catch (_) {}
+  }));
+  state.assistantInfo = probed;
+  syncAssistantTabs();
+}
+
+// DeepSeek 入口显隐：拿不到 info 就藏起来（旧 agent / 探测失败），不露半成品入口。
+function syncAssistantTabs() {
+  const available = Object.keys(state.assistantInfo).some(dshEnabled);
+  $$('[data-assistant="dsh"]').forEach((b) => { b.hidden = !available; });
+  // 选中的 dsh 已经不可用（agent 没开 / 换了旧 agent）：退回 codex，不停在一个空列表上
+  if (!available && state.assistant === 'dsh') { setAssistant('codex'); return; }
+  syncDshBanner();
 }
 
 // 各在线主机的活跃会话数（主机栏/主机条角标）。失败静默：数字非关键。
@@ -812,6 +865,28 @@ function normalizeDeviceSessions(macId, data) {
     }
   }
   return sessions;
+}
+
+// 当前 DSH 是否降级（能力块在，但 Desktop 没跑 / 报了 degraded）：列表只剩磁盘会话。
+function dshDegraded() {
+  if (state.assistant !== 'dsh') return false;
+  return sessionTargetMacs().some((macId) => {
+    const dsh = state.assistantInfo[macId]?.dsh;
+    return !!(dsh && dsh.enabled && (dsh.degraded === true || dsh.hostRunning === false));
+  });
+}
+
+// 降级横幅（列表顶部一行）：幂等重建，能力探测每 30s 复算也不会把列表整体重绘。
+function syncDshBanner() {
+  const wrap = $('#session-groups');
+  if (!wrap) return;
+  $('[data-dsh-degraded]', wrap)?.remove();
+  if (!dshDegraded() || !wrap.querySelector('.grp, .empty, .ses')) return;
+  wrap.prepend(h('div', {
+    class: 'session-partial-note',
+    dataset: { dshDegraded: '1' },
+    text: 'DSH Desktop 未运行，当前仅显示磁盘会话（只读）',
+  }));
 }
 
 function renderSessionResults(opts = {}) {
