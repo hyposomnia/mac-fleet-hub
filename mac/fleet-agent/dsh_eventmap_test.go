@@ -12,8 +12,8 @@ const (
 	dshFixtureTurnStart = `{"turn":1}`
 	dshFixtureTurnEnd   = `{"turn":1,"reason":{"kind":"completed"}}`
 
-	dshFixtureTextDelta = `{"turn":1,"step":1,"chunk":{"type":"text-delta","index":1,"text":" **"}}`
-	dshFixtureReasoning = `{"turn":1,"step":1,"chunk":{"type":"reasoning-delta","index":0,"text":"This"}}`
+	dshFixtureTextDelta  = `{"turn":1,"step":1,"chunk":{"type":"text-delta","index":1,"text":" **"}}`
+	dshFixtureReasoning  = `{"turn":1,"step":1,"chunk":{"type":"reasoning-delta","index":0,"text":"This"}}`
 	dshFixtureBlockStart = `{"turn":1,"step":1,"chunk":{"type":"block-start","index":0,"blockType":"text"}}`
 	dshFixtureUsage      = `{"turn":1,"step":1,"chunk":{"type":"usage","usage":{"inputTokens":11314,"outputTokens":145,"totalTokens":20419,"cacheReadTokens":8960,"reasoningTokens":0}}}`
 
@@ -22,7 +22,7 @@ const (
 		`{"type":"text","text":"I'll start by loading my memory index."},` +
 		`{"type":"tool-call","id":"call_00_ET","name":"read","arguments":"{\"file_path\": \"/tmp/x\"}"}]}}`
 
-	dshFixtureToolCall = `{"turn":1,"step":1,"callId":"call_00_ET","name":"read","arguments":"{\"file_path\": \"/tmp/x\"}"}`
+	dshFixtureToolCall   = `{"turn":1,"step":1,"callId":"call_00_ET","name":"read","arguments":"{\"file_path\": \"/tmp/x\"}"}`
 	dshFixtureToolResult = `{"turn":1,"step":1,"message":{"source":{"kind":"tool","callId":"call_00_ET"},` +
 		`"content":[{"type":"tool-result","toolCallId":"call_00_ET","content":[{"type":"text","text":"<content>\n1: hi"}]}]}}`
 

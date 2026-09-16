@@ -22,6 +22,14 @@ var errDSHUnsupported = errors.New("dsh_unsupported")
 // dshBacklogLimit 限制没有订阅者时缓存的实时事件数，避免长会话把内存吃光。
 const dshBacklogLimit = 512
 
+// 关于 follow 快照的量级（实测，别凭直觉"优化"）：
+//
+// 不传 maxMessages 时 host 返回的尾部本来就是有界的——真实长会话实测 639 条记录 /
+// 868 KB 帧。曾经试过显式传 maxMessages=200 "限制大小"，结果反而变成 1787 条记录 /
+// 2271 KB（该参数不是简单的上界，语义与 records 数非线性）。所以这里保持不传，
+// 让 host 用它自己的默认值。展开后的首页事件量（约 2.7 万条）与 session/page 的
+// 向后分页都已实测可用，cursor 就是记录里最早的 seq。
+
 // dshChatBackend 是 Fleet 侧的 DSH 客户端后端。
 //
 // shared 模式：它挂到 DSH Desktop 正在运行的 harness host 上，由 host 持有唯一的
@@ -38,9 +46,9 @@ type dshChatBackend struct {
 	lastErr  error
 	hostSeen bool
 
-	eventMu   sync.Mutex
-	waterfall *dshStream
-	clientID  string
+	eventMu       sync.Mutex
+	waterfall     *dshStream
+	clientID      string
 	stopWaterfall context.CancelFunc
 
 	sessMu   sync.Mutex
@@ -435,10 +443,10 @@ func (b *dshChatBackend) runWaterfall(ctx context.Context, stream *dshStream) {
 			return
 		}
 		var frame struct {
-			Type     string          `json:"type"`
-			EventID  string          `json:"eventId"`
-			Event    string          `json:"event"`
-			Payload  json.RawMessage `json:"payload"`
+			Type    string          `json:"type"`
+			EventID string          `json:"eventId"`
+			Event   string          `json:"event"`
+			Payload json.RawMessage `json:"payload"`
 		}
 		if json.Unmarshal(raw, &frame) != nil {
 			continue
@@ -610,11 +618,11 @@ func (b *dshChatBackend) loadSnapshot(ctx context.Context, client *dshClient, s 
 		return ChatHistoryPage{}, err
 	}
 	var frame struct {
-		Type     string            `json:"type"`
-		Cursor   int64             `json:"cursor"`
-		HasMore  bool              `json:"hasMore"`
-		Header   json.RawMessage   `json:"header"`
-		Records  []json.RawMessage `json:"records"`
+		Type    string            `json:"type"`
+		Cursor  int64             `json:"cursor"`
+		HasMore bool              `json:"hasMore"`
+		Header  json.RawMessage   `json:"header"`
+		Records []json.RawMessage `json:"records"`
 	}
 	if err := json.Unmarshal(raw, &frame); err != nil || frame.Type != "snapshot" {
 		return ChatHistoryPage{}, fmt.Errorf("%w: follow 首帧不是 snapshot", errDSHProtocolChanged)
