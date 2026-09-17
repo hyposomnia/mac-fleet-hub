@@ -6,7 +6,7 @@ export PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:${PA
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 CONFIG_FILE="${FLEET_RELEASE_CONFIG:-$HOME/.config/mac-fleet-hub/release.env}"
-EXPECTED_BRANCH="${FLEET_RELEASE_BRANCH:-master}"
+EXPECTED_BRANCH="${FLEET_RELEASE_BRANCH:-main}"
 die() { echo "✗ $*" >&2; exit 1; }
 step() { echo; echo "==> $*"; }
 ssh_retry() {

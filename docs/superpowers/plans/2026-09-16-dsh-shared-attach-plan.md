@@ -204,7 +204,7 @@ var (
 
 ## Phase J–K：PR、部署、验证
 
-- [ ] 1. `git push -u origin feat/dsh-shared-attach` + 提 PR（base `master`）。
+- [ ] 1. `git push -u origin feat/dsh-shared-attach` + 提 PR（base `main`）。
 - [ ] 2. 合并后部署：dashboard 走静态发布（网关 `git pull` + `cp` 到 `/var/www/fleet/`）；
       agent 走现有正式通道 —— **必须由持有 Developer ID 的签名构建机执行
       `bash scripts/release-fleet-agent.sh`**，不得在其他 Mac 本地编译后覆盖生产分发源。

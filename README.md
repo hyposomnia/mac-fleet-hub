@@ -87,11 +87,11 @@ bash scripts/release-fleet-agent.sh
 
 **装网关**（发给跑在你那台 Linux 服务器上的 AI）：
 
-> 在这台 Linux 服务器上部署 mac-fleet-hub 网关：读 https://github.com/hyposomnia/mac-fleet-hub/blob/master/AGENTS.md 并按其中「网关部署」流程执行；需要我提供的信息（域名、证书位置、是否封 443）逐项问我，涉及 sudo / 覆盖配置前先说明。
+> 在这台 Linux 服务器上部署 mac-fleet-hub 网关：读 https://github.com/hyposomnia/mac-fleet-hub/blob/main/AGENTS.md 并按其中「网关部署」流程执行；需要我提供的信息（域名、证书位置、是否封 443）逐项问我，涉及 sudo / 覆盖配置前先说明。
 
 **接入一台 Mac**（网关装好后，发给跑在那台 Mac 上的 AI）：
 
-> 在这台 Mac 上接入我的 mac-fleet-hub fleet：读 https://github.com/hyposomnia/mac-fleet-hub/blob/master/AGENTS.md 并按其中「Mac 客户端接入」流程执行（**不要克隆仓库**，从网关下载客户端包即可）；只问我网关地址和入网验证码。
+> 在这台 Mac 上接入我的 mac-fleet-hub fleet：读 https://github.com/hyposomnia/mac-fleet-hub/blob/main/AGENTS.md 并按其中「Mac 客户端接入」流程执行（**不要克隆仓库**，从网关下载客户端包即可）；只问我网关地址和入网验证码。
 
 ---
 

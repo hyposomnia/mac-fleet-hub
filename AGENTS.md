@@ -166,7 +166,7 @@ bash scripts/release-fleet-agent.sh           # 完整发布
 
 完整脚本按以下顺序执行，AI 不得拆开、跳步或用手工替换冒充完成：
 
-1. 确认当前 mesh IP 是签名机、工作树干净、分支正确，再 `git pull --ff-only origin master`。
+1. 确认当前 mesh IP 是签名机、工作树干净、分支正确，再 `git pull --ff-only origin main`。
 2. 运行 `bash scripts/verify.sh`。
 3. 双架构构建，以固定 identifier 做 Developer ID 签名、可信时间戳和严格验签，并等待 Apple 公证
    `Accepted`。
