@@ -299,7 +299,6 @@ test('dashboard typography uses one UI scale and reserves monospace for technica
   assert.match(appSrc, /class:\s*'chat-tool-exit tnum'/);
 
   for (const id of [
-    'st-dmax', 'st-dscroll', 'st-mmax', 'st-mscroll', 'st-autoclose',
     'st-chat-cache-max', 'st-chat-cache-count', 'st-chat-cache-bytes', 'st-chat-cache-each',
   ]) {
     const element = indexHTML.match(new RegExp(`<[^>]+id="${id}"[^>]*>`))?.[0] || '';
@@ -333,16 +332,14 @@ test('background ttyd frames cannot steal focus from dashboard controls', () => 
   assert.match(source, /return originalFocus\(\.\.\.args\)/);
 });
 
-test('Codex is the first and default session assistant', () => {
+test('ChatGPT is the first and default session assistant', () => {
   const tabs = [...indexHTML.matchAll(/<button data-assistant="([^"]+)" role="tab" aria-selected="([^"]+)">/g)]
     .map((match) => ({ assistant: match[1], selected: match[2] }));
   assert.deepEqual(tabs, [
     { assistant: 'codex', selected: 'true' },
-    { assistant: 'claude', selected: 'false' },
     { assistant: 'codex', selected: 'true' },
-    { assistant: 'claude', selected: 'false' },
   ]);
-  assert.match(appSrc, /assistant:\s*'codex',\s*\/\/ claude \| codex/);
+  assert.match(appSrc, /assistant:\s*'codex',\s*\/\/ codex \| dsh/);
 });
 
 test('settings menu owns archive browsing and session settings', () => {
@@ -370,14 +367,11 @@ test('settings menu owns archive browsing and session settings', () => {
   assert.match(styleCSS, /\.sc-head-actions\s*\{/);
 });
 
-test('self-drawn Codex is enabled by default and configured in the self-drawn tab', () => {
-  assert.match(indexHTML, /data-settings-tab="chat"[^>]*>自绘</);
-  assert.match(indexHTML, /id="st-selfdraw"[^>]*type="checkbox"[^>]*checked/);
-  assert.match(indexHTML, />为Codex默认使用自绘界面（近Codex Desktop）</);
-  assert.doesNotMatch(indexHTML, /data-act="selfdraw"|>自绘界面<\/button>/);
-  assert.match(appSrc, /localStorage\.getItem\(SELF_DRAW_KEY\) !== '0'/);
-  assert.match(appSrc, /const nextSelfDraw = \$\('#st-selfdraw'\)\.checked;/);
-  assert.match(appSrc, /setSelfDraw\(nextSelfDraw\)/);
+test('session settings expose chat cache without terminal controls', () => {
+  assert.match(indexHTML, /data-settings-panel="chat">/);
+  assert.match(indexHTML, /id="st-chat-cache-max"/);
+  assert.doesNotMatch(indexHTML, /data-settings-tab=|data-assistant="claude"|id="st-selfdraw"|id="st-dmax"/);
+  assert.doesNotMatch(appSrc, /SELF_DRAW_KEY|setSelfDraw|用终端打开/);
 });
 
 test('mobile session toolbar keeps square actions on both sides of search', () => {
@@ -524,7 +518,6 @@ test('session list aggregates online devices while row actions retain their sour
   assert.match(appSrc, /macId,\s*assistant:\s*session\.assistant \|\| state\.assistant/);
   assert.match(appSrc, /dataset:\s*\{\s*sid,\s*mac:\s*macId,\s*assistant,\s*renderSignature:/);
   assert.match(appSrc, /api\(session\.macId,\s*'sessions\/action'/);
-  assert.match(appSrc, /termSes\(sid,\s*s\.title,\s*macId,\s*assistant\)/);
   assert.match(appSrc, /query\.set\('archived',\s*String\(state\.scope === 'all'\)\)/);
   assert.match(appSrc, /query\.set\('scope',\s*state\.scope === 'all' \? 'all' : 'active'\)/);
 });
@@ -632,7 +625,7 @@ test('external Codex writer keeps Fleet visible and queues confirmed input witho
   assert.doesNotMatch(appSrc, /acquireChatWriter/);
   assert.match(appSrc, /writerOwner:\s*''/);
   assert.match(appSrc, /isDesktopChatOwned/);
-  assert.match(appSrc, /Codex Desktop 已打开此会话/);
+  assert.match(appSrc, /ChatGPT 桌面端已打开此会话/);
   assert.match(appSrc, /enqueueServerChatMessage/);
   assert.match(appSrc, /deliveryMode/);
   assert.match(appSrc, /chat\/resume/);
@@ -750,7 +743,7 @@ test('external writer messages use the agent queue and render takeover actions b
   assert.match(appSrc, /enqueueServerChatMessage/);
   assert.match(appSrc, /中断全部并接管/);
   assert.match(appSrc, /继续排队/);
-  assert.match(appSrc, /此会话正在其他 Codex 客户端中使用/);
+  assert.match(appSrc, /此会话正在其他 ChatGPT 客户端中使用/);
   assert.match(appSrc, /item\.decisionPending = action/);
   assert.match(appSrc, /stateVersion: item\.stateVersion/);
   assert.match(appSrc, /disabled: pending \|\| controlBlocked \? '' : null/);
@@ -837,10 +830,10 @@ test('expired control transport disables mutations without inventing server stat
 test('read-only Fleet writer is shown as unreleased instead of Codex-ready', () => {
   const stuck = chatOwnershipPresentation({ controlReady: true, accessMode: 'read_only', writerOwner: 'fleet' });
   assert.match(stuck.text, /孤立 writer|自动回收/);
-  assert.doesNotMatch(stuck.text, /Codex 可接管/);
+  assert.doesNotMatch(stuck.text, /ChatGPT 可接管/);
   assert.equal(stuck.action, '');
   const released = chatOwnershipPresentation({ controlReady: true, accessMode: 'read_only', writerOwner: '' });
-  assert.match(released.text, /Codex 可接管/);
+  assert.match(released.text, /ChatGPT 可接管/);
   assert.equal(released.action, 'enable-write');
 });
 
@@ -1275,7 +1268,7 @@ test('composer lets the server route running input and only stops when empty', (
   assert.equal(chatComposerAction(readOnly, true), 'readonly');
   assert.equal(chatComposerAction(releasing, true), 'transition');
   assert.match(appSrc, /submitChatInput\(\)/);
-  assert.match(appSrc, /Codex Desktop 正在输出/);
+  assert.match(appSrc, /ChatGPT 桌面端正在输出/);
   assert.match(appSrc, /chatComposerAction[\s\S]*queue-desktop/);
   assert.match(appSrc, /enqueueServerChatMessage\(chat, item, deliveryMode\)/);
   assert.match(appSrc, /submitChatInput\(\{ deliveryMode = 'auto' \} = \{\}\)/);
@@ -2562,7 +2555,7 @@ test('new Codex sessions open a local self-drawn draft before starting', () => {
   assert.match(source, /canSelfDrawChat\(\)/);
   assert.match(source, /openPendingChatSession\(/);
   assert.doesNotMatch(source, /'chat\/start'/);
-  assert.match(source, /api\(macId,\s*'new'/);
+  assert.doesNotMatch(source, /api\(macId,\s*'new'/);
   assert.match(starter, /'chat\/start'/);
   assert.match(starter, /state\.chatCache\.set\(newKey, chat\)/);
 });

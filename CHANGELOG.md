@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-09-17
+
+- 网页退役 Claude 与 ttyd 入口：保留 agent 的 Claude 扫描，移除桌面/移动端 Claude 标签、会话设置的终端页与自绘开关、聊天失败后的终端回退；旧 Claude 偏好回退 ChatGPT，旧终端快照不再重连。网页统一将 Codex 显示为 ChatGPT，内部 assistant 标识保持兼容；PWA 外壳更新至 v125。
+
 ## 2026-09-16
 
 - 修复 `scripts/release-fleet-agent.sh` 在 macOS 自带 `/bin/bash` 3.2 下**第一步预检就崩**：脚本里 `$VAR` 后面紧跟全角字符（`「」（）`）时，bash 3.2 会把多字节字符的首字节并入变量名，`set -u` 下报 `NOTARY_PROFILE?: unbound variable` 直接退出，把唯一正式发布入口挡死。4 处改为 `${VAR}` 写法；其中两处在 `die` 错误分支，平时不触发因此一直没暴露。本机无 homebrew bash 5，只能靠写法规避。

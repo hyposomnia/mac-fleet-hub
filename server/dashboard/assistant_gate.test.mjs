@@ -87,7 +87,7 @@ test('codex 与 claude 的能力判定不受 dsh 能力块影响', () => {
   assert.equal(codex.selfDraw, true);
 
   const claude = evaluate('claude', DSH_READY);
-  assert.equal(claude.selfDraw, false, 'Claude 仍走终端，不得自绘');
+  assert.equal(claude.selfDraw, false, 'Claude 已从网页退役');
 
   // 注意两个轴是正交的：selfDraw 看的是"当前这个 assistant 能不能写"，
   // tabVisible 看的是"这台 Mac 上 dsh 是否可用"，与当前选中谁无关。
@@ -113,14 +113,14 @@ test('自绘对话的"连接中"文案随 assistant 走', () => {
     .join('\n');
   const api = new Function(`${consts}\n${fns}\nreturn { assistantConnectingText, assistantLabel };`)();
 
-  assert.match(api.assistantConnectingText('codex'), /Codex app-server/);
+  assert.match(api.assistantConnectingText('codex'), /ChatGPT/);
   assert.equal(api.assistantConnectingText('dsh'), '正在连接 DeepSeek Harness…');
   // DSH 连的是 Desktop 已启动的 harness host，不是 app-server —— 术语不能串。
   assert.ok(!api.assistantConnectingText('dsh').includes('Codex'));
-  assert.ok(!api.assistantConnectingText('claude').includes('Codex'));
+  assert.equal(api.assistantConnectingText('claude'), api.assistantConnectingText('codex'));
 
   assert.equal(api.assistantLabel('dsh'), 'DeepSeek');
-  assert.equal(api.assistantLabel('codex'), 'Codex');
+  assert.equal(api.assistantLabel('codex'), 'ChatGPT');
 });
 
 test('共享对话界面里不再有写死的 Codex 文案', () => {
@@ -137,6 +137,19 @@ test('共享对话界面里不再有写死的 Codex 文案', () => {
   }
   // "连接中"这句只允许作为字面量出现在它自己的函数里，不允许散在渲染代码中。
   // 只数带引号的形态：注释里提到这句话是正常的（本条注释就提到了）。
-  const occurrences = appSrc.split("'正在连接 Codex app-server…'").length - 1;
+  const occurrences = appSrc.split("'正在连接 ChatGPT…'").length - 1;
   assert.equal(occurrences, 1, '连接中文案应只在 assistantConnectingText 内出现一次');
+});
+
+test('retired preferences cannot enable Claude or ttyd', () => {
+  const source = [extractConst('ASSISTANTS'), ...['normalizeAssistant', 'canSelfDrawChat'].map(extractFunction)].join('\n');
+  const api = new Function('assistantCapabilities', `${source}; return { normalizeAssistant, canSelfDrawChat };`)(gate.assistantCapabilities);
+  globalThis.state.mode = 'sessions';
+  globalThis.state.selfDraw = false; // 旧浏览器仍可能带着已关闭的自绘偏好。
+  assert.equal(api.normalizeAssistant('claude'), 'codex');
+  assert.equal(api.canSelfDrawChat('codex', 'm1'), true);
+  for (const assistant of ['codex', 'claude', 'dsh']) {
+    assert.equal(gate.assistantCapabilities(assistant, 'm1').terminal, false);
+  }
+  delete globalThis.state.selfDraw;
 });

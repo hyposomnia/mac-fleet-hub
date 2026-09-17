@@ -466,7 +466,7 @@ test('外壳契约：两个挂载点、资源版本一致、上传走 XHR 且不
   assert.ok(modelURL, 'index.html 应引入 upload_model.js');
   assert.ok(indexHTML.indexOf('<script src="upload_model.js') < indexHTML.indexOf('<script src="app.js'));
   assert.match(serviceWorker, new RegExp(`/upload_model\\.js\\?v=${modelURL[1]}`));
-  assert.match(serviceWorker, /const CACHE = 'fleet-shell-v124'/);
+  assert.ok(serviceWorker.includes(`const CACHE = 'fleet-shell-v${modelURL[1]}'`));
   assert.match(styleCSS, /\.file-upload-item\[data-status="conflict"\] \.file-upload-state \{ color: var\(--wait\); \}/);
   assert.match(appSrc, /new XMLHttpRequest\(\)/);
   assert.match(appSrc, /xhr\.upload\.onprogress/);

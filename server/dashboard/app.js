@@ -116,7 +116,7 @@ const state = {
   sessionMacId: 'all', // 会话列表设备范围：all | mN；终端 / 自绘会话仍使用具体 macId
   fileMacId: null,     // 文件始终绑定一台具体设备
   mode: 'sessions',      // sessions | files
-  assistant: 'codex',    // claude | codex
+  assistant: 'codex',    // codex | dsh
   scope: 'active',       // active | all
   sessionView: 'project', // project | recent
   termSid: null,         // 当前终端 tmux 会话名（watch / reload 用）
@@ -137,7 +137,6 @@ const state = {
   pool: [],              // 终端 iframe 池：每个打开的会话一个常驻 iframe（见「终端 iframe 池」段）
   current: null,         // 当前显示的池条目（null = 空态 / 文件模式）
   settings: null,        // dashboard 偏好（窗口上限/回滚行数，网关存；GET /api/settings）
-  selfDraw: true,        // Codex 默认使用自绘界面（localStorage，可在会话设置中关闭）
   chat: null,            // 当前自绘 Codex 会话状态（独立于 ttyd pool）
   chatCache: new Map(),  // key(macId/sessionId) -> 自绘 Codex 会话状态；保持 SSE 连接，切回秒开
   sessionSearch: '',
@@ -243,17 +242,16 @@ function groupSessionsByProject(sessions) {
 }
 function macName(id) { return macNames[id] || ('Mac ' + id.slice(1)); }
 // 助手白名单：localStorage/会话快照回读时用它校验，非法值（旧数据、手改）一律回退 codex。
-const ASSISTANTS = ['codex', 'claude', 'dsh'];
+const ASSISTANTS = ['codex', 'dsh'];
 function normalizeAssistant(a) { return ASSISTANTS.includes(a) ? a : 'codex'; }
-const ASSISTANT_LABELS = { codex: 'Codex', claude: 'Claude', dsh: 'DeepSeek' };
+const ASSISTANT_LABELS = { codex: 'ChatGPT', dsh: 'DeepSeek' };
 function assistantLabel(a = state.assistant) { return ASSISTANT_LABELS[normalizeAssistant(a)]; }
 // 自绘对话的"连接中"文案。Codex 连的是 app-server，DSH 连的是 Desktop 已启动的
-// harness host——术语不同，不能共用一句，否则 DeepSeek tab 上会写"正在连接 Codex app-server…"。
+// harness host——术语不同，不能共用一句，否则 DeepSeek tab 上会写"正在连接 ChatGPT…"。
 function assistantConnectingText(a = state.assistant) {
   const assistant = normalizeAssistant(a);
   if (assistant === 'dsh') return '正在连接 DeepSeek Harness…';
-  if (assistant === 'claude') return '正在连接 Claude…';
-  return '正在连接 Codex app-server…';
+  return '正在连接 ChatGPT…';
 }
 // nginx 或 agent 直接返回的 413 响应体是 HTML，解析不出 message，用它兜底。
 const TOO_LARGE_MESSAGE = '文件太大，超过了上传上限（单文件最大 512 MB）。';
@@ -276,7 +274,6 @@ async function api(id, path, opts) {
   return r.json();
 }
 
-const SELF_DRAW_KEY = 'fleet-experiment-selfdraw';
 const SESSION_ARCHIVE_KEY = 'fleet-show-archived-sessions';
 const UI_STATE_KEY = 'fleet-ui-state-v1';
 let chatIMEComposing = false;
@@ -334,32 +331,14 @@ function initSessionListPreferences() {
   try { state.scope = localStorage.getItem(SESSION_ARCHIVE_KEY) === '1' ? 'all' : 'active'; }
   catch (_) { state.scope = 'active'; }
 }
-function initExperimentFlags() {
-  try { state.selfDraw = localStorage.getItem(SELF_DRAW_KEY) !== '0'; } catch (_) { state.selfDraw = true; }
-}
-function setSelfDraw(enabled) {
-  const next = !!enabled;
-  if (state.selfDraw === next) return;
-  state.selfDraw = next;
-  try { localStorage.setItem(SELF_DRAW_KEY, state.selfDraw ? '1' : '0'); } catch (_) {}
-  if (!state.selfDraw) {
-    closeChatPane();
-    restoreTermOrEmpty();
-  } else if (canSelfDrawChat() && state.selectedSid) {
-    loadSessions();
-  }
-}
-
 // 助手能力表：对应 agent 的 chat_capabilities.go，「哪个助手支持什么」只在这里判定一份。
 //   selfDraw      自绘聊天面（历史分页、发送、流式、审批往返都在这个面里）
 //   sessionCursor 会话列表走游标 + 服务端筛选（archived/limit/search/cursor）；否则走 scope=active|all
-//   terminal      ttyd 终端链路（agent 的 resumeCmd/newCmd 只认 codex 与 claude，DSH 落到 claude 命令，
-//                 所以 DSH 会话不给「连接 / Bypass / Auto」，只走自绘面）
+//   terminal      网页已退役 ttyd；所有助手均关闭终端入口。
 // DSH 的 selfDraw 还要求目标 Mac 的 /api/info 报 dsh.enabled 且未降级（DSH Desktop 在跑）；
 // 拿不到 info（旧 agent / 离线）按不可用处理，不露出半成品入口。macId 省略时取当前设备。
 function assistantCapabilities(assistant = state.assistant, macId = '') {
-  if (assistant === 'codex') return { selfDraw: true, sessionCursor: true, terminal: true };
-  if (assistant === 'claude') return { selfDraw: false, sessionCursor: false, terminal: true };
+  if (assistant === 'codex') return { selfDraw: true, sessionCursor: true, terminal: false };
   if (assistant !== 'dsh') return { selfDraw: false, sessionCursor: false, terminal: false };
   return { selfDraw: dshReady(macId || state.macId), sessionCursor: true, terminal: false };
 }
@@ -376,9 +355,9 @@ function dshEnabled(macId) {
   return !!(dsh && dsh.enabled);
 }
 
-// 自绘聊天入口：自绘开关 + 会话模式 + 该助手在该设备上的能力。
+// 聊天入口只看会话模式与助手能力，旧自绘开关不再参与。
 function canSelfDrawChat(assistant = state.assistant, macId = '') {
-  return state.selfDraw && state.mode === 'sessions' && assistantCapabilities(assistant, macId).selfDraw;
+  return state.mode === 'sessions' && assistantCapabilities(assistant, macId).selfDraw;
 }
 function isIMEComposing(e, composingFlag) {
   return !!(composingFlag || e.isComposing || e.keyCode === 229);
@@ -633,25 +612,13 @@ async function refreshSettings() {
 }
 function openSettings() {
   const s = state.settings || SETTINGS_DEFAULT;
-  $('#st-dmax').value = s.desktopMaxWindows;
-  $('#st-dscroll').value = s.desktopScrollback;
-  $('#st-mmax').value = s.mobileMaxWindows;
-  $('#st-mscroll').value = s.mobileScrollback;
-  $('#st-autoclose').value = s.autoCloseMinutes;
   $('#st-chat-cache-max').value = s.chatCacheMaxSessions;
-  $('#st-selfdraw').checked = state.selfDraw;
   renderChatCacheStats();
-  showSettingsTab('terminal');
   openOverlay('settings-modal');
 }
 async function saveSettings() {
-  const nextSelfDraw = $('#st-selfdraw').checked;
   const body = {
-    desktopMaxWindows: parseInt($('#st-dmax').value, 10) || 0,
-    desktopScrollback: parseInt($('#st-dscroll').value, 10) || 0,
-    mobileMaxWindows: parseInt($('#st-mmax').value, 10) || 0,
-    mobileScrollback: parseInt($('#st-mscroll').value, 10) || 0,
-    autoCloseMinutes: parseInt($('#st-autoclose').value, 10) || 0,
+    ...(state.settings || SETTINGS_DEFAULT),
     chatCacheMaxSessions: parseInt($('#st-chat-cache-max').value, 10) || 0,
   };
   try {
@@ -659,21 +626,11 @@ async function saveSettings() {
       method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body),
     });
     if (!r.ok) throw new Error('HTTP ' + r.status);
-    state.settings = { ...SETTINGS_DEFAULT, ...(await r.json()) }; // 服务端 normalize 后的真实值
-    setSelfDraw(nextSelfDraw);
+    state.settings = { ...SETTINGS_DEFAULT, ...(await r.json()) };
     closeOverlay('settings-modal');
     toast('设置已保存', 'ok');
-    poolEvict();              // 上限调小 → 立即按新上限释放多余窗口
-    evictChatCache();         // 自绘缓存上限调小 → 立即释放最久未看的连接
-    applyScrollbackToPool();  // 回滚行数即时作用到已开终端
+    evictChatCache();
   } catch (e) { toast('保存失败：' + e.message, 'err'); }
-}
-
-function showSettingsTab(tab) {
-  const key = tab === 'chat' ? 'chat' : 'terminal';
-  $$('[data-settings-tab]').forEach((b) => b.setAttribute('aria-selected', String(b.dataset.settingsTab === key)));
-  $$('[data-settings-panel]').forEach((p) => { p.hidden = p.dataset.settingsPanel !== key; });
-  if (key === 'chat') renderChatCacheStats();
 }
 
 function formatBytes(bytes) {
@@ -1163,11 +1120,7 @@ async function refreshSessionsSoft() {
   syncSessionRuntimeIndicators();
 }
 
-// 会话行：
-// 已在池中 / 有运行中进程（行尾文字状态）的会话：点行即直接进入——池内 poolShow 瞬时切换，
-//   仅有进程未在池时 api open 重新 attach（tmux 复用，权限模式启动时已固定，不再让选）。
-// 仅「冷会话」（无进程且未在池）点行才展开「连接 / Bypass / Auto」——那才是真正新起 Claude。
-// 开了 pty 的会话另显「终止 ⏹」（与是否在池无关）。
+// 会话行：统一聊天入口，展示运行状态、置顶与会话操作。
 function sessionStatus(session, running = !!session?.pty || FleetChatModel.chatPhase(session?.status) === 'running') {
   if (sessionHasVisibleRequest(session)) return { text: '等待回复', className: 'waiting' };
   if (running) return { text: '正在进行', className: 'running' };
@@ -1188,12 +1141,9 @@ function sessionRow(s) {
   const assistant = s.assistant || state.assistant;
   const capabilities = assistantCapabilities(assistant, macId);
   const selfDraw = canSelfDrawChat(assistant, macId);
-  const inPool = !!poolFind(macId, sid, assistant);
   const chatConnected = capabilities.selfDraw && isChatConnectionKept(macId, sid);
   const sessionRunning = capabilities.selfDraw && isSessionRunning(s, macId);
-  const live = !!s.pty; // 有运行中进程（行尾文字状态）：再连只是重新 attach，不需选权限模式
-  const stop = s.pty && h('span', { class: 'stopbtn', title: '终止进程（会话保留）',
-    onclick: (e) => { e.stopPropagation(); termSes(sid, s.title, macId, assistant); } }, svgStop());
+  const live = !!s.pty; // 兼容 agent 返回的既有进程状态
   const pin = assistant === 'codex' && s.pinned
     ? h('span', { class: 'ses-pin', title: '已置顶' }, svgIcon('ic', 'M12 17v5M5 3h14l-3 6v4l2 2H6l2-2V9Z'))
     : null;
@@ -1205,7 +1155,6 @@ function sessionRow(s) {
     h('span', { class: 'ses-time', text: relTime(s.outputEndedAt || s.mtime) }),
     h('span', { class: `ses-status${status.className ? ' ' + status.className : ''}`, text: status.text }),
     pin,
-    stop,
     menu,
   );
   const meta = h('div', { class: 'ses-meta' },
@@ -1214,28 +1163,17 @@ function sessionRow(s) {
       ? h('span', { class: 'session-project-name', text: sessionProjectInfo(s).name })
       : null,
   );
-  // 池内 / 有进程的会话点行即直接进入，不需按钮；仅冷会话才展开三种权限模式。
-  // 没有终端链路的助手（DSH）也不给这三个按钮：agent 只会把 dsh 落到 claude 命令上。
-  const acts = (selfDraw || inPool || live || !capabilities.terminal) ? null : h('div', { class: 'ses-acts' },
-    h('button', { class: 'btn sm accent', title: '普通连接（逐项确认工具权限）',
-      onclick: (e) => { e.stopPropagation(); connect(sid, s.title, s.cwd, 'default', macId, assistant); } },
-      h('span', { class: 'gi', text: '→' }), '连接'),
-    h('button', { class: 'btn sm danger', title: assistant === 'codex' ? 'codex --dangerously-bypass-approvals-and-sandbox' : 'claude --dangerously-skip-permissions（跳过全部工具权限确认）',
-      onclick: (e) => { e.stopPropagation(); connect(sid, s.title, s.cwd, 'bypass', macId, assistant); } }, 'Bypass'),
-    h('button', { class: 'btn sm warn', title: assistant === 'codex' ? 'codex --ask-for-approval never --sandbox workspace-write（自动批准 + 工作区可写沙箱）' : 'claude --permission-mode auto（自动批准 + 后台安全分类器）',
-      onclick: (e) => { e.stopPropagation(); connect(sid, s.title, s.cwd, 'auto', macId, assistant); } }, 'Auto'));
   const selected = sid === state.selectedSid && macId === state.selectedSessionMacId &&
     assistant === (state.selectedSessionAssistant || state.assistant);
   const row = h('div', {
     class: 'ses' + (s.pty ? ' conn' : '') + (sessionRunning ? ' session-running' : '') +
       (sessionHasVisibleRequest(s) ? ' session-waiting' : '') + (chatConnected ? ' chat-connected' : '') + (selected ? ' sel' : ''),
     dataset: { sid, mac: macId, assistant, renderSignature: sessionRenderSignature(s) },
-  }, top, meta, acts);
-  // 池内 → poolShow 瞬时切换；有进程未在池 → 直接重新 attach；冷会话 → 仅高亮 + 展开三按钮。
+  }, top, meta);
+  // 就绪时打开聊天；DeepSeek 降级时保持列表可选。
   row.onclick = () => {
     activateSession(s);
     if (selfDraw) { openChatSession(s); return; }
-    if (!inPool && live) { connect(sid, s.title, s.cwd, 'default', macId, assistant); return; }
     selectSes(sid, macId, assistant);
   };
   return row;
@@ -1427,7 +1365,7 @@ function showEmpty() {
   $('#mobile-input').hidden = true;
   stopWatch(); hideBanner();
   const tt = $('#win-title'); clear(tt); tt.append(h('span', { class: 'ttl', text: '选择一个会话' }));
-  $('#win-meta').textContent = '选中会话后点「连接」打开终端';
+  $('#win-meta').textContent = '选择会话开始聊天';
 }
 
 // 新建一个池条目（新 iframe）并显示，随后按上限 LRU 回收。
@@ -1451,6 +1389,7 @@ function poolAdd(macId, assistant, sessionId, sid, url, title, cwd, permMode) {
 //  连接 / 新建 → 终端 iframe（权限模式：default / bypass / auto）
 // ============================================================
 async function connect(sessionId, title, cwd, mode, macId = state.macId, assistant = state.assistant) {
+  if (!assistantCapabilities(assistant, macId).terminal) return;
   mode = mode || 'default';
   if (!macId) return;
   state.macId = macId;
@@ -1489,30 +1428,7 @@ async function newSessionIn(cwd, { macId = state.macId, unscoped = false } = {})
     openPendingChatSession(cwd, { macId, unscoped });
     return;
   }
-  const assistant = state.assistant;
-  // 没有终端链路的助手（DSH 降级时）：agent 的 /api/new 只会起 claude，宁可不建
-  if (!assistantCapabilities(assistant, macId).terminal) {
-    toast(`${assistantLabel(assistant)} 桌面端未运行，暂时无法新建会话`, 'err');
-    return;
-  }
-  try {
-    let targetCwd = cwd;
-    if (unscoped) {
-      const info = await api(macId, 'info');
-      targetCwd = String(info.fileRoot || '').trim();
-      if (!targetCwd) throw new Error('无法获取设备主目录');
-    }
-    const r = await api(macId, 'new', {
-      method: 'POST', headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ assistant, cwd: targetCwd, mode: 'default' }),
-    });
-    state.selectedSid = null;
-    poolAdd(macId, assistant, null, r.sid, r.url,
-      unscoped ? `新${assistantLabel(assistant)}会话 · 无项目` : `新${assistantLabel(assistant)}会话 · ${projName(targetCwd)}`,
-      targetCwd, r.mode || 'default');
-  } catch (e) {
-    toast('新建失败：' + e.message, 'err');
-  }
+  toast(`${assistantLabel()} 桌面端未运行，暂时无法新建会话`, 'err');
 }
 
 // 终端头：状态点 + 标题（bypass/auto 追加权限徽标）+ 权限模式 meta
@@ -1901,8 +1817,8 @@ const CHAT_QUEUE_UI = Object.freeze({
   queued: { placement: 'transcript', label: '消息已保存' },
   steering: { placement: 'transcript', label: '正在插入当前任务…' },
   waiting_turn: { placement: 'followup', label: '服务器已保存 · 当前任务结束后发送' },
-  writer_confirmation_required: { placement: 'transcript', label: '此会话正在其他 Codex 客户端中使用。等待释放，或确认强制接管。' },
-  waiting_writer: { placement: 'transcript', label: '已由服务器排队，等待其他 Codex 客户端释放会话。' },
+  writer_confirmation_required: { placement: 'transcript', label: '此会话正在其他 ChatGPT 客户端中使用。等待释放，或确认强制接管。' },
+  waiting_writer: { placement: 'transcript', label: '已由服务器排队，等待其他 ChatGPT 客户端释放会话。' },
   waiting_access: { placement: 'transcript', label: 'Fleet 当前只读；恢复 Fleet 写入后才会发送。' },
   takeover_check: { placement: 'transcript', label: '正在检查目标 Mac 上受影响的任务…' },
   takeover_confirmation_required: { placement: 'transcript', label: '强制接管会中断目标 Mac 上以下任务' },
@@ -2230,7 +2146,7 @@ function renderChat({ preserveScroll = false, forceBottom = false } = {}) {
   if (isDesktopChatOwned(chat)) {
     const running = isDesktopChatRunning(chat);
     stack.append(h('div', { class: 'chat-desktop-running' },
-      h('strong', { text: running ? 'Codex Desktop 正在输出' : 'Codex Desktop 已打开此会话' }),
+      h('strong', { text: running ? 'ChatGPT 桌面端正在输出' : 'ChatGPT 桌面端已打开此会话' }),
       h('span', { text: running
         ? 'Fleet 会保持同步。现在提交的内容会排队等待 Desktop 释放会话，Desktop 始终优先。'
         : 'Fleet 当前保持只读。提交内容需再次确认，并会在 Desktop 切换或关闭此会话后自动发送。' })));
@@ -3568,7 +3484,7 @@ function updateChatComposerState() {
     : action === 'loading' ? '正在同步服务端会话状态'
     : action === 'interrupt'
     ? '停止生成'
-    : (action === 'wait-desktop' ? 'Codex Desktop 正在使用此会话' :
+    : (action === 'wait-desktop' ? 'ChatGPT 桌面端正在使用此会话' :
       (blocked ? '等待图片上传完成' : (action === 'queue-desktop' ? '提交到服务器队列' : '发送')));
   send.setAttribute('aria-label', send.title);
 }
@@ -3709,9 +3625,7 @@ async function uploadChatFile(chat, att, file) {
 }
 
 function renderChatError(msg) {
-  return chatRow(h('div', { class: 'chat-error' },
-    h('div', { text: msg }),
-    h('div', { class: 'chat-error-actions' }, h('button', { class: 'btn sm accent', onclick: openChatFallback }, '用终端打开'))), 'error');
+  return chatRow(h('div', { class: 'chat-error' }, h('div', { text: msg })), 'error');
 }
 
 async function openChatSession(s) {
@@ -4605,45 +4519,10 @@ async function respondChatRequest(requestId, response) {
   }
 }
 
-function openChatFallback() {
-  const chat = state.chat;
-  if (!chat) return;
-  const { sessionId, title, cwd } = chat;
-  closeChatPane();
-  connect(sessionId, title, cwd, 'default');
-}
-
-// 刷新/崩溃后从 sessionStorage 快照恢复终端（init 唯一入口；无快照则退回空态）。
-// connect 取 state.macId / state.assistant，故恢复每条前先把这两者切到该条；逐条重连
-// （受 poolMax 上限约束，poolAdd 内已 poolEvict）；全部恢复后复位到快照当前主机/助手、
-// 刷新侧栏、显示其当前会话，不抢焦点切走。
-async function restorePoolSnapshot() {
-  let snap;
-  try { snap = JSON.parse(sessionStorage.getItem(POOL_SNAP_KEY) || 'null'); } catch (_) { snap = null; }
-  if (!snap || !Array.isArray(snap.items) || !snap.items.length) { restoreTermOrEmpty(); return; }
-  // 同步先占位 state.macId：init 同步执行到此早于任何 refreshNodes 的 fetch 回调，故能抑制
-  // refreshNodes 的 `!state.macId → selectMac(MACS[0])` 自动选台。再 await 一次 refreshNodes
-  // 确保 MACS 已就绪，据此校验快照里的 Mac 仍在册（改名/下架的不强行恢复）。
-  state.macId = snap.macId;
-  await refreshNodes();
-  const known = new Set(MACS.map((m) => m.id));
-  if (!known.has(snap.macId)) { if (MACS.length) selectMac(MACS[0].id); else showEmpty(); return; }
-  for (const it of snap.items) {
-    if (!known.has(it.macId)) continue; // 已不在册的 Mac：其会话无从 attach，跳过
-    state.macId = it.macId;
-    state.assistant = normalizeAssistant(it.assistant); // connect 用 state.assistant 起对的助手
-    try { await connect(it.sessionId, it.title, it.cwd, it.permMode || 'default'); } catch (_) {}
-  }
-  state.macId = snap.macId;
-  state.assistant = snap.cur ? normalizeAssistant(snap.cur.assistant) : 'codex';
-  state.selectedSid = snap.cur ? snap.cur.sessionId : null; // 侧栏高亮对齐快照当前会话
-  state.selectedSessionMacId = snap.cur ? snap.macId : null;
-  state.selectedSessionAssistant = snap.cur ? state.assistant : null;
-  $$('[data-assistant]').forEach((b) => b.setAttribute('aria-selected', String(b.dataset.assistant === state.assistant)));
-  renderHosts();
-  loadSessions();
-  const cur = snap.cur && poolFind(state.macId, snap.cur.sessionId, snap.cur.assistant);
-  if (cur) poolShow(cur); else restoreTermOrEmpty();
+// 旧终端快照只清理，不再自动 attach 或启动 CLI 进程。
+function restorePoolSnapshot() {
+  try { sessionStorage.removeItem(POOL_SNAP_KEY); } catch (_) {}
+  restoreTermOrEmpty();
 }
 
 // 移动端从终端「返回」：仅收起 push，不结束进程（tmux 持久）。
@@ -6508,7 +6387,6 @@ function init() {
   mountDeviceScopeButtons();
   initUIState();
   initSessionListPreferences();
-  initExperimentFlags();
   renderHosts();
   refreshNames();
   refreshSettings();
@@ -6730,7 +6608,6 @@ function init() {
     };
   });
   $('#st-save').onclick = saveSettings;
-  $$('[data-settings-tab]').forEach((b) => { b.onclick = () => showSettingsTab(b.dataset.settingsTab); });
   $('#m-info-btn').onclick = () => { if (state.macId) openHostModal(state.macId); };
 
   // 弹窗 / 抽屉
