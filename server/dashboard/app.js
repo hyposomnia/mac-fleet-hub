@@ -131,6 +131,7 @@ const state = {
   killMacId: null,       // 待终止会话所在设备
   nodes: {},             // id -> online
   counts: {},            // id -> 活跃会话数（主机栏/主机条展示）
+  assistantInfo: {},     // id -> /api/info 响应（dsh 能力块：tab 显隐、自绘能力、降级横幅）
   collapsed: new Set(),  // 已折叠的分组 cwd
   watchTimer: null,
   pool: [],              // 终端 iframe 池：每个打开的会话一个常驻 iframe（见「终端 iframe 池」段）
@@ -241,7 +242,19 @@ function groupSessionsByProject(sessions) {
   return [...groups.values()];
 }
 function macName(id) { return macNames[id] || ('Mac ' + id.slice(1)); }
-function assistantLabel(a = state.assistant) { return a === 'codex' ? 'Codex' : 'Claude'; }
+// 助手白名单：localStorage/会话快照回读时用它校验，非法值（旧数据、手改）一律回退 codex。
+const ASSISTANTS = ['codex', 'claude', 'dsh'];
+function normalizeAssistant(a) { return ASSISTANTS.includes(a) ? a : 'codex'; }
+const ASSISTANT_LABELS = { codex: 'Codex', claude: 'Claude', dsh: 'DeepSeek' };
+function assistantLabel(a = state.assistant) { return ASSISTANT_LABELS[normalizeAssistant(a)]; }
+// 自绘对话的"连接中"文案。Codex 连的是 app-server，DSH 连的是 Desktop 已启动的
+// harness host——术语不同，不能共用一句，否则 DeepSeek tab 上会写"正在连接 Codex app-server…"。
+function assistantConnectingText(a = state.assistant) {
+  const assistant = normalizeAssistant(a);
+  if (assistant === 'dsh') return '正在连接 DeepSeek Harness…';
+  if (assistant === 'claude') return '正在连接 Claude…';
+  return '正在连接 Codex app-server…';
+}
 // nginx 或 agent 直接返回的 413 响应体是 HTML，解析不出 message，用它兜底。
 const TOO_LARGE_MESSAGE = '文件太大，超过了上传上限（单文件最大 512 MB）。';
 async function api(id, path, opts) {
@@ -288,7 +301,7 @@ function initUIState() {
   state.mode = routeMode === 'files' || routeMode === 'sessions'
     ? routeMode
     : (saved.mode === 'files' ? 'files' : 'sessions');
-  state.assistant = saved.assistant === 'claude' ? 'claude' : 'codex';
+  state.assistant = normalizeAssistant(saved.assistant);
   state.sessionMacId = saved.sessionMacId === 'all' || /^m\d+$/.test(saved.sessionMacId || '')
     ? saved.sessionMacId
     : 'all';
@@ -332,11 +345,41 @@ function setSelfDraw(enabled) {
   if (!state.selfDraw) {
     closeChatPane();
     restoreTermOrEmpty();
-  } else if (state.assistant === 'codex' && state.selectedSid) {
+  } else if (canSelfDrawChat() && state.selectedSid) {
     loadSessions();
   }
 }
-function canSelfDrawChat() { return state.selfDraw && state.assistant === 'codex' && state.mode === 'sessions'; }
+
+// 助手能力表：对应 agent 的 chat_capabilities.go，「哪个助手支持什么」只在这里判定一份。
+//   selfDraw      自绘聊天面（历史分页、发送、流式、审批往返都在这个面里）
+//   sessionCursor 会话列表走游标 + 服务端筛选（archived/limit/search/cursor）；否则走 scope=active|all
+//   terminal      ttyd 终端链路（agent 的 resumeCmd/newCmd 只认 codex 与 claude，DSH 落到 claude 命令，
+//                 所以 DSH 会话不给「连接 / Bypass / Auto」，只走自绘面）
+// DSH 的 selfDraw 还要求目标 Mac 的 /api/info 报 dsh.enabled 且未降级（DSH Desktop 在跑）；
+// 拿不到 info（旧 agent / 离线）按不可用处理，不露出半成品入口。macId 省略时取当前设备。
+function assistantCapabilities(assistant = state.assistant, macId = '') {
+  if (assistant === 'codex') return { selfDraw: true, sessionCursor: true, terminal: true };
+  if (assistant === 'claude') return { selfDraw: false, sessionCursor: false, terminal: true };
+  if (assistant !== 'dsh') return { selfDraw: false, sessionCursor: false, terminal: false };
+  return { selfDraw: dshReady(macId || state.macId), sessionCursor: true, terminal: false };
+}
+
+// 该 Mac 的 DSH 是否可用：agent 报了能力块、enabled 且未降级。旧 agent 不返回 dsh 块 → false。
+function dshReady(macId) {
+  const dsh = state.assistantInfo[macId]?.dsh;
+  return !!(dsh && dsh.enabled && !dsh.degraded);
+}
+
+// dsh 入口本身（含降级只读态）：只要 agent 报了 enabled 就保留 tab，降级时列表顶部出横幅。
+function dshEnabled(macId) {
+  const dsh = state.assistantInfo[macId]?.dsh;
+  return !!(dsh && dsh.enabled);
+}
+
+// 自绘聊天入口：自绘开关 + 会话模式 + 该助手在该设备上的能力。
+function canSelfDrawChat(assistant = state.assistant, macId = '') {
+  return state.selfDraw && state.mode === 'sessions' && assistantCapabilities(assistant, macId).selfDraw;
+}
 function isIMEComposing(e, composingFlag) {
   return !!(composingFlag || e.isComposing || e.keyCode === 229);
 }
@@ -535,7 +578,28 @@ async function refreshNodes() {
     if (state.mode === 'sessions' && (rosterChanged || !state.sessionResults.length)) loadSessions();
     else if (state.mode === 'files' && state.fileMacId && !state.fileEntries.length) loadFiles();
     refreshHostCounts();
+    refreshAssistantCapabilities();
   } catch (_) {}
+}
+
+// 探测在线 Mac 的 /api/info，取 dsh 能力块（第三个 tab 的显隐、自绘能力、降级横幅都吃它）。
+// 只缓存本轮探测成功的设备，整份替换：某台 Mac 探测失败就当它没有能力，不留上一轮的旧结论。
+async function refreshAssistantCapabilities() {
+  const probed = {};
+  await Promise.all(MACS.filter((m) => state.nodes[m.id]).map(async (m) => {
+    try { probed[m.id] = await api(m.id, 'info'); } catch (_) {}
+  }));
+  state.assistantInfo = probed;
+  syncAssistantTabs();
+}
+
+// DeepSeek 入口显隐：拿不到 info 就藏起来（旧 agent / 探测失败），不露半成品入口。
+function syncAssistantTabs() {
+  const available = Object.keys(state.assistantInfo).some(dshEnabled);
+  $$('[data-assistant="dsh"]').forEach((b) => { b.hidden = !available; });
+  // 选中的 dsh 已经不可用（agent 没开 / 换了旧 agent）：退回 codex，不停在一个空列表上
+  if (!available && state.assistant === 'dsh') { setAssistant('codex'); return; }
+  syncDshBanner();
 }
 
 // 各在线主机的活跃会话数（主机栏/主机条角标）。失败静默：数字非关键。
@@ -693,7 +757,7 @@ function setMode(mode) {
 }
 
 function setAssistant(assistant) {
-  state.assistant = assistant === 'codex' ? 'codex' : 'claude';
+  state.assistant = normalizeAssistant(assistant);
   state.selectedSid = null;
   state.selectedSessionMacId = null;
   state.sessionSearch = '';
@@ -781,12 +845,12 @@ function sessionTargetMacs({ append = false } = {}) {
 }
 
 function sessionHasMore() {
-  return state.assistant === 'codex' && Object.values(state.sessionCursors).some(Boolean);
+  return assistantCapabilities().sessionCursor && Object.values(state.sessionCursors).some(Boolean);
 }
 
 function sessionQuery(macId, { cursor = '', soft = false } = {}) {
   const query = new URLSearchParams({ assistant: state.assistant });
-  if (state.assistant === 'codex') {
+  if (assistantCapabilities().sessionCursor) {
     query.set('archived', String(state.scope === 'all'));
     query.set('limit', soft ? '100' : '50');
     if (state.sessionSearch) query.set('search', state.sessionSearch);
@@ -803,6 +867,7 @@ function normalizeDeviceSessions(macId, data) {
     macId,
     assistant: session.assistant || state.assistant,
   }));
+  // Claude 的列表接口只有 scope、没有服务端搜索，范围与搜索在浏览器侧补；Codex / DSH 走服务端。
   if (state.assistant === 'claude') {
     if (state.scope === 'all') sessions = sessions.filter((session) => !session.live);
     if (state.sessionSearch) {
@@ -812,6 +877,28 @@ function normalizeDeviceSessions(macId, data) {
     }
   }
   return sessions;
+}
+
+// 当前 DSH 是否降级（能力块在，但 Desktop 没跑 / 报了 degraded）：列表只剩磁盘会话。
+function dshDegraded() {
+  if (state.assistant !== 'dsh') return false;
+  return sessionTargetMacs().some((macId) => {
+    const dsh = state.assistantInfo[macId]?.dsh;
+    return !!(dsh && dsh.enabled && (dsh.degraded === true || dsh.hostRunning === false));
+  });
+}
+
+// 降级横幅（列表顶部一行）：幂等重建，能力探测每 30s 复算也不会把列表整体重绘。
+function syncDshBanner() {
+  const wrap = $('#session-groups');
+  if (!wrap) return;
+  $('[data-dsh-degraded]', wrap)?.remove();
+  if (!dshDegraded() || !wrap.querySelector('.grp, .empty, .ses')) return;
+  wrap.prepend(h('div', {
+    class: 'session-partial-note',
+    dataset: { dshDegraded: '1' },
+    text: 'DSH Desktop 未运行，当前仅显示磁盘会话（只读）',
+  }));
 }
 
 function renderSessionResults(opts = {}) {
@@ -864,6 +951,7 @@ function renderSessionResults(opts = {}) {
   if (failed.length) {
     wrap.append(h('div', { class: 'session-partial-note', text: `${failed.map(macName).join('、')} 暂时无法连接` }));
   }
+  syncDshBanner(); // 降级横幅放列表顶部（幂等：先摘掉旧的再加）
   if (opts.preserveScroll) wrap.scrollTop = previousScrollTop;
   requestAnimationFrame(maybeLoadMoreSessions);
 }
@@ -955,7 +1043,7 @@ async function loadSessions(opts = {}) {
       continue;
     }
     incoming.push(...normalizeDeviceSessions(result.macId, result.data));
-    if (assistant === 'codex') nextCursors[result.macId] = result.data.nextCursor || '';
+    if (assistantCapabilities(assistant).sessionCursor) nextCursors[result.macId] = result.data.nextCursor || '';
     else nextCursors[result.macId] = '';
   }
   if (!targets.length && sessionMacId !== 'all') errors[sessionMacId] = '设备不可用';
@@ -1098,10 +1186,11 @@ function sessionRow(s) {
   const sid = s.sessionId;
   const macId = s.macId;
   const assistant = s.assistant || state.assistant;
-  const selfDraw = canSelfDrawChat() && assistant === 'codex';
+  const capabilities = assistantCapabilities(assistant, macId);
+  const selfDraw = canSelfDrawChat(assistant, macId);
   const inPool = !!poolFind(macId, sid, assistant);
-  const chatConnected = assistant === 'codex' && isChatConnectionKept(macId, sid);
-  const sessionRunning = assistant === 'codex' && isSessionRunning(s, macId);
+  const chatConnected = capabilities.selfDraw && isChatConnectionKept(macId, sid);
+  const sessionRunning = capabilities.selfDraw && isSessionRunning(s, macId);
   const live = !!s.pty; // 有运行中进程（行尾文字状态）：再连只是重新 attach，不需选权限模式
   const stop = s.pty && h('span', { class: 'stopbtn', title: '终止进程（会话保留）',
     onclick: (e) => { e.stopPropagation(); termSes(sid, s.title, macId, assistant); } }, svgStop());
@@ -1126,7 +1215,8 @@ function sessionRow(s) {
       : null,
   );
   // 池内 / 有进程的会话点行即直接进入，不需按钮；仅冷会话才展开三种权限模式。
-  const acts = (selfDraw || inPool || live) ? null : h('div', { class: 'ses-acts' },
+  // 没有终端链路的助手（DSH）也不给这三个按钮：agent 只会把 dsh 落到 claude 命令上。
+  const acts = (selfDraw || inPool || live || !capabilities.terminal) ? null : h('div', { class: 'ses-acts' },
     h('button', { class: 'btn sm accent', title: '普通连接（逐项确认工具权限）',
       onclick: (e) => { e.stopPropagation(); connect(sid, s.title, s.cwd, 'default', macId, assistant); } },
       h('span', { class: 'gi', text: '→' }), '连接'),
@@ -1383,9 +1473,10 @@ async function connect(sessionId, title, cwd, mode, macId = state.macId, assista
 
 function openPendingChatSession(cwd, { macId = state.macId, unscoped = false } = {}) {
   const draftId = `draft-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  const assistant = state.assistant;
   openChatSession({
-    assistant: 'codex', macId, sessionId: draftId, cwd,
-    title: unscoped ? '新Codex会话 · 无项目' : `新Codex会话 · ${projName(cwd)}`,
+    assistant, macId, sessionId: draftId, cwd,
+    title: unscoped ? `新${assistantLabel(assistant)}会话 · 无项目` : `新${assistantLabel(assistant)}会话 · ${projName(cwd)}`,
     mtime: Date.now(), pendingStart: true, unscoped,
   });
 }
@@ -1393,11 +1484,17 @@ function openPendingChatSession(cwd, { macId = state.macId, unscoped = false } =
 async function newSessionIn(cwd, { macId = state.macId, unscoped = false } = {}) {
   if (!macId) return;
   activateConcreteMac(macId);
+  // 当前设备已切到 macId，故这里用无参形式判能力
   if (canSelfDrawChat()) {
     openPendingChatSession(cwd, { macId, unscoped });
     return;
   }
   const assistant = state.assistant;
+  // 没有终端链路的助手（DSH 降级时）：agent 的 /api/new 只会起 claude，宁可不建
+  if (!assistantCapabilities(assistant, macId).terminal) {
+    toast(`${assistantLabel(assistant)} 桌面端未运行，暂时无法新建会话`, 'err');
+    return;
+  }
   try {
     let targetCwd = cwd;
     if (unscoped) {
@@ -1516,7 +1613,7 @@ async function loadChatSkills(chat) {
   if (chat.skillsPromise) return chat.skillsPromise;
   const request = api(chat.macId, 'chat/skills', {
     method: 'POST', headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ assistant: 'codex', cwd }),
+    body: JSON.stringify({ assistant: state.assistant, cwd }),
   });
   const task = request.then((response) => {
     if (state.chatCache.get(chat.cacheKey) !== chat) return [];
@@ -1650,12 +1747,12 @@ function chatOwnershipPresentation(chat) {
   if (chat.accessMode === 'read_only') {
     return {
       className: 'readonly',
-      text: chat.writerOwner === 'desktop' ? 'Fleet 只读，其他 Codex 客户端正在使用' : 'Fleet 只读，Codex 可接管',
+      text: chat.writerOwner === 'desktop' ? `Fleet 只读，其他 ${assistantLabel()} 客户端正在使用` : `Fleet 只读，${assistantLabel()} 可接管`,
       action: 'enable-write', actionLabel: chat.changingAccess ? '恢复中…' : '恢复 Fleet 写入',
     };
   }
   if (isDesktopChatOwned(chat)) {
-    return { className: 'readonly', text: '其他 Codex 客户端正在使用 · Fleet 只读同步', action: '' };
+    return { className: 'readonly', text: `其他 ${assistantLabel()} 客户端正在使用 · Fleet 只读同步`, action: '' };
   }
   return null;
 }
@@ -1663,7 +1760,7 @@ function chatOwnershipPresentation(chat) {
 function renderChatOwnershipHead(chat = state.chat) {
   if (!chat || state.chat !== chat) return;
   const tt = $('#win-title'); clear(tt);
-  tt.append(h('span', { class: 'dot live' }), h('span', { class: 'ttl', text: chat.title || 'Codex 会话' }));
+  tt.append(h('span', { class: 'dot live' }), h('span', { class: 'ttl', text: chat.title || `${assistantLabel()} 会话` }));
   const presentation = chatOwnershipPresentation(chat);
   if (!presentation) return;
   const action = presentation.action === 'release' ? releaseChatWriter
@@ -1773,7 +1870,7 @@ async function loadServerChatQueue(chat) {
   if (!chat || chat.pendingStart) return;
   const requestSeq = beginChatControlRequest(chat);
   try {
-    const result = await api(chat.macId, `chat/queue?assistant=codex&sessionId=${encodeURIComponent(chat.sessionId)}`);
+    const result = await api(chat.macId, `chat/queue?assistant=${state.assistant}&sessionId=${encodeURIComponent(chat.sessionId)}`);
     if (!applyChatControlSnapshot(chat, result, requestSeq)) {
       if (markChatControlSyncFailure(chat) && state.chat === chat) {
         renderChatOwnershipHead(chat);
@@ -2007,7 +2104,7 @@ function isSessionRunning(session, macId = state.macId) {
 }
 
 function syncSessionRuntimeIndicators() {
-  if (state.assistant !== 'codex') return;
+  if (!assistantCapabilities().selfDraw) return;
   const sessions = new Map(state.sessionResults.map((session) => [sessionKey(session), session]));
   $$('#session-groups .ses').forEach((row) => {
     const key = `${row.dataset.mac}\n${row.dataset.assistant}\n${row.dataset.sid}`;
@@ -2054,7 +2151,7 @@ function showChatPane(title, cwd, { connected = true } = {}) {
   $('#chat-pane').hidden = false;
   const tt = $('#win-title'); clear(tt);
   if (connected) tt.append(h('span', { class: 'dot live' }));
-  tt.append(h('span', { class: 'ttl', text: title || 'Codex 会话' }));
+  tt.append(h('span', { class: 'ttl', text: title || `${assistantLabel()} 会话` }));
   $('#win-meta').textContent = '';
   if (isMobile()) {
     if (!$('#app').classList.contains('term-open')) pushFleetHistory({ mode: 'sessions', term: true });
@@ -2126,7 +2223,7 @@ function renderChat({ preserveScroll = false, forceBottom = false } = {}) {
   if (chat.historyReady && chat.historyLoading) {
     stack.append(h('div', { class: 'chat-history-state', text: '正在加载更早记录…' }));
   }
-  if (chat.loading) stack.append(chatRow(h('div', { class: 'chat-card muted', text: '正在连接 Codex app-server…' })));
+  if (chat.loading) stack.append(chatRow(h('div', { class: 'chat-card muted', text: assistantConnectingText() })));
   const model = chat.model || FleetChatModel.createChatState();
   renderChatPendingInteraction(chat);
   renderChatOwnershipHead(chat);
@@ -2512,7 +2609,7 @@ function renderChatToolSurface(item, extraClass = '') {
   const cls = ['chat-tool compact', extraClass].filter(Boolean).join(' ');
   if (!hasBody) return h('div', { class: cls }, header);
   const body = h('div', { class: 'chat-tool-body' },
-    item.mediaPath ? chatImagePreview(chatMediaSrc(item.mediaPath), item.summary || 'Codex 图片', 'chat-tool-media', 'chat-tool-media-preview') : null,
+    item.mediaPath ? chatImagePreview(chatMediaSrc(item.mediaPath), item.summary || `${assistantLabel()} 图片`, 'chat-tool-media', 'chat-tool-media-preview') : null,
     item.progress ? h('div', { class: 'chat-tool-progress', text: item.progress }) : null,
     item.meta ? h('div', { class: 'chat-tool-meta mono', text: item.meta }) : null,
     (item.summary || item.output || item.detail) ? h('div', { class: 'chat-tool-section' },
@@ -2739,7 +2836,12 @@ function renderChatApprovalRequest(item) {
     details.push(h('pre', { class: 'chat-request-json', text: JSON.stringify(raw.permissions, null, 2) }));
   }
   let actions = null;
-  if (pending && item.kind === 'permission') {
+  if (pending && state.assistant === 'dsh') {
+    // DSH 的审批 outcome 只有 allowed-once / rejected，没有会话级授权 → 不给「本会话允许」。
+    actions = h('div', { class: 'chat-approval-actions' },
+      requestActionButton('允许一次', { decision: 'accept' }, true),
+      requestActionButton('拒绝', { decision: 'decline' }));
+  } else if (pending && item.kind === 'permission') {
     actions = h('div', { class: 'chat-approval-actions' },
       requestActionButton('允许本轮', { permissions: raw.permissions || {}, scope: 'turn' }, true),
       requestActionButton('允许本会话', { permissions: raw.permissions || {}, scope: 'session' }),
@@ -2833,7 +2935,7 @@ function renderChatUserInputRequest(item) {
       }
     },
   },
-  h('div', { class: 'chat-approval-h', text: 'Codex 需要你的回答' }),
+  h('div', { class: 'chat-approval-h', text: `${assistantLabel()} 需要你的回答` }),
   h('div', { class: 'chat-approval-body' },
     ...(item.questions || []).map((question, index) => renderUserInputQuestion(item, question, index)),
     h('div', { class: 'chat-approval-actions' },
@@ -3445,7 +3547,7 @@ function updateChatComposerState() {
     input.disabled = mutationBlocked;
     input.placeholder = action === 'readonly' ? 'Fleet 已释放此会话'
       : (action === 'transition' ? '正在切换会话访问状态…'
-        : (action === 'loading' ? '正在同步会话控制状态…' : '给 Codex 发送消息…'));
+        : (action === 'loading' ? '正在同步会话控制状态…' : `给 ${assistantLabel()} 发送消息…`));
   }
   const attach = $('#chat-attach');
   const options = $('#chat-options-trigger');
@@ -3584,7 +3686,7 @@ async function addChatFiles(files) {
 async function uploadChatFile(chat, att, file) {
   try {
     const fd = new FormData();
-    fd.append('assistant', 'codex');
+    fd.append('assistant', state.assistant);
     fd.append('sessionId', chat.sessionId);
     fd.append('file', file, file.name || 'image');
     const r = await fetch(`${apiBase(chat.macId)}/api/chat/upload`, { method: 'POST', body: fd });
@@ -3613,26 +3715,25 @@ function renderChatError(msg) {
 }
 
 async function openChatSession(s) {
-  if (!canSelfDrawChat()) return;
   const macId = s.macId || state.macId;
-  if (!macId) return;
+  if (!macId || !canSelfDrawChat(state.assistant, macId)) return;
   state.macId = macId;
   state.selectedSid = s.sessionId;
   state.selectedSessionMacId = macId;
-  state.selectedSessionAssistant = 'codex';
+  state.selectedSessionAssistant = state.assistant;
   $$('.ses').forEach((el) => el.classList.toggle('sel',
-    el.dataset.sid === s.sessionId && el.dataset.mac === macId && el.dataset.assistant === 'codex'));
+    el.dataset.sid === s.sessionId && el.dataset.mac === macId && el.dataset.assistant === state.assistant));
   closeChatPane();
   stopWatch(); hideBanner(); closeMenus();
   const key = chatCacheKey(macId, s.sessionId);
   let chat = state.chatCache.get(key);
   if (chat) {
-    chat.title = s.title || chat.title || 'Codex 会话';
+    chat.title = s.title || chat.title || `${assistantLabel()} 会话`;
     chat.cwd = s.cwd || chat.cwd || '';
   } else {
     chat = {
       cacheKey: key, macId,
-      sessionId: s.sessionId, title: s.title || 'Codex 会话', cwd: s.cwd || '',
+      sessionId: s.sessionId, title: s.title || `${assistantLabel()} 会话`, cwd: s.cwd || '',
       model: FleetChatModel.createChatState(), loading: true, events: null, resumePromise: null,
       pendingStart: !!s.pendingStart, unscoped: !!s.unscoped, startPromise: null,
       attachments: [], objectUrls: [], draft: '', updatedAt: Number(s.mtime) || Date.now(),
@@ -3712,7 +3813,7 @@ async function openChatSession(s) {
     const controlRequestSeq = beginChatControlRequest(chat);
     chat.resumePromise = api(chat.macId, 'chat/resume', {
       method: 'POST', headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ assistant: 'codex', sessionId: chat.sessionId, mode: 'default' }),
+      body: JSON.stringify({ assistant: state.assistant, sessionId: chat.sessionId, mode: 'default' }),
     });
     const resumed = await chat.resumePromise;
     if (state.chatCache.get(chat.cacheKey) === chat) {
@@ -3901,7 +4002,7 @@ async function selectChatApprovalMode(value) {
   const previousUpdate = chat.approvalUpdateChain || Promise.resolve();
   const update = previousUpdate.catch(() => {}).then(() => api(chat.macId, 'chat/settings', {
     method: 'POST', headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ assistant: 'codex', sessionId: chat.sessionId, approvalMode }),
+    body: JSON.stringify({ assistant: state.assistant, sessionId: chat.sessionId, approvalMode }),
   }));
   chat.approvalUpdateChain = update;
   try {
@@ -4153,7 +4254,7 @@ async function restoreChatAfterForeground(chat = state.chat) {
       const controlRequestSeq = beginChatControlRequest(chat);
       const resumed = await api(chat.macId, 'chat/resume', {
         method: 'POST', headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ assistant: 'codex', sessionId: chat.sessionId, mode: 'default' }),
+        body: JSON.stringify({ assistant: state.assistant, sessionId: chat.sessionId, mode: 'default' }),
       });
       if (state.chatCache.get(chat.cacheKey) !== chat) return;
       chat.model = FleetChatModel.prependHistory(chat.model, resumed.history?.events || []);
@@ -4219,10 +4320,10 @@ async function ensurePendingChatStarted(chat) {
     const controlRequestSeq = beginChatControlRequest(chat);
     const started = await api(chat.macId, 'chat/start', {
       method: 'POST', headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ assistant: 'codex', cwd, mode: 'default' }),
+      body: JSON.stringify({ assistant: state.assistant, cwd, mode: 'default' }),
     });
     const sessionId = String(started.sessionId || '').trim();
-    if (!sessionId) throw new Error('Codex 未返回有效的会话 ID');
+    if (!sessionId) throw new Error(`${assistantLabel()} 未返回有效的会话 ID`);
 
     const oldKey = chat.cacheKey;
     const newKey = chatCacheKey(chat.macId, sessionId);
@@ -4244,7 +4345,7 @@ async function ensurePendingChatStarted(chat) {
     state.chatCache.set(newKey, chat);
     state.selectedSid = sessionId;
     state.selectedSessionMacId = chat.macId;
-    state.selectedSessionAssistant = 'codex';
+    state.selectedSessionAssistant = state.assistant;
     startChatEvents(chat);
     if (preferredApproval !== chat.approvalConfirmedMode) {
       chat.approvalUpdatePending = true;
@@ -4252,7 +4353,7 @@ async function ensurePendingChatStarted(chat) {
       try {
         const control = await api(chat.macId, 'chat/settings', {
           method: 'POST', headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ assistant: 'codex', sessionId: chat.sessionId, approvalMode: preferredApproval }),
+          body: JSON.stringify({ assistant: state.assistant, sessionId: chat.sessionId, approvalMode: preferredApproval }),
         });
         chat.approvalUpdatePending = false;
         if (!applyChatControlSnapshot(chat, control, settingsRequestSeq)) throw new Error('服务端返回了无效的权限状态');
@@ -4372,7 +4473,7 @@ async function saveServerChatQueueItem(chat, item, deliveryMode) {
     return await api(chat.macId, 'chat/queue', {
       method: 'POST', headers: { 'content-type': 'application/json' },
       body: JSON.stringify({
-        assistant: 'codex', sessionId: chat.sessionId, clientMessageId: item.id,
+        assistant: state.assistant, sessionId: chat.sessionId, clientMessageId: item.id,
         cwd: chat.cwd || '', text: item.text, displayText: item.displayText,
         deliveryMode: deliveryMode === 'next' ? 'next' : 'auto',
         skills: item.skills || [], images: item.images.map(({ id, name, mime, size, url }) => ({ id, name, mime, size, url })),
@@ -4404,7 +4505,7 @@ async function interruptChat() {
   try {
     await api(chat.macId, 'chat/interrupt', {
       method: 'POST', headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ assistant: 'codex', sessionId: chat.sessionId }),
+      body: JSON.stringify({ assistant: state.assistant, sessionId: chat.sessionId }),
     });
   } catch (e) {
     if (isNoActiveTurnError(e)) {
@@ -4430,7 +4531,7 @@ async function releaseChatWriter() {
     const controlRequestSeq = beginChatControlRequest(chat);
     const control = await api(chat.macId, 'chat/access', {
       method: 'POST', headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ assistant: 'codex', sessionId: chat.sessionId, action: 'release' }),
+      body: JSON.stringify({ assistant: state.assistant, sessionId: chat.sessionId, action: 'release' }),
     });
     if (!isCompleteChatControlSnapshot(control?.control || control)) throw new Error('服务端返回了无效的会话控制状态');
     applyChatControlSnapshot(chat, control, controlRequestSeq);
@@ -4464,7 +4565,7 @@ async function enableChatWriter() {
     const controlRequestSeq = beginChatControlRequest(chat);
     const control = await api(chat.macId, 'chat/access', {
       method: 'POST', headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ assistant: 'codex', sessionId: chat.sessionId, action: 'enable-write' }),
+      body: JSON.stringify({ assistant: state.assistant, sessionId: chat.sessionId, action: 'enable-write' }),
     });
     if (!isCompleteChatControlSnapshot(control?.control || control)) throw new Error('服务端返回了无效的会话控制状态');
     applyChatControlSnapshot(chat, control, controlRequestSeq);
@@ -4490,7 +4591,7 @@ async function respondChatRequest(requestId, response) {
   try {
     await api(chat.macId, 'chat/respond', {
       method: 'POST', headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ assistant: 'codex', sessionId: chat.sessionId, requestId, response }),
+      body: JSON.stringify({ assistant: state.assistant, sessionId: chat.sessionId, requestId, response }),
     });
     chat.model = FleetChatModel.reduceChatEvent(chat.model, { type: 'interaction_resolved', data: { requestId, response } });
     renderChat();
@@ -4530,11 +4631,11 @@ async function restorePoolSnapshot() {
   for (const it of snap.items) {
     if (!known.has(it.macId)) continue; // 已不在册的 Mac：其会话无从 attach，跳过
     state.macId = it.macId;
-    state.assistant = it.assistant === 'codex' ? 'codex' : 'claude'; // connect 用 state.assistant 起对的助手
+    state.assistant = normalizeAssistant(it.assistant); // connect 用 state.assistant 起对的助手
     try { await connect(it.sessionId, it.title, it.cwd, it.permMode || 'default'); } catch (_) {}
   }
   state.macId = snap.macId;
-  state.assistant = snap.cur ? (snap.cur.assistant === 'codex' ? 'codex' : 'claude') : 'codex';
+  state.assistant = snap.cur ? normalizeAssistant(snap.cur.assistant) : 'codex';
   state.selectedSid = snap.cur ? snap.cur.sessionId : null; // 侧栏高亮对齐快照当前会话
   state.selectedSessionMacId = snap.cur ? snap.macId : null;
   state.selectedSessionAssistant = snap.cur ? state.assistant : null;

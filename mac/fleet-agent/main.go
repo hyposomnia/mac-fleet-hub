@@ -63,6 +63,13 @@ type Config struct {
 	DesktopStore      string // Claude Desktop 会话库目录（一次数据源）
 	TmuxConf          string // 自管理 tmux 配置（~/.macfleet-tmux.conf），经 tmux -f 在 server 启动时加载
 	ChatQueueFile     string // Codex 待发送消息队列（agent 权威持久化）
+
+	// DeepSeek Harness（DSH）shared 接入。默认关闭：这是一个按机器灰度的开关，
+	// 因为它依赖 DSH Desktop 正在运行，且用的是非公开的本地凭据路径。
+	DSHEnabled  bool   // FLEET_DSH_ENABLED：默认开启（1），显式 0 可单机退出
+	DSHHome     string // DSH Desktop 的 harness 主目录（.credentials.yaml 与 sessions/ 都在这里）
+	DSHLog      string // Desktop 写 harness stdout 的日志（端点与每进程 token 的唯一来源）
+	DSHEndpoint string // 显式覆盖 127.0.0.1:<port>，仅供排障
 }
 
 // 代理配置：Web 端可设，按会话注入到 claude 的环境（HTTP(S)_PROXY）。
@@ -142,6 +149,11 @@ func loadConfig() Config {
 		DesktopStore:      envOr("FLEET_DESKTOP_STORE", filepath.Join(home, "Library", "Application Support", "Claude", "claude-code-sessions")),
 		TmuxConf:          envOr("FLEET_TMUX_CONF", filepath.Join(home, ".macfleet-tmux.conf")),
 		ChatQueueFile:     envOr("FLEET_CHAT_QUEUE_FILE", filepath.Join(home, ".macfleet", "chat-queue.json")),
+
+		DSHEnabled:  envOr("FLEET_DSH_ENABLED", "1") == "1",
+		DSHHome:     envOr("FLEET_DSH_HOME", defaultDSHHome()),
+		DSHLog:      envOr("FLEET_DSH_LOG", defaultDSHLog()),
+		DSHEndpoint: strings.TrimSpace(os.Getenv("FLEET_DSH_ENDPOINT")),
 	}
 }
 
@@ -257,6 +269,8 @@ func normAssistant(a string) string {
 	switch strings.ToLower(strings.TrimSpace(a)) {
 	case "codex":
 		return "codex"
+	case "dsh":
+		return "dsh"
 	default:
 		return "claude"
 	}
@@ -1465,6 +1479,23 @@ func markSessionRuntime(assistant string, all []Session, ptySet map[string]bool,
 
 func handleSessions(w http.ResponseWriter, r *http.Request) {
 	assistant := normAssistant(r.URL.Query().Get("assistant"))
+	if assistant == "dsh" {
+		// DSH 的会话列表只有一个来源：Desktop 正在跑的 host。
+		// shared 模式下没有 host 就没有可驱动的会话（历史、发送、审批全都经它），
+		// 因此这里不做磁盘降级列表——列出打不开的会话只会误导。
+		dsh, ok := agentChatBackend.(*routingChatBackend)
+		if !ok || dsh.dshBackend() == nil {
+			writeErr(w, http.StatusNotImplemented, "dsh_disabled", "本机未启用 DSH 接入。")
+			return
+		}
+		sessions, err := dsh.dshBackend().dshListSessions(r.Context())
+		if err != nil {
+			writeChatErr(w, err)
+			return
+		}
+		writeJSON(w, map[string]interface{}{"sessions": sessions, "total": len(sessions)})
+		return
+	}
 	if assistant == "codex" {
 		limit := codexDesktopThreadPageSize
 		if value := r.URL.Query().Get("limit"); value != "" {
@@ -1788,12 +1819,35 @@ func handleInfo(w http.ResponseWriter, r *http.Request) {
 	codexConnected := false
 	codexAppToolsReady := false
 	codexEndpoint, _ := codexAppServerSocketPath()
-	if backend, ok := agentChatBackend.(*codexChatBackend); ok {
+	router, _ := agentChatBackend.(*routingChatBackend)
+	if backend := router.codexBackend(); backend != nil {
 		backend.mu.Lock()
 		codexConnected = backend.rpc != nil
 		codexAppToolsReady = backend.appToolsPipe != ""
 		backend.mu.Unlock()
 	}
+
+	// DSH 能力块：dashboard 用它决定是否显示第三个 assistant 入口。
+	// enabled 是配置开关，hostRunning 需要一次成功连接才为 true——两者都满足
+	// 才认为可用，避免在 Desktop 没跑时露出一个点了报错的入口。
+	dshInfo := map[string]interface{}{
+		"enabled":        cfg.DSHEnabled,
+		"desktopAppPath": dshDesktopAppPath,
+		"installed":      dshDesktopInstalled(),
+		"hostRunning":    false,
+		"endpoint":       "",
+		"authMode":       string(dshAuthNone),
+	}
+	if backend := router.dshBackend(); backend != nil {
+		endpoint, mode, lastErr, seen := backend.Status()
+		dshInfo["authMode"] = string(mode)
+		if endpoint.Port > 0 {
+			dshInfo["endpoint"] = fmt.Sprintf("127.0.0.1:%d", endpoint.Port)
+		}
+		dshInfo["hostRunning"] = seen && lastErr == nil
+	}
+	dshInfo["degraded"] = !(cfg.DSHEnabled && dshInfo["hostRunning"].(bool))
+
 	writeJSON(w, map[string]interface{}{
 		"macIndex": cfg.MacIndex, "meshIP": host, "fileRoot": cfg.FileRoot, "proxy": p,
 		"codexAppServerMode":      normalizeCodexAppServerMode(cfg.CodexMode),
@@ -1801,6 +1855,7 @@ func handleInfo(w http.ResponseWriter, r *http.Request) {
 		"codexAppServerConnected": codexConnected,
 		"codexAppToolsSupported":  codexDesktopAppToolsSupported(),
 		"codexAppToolsReady":      codexAppToolsReady,
+		"dsh":                     dshInfo,
 	})
 }
 

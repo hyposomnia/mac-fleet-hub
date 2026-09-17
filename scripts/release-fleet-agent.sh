@@ -30,8 +30,32 @@ ARM_ASSET="$DIST_DIR/fleet-agent-darwin-arm64"
 AMD_ASSET="$DIST_DIR/fleet-agent-darwin-amd64"
 
 die() { echo "✗ $*" >&2; exit 1; }
+# 公证凭据的 keychain profile 名；与 mac/fleet-agent/build.sh 的默认值同源。
+NOTARY_PROFILE="${FLEET_NOTARY_PROFILE:-mac-fleet-hub-notary}"
 step() { echo; echo "==> $*"; }
 ssh_note() { echo ">>> ssh $1 — $2"; }
+# 公证凭据预检 —— 必须在"构建 + 签名"之前跑。
+#
+# 凭据缺失时 build.sh 的失败点在签名之后、公证那一刻，那时 dist/ 里已经躺了两个
+# "已签名但未公证"的产物；它们不能被分发，只能人工 git checkout 还原。所以这里
+# 先探一次，把失败提前到不产生任何副作用的位置。
+#
+# 两种失败要分开对待：钥匙串里确实没有该条目 → 明确失败；当前会话访问不到钥匙串
+# （例如从 SSH 运行时）→ 无法判定，只告警不阻塞，否则会把正常的发布流程卡死。
+require_notary_credentials() {
+  local out
+  out="$(xcrun notarytool history --keychain-profile "$NOTARY_PROFILE" 2>&1 || true)"
+  if grep -q "No Keychain password item found" <<<"$out"; then
+    die "钥匙串中没有公证凭据 profile「${NOTARY_PROFILE}」，无法提交 Apple 公证。先在图形会话的终端里执行：
+    xcrun notarytool store-credentials $NOTARY_PROFILE --apple-id <Apple ID> --team-id <Team ID> --password <App 专用密码>"
+  fi
+  if grep -qi "keychainLocked\|User interaction is not allowed" <<<"$out"; then
+    echo "⚠️  当前会话访问不到钥匙串，跳过公证凭据预检；请在图形会话的终端里执行正式发布。"
+    return 0
+  fi
+  echo "公证凭据 profile「${NOTARY_PROFILE}」可用。"
+}
+
 ssh_retry() { # port target description command
   local port="$1" target="$2" description="$3" command="$4" attempt
   for attempt in 1 2 3; do
@@ -44,7 +68,7 @@ ssh_retry() { # port target description command
 }
 
 [[ "$(uname -s)" == "Darwin" ]] || die "发布必须在持有 Developer ID 私钥的 macOS 构建机运行。"
-[[ -r "$CONFIG_FILE" ]] || die "缺少私有配置：$CONFIG_FILE（参考 scripts/release-fleet-agent.env.example）。"
+[[ -r "$CONFIG_FILE" ]] || die "缺少私有配置：${CONFIG_FILE}（参考 scripts/release-fleet-agent.env.example）。"
 # shellcheck disable=SC1090
 source "$CONFIG_FILE"
 
@@ -65,12 +89,14 @@ fi
 command -v ssh >/dev/null || die "未找到 ssh。"
 command -v scp >/dev/null || die "未找到 scp。"
 [[ "$("$TAILSCALE_BIN" ip -4 2>/dev/null | head -n1)" == "$FLEET_RELEASE_BUILDER_IP" ]] \
-  || die "当前机器不是签名构建机 $FLEET_RELEASE_BUILDER_IP。"
+  || die "当前机器不是签名构建机 ${FLEET_RELEASE_BUILDER_IP}。"
 
 if [[ "$MODE" == "check" ]]; then
   step "检查签名构建机与 Developer ID"
   security find-identity -v -p codesigning | grep 'Developer ID Application:' \
     || die "钥匙串中没有有效 Developer ID Application identity。"
+  step "检查公证凭据（notarytool keychain profile）"
+  require_notary_credentials
   step "检查网关 SSH 与服务"
   ssh_retry "$FLEET_RELEASE_GATEWAY_PORT" "$FLEET_RELEASE_GATEWAY_SSH" \
     "hostname + service status" \
@@ -96,6 +122,9 @@ GIT_SSH_COMMAND="ssh -o BatchMode=yes" git pull --ff-only origin "$EXPECTED_BRAN
 
 step "运行项目验证"
 bash "$ROOT/scripts/verify.sh"
+
+step "预检公证凭据（失败时不产生任何产物）"
+require_notary_credentials
 
 step "构建、Developer ID 签名并等待 Apple 公证 Accepted"
 bash "$ROOT/mac/fleet-agent/build.sh"

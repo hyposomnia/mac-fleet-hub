@@ -119,6 +119,8 @@
           <div class="seg assistant-seg" role="tablist">
             <button data-assistant="codex" role="tab" aria-selected="true">Codex</button>
             <button data-assistant="claude" role="tab" aria-selected="false">Claude</button>
+            <!-- DeepSeek 默认隐藏：只有该 Mac 的 /api/info 报了 dsh 能力才由 syncAssistantTabs 放出来 -->
+            <button data-assistant="dsh" role="tab" aria-selected="false" hidden>DeepSeek</button>
           </div>
           <span data-device-scope-slot="sessions"></span>
           <div class="sc-head-actions">
@@ -129,6 +131,8 @@
         <div class="seg mobile-assistant-seg" role="tablist">
           <button data-assistant="codex" role="tab" aria-selected="true">Codex</button>
           <button data-assistant="claude" role="tab" aria-selected="false">Claude</button>
+          <!-- 与桌面 seg 同步显隐，见 syncAssistantTabs -->
+          <button data-assistant="dsh" role="tab" aria-selected="false" hidden>DeepSeek</button>
         </div>
         <div class="session-search-row">
           <button id="session-view-toggle" class="iconbtn" title="按最近更新排序" aria-label="按最近更新排序" aria-pressed="false"><svg class="ic" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg></button>

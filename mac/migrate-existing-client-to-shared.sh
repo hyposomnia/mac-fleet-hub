@@ -18,6 +18,47 @@ json_field() {
   local json="$1" field="$2"
   printf '%s' "$json" | /usr/bin/plutil -extract "$field" raw -o - - 2>/dev/null || true
 }
+# 本脚本上一步刚停掉旧 app-server、重开 Desktop，fleet-agent 的 WS 客户端正在这个
+# 窗口里重建：此时 agent 对 chat/sessions 类接口会回 503，且只可能是
+# appserver_unavailable / appserver_recovered / agent_restarting——三者都是「稍后
+# 重试即可」的瞬时态，也可能直接连不上端口（000）。UAT 探针一枪判死会让整台节点被
+# 判失败，而 release-fleet-agent.sh 的 ssh_retry 会整轮重跑、每次再杀一遍 Desktop，
+# 于是永远收敛不了（2026-09-16 实测三次重试各杀一次 Desktop 后失败）。
+#
+# 所以所有走 agent chat 接口的 UAT 探针都经这个助手：成功时把响应体写到 stdout，
+# 503/连不上按 deadline 重试（上限 $1 次），其它码视为真错误立刻停；最终失败时打印
+# HTTP 码、**curl 退出码**与响应体。
+#
+# 退出码一定要打：`--max-time` 超时（rc=28）与连接被拒（rc=7）都表现为
+# `http=000` + 空 body，不打 rc 就分不清——2026-09-16 就因为探针超时被当成
+# 「agent 连不上」，白排查了一轮。超时值也按调用点给：chat/resume 首次恢复
+# 要拉整段历史，实测 17.6s，给 10s 会每次都超时。
+#
+# 用法：agent_api_retry <最大次数> <单次超时秒> <curl 参数...>
+agent_api_retry() {
+  local attempts="$1" timeout="$2"; shift 2
+  local n=0 resp code body rc
+  while :; do
+    n=$((n + 1))
+    rc=0
+    resp="$(curl -sS --max-time "$timeout" -w '\n%{http_code}' "$@" 2>/dev/null)" || rc=$?
+    code="$(printf '%s' "$resp" | tail -n1)"
+    body="$(printf '%s' "$resp" | sed '$d')"
+    if [[ "$code" == "200" ]]; then
+      printf '%s' "$body"
+      return 0
+    fi
+    if [[ -n "$code" && "$code" != "503" && "$code" != "000" ]]; then
+      break
+    fi
+    if [[ "$n" -ge "$attempts" ]]; then
+      break
+    fi
+    sleep 1
+  done
+  echo "shared migration failed: agent API 调用试了 ${n} 次仍失败：http=${code:-<无响应>} curl_rc=${rc} timeout=${timeout}s body=${body:-<空>} args=$*" >&2
+  exit 1
+}
 
 [[ -f "$FLEET_PLIST" ]] || die "missing installed fleet-agent plist"
 [[ -d "$DESKTOP_APP" ]] || die "missing $DESKTOP_APP"
@@ -112,7 +153,7 @@ if /bin/ps -axo ppid=,command= | awk -v pid="$desktop_pid" '$1 == pid && /codex 
 fi
 
 # A read-only skills request forces fleet-agent to initialize its own WS client.
-curl -fsS --max-time 30 -H 'Content-Type: application/json' \
+agent_api_retry 10 30 -H 'Content-Type: application/json' \
   -d "{\"assistant\":\"codex\",\"cwd\":\"$HOME\"}" \
   "http://${ip}:7682/api/chat/skills" >/dev/null
 
@@ -127,10 +168,11 @@ printf '%s\n' "$listener" | grep -q "127.0.0.1:${SHARED_PORT} (LISTEN)" \
 
 # Resume one existing idle thread and prove its physical writer is the same
 # shared server PID, not a private Desktop/Fleet process.
-sessions="$(curl -fsS --max-time 10 "http://${ip}:7682/api/sessions?assistant=codex&scope=active")"
+sessions="$(agent_api_retry 10 20 "http://${ip}:7682/api/sessions?assistant=codex&scope=active")"
 probe_session="$(json_field "$sessions" sessions.0.sessionId)"
 if [[ -n "$probe_session" ]]; then
-  curl -fsS --max-time 20 -H 'Content-Type: application/json' \
+  # 首次恢复要拉整段历史（实测 mac2 上 17.6s），超时给足。
+  agent_api_retry 6 30 -H 'Content-Type: application/json' \
     -d "{\"assistant\":\"codex\",\"sessionId\":\"$probe_session\"}" \
     "http://${ip}:7682/api/chat/resume" >/dev/null
   lock_path="$CODEX_HOME_DIR/thread-writer-locks/$probe_session.lock"
