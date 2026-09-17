@@ -568,8 +568,14 @@ async function refreshAssistantCapabilities() {
   await Promise.all(MACS.filter((m) => state.nodes[m.id]).map(async (m) => {
     try { probed[m.id] = await api(m.id, 'info'); } catch (_) {}
   }));
+  const dshChanged = Object.keys({ ...state.assistantInfo, ...probed }).some((id) =>
+    JSON.stringify(state.assistantInfo[id]?.dsh) !== JSON.stringify(probed[id]?.dsh));
   state.assistantInfo = probed;
   syncAssistantTabs();
+  // 列表可能先于 info 返回；能力变化后重建行的菜单与点击回调，普通轮询不打断菜单。
+  if (state.mode === 'sessions' && state.assistant === 'dsh' && dshChanged) {
+    renderSessionResults({ preserveScroll: true });
+  }
 }
 
 // DeepSeek 入口显隐：拿不到 info 就藏起来（旧 agent / 探测失败），不露半成品入口。
@@ -1144,10 +1150,10 @@ function sessionRow(s) {
   const chatConnected = capabilities.selfDraw && isChatConnectionKept(macId, sid);
   const sessionRunning = capabilities.selfDraw && isSessionRunning(s, macId);
   const live = !!s.pty; // 兼容 agent 返回的既有进程状态
-  const pin = assistant === 'codex' && s.pinned
+  const pin = s.pinned
     ? h('span', { class: 'ses-pin', title: '已置顶' }, svgIcon('ic', 'M12 17v5M5 3h14l-3 6v4l2 2H6l2-2V9Z'))
     : null;
-  const menu = assistant === 'codex' ? renderCodexSessionMenu(s) : null;
+  const menu = renderSessionMenu(s);
   const status = sessionStatus(s, sessionRunning || live || FleetChatModel.chatPhase(s.status) === 'running');
   const top = h('div', { class: 'ses-top' },
     h('span', { class: 't', text: s.title || '(无标题)' }),
@@ -1179,7 +1185,17 @@ function sessionRow(s) {
   return row;
 }
 
-function renderCodexSessionMenu(session) {
+function sessionMenuActions(session) {
+  const assistant = session.assistant || state.assistant;
+  if (assistant === 'codex') return ['pin', 'unpin', 'rename', 'archive', 'unarchive', 'delete'];
+  if (assistant === 'dsh') return state.assistantInfo[session.macId]?.dsh?.sessionActions || [];
+  return [];
+}
+
+function renderSessionMenu(session) {
+  const actions = sessionMenuActions(session);
+  if (!actions.length) return null;
+  const pinAction = session.pinned ? 'unpin' : 'pin';
   const archived = state.scope === 'all';
   const menu = h('div', { class: 'ses-menu-wrap' },
     h('button', { type: 'button', class: 'iconbtn bare ses-menu-trigger', title: '会话操作', 'aria-label': '会话操作',
@@ -1196,21 +1212,30 @@ function renderCodexSessionMenu(session) {
         { tag: 'circle', attrs: { cx: '19', cy: '12', r: '1', fill: 'currentColor', stroke: 'none' } },
       ])),
     h('div', { class: 'ses-menu', hidden: '' },
-      h('button', { type: 'button', onclick: (event) => { event.stopPropagation(); mutateCodexSession(session, session.pinned ? 'unpin' : 'pin'); } },
+      actions.includes(pinAction) && h('button', { type: 'button', onclick: (event) => { event.stopPropagation(); return mutateSession(session, pinAction); } },
         session.pinned ? '取消置顶' : '置顶'),
-      h('button', { type: 'button', onclick: (event) => { event.stopPropagation(); renameCodexSession(session); } }, '重命名'),
-      h('button', { type: 'button', onclick: (event) => { event.stopPropagation(); mutateCodexSession(session, archived ? 'unarchive' : 'archive'); } },
+      actions.includes('rename') && h('button', { type: 'button', onclick: (event) => { event.stopPropagation(); return renameSession(session); } }, '重命名'),
+      actions.includes(archived ? 'unarchive' : 'archive') && h('button', { type: 'button', onclick: (event) => { event.stopPropagation(); return mutateSession(session, archived ? 'unarchive' : 'archive'); } },
         archived ? '移回当前' : '归档'),
-      h('button', { type: 'button', class: 'danger', onclick: (event) => { event.stopPropagation(); deleteCodexSession(session); } }, '删除')));
+      actions.includes('delete') && h('button', { type: 'button', class: 'danger', onclick: (event) => { event.stopPropagation(); return deleteSession(session); } }, '删除')));
   return menu;
 }
 
-async function mutateCodexSession(session, action, value = '') {
+async function mutateSession(session, action, value = '') {
   try {
     await api(session.macId, 'sessions/action', {
       method: 'POST', headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ assistant: 'codex', sessionId: session.sessionId, action, value }),
+      body: JSON.stringify({ assistant: session.assistant || state.assistant, sessionId: session.sessionId, action, value }),
     });
+    if (action === 'delete') {
+      const key = chatCacheKey(session.macId, session.sessionId);
+      const chat = state.chatCache.get(key);
+      if (chat) {
+        if (state.chat === chat) { closeChatPane(); showEmpty(); }
+        disposeChat(chat);
+        state.chatCache.delete(key);
+      }
+    }
     if (action === 'pin' || action === 'unpin') {
       session.pinned = action === 'pin';
       renderSessionResults();
@@ -1222,16 +1247,15 @@ async function mutateCodexSession(session, action, value = '') {
   }
 }
 
-function renameCodexSession(session) {
+function renameSession(session) {
   const name = window.prompt('重命名会话', session.title || '');
   if (name == null || !name.trim() || name.trim() === session.title) return;
-  mutateCodexSession(session, 'rename', name.trim());
+  return mutateSession(session, 'rename', name.trim());
 }
 
-function deleteCodexSession(session) {
+function deleteSession(session) {
   if (!window.confirm(`永久删除“${session.title || '这个会话'}”？此操作无法撤销。`)) return;
-  if (state.chat?.sessionId === session.sessionId && state.chat?.macId === session.macId) closeChatPane();
-  mutateCodexSession(session, 'delete');
+  return mutateSession(session, 'delete');
 }
 
 function selectSes(sid, macId = state.macId, assistant = state.assistant) {

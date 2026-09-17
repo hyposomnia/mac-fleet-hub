@@ -433,24 +433,32 @@ func (unavailableChatBackend) Control(context.Context, string, string) (ChatRunt
 }
 
 func writeChatErr(w http.ResponseWriter, err error) {
+	if errors.Is(err, errDSHUnsupported) {
+		writeErr(w, http.StatusNotImplemented, "dsh_unsupported", "当前 DeepSeek 版本暂不支持此操作。")
+		return
+	}
+	if errors.Is(err, errDSHInvalidSessionName) {
+		writeErr(w, http.StatusBadRequest, "invalid_session_name", "会话名称不能为空或超过 500 字节。")
+		return
+	}
 	if errors.Is(err, errUnsupportedChatAssistant) {
-		writeErr(w, http.StatusNotImplemented, "unsupported_assistant", "自绘界面暂只支持 Codex。")
+		writeErr(w, http.StatusNotImplemented, "unsupported_assistant", "聊天界面支持 ChatGPT 和 DeepSeek。")
 		return
 	}
 	if errors.Is(err, errAppServerUnavailable) {
-		writeErr(w, http.StatusServiceUnavailable, "appserver_unavailable", "Codex app-server 不可用，可用终端打开。")
+		writeErr(w, http.StatusServiceUnavailable, "appserver_unavailable", "ChatGPT 连接不可用，请稍后重试。")
 		return
 	}
 	if errors.Is(err, errAppServerTimeout) {
-		writeErr(w, http.StatusGatewayTimeout, "appserver_timeout", "Codex app-server 响应超时，连接已重置，请刷新重试。")
+		writeErr(w, http.StatusGatewayTimeout, "appserver_timeout", "ChatGPT 响应超时，连接已重置，请刷新重试。")
 		return
 	}
 	if errors.Is(err, errAppServerRecovered) {
-		writeErr(w, http.StatusServiceUnavailable, "appserver_recovered", "Codex 连接异常但已恢复。请确认刚才的操作结果后重试。")
+		writeErr(w, http.StatusServiceUnavailable, "appserver_recovered", "ChatGPT 连接异常但已恢复。请确认刚才的操作结果后重试。")
 		return
 	}
 	if errors.Is(err, errAgentRestarting) {
-		writeErr(w, http.StatusServiceUnavailable, "agent_restarting", "Codex 连接恢复失败，fleet-agent 正在自动重启，请稍后重试。")
+		writeErr(w, http.StatusServiceUnavailable, "agent_restarting", "ChatGPT 连接恢复失败，fleet-agent 正在自动重启，请稍后重试。")
 		return
 	}
 	if errors.Is(err, errNoActiveChatTurn) {
@@ -458,11 +466,11 @@ func writeChatErr(w http.ResponseWriter, err error) {
 		return
 	}
 	if errors.Is(err, errExternalChatTurn) {
-		writeErr(w, http.StatusConflict, "external_turn_running", "Codex Desktop 正在使用此会话；Fleet 已保持只读，请等待 Desktop 切换或关闭会话。")
+		writeErr(w, http.StatusConflict, "external_turn_running", "ChatGPT 桌面端正在使用此会话；Fleet 已保持只读，请等待 Desktop 切换或关闭会话。")
 		return
 	}
 	if errors.Is(err, errThreadReadOnly) {
-		writeErr(w, http.StatusConflict, "thread_read_only", "该会话正由其他 Codex 客户端控制，Fleet 当前为只读同步。")
+		writeErr(w, http.StatusConflict, "thread_read_only", "该会话正由其他 ChatGPT 客户端控制，Fleet 当前为只读同步。")
 		return
 	}
 	if errors.Is(err, errFleetChatReadOnly) {
@@ -492,7 +500,7 @@ func handleChatStart(w http.ResponseWriter, r *http.Request) {
 	}
 	assistant := normAssistant(req.Assistant)
 	if !chatCapabilities(assistant).SelfDraw {
-		writeErr(w, http.StatusNotImplemented, "unsupported_assistant", "自绘界面暂只支持 Codex。")
+		writeErr(w, http.StatusNotImplemented, "unsupported_assistant", "聊天界面支持 ChatGPT 和 DeepSeek。")
 		return
 	}
 	res, err := agentChatBackend.Start(r.Context(), assistant, req.Cwd, normMode(req.Mode, false))
@@ -539,7 +547,7 @@ func handleChatResume(w http.ResponseWriter, r *http.Request) {
 	}
 	assistant := normAssistant(req.Assistant)
 	if !chatCapabilities(assistant).SelfDraw {
-		writeErr(w, http.StatusNotImplemented, "unsupported_assistant", "自绘界面暂只支持 Codex。")
+		writeErr(w, http.StatusNotImplemented, "unsupported_assistant", "聊天界面支持 ChatGPT 和 DeepSeek。")
 		return
 	}
 	res, err := agentChatBackend.Resume(r.Context(), assistant, req.SessionID, normMode(req.Mode, false))
@@ -574,7 +582,7 @@ func handleChatSettings(w http.ResponseWriter, r *http.Request) {
 	}
 	assistant := normAssistant(req.Assistant)
 	if !chatCapabilities(assistant).SelfDraw {
-		writeErr(w, http.StatusNotImplemented, "unsupported_assistant", "自绘界面暂只支持 Codex。")
+		writeErr(w, http.StatusNotImplemented, "unsupported_assistant", "聊天界面支持 ChatGPT 和 DeepSeek。")
 		return
 	}
 	defer lockChatSessionOperation(assistant, req.SessionID)()
@@ -636,7 +644,7 @@ func handleChatInput(w http.ResponseWriter, r *http.Request) {
 	}
 	assistant := normAssistant(req.Assistant)
 	if !chatCapabilities(assistant).SelfDraw {
-		writeErr(w, http.StatusNotImplemented, "unsupported_assistant", "自绘界面暂只支持 Codex。")
+		writeErr(w, http.StatusNotImplemented, "unsupported_assistant", "聊天界面支持 ChatGPT 和 DeepSeek。")
 		return
 	}
 	defer lockChatSessionOperation(assistant, req.SessionID)()
@@ -712,7 +720,7 @@ func handleChatSteer(w http.ResponseWriter, r *http.Request) {
 	}
 	assistant := normAssistant(req.Assistant)
 	if !chatCapabilities(assistant).SelfDraw {
-		writeErr(w, http.StatusNotImplemented, "unsupported_assistant", "自绘界面暂只支持 Codex。")
+		writeErr(w, http.StatusNotImplemented, "unsupported_assistant", "聊天界面支持 ChatGPT 和 DeepSeek。")
 		return
 	}
 	defer lockChatSessionOperation(assistant, req.SessionID)()
@@ -764,7 +772,7 @@ func handleChatSkills(w http.ResponseWriter, r *http.Request) {
 	}
 	assistant := normAssistant(req.Assistant)
 	if !chatCapabilities(assistant).SelfDraw {
-		writeErr(w, http.StatusNotImplemented, "unsupported_assistant", "自绘界面暂只支持 Codex。")
+		writeErr(w, http.StatusNotImplemented, "unsupported_assistant", "聊天界面支持 ChatGPT 和 DeepSeek。")
 		return
 	}
 	skills, err := agentChatBackend.Skills(r.Context(), assistant, strings.TrimSpace(req.Cwd))
@@ -872,7 +880,7 @@ func handleChatHistory(w http.ResponseWriter, r *http.Request) {
 	sessionID := r.URL.Query().Get("sessionId")
 	cursor := r.URL.Query().Get("cursor")
 	if !chatCapabilities(assistant).SelfDraw {
-		writeErr(w, http.StatusNotImplemented, "unsupported_assistant", "自绘界面暂只支持 Codex。")
+		writeErr(w, http.StatusNotImplemented, "unsupported_assistant", "聊天界面支持 ChatGPT 和 DeepSeek。")
 		return
 	}
 	if sessionID == "" || len(cursor) > 4096 {
@@ -1099,7 +1107,7 @@ func handleChatEvents(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !chatCapabilities(assistant).SelfDraw {
-		writeErr(w, http.StatusNotImplemented, "unsupported_assistant", "自绘界面暂只支持 Codex。")
+		writeErr(w, http.StatusNotImplemented, "unsupported_assistant", "聊天界面支持 ChatGPT 和 DeepSeek。")
 		return
 	}
 	events, err := agentChatBackend.Events(r.Context(), assistant, sessionID)
@@ -1152,7 +1160,7 @@ func handleChatInterrupt(w http.ResponseWriter, r *http.Request) {
 	}
 	assistant := normAssistant(req.Assistant)
 	if !chatCapabilities(assistant).SelfDraw {
-		writeErr(w, http.StatusNotImplemented, "unsupported_assistant", "自绘界面暂只支持 Codex。")
+		writeErr(w, http.StatusNotImplemented, "unsupported_assistant", "聊天界面支持 ChatGPT 和 DeepSeek。")
 		return
 	}
 	defer lockChatSessionOperation(assistant, req.SessionID)()
@@ -1181,7 +1189,7 @@ func handleChatRelease(w http.ResponseWriter, r *http.Request) {
 	}
 	assistant := normAssistant(req.Assistant)
 	if !chatCapabilities(assistant).SelfDraw {
-		writeErr(w, http.StatusNotImplemented, "unsupported_assistant", "自绘界面暂只支持 Codex。")
+		writeErr(w, http.StatusNotImplemented, "unsupported_assistant", "聊天界面支持 ChatGPT 和 DeepSeek。")
 		return
 	}
 	defer lockChatSessionOperation(assistant, req.SessionID)()
@@ -1215,7 +1223,7 @@ func handleChatAccess(w http.ResponseWriter, r *http.Request) {
 	}
 	assistant := normAssistant(req.Assistant)
 	if !chatCapabilities(assistant).SelfDraw {
-		writeErr(w, http.StatusNotImplemented, "unsupported_assistant", "自绘界面暂只支持 Codex。")
+		writeErr(w, http.StatusNotImplemented, "unsupported_assistant", "聊天界面支持 ChatGPT 和 DeepSeek。")
 		return
 	}
 	req.SessionID = strings.TrimSpace(req.SessionID)
@@ -1275,7 +1283,7 @@ func handleChatRespond(w http.ResponseWriter, r *http.Request) {
 	}
 	assistant := normAssistant(req.Assistant)
 	if !chatCapabilities(assistant).SelfDraw {
-		writeErr(w, http.StatusNotImplemented, "unsupported_assistant", "自绘界面暂只支持 Codex。")
+		writeErr(w, http.StatusNotImplemented, "unsupported_assistant", "聊天界面支持 ChatGPT 和 DeepSeek。")
 		return
 	}
 	defer lockChatSessionOperation(assistant, req.SessionID)()

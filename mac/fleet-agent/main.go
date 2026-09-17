@@ -1488,7 +1488,7 @@ func handleSessions(w http.ResponseWriter, r *http.Request) {
 			writeErr(w, http.StatusNotImplemented, "dsh_disabled", "本机未启用 DSH 接入。")
 			return
 		}
-		sessions, err := dsh.dshBackend().dshListSessions(r.Context())
+		sessions, err := dsh.dshBackend().listSessions(r.Context(), r.URL.Query().Get("archived") == "true", r.URL.Query().Get("search"))
 		if err != nil {
 			writeChatErr(w, err)
 			return
@@ -1548,8 +1548,21 @@ func handleSessionAction(w http.ResponseWriter, r *http.Request) {
 		Value     string `json:"value"`
 	}
 	if json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&req) != nil ||
-		normAssistant(req.Assistant) != "codex" || strings.TrimSpace(req.SessionID) == "" {
+		(normAssistant(req.Assistant) != "codex" && normAssistant(req.Assistant) != "dsh") || strings.TrimSpace(req.SessionID) == "" {
 		http.Error(w, "bad request", http.StatusBadRequest)
+		return
+	}
+	if normAssistant(req.Assistant) == "dsh" {
+		router, ok := agentChatBackend.(*routingChatBackend)
+		if !ok || router.dshBackend() == nil {
+			writeErr(w, http.StatusNotImplemented, "dsh_disabled", "本机未启用 DeepSeek 接入。")
+			return
+		}
+		if err := router.dshBackend().mutateSession(r.Context(), req.SessionID, req.Action, req.Value); err != nil {
+			writeChatErr(w, err)
+			return
+		}
+		writeJSON(w, map[string]bool{"ok": true})
 		return
 	}
 	manager, ok := agentChatBackend.(codexThreadManager)
@@ -1832,6 +1845,7 @@ func handleInfo(w http.ResponseWriter, r *http.Request) {
 	// 才认为可用，避免在 Desktop 没跑时露出一个点了报错的入口。
 	dshInfo := map[string]interface{}{
 		"enabled":        cfg.DSHEnabled,
+		"sessionActions": []string{"pin", "unpin", "rename", "archive", "delete"},
 		"desktopAppPath": dshDesktopAppPath,
 		"installed":      dshDesktopInstalled(),
 		"hostRunning":    false,

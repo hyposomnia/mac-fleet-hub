@@ -294,7 +294,7 @@ func (b *codexChatBackend) ThreadCwd(ctx context.Context, sessionID string) (str
 	return response.Thread.Cwd, nil
 }
 
-var codexPinsMu sync.Mutex
+var threadPinsMu sync.Mutex
 
 func codexPinsPath() string {
 	if strings.TrimSpace(cfg.CodexHome) == "" {
@@ -304,14 +304,17 @@ func codexPinsPath() string {
 }
 
 func readCodexThreadPins() map[string]bool {
-	codexPinsMu.Lock()
-	defer codexPinsMu.Unlock()
-	return readCodexThreadPinsLocked()
+	return readThreadPins(codexPinsPath())
 }
 
-func readCodexThreadPinsLocked() map[string]bool {
+func readThreadPins(path string) map[string]bool {
+	threadPinsMu.Lock()
+	defer threadPinsMu.Unlock()
+	return readThreadPinsLocked(path)
+}
+
+func readThreadPinsLocked(path string) map[string]bool {
 	pins := map[string]bool{}
-	path := codexPinsPath()
 	if path == "" {
 		return pins
 	}
@@ -319,20 +322,26 @@ func readCodexThreadPinsLocked() map[string]bool {
 	if err == nil {
 		_ = json.Unmarshal(data, &pins)
 	}
+	if pins == nil {
+		pins = map[string]bool{}
+	}
 	return pins
 }
 
 func writeCodexThreadPin(sessionID string, pinned bool) error {
+	return writeThreadPin(codexPinsPath(), sessionID, pinned)
+}
+
+func writeThreadPin(path, sessionID string, pinned bool) error {
 	if strings.TrimSpace(sessionID) == "" {
 		return fmt.Errorf("invalid thread id")
 	}
-	codexPinsMu.Lock()
-	defer codexPinsMu.Unlock()
-	path := codexPinsPath()
+	threadPinsMu.Lock()
+	defer threadPinsMu.Unlock()
 	if path == "" {
-		return fmt.Errorf("Codex home is not configured")
+		return fmt.Errorf("session pin path is not configured")
 	}
-	pins := readCodexThreadPinsLocked()
+	pins := readThreadPinsLocked(path)
 	if pinned {
 		pins[sessionID] = true
 	} else {

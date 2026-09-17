@@ -2582,3 +2582,94 @@ test('foreground restore replaces a stale SSE stream and reconciles missed histo
 test('chat send keeps textarea focus through pointerdown on mobile keyboards', () => {
   assert.match(appSrc, /\$\('#chat-send'\)\.addEventListener\('pointerdown',[\s\S]*?document\.activeElement === \$\('#chat-input'\)[\s\S]*?e\.preventDefault\(\)/);
 });
+
+test('DeepSeek shares the session menu and only offers native archive on current sessions', () => {
+  const previousInfo = appState.assistantInfo, previousScope = appState.scope;
+  try {
+    appState.assistantInfo = {m1: {dsh: {enabled: true, degraded: false,
+      sessionActions: ['pin', 'unpin', 'rename', 'archive', 'delete']}}};
+    const session = {assistant: 'dsh', macId: 'm1', sessionId: 'session-menu', title: 'Menu', mtime: fixedAppNowMs};
+    appState.scope = 'active';
+    let menu = nodesWithClass(sessionRow(session), 'ses-menu')[0];
+    assert.ok(menu, 'DeepSeek row must have the shared … menu');
+    assert.deepEqual(menu.children.map(nodeText), ['置顶', '重命名', '归档', '删除']);
+    appState.scope = 'all';
+    menu = nodesWithClass(sessionRow(session), 'ses-menu')[0];
+    assert.deepEqual(menu.children.map(nodeText), ['置顶', '重命名', '删除']);
+    const codexMenu = nodesWithClass(sessionRow({...session, assistant: 'codex'}), 'ses-menu')[0];
+    assert.deepEqual(codexMenu.children.map(nodeText), ['置顶', '重命名', '移回当前', '删除']);
+    appState.assistantInfo = {m1: {dsh: {enabled: true, degraded: false}}};
+    assert.equal(nodesWithClass(sessionRow(session), 'ses-menu').length, 0, 'old agent must not expose unsupported actions');
+  } finally { appState.assistantInfo = previousInfo; appState.scope = previousScope; }
+});
+
+test('DeepSeek menu clicks keep the row assistant and source Mac', async () => {
+  const previousInfo = appState.assistantInfo, previousScope = appState.scope;
+  vm.runInContext('globalThis.__menuOriginals = {api, loadSessions, toast, renderSessionResults};', appSandbox);
+  appSandbox.__menuCalls = [];
+  vm.runInContext(`api = async (macId, path, options) => { __menuCalls.push({macId, path, body: JSON.parse(options.body)}); return {ok:true}; };
+    loadSessions = async () => {}; renderSessionResults = () => {}; toast = () => {};`, appSandbox);
+  try {
+    appState.assistantInfo = {m2: {dsh: {enabled: true, degraded: false, sessionActions: ['pin', 'unpin', 'rename', 'archive', 'delete']}}};
+    appState.scope = 'active';
+    const row = sessionRow({assistant: 'dsh', macId: 'm2', sessionId: 'session-menu', title: 'Menu', mtime: fixedAppNowMs});
+    const menu = nodesWithClass(row, 'ses-menu')[0];
+    assert.ok(menu);
+    await menu.children.find(button => nodeText(button) === '归档').onclick({stopPropagation() {}});
+    assert.deepEqual(JSON.parse(JSON.stringify(appSandbox.__menuCalls)), [{macId:'m2', path:'sessions/action', body:{assistant:'dsh',sessionId:'session-menu',action:'archive',value:''}}]);
+  } finally {
+    vm.runInContext('({api, loadSessions, toast, renderSessionResults} = __menuOriginals);', appSandbox);
+    appState.assistantInfo = previousInfo; appState.scope = previousScope;
+  }
+});
+
+test('session deletion keeps cached chat on failure and disposes it only on success', async () => {
+  const previous = {info: appState.assistantInfo, scope: appState.scope, chat: appState.chat, cache: appState.chatCache, window: appSandbox.window};
+  vm.runInContext('globalThis.__deleteOriginals = {api, loadSessions, toast, closeChatPane, disposeChat, showEmpty};', appSandbox);
+  appSandbox.__deleteFail = true; appSandbox.__disposed = [];
+  appSandbox.window = {confirm: () => true};
+  vm.runInContext(`api = async () => { if (__deleteFail) throw new Error('host failed'); return {ok:true}; };
+    loadSessions = async () => {}; toast = () => {};
+    closeChatPane = () => { state.chat = null; }; showEmpty = () => {};
+    disposeChat = chat => { __disposed.push(chat.sessionId); };`, appSandbox);
+  try {
+    const session = {assistant:'dsh',macId:'m1',sessionId:'session-menu',title:'Menu',mtime:fixedAppNowMs};
+    appState.assistantInfo = {m1:{dsh:{enabled:true,degraded:false,sessionActions:['delete']}}};
+    appState.scope = 'active';
+    const chat = {macId:'m1',sessionId:'session-menu',cacheKey:'m1\nsession-menu'};
+    appState.chat = chat; appState.chatCache = new Map([[chat.cacheKey,chat]]);
+    const menu = nodesWithClass(sessionRow(session), 'ses-menu')[0];
+    assert.ok(menu);
+    const button = menu.children.find(button => nodeText(button) === '删除');
+    await button.onclick({stopPropagation() {}});
+    assert.equal(appState.chat, chat); assert.equal(appState.chatCache.get(chat.cacheKey), chat);
+    assert.equal(appSandbox.__disposed.length, 0);
+    appSandbox.__deleteFail = false;
+    await button.onclick({stopPropagation() {}});
+    assert.equal(appState.chat, null); assert.equal(appState.chatCache.size, 0);
+    assert.deepEqual(appSandbox.__disposed, ['session-menu']);
+  } finally {
+    vm.runInContext('({api, loadSessions, toast, closeChatPane, disposeChat, showEmpty} = __deleteOriginals);', appSandbox);
+    Object.assign(appState, {assistantInfo:previous.info,scope:previous.scope,chat:previous.chat,chatCache:previous.cache});
+    appSandbox.window = previous.window;
+  }
+});
+
+test('DeepSeek capability discovery refreshes existing rows only when capabilities change', async () => {
+  const previous = {assistant:appState.assistant, info:appState.assistantInfo, nodes:appState.nodes};
+  vm.runInContext('globalThis.__capOriginals = {api, syncAssistantTabs, renderSessionResults, macs:[...MACS]};', appSandbox);
+  appSandbox.__capRenders = 0;
+  vm.runInContext(`MACS.splice(0, MACS.length, {id:'m1'});
+    api = async () => ({dsh:{enabled:true,degraded:false,sessionActions:['pin','rename','archive','delete']}});
+    syncAssistantTabs = () => {}; renderSessionResults = () => { __capRenders++; };`, appSandbox);
+  try {
+    appState.assistant = 'dsh'; appState.nodes = {m1:true}; appState.assistantInfo = {};
+    await vm.runInContext('refreshAssistantCapabilities()', appSandbox);
+    assert.equal(appSandbox.__capRenders, 1, 'rows loaded before /api/info must gain the menu');
+    await vm.runInContext('refreshAssistantCapabilities()', appSandbox);
+    assert.equal(appSandbox.__capRenders, 1, 'unchanged info must not dismiss an open menu');
+  } finally {
+    vm.runInContext('({api, syncAssistantTabs, renderSessionResults} = __capOriginals); MACS.splice(0, MACS.length, ...__capOriginals.macs);', appSandbox);
+    Object.assign(appState, {assistant:previous.assistant, assistantInfo:previous.info, nodes:previous.nodes});
+  }
+});
