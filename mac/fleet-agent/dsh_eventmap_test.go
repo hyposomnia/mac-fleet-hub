@@ -289,3 +289,79 @@ func TestDSHMapRecord(t *testing.T) {
 		t.Fatalf("坏 JSON 应返回空: %+v", got)
 	}
 }
+
+// DSH 改版后用量从 assistant/chunk 挪到了 assistant/message 的 data.usage，
+// 且快照不再返回 chunk 记录——不从这里取，历史会话的 token 用量会整段丢失。
+func TestDSHAssistantMessageCarriesUsageAndTime(t *testing.T) {
+	data := `{"turn":3,"step":7,"usage":{"inputTokens":11314,"outputTokens":145,` +
+		`"totalTokens":20419,"cacheReadTokens":8960,"reasoningTokens":0},` +
+		`"message":{"role":"assistant","content":[{"type":"text","text":"done"}]}}`
+	ev := dshSessionEvent{Type: "assistant/message", Seq: 9, Time: 1789555417608, Data: json.RawMessage(data)}
+
+	out := onlyEvent(t, dshMapSessionEvent("s", ev))
+	if out.Type != "assistant_done" {
+		t.Fatalf("type = %q", out.Type)
+	}
+	got := dataMap(t, out)
+	if got["completedAtMs"] != float64(1789555417608) {
+		t.Fatalf("completedAtMs = %v（历史回放没有 live delta 的 Date.now，必须显式给）", got["completedAtMs"])
+	}
+	usage, _ := got["usage"].(map[string]any)
+	if usage == nil {
+		t.Fatal("assistant_done 必须带上 usage，否则模型使用数据那条线是空的")
+	}
+	// 字段名要用 dashboard 的 normalizeTokenUsage 认的名字（cacheReadTokens → cachedInputTokens）。
+	// DSH 的 inputTokens 是未缓存部分，dashboard 按"input 含缓存"算比例，
+	// 所以输入要并上缓存：11314 + 8960 = 20274（恒等式 input+cache+output == total 成立）。
+	want := map[string]float64{
+		"inputTokens": 20274, "outputTokens": 145, "totalTokens": 20419,
+		"cachedInputTokens": 8960, "reasoningTokens": 0,
+	}
+	for k, v := range want {
+		if usage[k] != v {
+			t.Fatalf("usage[%s] = %v, want %v", k, usage[k], v)
+		}
+	}
+}
+
+func TestDSHHeaderModelExtraction(t *testing.T) {
+	header := dshEvent(t, "request/header",
+		`{"header":{"config":{"provider":"deepseek-official","model":"deepseek-flash","reasoningEffort":"max","maxTokens":256000}}}`)
+	model, effort, ok := dshHeaderModel(header)
+	if !ok || model != "deepseek-flash" || effort != "max" {
+		t.Fatalf("request/header → (%q,%q,%v)", model, effort, ok)
+	}
+
+	context := dshEvent(t, "request/context", `{"provider":"deepseek-official","model":"deepseek-flash","contextWindow":1000000}`)
+	model, effort, ok = dshHeaderModel(context)
+	if !ok || model != "deepseek-flash" || effort != "" {
+		t.Fatalf("request/context → (%q,%q,%v)", model, effort, ok)
+	}
+
+	if _, _, ok := dshHeaderModel(dshEvent(t, "turn/start", dshFixtureTurnStart)); ok {
+		t.Fatal("非 header 事件不该被当成模型来源")
+	}
+}
+
+func TestDSHApplyModelContextOnlyTouchesAssistantEvents(t *testing.T) {
+	events := []ChatEvent{
+		newChatEvent("assistant_done", "dsh", "s", "turn-1", "i1", map[string]any{"text": "x"}),
+		newChatEvent("turn_usage", "dsh", "s", "turn-1", "", map[string]any{"inputTokens": int64(5)}),
+		newChatEvent("tool_update", "dsh", "s", "turn-1", "c1", map[string]any{"status": "completed"}),
+	}
+	out := dshApplyModelContext(events, "deepseek-flash", "high")
+	if got := dataMap(t, out[0])["model"]; got != "deepseek-flash" {
+		t.Fatalf("assistant_done 未注入模型: %v", got)
+	}
+	if got := dataMap(t, out[1])["reasoningEffort"]; got != "high" {
+		t.Fatalf("turn_usage 未注入档位: %v", got)
+	}
+	// 工具事件不该被塞进模型字段。
+	if _, exists := dataMap(t, out[2])["model"]; exists {
+		t.Fatal("tool_update 不该被注入模型")
+	}
+	// 没有模型信息时原样返回（不能凭空造一个）。
+	if got := dshApplyModelContext(events, "", ""); len(got) != len(events) {
+		t.Fatalf("空模型时应原样返回，得到 %d 条", len(got))
+	}
+}

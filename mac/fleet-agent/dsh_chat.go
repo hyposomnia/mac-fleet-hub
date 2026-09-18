@@ -71,6 +71,11 @@ type dshSession struct {
 	running    bool
 	activeTurn string
 
+	// 该会话最近一次请求用的模型与思考档位（来自 request/header、request/context）。
+	// dashboard 那条"模型使用数据"要显示它，而事件本身只带 usage 不带模型。
+	model  string
+	effort string
+
 	stopFollow context.CancelFunc
 	started    bool
 }
@@ -186,7 +191,10 @@ func (b *dshChatBackend) Resume(ctx context.Context, assistant, sessionID, mode 
 	if running {
 		status = "active"
 	}
+	model, effort := b.sessionModel(s)
 	return ChatResumeResult{
+		Model:        model,
+		Effort:       effort,
 		SessionID:    sessionID,
 		ThreadID:     sessionID,
 		Status:       status,
@@ -554,7 +562,15 @@ func (b *dshChatBackend) runFollow(ctx context.Context, s *dshSession, stream *d
 			b.storeSnapshot(s, frame.Records, frame.Cursor, frame.HasMore)
 			continue
 		}
-		events := dshMapRecord(s.id, dshHistoryRecord{Type: frame.Type, Event: frame.Event})
+		rec := dshHistoryRecord{Type: frame.Type, Event: frame.Event}
+		if model, effort, ok := dshModelFromRecord(rec); ok {
+			b.sessMu.Lock()
+			s.model, s.effort = model, effort
+			b.sessMu.Unlock()
+		}
+		events := dshMapRecord(s.id, rec)
+		model, effort := b.sessionModel(s)
+		events = dshApplyModelContext(events, model, effort)
 		b.trackTurnState(s, events)
 		b.publish(s.id, events...)
 	}
@@ -628,18 +644,37 @@ func (b *dshChatBackend) loadSnapshot(ctx context.Context, client *dshClient, s 
 		return ChatHistoryPage{}, fmt.Errorf("%w: follow 首帧不是 snapshot", errDSHProtocolChanged)
 	}
 	b.storeSnapshot(s, frame.Records, frame.Cursor, frame.HasMore)
-	return dshHistoryPageOfRecords(s), nil
+	model, effort := b.sessionModel(s)
+	if model == "" {
+		// 窗口里没有 request/header 时退回会话投影，否则模型永远是空的。
+		if m, e, ok := b.dshSessionModelSelection(ctx, client, s.id); ok {
+			b.sessMu.Lock()
+			s.model, s.effort = m, e
+			b.sessMu.Unlock()
+			model, effort = m, e
+		}
+	}
+	return dshHistoryPageOfRecords(s, model, effort), nil
 }
 
 func (b *dshChatBackend) storeSnapshot(s *dshSession, records []json.RawMessage, cursor int64, hasMore bool) {
 	parsed := make([]dshHistoryRecord, 0, len(records))
+	model, effort := "", ""
 	for _, raw := range records {
 		var rec dshHistoryRecord
-		if json.Unmarshal(raw, &rec) == nil {
-			parsed = append(parsed, rec)
+		if json.Unmarshal(raw, &rec) != nil {
+			continue
+		}
+		parsed = append(parsed, rec)
+		// 顺序扫描，留下最后一次请求用的模型（同一个快照里可能跨多个回合）。
+		if m, e, ok := dshModelFromRecord(rec); ok {
+			model, effort = m, e
 		}
 	}
 	b.sessMu.Lock()
+	if model != "" {
+		s.model, s.effort = model, effort
+	}
 	// 快照可能比本地缓存更旧（重连后），只在更长时替换，避免历史倒退。
 	if len(parsed) >= len(s.history) {
 		s.history = parsed
@@ -782,10 +817,68 @@ func dshHistoryPageFromRecords(sessionID string, value json.RawMessage) (ChatHis
 	return out, nil
 }
 
-func dshHistoryPageOfRecords(s *dshSession) ChatHistoryPage {
+// dshSessionModelSelection 从 session/list 的会话投影里取当前模型与档位。
+//
+// 为什么不能只靠 request/header：那类事件在很久以前（每个请求一条），而快照窗口
+// 只覆盖最近的消息，历史会话里根本取不到——模型会整段空着，dashboard 那条
+// "模型使用数据"就只剩 token 没有名字。
+func (b *dshChatBackend) dshSessionModelSelection(ctx context.Context, client *dshClient, sessionID string) (string, string, bool) {
+	value, err := client.call(ctx, "session/list", map[string]any{"_request": map[string]any{}})
+	if err != nil {
+		return "", "", false
+	}
+	var listing struct {
+		Items []struct {
+			SessionID   string `json:"sessionId"`
+			Projections struct {
+				Values struct {
+					// 真实形状是嵌套的：
+					// modelSelection = {lastUsed:{provider,model,reasoningEffort}, next:{…}}
+					ModelSelection struct {
+						LastUsed struct {
+							Model           string `json:"model"`
+							ReasoningEffort string `json:"reasoningEffort"`
+						} `json:"lastUsed"`
+						Next struct {
+							Model           string `json:"model"`
+							ReasoningEffort string `json:"reasoningEffort"`
+						} `json:"next"`
+					} `json:"modelSelection"`
+				} `json:"values"`
+			} `json:"projections"`
+		} `json:"items"`
+	}
+	if json.Unmarshal(value, &listing) != nil {
+		return "", "", false
+	}
+	for _, item := range listing.Items {
+		if item.SessionID != sessionID {
+			continue
+		}
+		sel := item.Projections.Values.ModelSelection
+		// 优先"上次实际用的"：next 只是待选项，没跑过时两者相同。
+		if sel.LastUsed.Model != "" {
+			return sel.LastUsed.Model, sel.LastUsed.ReasoningEffort, true
+		}
+		if sel.Next.Model != "" {
+			return sel.Next.Model, sel.Next.ReasoningEffort, true
+		}
+		return "", "", false
+	}
+	return "", "", false
+}
+
+// sessionModel 读取会话当前记录的模型与档位（加锁，供发布前注入用）。
+func (b *dshChatBackend) sessionModel(s *dshSession) (string, string) {
+	b.sessMu.Lock()
+	defer b.sessMu.Unlock()
+	return s.model, s.effort
+}
+
+func dshHistoryPageOfRecords(s *dshSession, model, effort string) ChatHistoryPage {
 	out := ChatHistoryPage{}
 	for _, rec := range s.history {
-		out.Events = append(out.Events, dshMapRecord(s.id, rec)...)
+		out.Events = append(out.Events, dshApplyModelContext(dshMapRecord(s.id, rec), model, effort)...)
 	}
 	if s.hasMore && s.oldest > 0 {
 		out.NextCursor = strconv.FormatInt(s.oldest, 10)
