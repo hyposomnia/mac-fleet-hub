@@ -448,12 +448,24 @@ svg.ic.fill { fill: currentColor; stroke: none; }
 .set-panel + .set-panel { margin-top: 0; padding-top: 0; border-top: 0; }
 .set-cache-stat { padding: 8px 0; }
 #settings-modal .modal { max-width: 720px; }
+#automation-modal .modal { max-width: 840px; }
 .set-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: var(--s4); }
 .api-key-reveal { margin-top: var(--s4); padding: var(--s3); border: 1px solid var(--accent-line); border-radius: var(--r); background: var(--accent-soft); }
 .api-key-reveal > label { display: block; margin-bottom: 7px; color: var(--text-1); font-size: var(--t-secondary); font-weight: 600; }
 .api-key-copy-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; }
 .api-key-copy-row .input { min-width: 0; }
 .hint.warn { color: var(--wait); }
+.automation-panel-title { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.automation-key-list { display: grid; gap: 10px; margin-top: var(--s4); }
+.automation-key-card { display: grid; gap: 10px; padding: 13px; border: 1px solid var(--border); border-radius: var(--r); background: var(--surface-2); }
+.automation-key-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.automation-key-title { display: grid; gap: 3px; min-width: 0; }
+.automation-key-title strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); font-size: var(--t-body); }
+.automation-key-title span { color: var(--text-2); font-size: var(--t-caption); }
+.automation-key-actions { display: flex; gap: 7px; flex: none; }
+.automation-key-meta { display: flex; flex-wrap: wrap; gap: 6px 18px; color: var(--text-2); font-size: var(--t-caption); }
+.automation-message-filter { display: grid; grid-template-columns: auto minmax(180px, 280px); align-items: center; justify-content: end; gap: 9px; margin-top: var(--s3); }
+.automation-message-filter label { color: var(--text-2); font-size: var(--t-secondary); font-weight: 600; }
 .message-records-title { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
 .message-records { display: grid; gap: 8px; margin-top: var(--s3); }
 .message-record-empty { padding: 24px 12px; text-align: center; color: var(--text-2); border: 1px dashed var(--border-1); border-radius: var(--r); }
@@ -1194,6 +1206,10 @@ textarea.chat-request-input { resize: vertical; }
   .modal { max-width: none; max-height: 90dvh; border-radius: var(--r-xl) var(--r-xl) 0 0; border-bottom: 0; animation: sheetup var(--dur-3) var(--ease); padding-bottom: env(safe-area-inset-bottom, 0px); }
   #settings-modal .modal-foot { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
   #settings-modal .modal-foot .btn { width: 100%; min-height: 48px; font-size: var(--t-body); }
+  .automation-key-head { align-items: stretch; flex-direction: column; }
+  .automation-key-actions { width: 100%; }
+  .automation-key-actions .btn { flex: 1; }
+  .automation-message-filter { grid-template-columns: 1fr; justify-content: stretch; }
   @keyframes sheetup { from { transform: translateY(100%); } }
 
   /* toast 容器避让安全区 */

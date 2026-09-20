@@ -354,7 +354,7 @@ test('settings menu owns archive browsing and session settings', () => {
   assert.match(indexHTML, /id="user-name">设置</);
   assert.deepEqual(
     [...indexHTML.matchAll(/<button data-act="([^"]+)"/g)].map((match) => match[1]),
-    ['theme', 'archive', 'settings', 'logout', 'theme', 'archive', 'settings', 'logout'],
+    ['theme', 'archive', 'automation', 'settings', 'logout', 'theme', 'archive', 'automation', 'settings', 'logout'],
   );
   assert.equal((indexHTML.match(/>显示已归档会话</g) || []).length, 2);
   assert.equal((indexHTML.match(/>会话设置</g) || []).length, 3);
@@ -368,11 +368,12 @@ test('settings menu owns archive browsing and session settings', () => {
 });
 
 test('session settings expose chat cache without terminal controls', () => {
-  assert.match(indexHTML, /data-settings-panel="chat">/);
   assert.match(indexHTML, /id="st-chat-cache-max"/);
-  assert.match(indexHTML, /data-settings-tab="chat"/);
-  assert.match(indexHTML, /data-settings-tab="api"/);
-  assert.match(indexHTML, /data-settings-tab="messages"/);
+  assert.doesNotMatch(indexHTML, /data-settings-tab|data-settings-panel/);
+  assert.match(indexHTML, /id="automation-modal"/);
+  assert.match(indexHTML, /data-automation-tab="keys"/);
+  assert.match(indexHTML, /data-automation-tab="messages"/);
+  assert.match(indexHTML, /id="automation-message-key-filter"/);
   assert.doesNotMatch(indexHTML, /data-settings-tab="terminal"|data-assistant="claude"|id="st-selfdraw"|id="st-dmax"/);
   assert.doesNotMatch(appSrc, /SELF_DRAW_KEY|setSelfDraw|用终端打开/);
 });

@@ -10,8 +10,8 @@ v1 只暴露两条业务接口：
 1. `POST /api/v1/messages`：提交消息，立即返回 `message_id`。
 2. `GET /api/v1/messages/{message_id}`：查询排队、执行、失败或完成状态；完成时返回 AI 消息。
 
-网页「会话设置」新增「API 访问」页签，用来生成、轮换和撤销访问密钥。访问密钥不复用
-Authelia 登录态；调用公网 API 时不需要浏览器 Cookie。
+网页一级菜单新增「自动化」，集中管理多个访问密钥和消息记录。访问密钥不复用 Authelia 登录态；
+调用公网 API 时不需要浏览器 Cookie。
 
 ## 2. 核心决定
 
@@ -43,12 +43,13 @@ Content-Type: application/json
 
 - 密钥不得放在 URL 查询参数或 JSON body 中。
 - 密钥格式为 `mfh_live_` 加 256 bit 随机值的 base64url 编码。
-- 网关仅保存密钥的 SHA-256 摘要、前缀和审计元数据，不保存可再次展示的明文。
+- 网关在权限为 `0600` 的独立状态文件中保存密钥明文，以支持管理员登录后重复查看；同时保存
+  SHA-256 摘要用于常量时间鉴权比较。
 - 比较摘要时使用常量时间比较。
-- 系统 v1 同时只有一个有效密钥；轮换后旧密钥立即不能发起新请求。
-- 任务属于这套 Fleet 部署，而不绑定某一代密钥；轮换后的新密钥仍可查询保留期内的旧任务。
-- 密钥只在创建/轮换成功的响应和网页中显示一次，刷新后不能找回，只能再次轮换。
-- 该密钥具有所有 Fleet 设备的消息执行权限，设置页必须明确展示这一权限范围。
+- 系统可同时存在多个有效密钥；每个密钥有稳定 ID、管理员可修改的名称和独立最近使用时间。
+- 任务记录创建它的密钥 ID/名称，管理页面可按密钥筛选消息记录。
+- 删除密钥后该密钥立即不能发起新请求；已经接收的任务仍继续执行和回调。
+- 每个密钥都具有所有 Fleet 设备的消息执行权限，自动化页面必须明确展示这一权限范围。
 
 认证失败统一返回 HTTP `401`：
 
@@ -456,47 +457,49 @@ HMAC-SHA256(signing_key, X-Fleet-Timestamp + "." + raw_request_body)
 | `execution_failed` | 视底层错误 | AI/backend 返回明确失败 |
 | `delivery_uncertain` | true | 非幂等底层 RPC 结果无法确认；系统不会自动重放 |
 
-## 8. 网页密钥设置
+## 8. 网页自动化管理
 
-在现有「会话设置」弹窗增加第三个页签「API 访问」。页面包括：
+一级「自动化」菜单包含「访问密钥」和「消息记录」两个页签。访问密钥页包括：
 
-- 当前状态：未启用 / 已启用。
-- 当前 key 前缀（例如 `mfh_live_Z4J8…`），不显示完整密钥。
-- 创建时间、最近使用时间。
-- 「生成访问密钥」或「轮换密钥」。
-- 「撤销密钥」。
+- 多个密钥的名称、完整密钥、创建时间和最近使用时间。
+- 新建、查看、复制、改名和删除操作。
 - 权限警告：持有者可向所有已纳管设备的 Codex/DeepSeek 会话发送消息。
-- 一次性密钥展示框和复制按钮；用户关闭后不可恢复。
+- 消息记录按密钥筛选。
 
 这些管理接口继续由 Authelia 登录态保护，不接受访问密钥本身：
 
-### `GET /api/settings/access-key`
+### `GET /api/automation/access-keys`
 
 ```json
 {
-  "enabled": true,
-  "prefix": "mfh_live_Z4J8",
-  "created_at": "2026-09-20T09:00:00Z",
-  "last_used_at": "2026-09-20T10:21:15Z"
+  "keys": [{
+    "id": "key_01K5...",
+    "name": "CI 生产",
+    "key": "mfh_live_<secret>",
+    "prefix": "mfh_live_Z4J8",
+    "recoverable": true,
+    "created_at": "2026-09-20T09:00:00Z",
+    "last_used_at": "2026-09-20T10:21:15Z"
+  }]
 }
 ```
 
-### `POST /api/settings/access-key/rotate`
+### `POST /api/automation/access-keys`
 
-生成首个密钥或轮换现有密钥：
+请求体 `{"name":"CI 生产"}`，返回 HTTP `201` 和新密钥对象。
 
-```json
-{
-  "key": "mfh_live_<only-shown-once>",
-  "prefix": "mfh_live_Z4J8",
-  "created_at": "2026-09-20T09:00:00Z"
-}
-```
+### `PATCH /api/automation/access-keys/{key_id}`
 
-### `DELETE /api/settings/access-key`
+请求体 `{"name":"CI 生产（新）"}`，修改密钥名称，不改变密钥值。
 
-撤销当前密钥，返回 HTTP `204`。撤销只阻止新的公网 API 调用；已经可靠接收的任务继续执行和回调，
+### `DELETE /api/automation/access-keys/{key_id}`
+
+删除指定密钥，返回 HTTP `204`。删除只阻止新的公网 API 调用；已经可靠接收的任务继续执行和回调，
 避免出现“调用方不知道任务是否实际执行”的不确定状态。
+
+### `GET /api/automation/message-records?access_key_id={key_id}`
+
+返回最近消息记录；`access_key_id` 省略时返回全部，传入时只返回该密钥创建的任务。
 
 访问密钥及其摘要不得混入现有 `GET /api/settings` 的 dashboard 偏好 JSON，防止普通设置保存时意外覆盖。
 
@@ -591,7 +594,7 @@ curl -sS \
 - 上传图片、文件或 skill。
 - 从公网 API 回答审批、用户问题或强制接管 Desktop writer。
 - 取消、重试或删除任务的 API。
-- 多个访问密钥、按设备/项目细分权限、IP allowlist。
+- 按设备/项目细分权限、IP allowlist。
 - 设备、项目、会话的公网枚举接口。
 - 在单次请求中切换模型、推理强度、service tier 或权限模式。
 

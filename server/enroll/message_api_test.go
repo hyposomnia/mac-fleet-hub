@@ -6,8 +6,10 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 func TestResolveProjectAndSessionCaseInsensitive(t *testing.T) {
@@ -132,5 +134,94 @@ func TestMessageAPIRejectsMissingKeyAndPrivateCallback(t *testing.T) {
 	}
 	if problem := validatePublicCallbackURL(context.Background(), "https://127.0.0.1/hook"); problem == nil || problem.Code != "invalid_callback_url" {
 		t.Fatalf("private callback should fail, got %#v", problem)
+	}
+}
+
+func TestAccessKeyCRUDAndMessageRecordFilter(t *testing.T) {
+	dir := t.TempDir()
+	api := &messageAPI{
+		keyFile: filepath.Join(dir, "keys.json"), jobsFile: filepath.Join(dir, "jobs.json"),
+		keys: []accessKeyState{}, jobs: map[string]*messageJob{}, wake: make(chan struct{}, 1),
+		activeExec: map[string]bool{}, activeCallback: map[string]bool{}, maxConcurrent: 1,
+	}
+	create := func(name string) accessKeyState {
+		req := httptest.NewRequest(http.MethodPost, "/automation/access-keys", bytes.NewReader([]byte(`{"name":"`+name+`"}`)))
+		rr := httptest.NewRecorder()
+		api.handleAccessKeys(rr, req)
+		if rr.Code != http.StatusCreated {
+			t.Fatalf("create %q status=%d body=%s", name, rr.Code, rr.Body.String())
+		}
+		var key accessKeyState
+		if err := json.Unmarshal(rr.Body.Bytes(), &key); err != nil || key.ID == "" || key.Secret == "" {
+			t.Fatalf("bad create response: %v %s", err, rr.Body.String())
+		}
+		return key
+	}
+	first := create("CI")
+	second := create("Webhook")
+
+	listReq := httptest.NewRequest(http.MethodGet, "/automation/access-keys", nil)
+	listRR := httptest.NewRecorder()
+	api.handleAccessKeys(listRR, listReq)
+	if listRR.Code != http.StatusOK || !bytes.Contains(listRR.Body.Bytes(), []byte(first.Secret)) || !bytes.Contains(listRR.Body.Bytes(), []byte(second.Secret)) {
+		t.Fatalf("list must return both repeat-viewable secrets: %d %s", listRR.Code, listRR.Body.String())
+	}
+
+	renameReq := httptest.NewRequest(http.MethodPatch, "/automation/access-keys/"+first.ID, bytes.NewReader([]byte(`{"name":"CI 生产"}`)))
+	renameRR := httptest.NewRecorder()
+	api.handleAccessKeys(renameRR, renameReq)
+	if renameRR.Code != http.StatusOK || !bytes.Contains(renameRR.Body.Bytes(), []byte("CI 生产")) {
+		t.Fatalf("rename status=%d body=%s", renameRR.Code, renameRR.Body.String())
+	}
+
+	now := time.Now().UTC()
+	api.jobs["msg_first"] = &messageJob{ID: "msg_first", Status: messageQueued, AccessKeyID: first.ID, AccessKeyName: "CI 生产", Message: "one", CreatedAt: now}
+	api.jobs["msg_second"] = &messageJob{ID: "msg_second", Status: messageQueued, AccessKeyID: second.ID, AccessKeyName: "Webhook", Message: "two", CreatedAt: now.Add(time.Second)}
+	filterReq := httptest.NewRequest(http.MethodGet, "/automation/message-records?access_key_id="+first.ID, nil)
+	filterRR := httptest.NewRecorder()
+	api.handleMessageRecords(filterRR, filterReq)
+	if filterRR.Code != http.StatusOK || !bytes.Contains(filterRR.Body.Bytes(), []byte("msg_first")) || bytes.Contains(filterRR.Body.Bytes(), []byte("msg_second")) {
+		t.Fatalf("filtered records status=%d body=%s", filterRR.Code, filterRR.Body.String())
+	}
+
+	deleteReq := httptest.NewRequest(http.MethodDelete, "/automation/access-keys/"+second.ID, nil)
+	deleteRR := httptest.NewRecorder()
+	api.handleAccessKeys(deleteRR, deleteReq)
+	if deleteRR.Code != http.StatusNoContent {
+		t.Fatalf("delete status=%d body=%s", deleteRR.Code, deleteRR.Body.String())
+	}
+	authReq := httptest.NewRequest(http.MethodGet, "/v1/messages/unknown", nil)
+	authReq.Header.Set("Authorization", "Bearer "+second.Secret)
+	if _, problem := api.authenticate(authReq); problem == nil || problem.Code != "invalid_access_key" {
+		t.Fatalf("deleted key still authenticates: %#v", problem)
+	}
+}
+
+func TestLegacyAccessKeyMigratesWithoutRevocation(t *testing.T) {
+	dir := t.TempDir()
+	keyFile := filepath.Join(dir, "key.json")
+	secret := "mfh_live_legacy-secret"
+	legacy := map[string]interface{}{
+		"version": 1, "hash": hashString(secret), "prefix": "mfh_live_legacy", "created_at": time.Now().UTC(),
+	}
+	raw, _ := json.Marshal(legacy)
+	if err := os.WriteFile(keyFile, raw, 0600); err != nil {
+		t.Fatal(err)
+	}
+	api := &messageAPI{keyFile: keyFile, jobsFile: filepath.Join(dir, "jobs.json"), jobs: map[string]*messageJob{}}
+	if err := api.load(); err != nil {
+		t.Fatal(err)
+	}
+	if len(api.keys) != 1 || api.keys[0].ID == "" || api.keys[0].Secret != "" || api.keys[0].Name != "默认密钥" {
+		t.Fatalf("unexpected migrated key: %#v", api.keys)
+	}
+	req := httptest.NewRequest(http.MethodGet, "/v1/messages/unknown", nil)
+	req.Header.Set("Authorization", "Bearer "+secret)
+	if _, problem := api.authenticate(req); problem != nil {
+		t.Fatalf("legacy key revoked during migration: %v", problem)
+	}
+	migrated, err := os.ReadFile(keyFile)
+	if err != nil || !bytes.Contains(migrated, []byte(`"keys"`)) {
+		t.Fatalf("legacy store not migrated: %v %s", err, migrated)
 	}
 }

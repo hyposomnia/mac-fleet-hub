@@ -619,9 +619,6 @@ async function refreshSettings() {
 function openSettings() {
   const s = state.settings || SETTINGS_DEFAULT;
   $('#st-chat-cache-max').value = s.chatCacheMaxSessions;
-  $('#st-api-key-reveal').hidden = true;
-  $('#st-api-key-value').value = '';
-  showSettingsTab('chat');
   renderChatCacheStats();
   openOverlay('settings-modal');
 }
@@ -642,17 +639,8 @@ async function saveSettings() {
   } catch (e) { toast('保存失败：' + e.message, 'err'); }
 }
 
-function showSettingsTab(tab) {
-  const key = ['chat', 'api', 'messages'].includes(tab) ? tab : 'chat';
-  $$('[data-settings-tab]').forEach((b) => b.setAttribute('aria-selected', String(b.dataset.settingsTab === key)));
-  $$('[data-settings-panel]').forEach((p) => { p.hidden = p.dataset.settingsPanel !== key; });
-  $('#settings-footer').hidden = key === 'api' || key === 'messages';
-  if (key === 'chat') renderChatCacheStats();
-  if (key === 'api') refreshAccessKey();
-  if (key === 'messages') refreshMessageRecords();
-}
-
-let accessKeyMeta = null;
+let automationAccessKeys = [];
+let automationRecordKeys = [];
 function settingsDate(value) {
   if (!value) return '—';
   const date = new Date(value);
@@ -666,61 +654,118 @@ async function settingsJSON(url, options) {
   if (!response.ok) throw new Error(body?.error?.message || body?.error || `HTTP ${response.status}`);
   return body;
 }
-async function refreshAccessKey() {
-  $('#st-api-key-status').textContent = '读取中…';
-  try {
-    accessKeyMeta = await settingsJSON(`${BASE}/api/settings/access-key`, { cache: 'no-store' });
-    const enabled = !!accessKeyMeta?.enabled;
-    $('#st-api-key-status').textContent = enabled ? '已启用' : '未启用';
-    $('#st-api-key-prefix').textContent = enabled ? `${accessKeyMeta.prefix || 'mfh_live_'}…` : '—';
-    $('#st-api-key-created').textContent = settingsDate(accessKeyMeta?.created_at);
-    $('#st-api-key-used').textContent = settingsDate(accessKeyMeta?.last_used_at);
-    $('#st-api-key-rotate').textContent = enabled ? '轮换访问密钥' : '生成访问密钥';
-    $('#st-api-key-revoke').hidden = !enabled;
-  } catch (error) {
-    accessKeyMeta = null;
-    $('#st-api-key-status').textContent = '读取失败';
-    toast('读取 API 密钥失败：' + error.message, 'err');
+
+function openAutomation() {
+  showAutomationTab('keys');
+  openOverlay('automation-modal');
+}
+function showAutomationTab(tab) {
+  const key = tab === 'messages' ? 'messages' : 'keys';
+  $$('[data-automation-tab]').forEach((button) => button.setAttribute('aria-selected', String(button.dataset.automationTab === key)));
+  $$('[data-automation-panel]').forEach((panel) => { panel.hidden = panel.dataset.automationPanel !== key; });
+  if (key === 'keys') refreshAccessKeys();
+  else refreshAccessKeys().then(refreshMessageRecords);
+}
+function renderAccessKeyFilter() {
+  const select = $('#automation-message-key-filter');
+  const selected = select.value;
+  select.replaceChildren(h('option', { value: '', text: '全部密钥' }));
+  const keys = new Map();
+  for (const key of [...automationAccessKeys, ...automationRecordKeys]) {
+    if (key.id) keys.set(key.id, key);
+  }
+  for (const key of keys.values()) {
+    select.append(h('option', { value: key.id, text: key.name || key.prefix || key.id }));
+  }
+  if ($$(`option`, select).some((option) => option.value === selected)) select.value = selected;
+}
+function renderAccessKeys() {
+  const root = $('#automation-key-list');
+  root.replaceChildren();
+  if (!automationAccessKeys.length) {
+    root.append(h('div', { class: 'message-record-empty', text: '尚未创建访问密钥' }));
+    return;
+  }
+  for (const key of automationAccessKeys) {
+    const copy = h('button', {
+      type: 'button', class: 'btn sm', text: '复制', disabled: key.recoverable ? null : '',
+      onclick: () => copyAccessKeyValue(key.key),
+    });
+    const edit = h('button', { type: 'button', class: 'btn sm', text: '改名', onclick: () => renameAccessKey(key) });
+    const remove = h('button', { type: 'button', class: 'btn sm danger', text: '删除', onclick: () => deleteAccessKey(key) });
+    const secret = key.recoverable ? key.key : '旧版密钥原文不可恢复；该密钥仍可继续使用';
+    root.append(h('article', { class: 'automation-key-card' },
+      h('div', { class: 'automation-key-head' },
+        h('div', { class: 'automation-key-title' },
+          h('strong', { text: key.name || '未命名密钥' }),
+          h('span', { class: 'tnum', text: `${key.prefix || 'mfh_live_'}…` })),
+        h('div', { class: 'automation-key-actions' }, edit, remove)),
+      h('div', { class: 'api-key-copy-row' },
+        h('input', { class: 'input tnum', readonly: '', value: secret, 'aria-label': `${key.name || '访问密钥'}的值` }), copy),
+      h('div', { class: 'automation-key-meta' },
+        h('span', { text: `创建：${settingsDate(key.created_at)}` }),
+        h('span', { text: `最近使用：${settingsDate(key.last_used_at)}` }))));
   }
 }
-async function rotateAccessKey() {
-  if (accessKeyMeta?.enabled && !window.confirm('轮换后旧密钥立即不能发起新请求。继续吗？')) return;
-  const button = $('#st-api-key-rotate');
+async function refreshAccessKeys() {
+  const root = $('#automation-key-list');
+  if (root) root.replaceChildren(h('div', { class: 'message-record-empty', text: '正在加载…' }));
+  try {
+    const result = await settingsJSON(`${BASE}/api/automation/access-keys`, { cache: 'no-store' });
+    automationAccessKeys = result?.keys || [];
+    renderAccessKeys();
+    renderAccessKeyFilter();
+  } catch (error) {
+    automationAccessKeys = [];
+    renderAccessKeyFilter();
+    if (root) root.replaceChildren(h('div', { class: 'message-record-empty', text: '加载失败：' + error.message }));
+  }
+}
+async function createAccessKey() {
+  const name = window.prompt('给新密钥起一个名称', `访问密钥 ${automationAccessKeys.length + 1}`);
+  if (name === null) return;
+  const button = $('#automation-key-create');
   button.disabled = true;
   try {
-    const result = await settingsJSON(`${BASE}/api/settings/access-key/rotate`, { method: 'POST' });
-    $('#st-api-key-value').value = result.key || '';
-    $('#st-api-key-reveal').hidden = false;
-    await refreshAccessKey();
-    toast('访问密钥已生成，请立即复制保存', 'ok');
+    await settingsJSON(`${BASE}/api/automation/access-keys`, {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name }),
+    });
+    await refreshAccessKeys();
+    toast('访问密钥已创建', 'ok');
   } catch (error) {
-    toast('生成访问密钥失败：' + error.message, 'err');
+    toast('创建访问密钥失败：' + error.message, 'err');
   } finally { button.disabled = false; }
 }
-async function revokeAccessKey() {
-  if (!window.confirm('撤销后公网 API 将立即拒绝新请求；已经接收的任务仍会执行。继续吗？')) return;
-  const button = $('#st-api-key-revoke');
-  button.disabled = true;
+async function renameAccessKey(key) {
+  const name = window.prompt('修改密钥名称', key.name || '');
+  if (name === null || name.trim() === key.name) return;
   try {
-    await settingsJSON(`${BASE}/api/settings/access-key`, { method: 'DELETE' });
-    $('#st-api-key-reveal').hidden = true;
-    $('#st-api-key-value').value = '';
-    await refreshAccessKey();
-    toast('访问密钥已撤销', 'ok');
+    await settingsJSON(`${BASE}/api/automation/access-keys/${encodeURIComponent(key.id)}`, {
+      method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name }),
+    });
+    await refreshAccessKeys();
+    toast('密钥名称已更新', 'ok');
   } catch (error) {
-    toast('撤销访问密钥失败：' + error.message, 'err');
-  } finally { button.disabled = false; }
+    toast('修改密钥失败：' + error.message, 'err');
+  }
 }
-async function copyAccessKey() {
-  const value = $('#st-api-key-value').value;
+async function deleteAccessKey(key) {
+  if (!window.confirm(`删除“${key.name || '未命名密钥'}”后，它将立即无法发起新请求；已接收的任务仍会执行。继续吗？`)) return;
+  try {
+    await settingsJSON(`${BASE}/api/automation/access-keys/${encodeURIComponent(key.id)}`, { method: 'DELETE' });
+    await refreshAccessKeys();
+    toast('访问密钥已删除', 'ok');
+  } catch (error) {
+    toast('删除访问密钥失败：' + error.message, 'err');
+  }
+}
+async function copyAccessKeyValue(value) {
   if (!value) return;
   try {
     await navigator.clipboard.writeText(value);
     toast('访问密钥已复制', 'ok');
   } catch (_) {
-    $('#st-api-key-value').select();
-    document.execCommand('copy');
-    toast('访问密钥已复制', 'ok');
+    window.prompt('复制访问密钥', value);
   }
 }
 function messageStatusLabel(status) {
@@ -732,7 +777,7 @@ function messageRecordSection(label, content, className = '') {
     h('pre', { class: `message-record-copy ${className}`.trim(), text: content || '—' }));
 }
 function renderMessageRecords(messages) {
-  const root = $('#st-message-records');
+  const root = $('#automation-message-records');
   root.replaceChildren();
   if (!messages.length) {
     root.append(h('div', { class: 'message-record-empty', text: '暂无 API 消息记录' }));
@@ -747,7 +792,7 @@ function renderMessageRecords(messages) {
       h('span', { class: `message-status ${item.status || ''}`, text: messageStatusLabel(item.status) }),
       h('span', { class: 'message-record-main' },
         h('div', { class: 'message-record-title', text: title }),
-        h('div', { class: 'message-record-meta', text: `${device} · ${item.ai_client || ''} · ${project}` })),
+        h('div', { class: 'message-record-meta', text: `${device} · ${item.ai_client || ''} · ${project} · ${item.access_key?.name || '旧记录'}` })),
       h('time', { class: 'message-record-time', text: settingsDate(item.created_at) }));
     const body = h('div', { class: 'message-record-body' },
       messageRecordSection('Message ID', item.message_id, 'message-record-id'),
@@ -762,10 +807,15 @@ function renderMessageRecords(messages) {
   }
 }
 async function refreshMessageRecords() {
-  const root = $('#st-message-records');
+  const root = $('#automation-message-records');
   root.replaceChildren(h('div', { class: 'message-record-empty', text: '正在加载…' }));
   try {
-    const result = await settingsJSON(`${BASE}/api/message-records?limit=100`, { cache: 'no-store' });
+    const keyID = $('#automation-message-key-filter').value;
+    const query = new URLSearchParams({ limit: '100' });
+    if (keyID) query.set('access_key_id', keyID);
+    const result = await settingsJSON(`${BASE}/api/automation/message-records?${query}`, { cache: 'no-store' });
+    automationRecordKeys = result?.access_keys || [];
+    renderAccessKeyFilter();
     renderMessageRecords(result?.messages || []);
   } catch (error) {
     root.replaceChildren(h('div', { class: 'message-record-empty', text: '加载失败：' + error.message }));
@@ -6760,16 +6810,16 @@ function init() {
       closeMenus();
       if (b.dataset.act === 'theme') toggleTheme();
       else if (b.dataset.act === 'archive') toggleArchivedSessions();
+      else if (b.dataset.act === 'automation') openAutomation();
       else if (b.dataset.act === 'settings') openSettings();
       else if (b.dataset.act === 'logout') doLogout();
     };
   });
   $('#st-save').onclick = saveSettings;
-  $$('[data-settings-tab]').forEach((b) => { b.onclick = () => showSettingsTab(b.dataset.settingsTab); });
-  $('#st-api-key-rotate').onclick = rotateAccessKey;
-  $('#st-api-key-revoke').onclick = revokeAccessKey;
-  $('#st-api-key-copy').onclick = copyAccessKey;
-  $('#st-message-refresh').onclick = refreshMessageRecords;
+  $$('[data-automation-tab]').forEach((b) => { b.onclick = () => showAutomationTab(b.dataset.automationTab); });
+  $('#automation-key-create').onclick = createAccessKey;
+  $('#automation-message-refresh').onclick = refreshMessageRecords;
+  $('#automation-message-key-filter').onchange = refreshMessageRecords;
   $('#m-info-btn').onclick = () => { if (state.macId) openHostModal(state.macId); };
 
   // 弹窗 / 抽屉

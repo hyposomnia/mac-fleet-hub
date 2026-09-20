@@ -17,7 +17,7 @@
        内联以避免首屏闪烁。 -->
   <script>(function () { var t; try { t = localStorage.getItem('fleet-theme'); } catch (e) {} if (t !== 'light' && t !== 'dark') t = matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark'; document.documentElement.dataset.theme = t; document.querySelector('meta[name="theme-color"]').content = t === 'light' ? '#f6f7f9' : '#090c12'; })();</script>
   <link rel="stylesheet" href="vendor/codemirror/lib/codemirror.css?v=5.65.20" />
-  <link rel="stylesheet" href="style.css?v=127" />
+  <link rel="stylesheet" href="style.css?v=128" />
 </head>
 <body>
   <div id="network-status" class="network-status" role="status" hidden>
@@ -78,6 +78,7 @@
         <div id="usermenu" class="menu" hidden>
           <button data-act="theme"><svg class="ic" viewBox="0 0 24 24"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>切换主题</button>
           <button data-act="archive" class="archive-menu-action" aria-pressed="false"><svg class="ic" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="4" rx="1"/><path d="M5 8v11a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8M10 12h4"/></svg><span class="menu-item-label">显示已归档会话</span><span class="menu-check" aria-hidden="true"></span></button>
+          <button data-act="automation"><svg class="ic" viewBox="0 0 24 24"><path d="M8 3h8v5H8zM5 16h6v5H5zM13 16h6v5h-6zM12 8v4M8 12h8M8 12v4M16 12v4"/></svg>自动化</button>
           <button data-act="settings"><svg class="ic" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>会话设置</button>
           <div class="sep"></div>
           <button data-act="logout" class="danger"><svg class="ic" viewBox="0 0 24 24"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>退出登录</button>
@@ -93,6 +94,7 @@
       <div id="m-menu" class="menu" hidden>
         <button data-act="theme"><svg class="ic" viewBox="0 0 24 24"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>切换主题</button>
         <button data-act="archive" class="archive-menu-action" aria-pressed="false"><svg class="ic" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="4" rx="1"/><path d="M5 8v11a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8M10 12h4"/></svg><span class="menu-item-label">显示已归档会话</span><span class="menu-check" aria-hidden="true"></span></button>
+        <button data-act="automation"><svg class="ic" viewBox="0 0 24 24"><path d="M8 3h8v5H8zM5 16h6v5H5zM13 16h6v5h-6zM12 8v4M8 12h8M8 12v4M16 12v4"/></svg>自动化</button>
         <button data-act="settings"><svg class="ic" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>会话设置</button>
         <div class="sep"></div>
         <button data-act="logout" class="danger"><svg class="ic" viewBox="0 0 24 24"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>退出登录</button>
@@ -393,12 +395,7 @@
       <div class="modal">
         <div class="modal-head"><svg class="ic" viewBox="0 0 24 24" style="width:18px;height:18px"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg><span>会话设置</span><button class="iconbtn bare x" data-close="settings-modal"><svg class="ic" viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button></div>
         <div class="modal-body">
-          <div class="seg set-tabs" role="tablist">
-            <button data-settings-tab="chat" role="tab" aria-selected="true">聊天</button>
-            <button data-settings-tab="api" role="tab" aria-selected="false">API 访问</button>
-            <button data-settings-tab="messages" role="tab" aria-selected="false">消息记录</button>
-          </div>
-          <section class="set-group set-panel" data-settings-panel="chat">
+          <section class="set-group">
             <div class="set-group-title">聊天设置</div>
             <div class="field"><label>保持连接的会话缓存数</label><input id="st-chat-cache-max" class="input tnum" type="number" min="1" max="20" inputmode="numeric" /></div>
             <div class="kv set-cache-stat"><span class="k">当前缓存</span><span id="st-chat-cache-count" class="v tnum">0 / 0</span></div>
@@ -406,32 +403,35 @@
             <div class="kv set-cache-stat"><span class="k">平均单个缓存</span><span id="st-chat-cache-each" class="v tnum">0 KB</span></div>
             <p class="hint">缓存会保持 ChatGPT / DeepSeek 的事件连接，切回同一会话会直接显示已有消息。估算包含消息/工具输出文本、图片预览大小和每条事件连接的基础开销；长工具输出和图片会明显增加占用。</p>
           </section>
-          <section class="set-group set-panel" data-settings-panel="api" hidden>
-            <div class="set-group-title">公网 API 访问</div>
-            <div class="kv"><span class="k">状态</span><span id="st-api-key-status" class="v">读取中…</span></div>
-            <div class="kv"><span class="k">密钥前缀</span><span id="st-api-key-prefix" class="v tnum">—</span></div>
-            <div class="kv"><span class="k">创建时间</span><span id="st-api-key-created" class="v">—</span></div>
-            <div class="kv"><span class="k">最近使用</span><span id="st-api-key-used" class="v">—</span></div>
-            <div id="st-api-key-reveal" class="api-key-reveal" hidden>
-              <label for="st-api-key-value">访问密钥（仅显示这一次）</label>
-              <div class="api-key-copy-row"><input id="st-api-key-value" class="input tnum" readonly /><button id="st-api-key-copy" class="btn sm" type="button">复制</button></div>
-              <p class="hint">请立即保存。关闭设置后无法再次查看，只能轮换生成新密钥。</p>
-            </div>
-            <div class="set-actions">
-              <button id="st-api-key-rotate" class="btn sm primary" type="button">生成访问密钥</button>
-              <button id="st-api-key-revoke" class="btn sm danger" type="button" hidden>撤销密钥</button>
-            </div>
-            <p class="hint warn">持有此密钥的人可以向所有已纳管设备的 Codex / DeepSeek 项目会话发送消息。密钥应放在 <code>Authorization: Bearer …</code> 请求头中，不要写入 URL。</p>
-          </section>
-          <section class="set-group set-panel message-records-panel" data-settings-panel="messages" hidden>
-            <div class="set-group-title message-records-title"><span>API 消息记录</span><button id="st-message-refresh" class="btn sm" type="button">刷新</button></div>
-            <p class="hint">显示最近 100 条公网 API 请求。记录含用户消息与最终 AI 回复，终态记录默认在网关保留 7 天。</p>
-            <div id="st-message-records" class="message-records"><div class="message-record-empty">尚未加载</div></div>
-          </section>
         </div>
         <div id="settings-footer" class="modal-foot">
           <button class="btn sm" data-close="settings-modal">取消</button>
           <button id="st-save" class="btn sm primary">保存</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ───────── 自动化（访问密钥 + API 消息记录） ───────── -->
+    <div id="automation-modal" class="overlay" hidden>
+      <div class="modal automation-modal-card">
+        <div class="modal-head"><svg class="ic" viewBox="0 0 24 24" style="width:18px;height:18px"><path d="M8 3h8v5H8zM5 16h6v5H5zM13 16h6v5h-6zM12 8v4M8 12h8M8 12v4M16 12v4"/></svg><span>自动化</span><button class="iconbtn bare x" data-close="automation-modal"><svg class="ic" viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button></div>
+        <div class="modal-body">
+          <div class="seg set-tabs" role="tablist" aria-label="自动化设置">
+            <button data-automation-tab="keys" role="tab" aria-selected="true">访问密钥</button>
+            <button data-automation-tab="messages" role="tab" aria-selected="false">消息记录</button>
+          </div>
+          <section class="set-group set-panel" data-automation-panel="keys">
+            <div class="set-group-title automation-panel-title"><span>访问密钥</span><button id="automation-key-create" class="btn sm primary" type="button">新建密钥</button></div>
+            <p class="hint">可为不同系统建立独立密钥。密钥会保存在网关上，可随时回来查看或复制。</p>
+            <div id="automation-key-list" class="automation-key-list"><div class="message-record-empty">正在加载…</div></div>
+            <p class="hint warn">持有密钥的人可以向所有已纳管设备的 Codex / DeepSeek 项目会话发送消息。请放在 <code>Authorization: Bearer …</code> 请求头中，不要写入 URL。</p>
+          </section>
+          <section class="set-group set-panel message-records-panel" data-automation-panel="messages" hidden>
+            <div class="set-group-title automation-panel-title"><span>API 消息记录</span><button id="automation-message-refresh" class="btn sm" type="button">刷新</button></div>
+            <div class="automation-message-filter"><label for="automation-message-key-filter">访问密钥</label><select id="automation-message-key-filter" class="input"><option value="">全部密钥</option></select></div>
+            <p class="hint">显示最近 100 条公网 API 请求。记录含用户消息与最终 AI 回复，终态记录默认在网关保留 7 天。</p>
+            <div id="automation-message-records" class="message-records"><div class="message-record-empty">尚未加载</div></div>
+          </section>
         </div>
       </div>
     </div>
@@ -517,10 +517,10 @@
   <script src="vendor/codemirror/mode/yaml/yaml.js?v=5.65.20"></script>
   <script src="vendor/codemirror/mode/toml/toml.js?v=5.65.20"></script>
   <script src="vendor/codemirror/mode/properties/properties.js?v=5.65.20"></script>
-  <script src="markdown.js?v=127"></script>
-  <script src="preview.js?v=127"></script>
-  <script src="chat_model.js?v=127"></script>
-  <script src="upload_model.js?v=127"></script>
-  <script src="app.js?v=127"></script>
+  <script src="markdown.js?v=128"></script>
+  <script src="preview.js?v=128"></script>
+  <script src="chat_model.js?v=128"></script>
+  <script src="upload_model.js?v=128"></script>
+  <script src="app.js?v=128"></script>
 </body>
 </html>
