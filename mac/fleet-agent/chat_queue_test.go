@@ -34,6 +34,26 @@ func TestChatQueuePersistsServerAuthoritativeAccessMode(t *testing.T) {
 	}
 }
 
+func TestChatQueueAcceptsEnabledDeepSeekAssistant(t *testing.T) {
+	previous := cfg.DSHEnabled
+	cfg.DSHEnabled = true
+	defer func() { cfg.DSHEnabled = previous }()
+	q, err := openChatQueue(filepath.Join(t.TempDir(), "queue.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	item, err := q.Enqueue(ChatQueueItem{
+		ClientMessageID: "public-message-1", Assistant: "dsh", SessionID: "session-1",
+		Text: "hello", DeliveryMode: chatDeliveryAuto,
+	})
+	if err != nil {
+		t.Fatalf("enabled DeepSeek queue should be accepted: %v", err)
+	}
+	if item.Assistant != "dsh" || item.Status != chatQueueQueued {
+		t.Fatalf("unexpected item: %+v", item)
+	}
+}
+
 func TestChatQueueReadOnlyImmediatelyProjectsWaitingAccess(t *testing.T) {
 	q, _ := openChatQueue(filepath.Join(t.TempDir(), "queue.json"))
 	existing, _ := q.Enqueue(ChatQueueItem{

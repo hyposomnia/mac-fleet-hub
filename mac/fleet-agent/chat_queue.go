@@ -766,7 +766,7 @@ func (q *chatQueue) Enqueue(input ChatQueueItem) (ChatQueueItem, error) {
 	if input.DeliveryMode == "" {
 		input.DeliveryMode = chatDeliveryAuto
 	}
-	if input.ClientMessageID == "" || input.Assistant != "codex" || input.SessionID == "" {
+	if input.ClientMessageID == "" || !chatCapabilities(input.Assistant).Queue || input.SessionID == "" {
 		return ChatQueueItem{}, errors.New("invalid queue item")
 	}
 	if len(input.ClientMessageID) > 200 || strings.ContainsAny(input.ClientMessageID, "\r\n\x00") ||

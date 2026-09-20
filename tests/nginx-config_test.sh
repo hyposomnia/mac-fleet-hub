@@ -57,4 +57,18 @@ awk -v f="$tmpdir/mac-blocks" -f "$tmpdir/prog.awk" "$SITE" > "$tmpdir/rendered.
 grep -q 'location ^~ /m2/files/' "$tmpdir/rendered.conf" \
   || fail '渲染结果缺少第二台 Mac 的反代块'
 
+# 5) 公网消息 API 必须只由 Bearer key 认证，不能被 Authelia Cookie 拦住；密钥管理和消息记录则反过来
+#    必须保留 auth_request，避免公网 key 自己轮换/撤销密钥或读取所有消息正文。
+for loc in 'location = /api/v1/messages' 'location ^~ /api/v1/messages/'; do
+  block="$(block_of "$loc" "$SITE")"
+  [[ "$block" == *'proxy_set_header Authorization $http_authorization;'* ]] \
+    || fail "${loc} 没有向 fleet-enroll 传递 Authorization"
+  [[ "$block" != *'auth_request /authz;'* ]] \
+    || fail "${loc} 不应使用 Authelia auth_request"
+done
+for loc in 'location = /api/settings/access-key' 'location = /api/settings/access-key/rotate' 'location = /api/message-records'; do
+  block_of "$loc" "$SITE" | grep -q 'auth_request /authz;' \
+    || fail "${loc} 缺少 Authelia auth_request"
+done
+
 echo "nginx-config tests passed"

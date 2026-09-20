@@ -14,6 +14,9 @@ command -v node >/dev/null || { echo "缺少 node，请先安装 Node.js" >&2; e
 step "Go 测试：mac/fleet-agent (go test ./...)"
 (cd "$ROOT/mac/fleet-agent" && go test ./...)
 
+step "Go 测试：server/enroll (go test ./...)"
+(cd "$ROOT/server/enroll" && go test ./...)
+
 step "Dashboard JS 测试：server/dashboard (node --test)"
 node --test "$ROOT/server/dashboard/chat_model.test.mjs" "$ROOT/server/dashboard/upload_model.test.mjs" "$ROOT/server/dashboard/assistant_gate.test.mjs"
 

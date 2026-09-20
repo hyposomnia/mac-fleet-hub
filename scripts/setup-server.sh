@@ -276,6 +276,12 @@ ENROLL_LOGIN_SERVER=${HS_BASE}
 ENROLL_HS_USER=${FLEET_UID}
 ENROLL_KEY_TTL=10m
 ENROLL_NAMES_FILE=/var/lib/fleet-enroll/names.json
+ENROLL_SETTINGS_FILE=/var/lib/fleet-enroll/dashboard-settings.json
+ENROLL_ACCESS_KEY_FILE=/var/lib/fleet-enroll/access-key.json
+ENROLL_MESSAGE_JOBS_FILE=/var/lib/fleet-enroll/message-jobs.json
+ENROLL_MAC_IPS=${MAC_IPS}
+ENROLL_AGENT_PORT=${AGENT_PORT}
+ENROLL_MESSAGE_CONCURRENCY=4
 EOF
 cp "$SRV/systemd/fleet-enroll.service" /etc/systemd/system/fleet-enroll.service
 systemctl daemon-reload

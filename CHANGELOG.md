@@ -1,5 +1,11 @@
 # Changelog
 
+## 2026-09-20
+
+- 新增由 Fleet 访问密钥保护的异步公网消息 API：外部系统可按大小写不敏感的设备显示名/ID、项目名/路径、会话名/ID，把消息发送到内网 Mac 上的 Codex 或 DeepSeek 会话；支持新建会话、`Idempotency-Key`、任务持久化与重启恢复、同会话串行执行、状态查询以及带 HMAC 签名和 SSRF 防护的终态回调。
+- 「会话设置」新增「API 访问」与「消息记录」：访问密钥只在生成/轮换时显示一次，可撤销；记录页展示最近 100 条请求、排队/执行/失败/完成状态及 AI 回复。公网 `/api/v1/messages` 仅使用 Bearer Key，密钥管理与记录接口继续由 Authelia 保护。
+- 修复 fleet-agent 队列入口错误地只允许 Codex 的问题，让已经声明 `Queue` 能力的 DeepSeek backend 也能由公网 worker 安全排队；同步补充 gateway worker、匹配歧义、鉴权、回调、nginx 和 agent 回归测试，并升级 PWA 外壳缓存到 v127。
+
 ## 2026-09-18
 
 - DeepSeek 会话列表复用 ChatGPT 的「…」菜单，支持置顶、重命名、原生归档和删除。归档状态从 DSH host 的 workspace/follow 读取，当前/已归档列表和搜索保持一致；原生暂不支持取消归档，因此不显示“移回当前”。置顶独立保存在 Fleet 目录，重命名/归档/删除通过 DSH host 同步桌面端。

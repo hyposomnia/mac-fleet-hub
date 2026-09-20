@@ -3,14 +3,15 @@
 // 作用：装机的新 Mac 无法登录 Authelia，故用一个独立的 TOTP（入网专用密钥，与登录 2FA 分开）
 // 来确认「是机主本人」。验证码正确 → 生成一次性短效 Headscale preauthkey 返回，客户端据此入网。
 //
-//   POST /join {code}         校验 TOTP → 服务端自动分配下一个空闲编号 → 返回 {loginServer, authKey, index}
-//   GET  /healthz             存活探针
+//	POST /join {code}         校验 TOTP → 服务端自动分配下一个空闲编号 → 返回 {loginServer, authKey, index}
+//	GET  /healthz             存活探针
 //
 // 仅绑 127.0.0.1，由 nginx 暴露在 /enroll/（公开、不过 Authelia）。
 // 防爆破：连续失败锁定 + 单次只发一次性 key。bootstrap.sh / uninstall.sh / bundle 由 nginx 静态托管。
 package main
 
 import (
+	"context"
 	"crypto/hmac"
 	"crypto/sha1"
 	"crypto/subtle"
@@ -35,19 +36,31 @@ var (
 	listen      = envOr("ENROLL_LISTEN", "127.0.0.1:7090")
 	secretFile  = envOr("ENROLL_SECRET_FILE", "/etc/fleet-enroll/totp.secret")
 	loginServer = envOr("ENROLL_LOGIN_SERVER", "https://fleet.example.com:8443") // 占位默认；部署时由 setup-server.sh 按 .env 注入真实值（HS_BASE）
-	hsUser      = envOr("ENROLL_HS_USER", "1")        // headscale 用户 id
+	hsUser      = envOr("ENROLL_HS_USER", "1")                                   // headscale 用户 id
 	hsBin       = envOr("ENROLL_HEADSCALE", "headscale")
-	keyTTL      = envOr("ENROLL_KEY_TTL", "10m")      // preauthkey 有效期
-	maxFails    = envInt("ENROLL_MAX_FAILS", 5)       // 锁定阈值
-	lockMin     = envInt("ENROLL_LOCK_MIN", 15)       // 锁定分钟
+	keyTTL      = envOr("ENROLL_KEY_TTL", "10m") // preauthkey 有效期
+	maxFails    = envInt("ENROLL_MAX_FAILS", 5)  // 锁定阈值
+	lockMin     = envInt("ENROLL_LOCK_MIN", 15)  // 锁定分钟
 	// Mac 的 web 显示名（仅供 PWA 展示，不改真实主机名）。存网关、所有浏览器共享。
 	namesFile = envOr("ENROLL_NAMES_FILE", "/var/lib/fleet-enroll/names.json")
 	// dashboard 偏好（终端 iframe 池上限 / 回滚行数，桌面与移动各一套）。存网关、所有浏览器共享。
 	settingsFile = envOr("ENROLL_SETTINGS_FILE", "/var/lib/fleet-enroll/dashboard-settings.json")
 )
 
-func envOr(k, d string) string { if v := os.Getenv(k); v != "" { return v }; return d }
-func envInt(k string, d int) int { if v := os.Getenv(k); v != "" { if n, e := strconv.Atoi(v); e == nil { return n } }; return d }
+func envOr(k, d string) string {
+	if v := os.Getenv(k); v != "" {
+		return v
+	}
+	return d
+}
+func envInt(k string, d int) int {
+	if v := os.Getenv(k); v != "" {
+		if n, e := strconv.Atoi(v); e == nil {
+			return n
+		}
+	}
+	return d
+}
 
 // ---------------- TOTP（RFC 6238, SHA1, 6 位, 30s） ----------------
 func loadSecret() (string, error) {
@@ -104,8 +117,8 @@ type ipState struct {
 }
 
 var (
-	ipMu      sync.Mutex
-	ipStates  = map[string]*ipState{}
+	ipMu       sync.Mutex
+	ipStates   = map[string]*ipState{}
 	maxTracked = 50000 // 硬上限，极端泛洪下不无界增长
 )
 
@@ -202,8 +215,8 @@ func createPreauthKey() (string, error) {
 // 同时纳入 names.json 已占用编号，避免分配到一个已有显示名的号。
 var (
 	allocMu    sync.Mutex
-	allocFloor int                                       // 本进程已发出的最大编号
-	macHostRe  = regexp.MustCompile(`\bmac([0-9]+)\b`)   // 从 headscale 输出（表格或 -o json 均可）抓 mac<N>
+	allocFloor int                                     // 本进程已发出的最大编号
+	macHostRe  = regexp.MustCompile(`\bmac([0-9]+)\b`) // 从 headscale 输出（表格或 -o json 均可）抓 mac<N>
 )
 
 // parseMaxMacIndex：从 headscale 任意格式输出里扫出最大的 mac<N> 编号；无则 0。
@@ -295,7 +308,9 @@ func writeJSON(w http.ResponseWriter, code int, v interface{}) {
 	w.WriteHeader(code)
 	json.NewEncoder(w).Encode(v)
 }
-func writeErr(w http.ResponseWriter, code int, msg string) { writeJSON(w, code, map[string]string{"error": msg}) }
+func writeErr(w http.ResponseWriter, code int, msg string) {
+	writeJSON(w, code, map[string]string{"error": msg})
+}
 
 // ---------------- Mac 显示名（网关存储，PWA 共享） ----------------
 // 名字只为 web 展示，不动真实主机名。存 namesFile 的 {id:name} JSON。
@@ -510,9 +525,19 @@ func main() {
 		return
 	}
 	mux := http.NewServeMux()
+	messageAPI, err := newMessageAPIFromEnv()
+	if err != nil {
+		log.Fatalf("初始化公网消息 API 失败: %v", err)
+	}
+	go messageAPI.run(context.Background())
 	mux.HandleFunc("/join", handleJoin)
 	mux.HandleFunc("/names", handleNames)
 	mux.HandleFunc("/settings", handleSettings)
+	mux.HandleFunc("/settings/access-key", messageAPI.handleAccessKey)
+	mux.HandleFunc("/settings/access-key/rotate", messageAPI.handleAccessKey)
+	mux.HandleFunc("/message-records", messageAPI.handleMessageRecords)
+	mux.HandleFunc("/v1/messages", messageAPI.handleMessages)
+	mux.HandleFunc("/v1/messages/", messageAPI.handleMessages)
 	mux.HandleFunc("/agent-config", handleAgentConfig)
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) { w.Write([]byte("ok")) })
 	log.Printf("fleet-enroll 监听 %s（login=%s, hsUser=%s）", listen, loginServer, hsUser)

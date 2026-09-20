@@ -619,6 +619,9 @@ async function refreshSettings() {
 function openSettings() {
   const s = state.settings || SETTINGS_DEFAULT;
   $('#st-chat-cache-max').value = s.chatCacheMaxSessions;
+  $('#st-api-key-reveal').hidden = true;
+  $('#st-api-key-value').value = '';
+  showSettingsTab('chat');
   renderChatCacheStats();
   openOverlay('settings-modal');
 }
@@ -637,6 +640,136 @@ async function saveSettings() {
     toast('设置已保存', 'ok');
     evictChatCache();
   } catch (e) { toast('保存失败：' + e.message, 'err'); }
+}
+
+function showSettingsTab(tab) {
+  const key = ['chat', 'api', 'messages'].includes(tab) ? tab : 'chat';
+  $$('[data-settings-tab]').forEach((b) => b.setAttribute('aria-selected', String(b.dataset.settingsTab === key)));
+  $$('[data-settings-panel]').forEach((p) => { p.hidden = p.dataset.settingsPanel !== key; });
+  $('#settings-footer').hidden = key === 'api' || key === 'messages';
+  if (key === 'chat') renderChatCacheStats();
+  if (key === 'api') refreshAccessKey();
+  if (key === 'messages') refreshMessageRecords();
+}
+
+let accessKeyMeta = null;
+function settingsDate(value) {
+  if (!value) return '—';
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? '—' : date.toLocaleString('zh-CN', { hour12: false });
+}
+async function settingsJSON(url, options) {
+  const response = await fetch(url, options);
+  if (response.status === 204) return null;
+  let body = null;
+  try { body = await response.json(); } catch (_) {}
+  if (!response.ok) throw new Error(body?.error?.message || body?.error || `HTTP ${response.status}`);
+  return body;
+}
+async function refreshAccessKey() {
+  $('#st-api-key-status').textContent = '读取中…';
+  try {
+    accessKeyMeta = await settingsJSON(`${BASE}/api/settings/access-key`, { cache: 'no-store' });
+    const enabled = !!accessKeyMeta?.enabled;
+    $('#st-api-key-status').textContent = enabled ? '已启用' : '未启用';
+    $('#st-api-key-prefix').textContent = enabled ? `${accessKeyMeta.prefix || 'mfh_live_'}…` : '—';
+    $('#st-api-key-created').textContent = settingsDate(accessKeyMeta?.created_at);
+    $('#st-api-key-used').textContent = settingsDate(accessKeyMeta?.last_used_at);
+    $('#st-api-key-rotate').textContent = enabled ? '轮换访问密钥' : '生成访问密钥';
+    $('#st-api-key-revoke').hidden = !enabled;
+  } catch (error) {
+    accessKeyMeta = null;
+    $('#st-api-key-status').textContent = '读取失败';
+    toast('读取 API 密钥失败：' + error.message, 'err');
+  }
+}
+async function rotateAccessKey() {
+  if (accessKeyMeta?.enabled && !window.confirm('轮换后旧密钥立即不能发起新请求。继续吗？')) return;
+  const button = $('#st-api-key-rotate');
+  button.disabled = true;
+  try {
+    const result = await settingsJSON(`${BASE}/api/settings/access-key/rotate`, { method: 'POST' });
+    $('#st-api-key-value').value = result.key || '';
+    $('#st-api-key-reveal').hidden = false;
+    await refreshAccessKey();
+    toast('访问密钥已生成，请立即复制保存', 'ok');
+  } catch (error) {
+    toast('生成访问密钥失败：' + error.message, 'err');
+  } finally { button.disabled = false; }
+}
+async function revokeAccessKey() {
+  if (!window.confirm('撤销后公网 API 将立即拒绝新请求；已经接收的任务仍会执行。继续吗？')) return;
+  const button = $('#st-api-key-revoke');
+  button.disabled = true;
+  try {
+    await settingsJSON(`${BASE}/api/settings/access-key`, { method: 'DELETE' });
+    $('#st-api-key-reveal').hidden = true;
+    $('#st-api-key-value').value = '';
+    await refreshAccessKey();
+    toast('访问密钥已撤销', 'ok');
+  } catch (error) {
+    toast('撤销访问密钥失败：' + error.message, 'err');
+  } finally { button.disabled = false; }
+}
+async function copyAccessKey() {
+  const value = $('#st-api-key-value').value;
+  if (!value) return;
+  try {
+    await navigator.clipboard.writeText(value);
+    toast('访问密钥已复制', 'ok');
+  } catch (_) {
+    $('#st-api-key-value').select();
+    document.execCommand('copy');
+    toast('访问密钥已复制', 'ok');
+  }
+}
+function messageStatusLabel(status) {
+  return ({ queued: '队列中', running: '执行中', failed: '失败', completed: '完成' })[status] || status || '未知';
+}
+function messageRecordSection(label, content, className = '') {
+  return h('div', { class: 'message-record-section' },
+    h('div', { class: 'message-record-label', text: label }),
+    h('pre', { class: `message-record-copy ${className}`.trim(), text: content || '—' }));
+}
+function renderMessageRecords(messages) {
+  const root = $('#st-message-records');
+  root.replaceChildren();
+  if (!messages.length) {
+    root.append(h('div', { class: 'message-record-empty', text: '暂无 API 消息记录' }));
+    return;
+  }
+  for (const item of messages) {
+    const device = item.device?.name || item.device?.id || '未知设备';
+    const project = item.project_name || projName(item.project);
+    const title = (item.message || '').split('\n')[0] || '(空消息)';
+    const details = h('details', { class: 'message-record' });
+    const summary = h('summary', {},
+      h('span', { class: `message-status ${item.status || ''}`, text: messageStatusLabel(item.status) }),
+      h('span', { class: 'message-record-main' },
+        h('div', { class: 'message-record-title', text: title }),
+        h('div', { class: 'message-record-meta', text: `${device} · ${item.ai_client || ''} · ${project}` })),
+      h('time', { class: 'message-record-time', text: settingsDate(item.created_at) }));
+    const body = h('div', { class: 'message-record-body' },
+      messageRecordSection('Message ID', item.message_id, 'message-record-id'),
+      messageRecordSection('项目', `${item.project_name || '—'}\n${item.project || '—'}`),
+      messageRecordSection('会话', `${item.session_name || '—'}\n${item.session_id || '尚未创建'}`),
+      messageRecordSection('用户消息', item.message));
+    if (item.ai_message?.content !== undefined) body.append(messageRecordSection('AI 回复', item.ai_message.content));
+    if (item.error) body.append(messageRecordSection('错误', `${item.error.code || ''}\n${item.error.message || ''}`));
+    if (item.callback_url) body.append(messageRecordSection('回调', `${item.callback?.status || 'pending'}\n${item.callback_url}`));
+    details.append(summary, body);
+    root.append(details);
+  }
+}
+async function refreshMessageRecords() {
+  const root = $('#st-message-records');
+  root.replaceChildren(h('div', { class: 'message-record-empty', text: '正在加载…' }));
+  try {
+    const result = await settingsJSON(`${BASE}/api/message-records?limit=100`, { cache: 'no-store' });
+    renderMessageRecords(result?.messages || []);
+  } catch (error) {
+    root.replaceChildren(h('div', { class: 'message-record-empty', text: '加载失败：' + error.message }));
+  }
 }
 
 function formatBytes(bytes) {
@@ -6632,6 +6765,11 @@ function init() {
     };
   });
   $('#st-save').onclick = saveSettings;
+  $$('[data-settings-tab]').forEach((b) => { b.onclick = () => showSettingsTab(b.dataset.settingsTab); });
+  $('#st-api-key-rotate').onclick = rotateAccessKey;
+  $('#st-api-key-revoke').onclick = revokeAccessKey;
+  $('#st-api-key-copy').onclick = copyAccessKey;
+  $('#st-message-refresh').onclick = refreshMessageRecords;
   $('#m-info-btn').onclick = () => { if (state.macId) openHostModal(state.macId); };
 
   // 弹窗 / 抽屉

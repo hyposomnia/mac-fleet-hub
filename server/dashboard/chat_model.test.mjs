@@ -370,7 +370,10 @@ test('settings menu owns archive browsing and session settings', () => {
 test('session settings expose chat cache without terminal controls', () => {
   assert.match(indexHTML, /data-settings-panel="chat">/);
   assert.match(indexHTML, /id="st-chat-cache-max"/);
-  assert.doesNotMatch(indexHTML, /data-settings-tab=|data-assistant="claude"|id="st-selfdraw"|id="st-dmax"/);
+  assert.match(indexHTML, /data-settings-tab="chat"/);
+  assert.match(indexHTML, /data-settings-tab="api"/);
+  assert.match(indexHTML, /data-settings-tab="messages"/);
+  assert.doesNotMatch(indexHTML, /data-settings-tab="terminal"|data-assistant="claude"|id="st-selfdraw"|id="st-dmax"/);
   assert.doesNotMatch(appSrc, /SELF_DRAW_KEY|setSelfDraw|用终端打开/);
 });
 
