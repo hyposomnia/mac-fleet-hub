@@ -449,6 +449,9 @@ svg.ic.fill { fill: currentColor; stroke: none; }
 .set-cache-stat { padding: 8px 0; }
 #settings-modal .modal { max-width: 720px; }
 #automation-modal .modal { max-width: 840px; }
+#automation-modal .automation-doc-link { margin-left: auto; color: var(--accent-text); font-size: var(--t-secondary); font-weight: 600; text-decoration: none; white-space: nowrap; }
+#automation-modal .automation-doc-link:hover { text-decoration: underline; }
+#automation-modal .modal-head .x { margin-left: 0; }
 .set-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: var(--s4); }
 .api-key-reveal { margin-top: var(--s4); padding: var(--s3); border: 1px solid var(--accent-line); border-radius: var(--r); background: var(--accent-soft); }
 .api-key-reveal > label { display: block; margin-bottom: 7px; color: var(--text-1); font-size: var(--t-secondary); font-weight: 600; }
@@ -485,6 +488,35 @@ svg.ic.fill { fill: currentColor; stroke: none; }
 .message-record-label { margin-bottom: 4px; color: var(--text-2); font-size: var(--t-caption); font-weight: 700; }
 .message-record-copy { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; color: var(--text-1); font-size: var(--t-secondary); line-height: 1.5; }
 .message-record-id { font-family: var(--mono); font-size: var(--t-caption); color: var(--text-2); word-break: break-all; }
+
+/* 自动化使用文档：独立的、可滚动的轻量说明页。 */
+html.automation-doc-root, html.automation-doc-root body { height: auto; min-height: 100%; overflow: auto; overscroll-behavior: auto; }
+.automation-doc-page { background: var(--bg); color: var(--text); }
+.automation-doc-head { position: sticky; top: 0; z-index: 10; display: flex; align-items: center; gap: 12px; min-height: 64px; padding: 10px max(18px, calc((100vw - 900px) / 2)); border-bottom: 1px solid var(--border); background: color-mix(in srgb, var(--bg) 88%, transparent); backdrop-filter: blur(18px); }
+.automation-doc-head strong { display: block; margin-top: 1px; font-size: var(--t-title); }
+.automation-doc-back { display: grid; place-items: center; width: 36px; height: 36px; border: 1px solid var(--border-1); border-radius: var(--r); color: var(--text); font-size: var(--t-page); line-height: 1; text-decoration: none; }
+.automation-doc-back:hover { background: var(--surface-hover); }
+.automation-doc-main { width: min(100% - 32px, 900px); margin: 0 auto; padding: 56px 0 80px; }
+.automation-doc-hero { padding-bottom: 36px; border-bottom: 1px solid var(--border); }
+.automation-doc-hero h1 { max-width: 720px; margin-top: 8px; font-size: var(--t-page); line-height: 1.12; letter-spacing: -.025em; text-wrap: balance; }
+.automation-doc-hero p { max-width: 740px; margin-top: 18px; color: var(--text-1); font-size: var(--t-title); line-height: 1.75; }
+.automation-doc-section { padding: 32px 0; border-bottom: 1px solid var(--border); }
+.automation-doc-section h2 { margin-bottom: 14px; font-size: var(--t-display); line-height: 1.3; }
+.automation-doc-section p { max-width: 790px; margin-top: 10px; color: var(--text-1); font-size: var(--t-body); line-height: 1.75; }
+.automation-doc-section b { color: var(--text); }
+.automation-doc-section code { padding: 2px 5px; border: 1px solid var(--border); border-radius: 5px; background: var(--surface-2); color: var(--accent-text); font-family: var(--mono); font-size: var(--t-secondary); }
+.automation-doc-section pre { margin-top: 14px; overflow-x: auto; border: 1px solid var(--border-1); border-radius: var(--r); background: var(--surface-1); }
+.automation-doc-section pre code { display: block; min-width: max-content; padding: 17px 18px; border: 0; background: transparent; color: var(--text); font-size: var(--t-secondary); line-height: 1.65; }
+.automation-doc-note { margin-top: 14px; padding: 12px 14px; border: 1px solid var(--accent-line); border-radius: var(--r); background: var(--accent-soft); color: var(--text-1); line-height: 1.6; }
+.automation-doc-table-wrap { margin-top: 14px; overflow-x: auto; border: 1px solid var(--border); border-radius: var(--r); }
+.automation-doc-section table { width: 100%; min-width: 620px; border-collapse: collapse; background: var(--surface-1); }
+.automation-doc-section th, .automation-doc-section td { padding: 11px 13px; border-bottom: 1px solid var(--border); color: var(--text-1); font-size: var(--t-body); text-align: left; vertical-align: top; }
+.automation-doc-section th { background: var(--surface-2); color: var(--text); font-weight: 600; }
+.automation-doc-section tbody tr:last-child td { border-bottom: 0; }
+.automation-doc-statuses { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; margin-top: 16px; }
+.automation-doc-statuses span { padding: 10px; border: 1px solid var(--border); border-radius: var(--r-sm); background: var(--surface-1); color: var(--text-2); font-size: var(--t-secondary); }
+.automation-doc-statuses b { display: block; margin-bottom: 2px; font-family: var(--mono); color: var(--text); }
+.automation-doc-section ul { display: grid; gap: 9px; margin: 14px 0 0 20px; color: var(--text-1); font-size: var(--t-body); line-height: 1.6; }
 /* 设置弹窗分节小标题（桌面端 / 移动端 / 自动关闭） */
 .set-sec { margin-top: var(--s4); margin-bottom: 2px; font-size: var(--t-caption); font-weight: 700; letter-spacing: .4px; text-transform: uppercase; color: var(--text-2); }
 .set-sec:first-child { margin-top: 0; }
@@ -1210,6 +1242,10 @@ textarea.chat-request-input { resize: vertical; }
   .automation-key-actions { width: 100%; }
   .automation-key-actions .btn { flex: 1; }
   .automation-message-filter { grid-template-columns: 1fr; justify-content: stretch; }
+  .automation-doc-head { padding-inline: 14px; }
+  .automation-doc-main { width: min(100% - 28px, 900px); padding: 36px 0 56px; }
+  .automation-doc-hero h1 { font-size: var(--t-page); }
+  .automation-doc-statuses { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   @keyframes sheetup { from { transform: translateY(100%); } }
 
   /* toast 容器避让安全区 */

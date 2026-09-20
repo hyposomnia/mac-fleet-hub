@@ -1,5 +1,5 @@
 // PWA 外壳缓存。终端、API 与用户文件必须实时，明确不进入 Cache Storage。
-const CACHE = 'fleet-shell-v128';
+const CACHE = 'fleet-shell-v129';
 const FILE_TYPE_ICONS = [
   'audio', 'c', 'console', 'cpp', 'csharp', 'css', 'dart', 'database', 'docker',
   'document', 'exe', 'font', 'git', 'go', 'html', 'image', 'java', 'javascript',
@@ -14,11 +14,11 @@ const CODEMIRROR_ASSETS = [
   'javascript', 'xml', 'jsx', 'css', 'go', 'python', 'ruby', 'shell', 'yaml', 'toml', 'properties',
 ].map((name, index) => index < 2 ? name : `/vendor/codemirror/mode/${name}/${name}.js?v=5.65.20`);
 const SHELL = [
-  '/', '/index.html', '/style.css?v=128',
+  '/', '/index.html', '/automation-guide.html', '/style.css?v=129',
   '/vendor/purify.min.js?v=3.2.6', '/vendor/marked.min.js?v=15.0.12',
   ...CODEMIRROR_ASSETS,
-  '/markdown.js?v=128', '/preview.js?v=128', '/chat_model.js?v=128',
-  '/upload_model.js?v=128', '/app.js?v=128',
+  '/markdown.js?v=129', '/preview.js?v=129', '/chat_model.js?v=129',
+  '/upload_model.js?v=129', '/app.js?v=129',
   '/manifest.webmanifest', '/icons/icon.svg', '/icons/icon-180.png', '/icons/icon-192.png',
   '/icons/icon-512.png', '/icons/icon-maskable-512.png',
   ...FILE_TYPE_ICONS,
@@ -72,12 +72,14 @@ self.addEventListener('fetch', (event) => {
   if (request.mode === 'navigate') {
     event.respondWith((async () => {
       const cache = await caches.open(CACHE);
+      const navigationKey = url.pathname === '/automation-guide.html' ? '/automation-guide.html' : '/index.html';
       try {
         const response = await fetch(request, { cache: 'no-cache' });
-        if (response.ok) await cache.put('/index.html', response.clone());
+        if (response.ok) await cache.put(navigationKey, response.clone());
         return response;
       } catch (_) {
-        return (await cache.match('/index.html')) ||
+        return (await cache.match(navigationKey)) ||
+          (await cache.match('/index.html')) ||
           (await cache.match('/')) ||
           new Response('fleet hub 暂时离线', {
             status: 503,

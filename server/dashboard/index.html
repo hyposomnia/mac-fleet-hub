@@ -17,7 +17,7 @@
        内联以避免首屏闪烁。 -->
   <script>(function () { var t; try { t = localStorage.getItem('fleet-theme'); } catch (e) {} if (t !== 'light' && t !== 'dark') t = matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark'; document.documentElement.dataset.theme = t; document.querySelector('meta[name="theme-color"]').content = t === 'light' ? '#f6f7f9' : '#090c12'; })();</script>
   <link rel="stylesheet" href="vendor/codemirror/lib/codemirror.css?v=5.65.20" />
-  <link rel="stylesheet" href="style.css?v=128" />
+  <link rel="stylesheet" href="style.css?v=129" />
 </head>
 <body>
   <div id="network-status" class="network-status" role="status" hidden>
@@ -414,7 +414,7 @@
     <!-- ───────── 自动化（访问密钥 + API 消息记录） ───────── -->
     <div id="automation-modal" class="overlay" hidden>
       <div class="modal automation-modal-card">
-        <div class="modal-head"><svg class="ic" viewBox="0 0 24 24" style="width:18px;height:18px"><path d="M8 3h8v5H8zM5 16h6v5H5zM13 16h6v5h-6zM12 8v4M8 12h8M8 12v4M16 12v4"/></svg><span>自动化</span><button class="iconbtn bare x" data-close="automation-modal"><svg class="ic" viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button></div>
+        <div class="modal-head"><svg class="ic" viewBox="0 0 24 24" style="width:18px;height:18px"><path d="M8 3h8v5H8zM5 16h6v5H5zM13 16h6v5h-6zM12 8v4M8 12h8M8 12v4M16 12v4"/></svg><span>自动化</span><a class="automation-doc-link" href="/automation-guide.html" target="_blank" rel="noopener">使用文档 ↗</a><button class="iconbtn bare x" data-close="automation-modal"><svg class="ic" viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button></div>
         <div class="modal-body">
           <div class="seg set-tabs" role="tablist" aria-label="自动化设置">
             <button data-automation-tab="keys" role="tab" aria-selected="true">访问密钥</button>
@@ -517,10 +517,10 @@
   <script src="vendor/codemirror/mode/yaml/yaml.js?v=5.65.20"></script>
   <script src="vendor/codemirror/mode/toml/toml.js?v=5.65.20"></script>
   <script src="vendor/codemirror/mode/properties/properties.js?v=5.65.20"></script>
-  <script src="markdown.js?v=128"></script>
-  <script src="preview.js?v=128"></script>
-  <script src="chat_model.js?v=128"></script>
-  <script src="upload_model.js?v=128"></script>
-  <script src="app.js?v=128"></script>
+  <script src="markdown.js?v=129"></script>
+  <script src="preview.js?v=129"></script>
+  <script src="chat_model.js?v=129"></script>
+  <script src="upload_model.js?v=129"></script>
+  <script src="app.js?v=129"></script>
 </body>
 </html>

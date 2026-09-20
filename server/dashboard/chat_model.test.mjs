@@ -9,6 +9,7 @@ const appSrc = await readFile(new URL('./app.js', import.meta.url), 'utf8');
 const markdownSrc = await readFile(new URL('./markdown.js', import.meta.url), 'utf8');
 const previewSrc = await readFile(new URL('./preview.js', import.meta.url), 'utf8');
 const indexHTML = await readFile(new URL('./index.html', import.meta.url), 'utf8');
+const automationGuideHTML = await readFile(new URL('./automation-guide.html', import.meta.url), 'utf8');
 const styleCSS = await readFile(new URL('./style.css', import.meta.url), 'utf8');
 const serviceWorker = await readFile(new URL('./sw.js', import.meta.url), 'utf8');
 const manifest = JSON.parse(await readFile(new URL('./manifest.webmanifest', import.meta.url), 'utf8'));
@@ -376,6 +377,16 @@ test('session settings expose chat cache without terminal controls', () => {
   assert.match(indexHTML, /id="automation-message-key-filter"/);
   assert.doesNotMatch(indexHTML, /data-settings-tab="terminal"|data-assistant="claude"|id="st-selfdraw"|id="st-dmax"/);
   assert.doesNotMatch(appSrc, /SELF_DRAW_KEY|setSelfDraw|用终端打开/);
+});
+
+test('automation modal links to a concise cached API guide', () => {
+  assert.match(indexHTML, /href="\/automation-guide\.html"[^>]*>使用文档 ↗<\/a>/);
+  assert.match(automationGuideHTML, /POST|\/api\/v1\/messages/);
+  assert.match(automationGuideHTML, /Idempotency-Key/);
+  assert.match(automationGuideHTML, /callback_url/);
+  assert.match(serviceWorker, /'\/automation-guide\.html'/);
+  assert.match(serviceWorker, /navigationKey = url\.pathname === '\/automation-guide\.html'/);
+  assert.match(styleCSS, /\.automation-doc-main\s*\{/);
 });
 
 test('mobile session toolbar keeps square actions on both sides of search', () => {
