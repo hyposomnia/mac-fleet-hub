@@ -32,11 +32,19 @@ const (
 )
 
 type accessKeyState struct {
-	Version    int       `json:"version"`
+	ID         string    `json:"id"`
+	Name       string    `json:"name"`
+	Secret     string    `json:"key,omitempty"`
 	Hash       string    `json:"hash"`
 	Prefix     string    `json:"prefix"`
 	CreatedAt  time.Time `json:"created_at"`
+	UpdatedAt  time.Time `json:"updated_at,omitempty"`
 	LastUsedAt time.Time `json:"last_used_at,omitempty"`
+}
+
+type accessKeyStoreDisk struct {
+	Version int              `json:"version"`
+	Keys    []accessKeyState `json:"keys"`
 }
 
 type messageError struct {
@@ -74,6 +82,8 @@ type messageJob struct {
 	Error              *messageError `json:"error,omitempty"`
 	IdempotencyKey     string        `json:"idempotency_key,omitempty"`
 	RequestHash        string        `json:"request_hash,omitempty"`
+	AccessKeyID        string        `json:"access_key_id,omitempty"`
+	AccessKeyName      string        `json:"access_key_name,omitempty"`
 	AgentQueueID       string        `json:"agent_queue_id,omitempty"`
 	TurnID             string        `json:"turn_id,omitempty"`
 	CreatedAt          time.Time     `json:"created_at"`
@@ -127,7 +137,7 @@ func (p *apiProblem) Error() string { return p.Code + ": " + p.Message }
 
 type messageAPI struct {
 	mu             sync.Mutex
-	key            accessKeyState
+	keys           []accessKeyState
 	jobs           map[string]*messageJob
 	keyFile        string
 	jobsFile       string
@@ -167,8 +177,44 @@ func newMessageAPIFromEnv() (*messageAPI, error) {
 
 func (a *messageAPI) load() error {
 	if raw, err := os.ReadFile(a.keyFile); err == nil {
-		if err := json.Unmarshal(raw, &a.key); err != nil {
+		var disk accessKeyStoreDisk
+		if err := json.Unmarshal(raw, &disk); err != nil {
 			return fmt.Errorf("读取 access key: %w", err)
+		}
+		if disk.Keys != nil {
+			a.keys = disk.Keys
+		} else {
+			// v1 只保存一个不可逆哈希。迁移后继续接受旧密钥，但无法展示原文。
+			var legacy struct {
+				Hash       string    `json:"hash"`
+				Prefix     string    `json:"prefix"`
+				CreatedAt  time.Time `json:"created_at"`
+				LastUsedAt time.Time `json:"last_used_at"`
+			}
+			if err := json.Unmarshal(raw, &legacy); err != nil {
+				return fmt.Errorf("读取旧版 access key: %w", err)
+			}
+			if legacy.Hash != "" {
+				idSuffix := legacy.Hash
+				if len(idSuffix) > 16 {
+					idSuffix = idSuffix[:16]
+				}
+				a.keys = []accessKeyState{{
+					ID: "key_legacy_" + idSuffix, Name: "默认密钥", Hash: legacy.Hash,
+					Prefix: legacy.Prefix, CreatedAt: legacy.CreatedAt, LastUsedAt: legacy.LastUsedAt,
+				}}
+			}
+			if err := a.saveKeysLocked(); err != nil {
+				return fmt.Errorf("迁移 access key: %w", err)
+			}
+		}
+		for i := range a.keys {
+			if a.keys[i].Name == "" {
+				a.keys[i].Name = fmt.Sprintf("访问密钥 %d", i+1)
+			}
+			if a.keys[i].Hash == "" && a.keys[i].Secret != "" {
+				a.keys[i].Hash = hashString(a.keys[i].Secret)
+			}
 		}
 	} else if !errors.Is(err, os.ErrNotExist) {
 		return err
@@ -225,8 +271,12 @@ func writePrivateJSON(path string, value interface{}) error {
 	return os.Rename(tmpPath, path)
 }
 
-func (a *messageAPI) saveKeyLocked() error {
-	return writePrivateJSON(a.keyFile, a.key)
+func (a *messageAPI) saveKeysLocked() error {
+	keys := append([]accessKeyState(nil), a.keys...)
+	if keys == nil {
+		keys = []accessKeyState{}
+	}
+	return writePrivateJSON(a.keyFile, accessKeyStoreDisk{Version: 2, Keys: keys})
 }
 
 func (a *messageAPI) saveJobsLocked() error {
@@ -251,48 +301,230 @@ func hashString(value string) string {
 	return hex.EncodeToString(sum[:])
 }
 
+func accessKeyResponse(key accessKeyState) map[string]interface{} {
+	return map[string]interface{}{
+		"id": key.ID, "name": key.Name, "key": key.Secret, "recoverable": key.Secret != "",
+		"prefix": key.Prefix, "created_at": omitZeroTime(key.CreatedAt),
+		"updated_at": omitZeroTime(key.UpdatedAt), "last_used_at": omitZeroTime(key.LastUsedAt),
+	}
+}
+
+func validateAccessKeyName(value string) (string, *apiProblem) {
+	value = strings.TrimSpace(value)
+	if value == "" || len([]rune(value)) > 80 {
+		return "", &apiProblem{Status: 400, Code: "invalid_request", Message: "密钥名称不能为空且最多 80 个字符"}
+	}
+	return value, nil
+}
+
+func newAccessKey(name string) (accessKeyState, error) {
+	secret, err := randomToken("mfh_live_", 32)
+	if err != nil {
+		return accessKeyState{}, err
+	}
+	id, err := randomToken("key_", 12)
+	if err != nil {
+		return accessKeyState{}, err
+	}
+	prefix := secret
+	if len(prefix) > 17 {
+		prefix = prefix[:17]
+	}
+	now := time.Now().UTC()
+	return accessKeyState{
+		ID: id, Name: name, Secret: secret, Hash: hashString(secret), Prefix: prefix,
+		CreatedAt: now, UpdatedAt: now,
+	}, nil
+}
+
+func decodeAccessKeyName(w http.ResponseWriter, r *http.Request, fallback string) (string, *apiProblem) {
+	var body struct {
+		Name string `json:"name"`
+	}
+	dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, 16<<10))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&body); err != nil && !errors.Is(err, io.EOF) {
+		return "", &apiProblem{Status: 400, Code: "invalid_request", Message: "请求 JSON 格式或字段不正确"}
+	}
+	if strings.TrimSpace(body.Name) == "" {
+		body.Name = fallback
+	}
+	return validateAccessKeyName(body.Name)
+}
+
+func (a *messageAPI) handleAccessKeys(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Cache-Control", "no-store")
+	const base = "/automation/access-keys"
+	if r.URL.Path == base {
+		switch r.Method {
+		case http.MethodGet:
+			a.mu.Lock()
+			keys := append([]accessKeyState(nil), a.keys...)
+			a.mu.Unlock()
+			sort.Slice(keys, func(i, j int) bool { return keys[i].CreatedAt.Before(keys[j].CreatedAt) })
+			items := make([]map[string]interface{}, 0, len(keys))
+			for _, key := range keys {
+				items = append(items, accessKeyResponse(key))
+			}
+			writeJSON(w, http.StatusOK, map[string]interface{}{"keys": items})
+		case http.MethodPost:
+			a.mu.Lock()
+			fallback := fmt.Sprintf("访问密钥 %d", len(a.keys)+1)
+			a.mu.Unlock()
+			name, problem := decodeAccessKeyName(w, r, fallback)
+			if problem != nil {
+				writeAPIProblem(w, problem)
+				return
+			}
+			key, err := newAccessKey(name)
+			if err != nil {
+				writeAPIProblem(w, &apiProblem{Status: 500, Code: "key_generation_failed", Message: "生成访问密钥失败"})
+				return
+			}
+			a.mu.Lock()
+			a.keys = append(a.keys, key)
+			err = a.saveKeysLocked()
+			if err != nil {
+				a.keys = a.keys[:len(a.keys)-1]
+			}
+			a.mu.Unlock()
+			if err != nil {
+				writeAPIProblem(w, &apiProblem{Status: 500, Code: "key_save_failed", Message: "保存访问密钥失败"})
+				return
+			}
+			writeJSON(w, http.StatusCreated, accessKeyResponse(key))
+		default:
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		}
+		return
+	}
+	id := strings.TrimPrefix(r.URL.Path, base+"/")
+	if id == "" || strings.Contains(id, "/") {
+		writeAPIProblem(w, &apiProblem{Status: 404, Code: "access_key_not_found", Message: "访问密钥不存在"})
+		return
+	}
+	switch r.Method {
+	case http.MethodPatch:
+		name, problem := decodeAccessKeyName(w, r, "")
+		if problem != nil {
+			writeAPIProblem(w, problem)
+			return
+		}
+		a.mu.Lock()
+		index := -1
+		for i := range a.keys {
+			if a.keys[i].ID == id {
+				index = i
+				break
+			}
+		}
+		if index < 0 {
+			a.mu.Unlock()
+			writeAPIProblem(w, &apiProblem{Status: 404, Code: "access_key_not_found", Message: "访问密钥不存在"})
+			return
+		}
+		previous := a.keys[index]
+		a.keys[index].Name = name
+		a.keys[index].UpdatedAt = time.Now().UTC()
+		for _, job := range a.jobs {
+			if job.AccessKeyID == id {
+				job.AccessKeyName = name
+			}
+		}
+		err := a.saveKeysLocked()
+		if err == nil {
+			err = a.saveJobsLocked()
+		}
+		if err != nil {
+			a.keys[index] = previous
+		}
+		key := a.keys[index]
+		a.mu.Unlock()
+		if err != nil {
+			writeAPIProblem(w, &apiProblem{Status: 500, Code: "key_save_failed", Message: "保存访问密钥失败"})
+			return
+		}
+		writeJSON(w, http.StatusOK, accessKeyResponse(key))
+	case http.MethodDelete:
+		a.mu.Lock()
+		index := -1
+		for i := range a.keys {
+			if a.keys[i].ID == id {
+				index = i
+				break
+			}
+		}
+		if index < 0 {
+			a.mu.Unlock()
+			writeAPIProblem(w, &apiProblem{Status: 404, Code: "access_key_not_found", Message: "访问密钥不存在"})
+			return
+		}
+		previous := append([]accessKeyState(nil), a.keys...)
+		a.keys = append(a.keys[:index], a.keys[index+1:]...)
+		err := a.saveKeysLocked()
+		if err != nil {
+			a.keys = previous
+		}
+		a.mu.Unlock()
+		if err != nil {
+			writeAPIProblem(w, &apiProblem{Status: 500, Code: "key_revoke_failed", Message: "删除访问密钥失败"})
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	default:
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+	}
+}
+
+// 兼容上一版管理页面；新页面使用 /automation/access-keys CRUD。
 func (a *messageAPI) handleAccessKey(w http.ResponseWriter, r *http.Request) {
 	switch {
 	case r.URL.Path == "/settings/access-key" && r.Method == http.MethodGet:
 		a.mu.Lock()
 		defer a.mu.Unlock()
+		var key accessKeyState
+		if len(a.keys) > 0 {
+			key = a.keys[0]
+		}
 		writeJSON(w, http.StatusOK, map[string]interface{}{
-			"enabled":      a.key.Hash != "",
-			"prefix":       a.key.Prefix,
-			"created_at":   omitZeroTime(a.key.CreatedAt),
-			"last_used_at": omitZeroTime(a.key.LastUsedAt),
+			"enabled":      key.Hash != "",
+			"prefix":       key.Prefix,
+			"created_at":   omitZeroTime(key.CreatedAt),
+			"last_used_at": omitZeroTime(key.LastUsedAt),
 		})
 	case r.URL.Path == "/settings/access-key/rotate" && r.Method == http.MethodPost:
-		key, err := randomToken("mfh_live_", 32)
+		key, err := newAccessKey("默认密钥")
 		if err != nil {
 			writeAPIProblem(w, &apiProblem{Status: 500, Code: "key_generation_failed", Message: "生成访问密钥失败"})
 			return
 		}
-		now := time.Now().UTC()
-		prefix := key
-		if len(prefix) > 17 {
-			prefix = prefix[:17]
-		}
 		a.mu.Lock()
-		previous := a.key
-		a.key = accessKeyState{Version: 1, Hash: hashString(key), Prefix: prefix, CreatedAt: now}
-		err = a.saveKeyLocked()
+		previous := append([]accessKeyState(nil), a.keys...)
+		if len(a.keys) == 0 {
+			a.keys = append(a.keys, key)
+		} else {
+			key.ID, key.Name = a.keys[0].ID, a.keys[0].Name
+			a.keys[0] = key
+		}
+		err = a.saveKeysLocked()
 		if err != nil {
-			a.key = previous
+			a.keys = previous
 		}
 		a.mu.Unlock()
 		if err != nil {
 			writeAPIProblem(w, &apiProblem{Status: 500, Code: "key_save_failed", Message: "保存访问密钥失败"})
 			return
 		}
-		writeJSON(w, http.StatusOK, map[string]interface{}{"key": key, "prefix": prefix, "created_at": now})
+		writeJSON(w, http.StatusOK, map[string]interface{}{"key": key.Secret, "prefix": key.Prefix, "created_at": key.CreatedAt})
 	case r.URL.Path == "/settings/access-key" && r.Method == http.MethodDelete:
 		a.mu.Lock()
-		previous := a.key
-		a.key = accessKeyState{}
-		err := a.saveKeyLocked()
+		previous := append([]accessKeyState(nil), a.keys...)
+		if len(a.keys) > 0 {
+			a.keys = a.keys[1:]
+		}
+		err := a.saveKeysLocked()
 		if err != nil {
-			a.key = previous
+			a.keys = previous
 		}
 		a.mu.Unlock()
 		if err != nil {
@@ -312,25 +544,31 @@ func omitZeroTime(value time.Time) interface{} {
 	return value
 }
 
-func (a *messageAPI) authenticate(r *http.Request) *apiProblem {
+func (a *messageAPI) authenticate(r *http.Request) (accessKeyState, *apiProblem) {
 	header := strings.TrimSpace(r.Header.Get("Authorization"))
 	if len(header) < 8 || !strings.EqualFold(header[:7], "Bearer ") {
-		return &apiProblem{Status: 401, Code: "invalid_access_key", Message: "访问密钥无效或已撤销"}
+		return accessKeyState{}, &apiProblem{Status: 401, Code: "invalid_access_key", Message: "访问密钥无效或已撤销"}
 	}
 	provided := hashString(strings.TrimSpace(header[7:]))
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	if a.key.Hash == "" || subtle.ConstantTimeCompare([]byte(provided), []byte(a.key.Hash)) != 1 {
-		return &apiProblem{Status: 401, Code: "invalid_access_key", Message: "访问密钥无效或已撤销"}
+	index := -1
+	for i := range a.keys {
+		if a.keys[i].Hash != "" && subtle.ConstantTimeCompare([]byte(provided), []byte(a.keys[i].Hash)) == 1 {
+			index = i
+		}
+	}
+	if index < 0 {
+		return accessKeyState{}, &apiProblem{Status: 401, Code: "invalid_access_key", Message: "访问密钥无效或已撤销"}
 	}
 	now := time.Now().UTC()
-	if a.key.LastUsedAt.IsZero() || now.Sub(a.key.LastUsedAt) >= time.Minute {
-		a.key.LastUsedAt = now
-		if err := a.saveKeyLocked(); err != nil {
+	if a.keys[index].LastUsedAt.IsZero() || now.Sub(a.keys[index].LastUsedAt) >= time.Minute {
+		a.keys[index].LastUsedAt = now
+		if err := a.saveKeysLocked(); err != nil {
 			log.Printf("更新 access key 最近使用时间失败: %v", err)
 		}
 	}
-	return nil
+	return a.keys[index], nil
 }
 
 func writeAPIProblem(w http.ResponseWriter, problem *apiProblem) {
@@ -345,7 +583,8 @@ func writeAPIProblem(w http.ResponseWriter, problem *apiProblem) {
 }
 
 func (a *messageAPI) handleMessages(w http.ResponseWriter, r *http.Request) {
-	if problem := a.authenticate(r); problem != nil {
+	key, problem := a.authenticate(r)
+	if problem != nil {
 		writeAPIProblem(w, problem)
 		return
 	}
@@ -354,7 +593,7 @@ func (a *messageAPI) handleMessages(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
-		a.submitMessage(w, r)
+		a.submitMessage(w, r, key)
 		return
 	}
 	if r.Method != http.MethodGet {
@@ -376,7 +615,7 @@ func (a *messageAPI) handleMessages(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, publicMessage(job, false))
 }
 
-func (a *messageAPI) submitMessage(w http.ResponseWriter, r *http.Request) {
+func (a *messageAPI) submitMessage(w http.ResponseWriter, r *http.Request, key accessKeyState) {
 	mediaType := strings.ToLower(strings.TrimSpace(strings.Split(r.Header.Get("Content-Type"), ";")[0]))
 	if mediaType != "application/json" {
 		writeAPIProblem(w, &apiProblem{Status: 415, Code: "unsupported_media_type", Message: "Content-Type 必须是 application/json"})
@@ -428,7 +667,7 @@ func (a *messageAPI) submitMessage(w http.ResponseWriter, r *http.Request) {
 	if idempotencyKey != "" {
 		a.mu.Lock()
 		for _, existing := range a.jobs {
-			if existing.IdempotencyKey != idempotencyKey {
+			if existing.AccessKeyID != key.ID || existing.IdempotencyKey != idempotencyKey {
 				continue
 			}
 			if existing.RequestHash != requestHash {
@@ -456,9 +695,6 @@ func (a *messageAPI) submitMessage(w http.ResponseWriter, r *http.Request) {
 		writeAPIProblem(w, &apiProblem{Status: 500, Code: "internal_error", Message: "生成 message_id 失败"})
 		return
 	}
-	a.mu.Lock()
-	keyHash := a.key.Hash
-	a.mu.Unlock()
 	now := time.Now().UTC()
 	job := &messageJob{
 		ID: id, Status: messageQueued,
@@ -467,7 +703,7 @@ func (a *messageAPI) submitMessage(w http.ResponseWriter, r *http.Request) {
 		ProjectName: target.ProjectName, ProjectPath: target.ProjectPath,
 		SessionID: target.SessionID, SessionName: target.SessionName,
 		Message: req.Message, IdempotencyKey: idempotencyKey, RequestHash: requestHash, CreatedAt: now,
-		CallbackSigningKey: keyHash,
+		AccessKeyID: key.ID, AccessKeyName: key.Name, CallbackSigningKey: key.Hash,
 	}
 	if req.Session != nil {
 		job.SessionInput = *req.Session
@@ -518,9 +754,23 @@ func (a *messageAPI) handleMessageRecords(w http.ResponseWriter, r *http.Request
 	if parsed, err := strconv.Atoi(r.URL.Query().Get("limit")); err == nil && parsed > 0 && parsed <= 500 {
 		limit = parsed
 	}
+	accessKeyID := strings.TrimSpace(r.URL.Query().Get("access_key_id"))
 	a.mu.Lock()
 	jobs := make([]*messageJob, 0, len(a.jobs))
+	recordKeyNames := map[string]string{}
+	hasLegacy := false
 	for _, job := range a.jobs {
+		if job.AccessKeyID == "" {
+			hasLegacy = true
+		} else {
+			recordKeyNames[job.AccessKeyID] = job.AccessKeyName
+		}
+		if accessKeyID == "__legacy__" && job.AccessKeyID != "" {
+			continue
+		}
+		if accessKeyID != "" && accessKeyID != "__legacy__" && job.AccessKeyID != accessKeyID {
+			continue
+		}
 		jobs = append(jobs, cloneMessageJob(job))
 	}
 	a.mu.Unlock()
@@ -532,7 +782,15 @@ func (a *messageAPI) handleMessageRecords(w http.ResponseWriter, r *http.Request
 	for _, job := range jobs {
 		items = append(items, publicMessage(job, true))
 	}
-	writeJSON(w, http.StatusOK, map[string]interface{}{"messages": items})
+	recordKeys := make([]map[string]string, 0, len(recordKeyNames)+1)
+	for id, name := range recordKeyNames {
+		recordKeys = append(recordKeys, map[string]string{"id": id, "name": name})
+	}
+	sort.Slice(recordKeys, func(i, j int) bool { return recordKeys[i]["name"] < recordKeys[j]["name"] })
+	if hasLegacy {
+		recordKeys = append(recordKeys, map[string]string{"id": "__legacy__", "name": "旧记录（未标记密钥）"})
+	}
+	writeJSON(w, http.StatusOK, map[string]interface{}{"messages": items, "access_keys": recordKeys})
 }
 
 func publicMessage(job *messageJob, admin bool) map[string]interface{} {
@@ -571,6 +829,7 @@ func publicMessage(job *messageJob, admin bool) map[string]interface{} {
 		result["message"] = job.Message
 		result["callback_url"] = job.CallbackURL
 		result["turn_id"] = job.TurnID
+		result["access_key"] = map[string]string{"id": job.AccessKeyID, "name": job.AccessKeyName}
 	}
 	return result
 }

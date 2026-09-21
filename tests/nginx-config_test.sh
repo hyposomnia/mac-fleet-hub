@@ -75,7 +75,9 @@ for loc in 'location = /api/v1/messages' 'location ^~ /api/v1/messages/'; do
   [[ "$block" != *'auth_request /authz;'* ]] \
     || fail "${loc} 不应使用 Authelia auth_request"
 done
-for loc in 'location = /api/settings/access-key' 'location = /api/settings/access-key/rotate' 'location = /api/message-records'; do
+for loc in 'location = /api/settings/access-key' 'location = /api/settings/access-key/rotate' 'location = /api/message-records' \
+  'location = /api/automation/access-keys' 'location ^~ /api/automation/access-keys/' \
+  'location = /api/automation/message-records'; do
   block_of "$loc" "$SITE" | grep -q 'auth_request /authz;' \
     || fail "${loc} 缺少 Authelia auth_request"
 done

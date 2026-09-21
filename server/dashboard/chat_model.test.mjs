@@ -9,6 +9,7 @@ const appSrc = await readFile(new URL('./app.js', import.meta.url), 'utf8');
 const markdownSrc = await readFile(new URL('./markdown.js', import.meta.url), 'utf8');
 const previewSrc = await readFile(new URL('./preview.js', import.meta.url), 'utf8');
 const indexHTML = await readFile(new URL('./index.html', import.meta.url), 'utf8');
+const automationGuideHTML = await readFile(new URL('./automation-guide.html', import.meta.url), 'utf8');
 const styleCSS = await readFile(new URL('./style.css', import.meta.url), 'utf8');
 const serviceWorker = await readFile(new URL('./sw.js', import.meta.url), 'utf8');
 const manifest = JSON.parse(await readFile(new URL('./manifest.webmanifest', import.meta.url), 'utf8'));
@@ -418,7 +419,7 @@ test('settings menu owns archive browsing and session settings', () => {
   assert.match(indexHTML, /id="user-name">设置</);
   assert.deepEqual(
     [...indexHTML.matchAll(/<button data-act="([^"]+)"/g)].map((match) => match[1]),
-    ['theme', 'archive', 'settings', 'logout', 'theme', 'archive', 'settings', 'logout'],
+    ['theme', 'archive', 'automation', 'settings', 'logout', 'theme', 'archive', 'automation', 'settings', 'logout'],
   );
   assert.equal((indexHTML.match(/>显示已归档会话</g) || []).length, 2);
   assert.equal((indexHTML.match(/>会话设置</g) || []).length, 3);
@@ -432,13 +433,24 @@ test('settings menu owns archive browsing and session settings', () => {
 });
 
 test('session settings expose chat cache without terminal controls', () => {
-  assert.match(indexHTML, /data-settings-panel="chat">/);
   assert.match(indexHTML, /id="st-chat-cache-max"/);
-  assert.match(indexHTML, /data-settings-tab="chat"/);
-  assert.match(indexHTML, /data-settings-tab="api"/);
-  assert.match(indexHTML, /data-settings-tab="messages"/);
+  assert.doesNotMatch(indexHTML, /data-settings-tab|data-settings-panel/);
+  assert.match(indexHTML, /id="automation-modal"/);
+  assert.match(indexHTML, /data-automation-tab="keys"/);
+  assert.match(indexHTML, /data-automation-tab="messages"/);
+  assert.match(indexHTML, /id="automation-message-key-filter"/);
   assert.doesNotMatch(indexHTML, /data-settings-tab="terminal"|data-assistant="claude"|id="st-selfdraw"|id="st-dmax"/);
   assert.doesNotMatch(appSrc, /SELF_DRAW_KEY|setSelfDraw|用终端打开/);
+});
+
+test('automation modal links to a concise cached API guide', () => {
+  assert.match(indexHTML, /href="\/automation-guide\.html"[^>]*>使用文档 ↗<\/a>/);
+  assert.match(automationGuideHTML, /POST|\/api\/v1\/messages/);
+  assert.match(automationGuideHTML, /Idempotency-Key/);
+  assert.match(automationGuideHTML, /callback_url/);
+  assert.match(serviceWorker, /'\/automation-guide\.html'/);
+  assert.match(serviceWorker, /navigationKey = url\.pathname === '\/automation-guide\.html'/);
+  assert.match(styleCSS, /\.automation-doc-main\s*\{/);
 });
 
 test('mobile session toolbar keeps square actions on both sides of search', () => {
