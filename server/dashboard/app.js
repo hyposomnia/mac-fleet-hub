@@ -2159,6 +2159,7 @@ function queueStatusCard(item) {
 
 function disposeChat(chat) {
   if (!chat) return;
+  stopChatSubagentSync(chat);
   if (chat.events) { try { chat.events.close(); } catch (_) {} }
   chat.events = null;
   if (chat.queueTimer) clearInterval(chat.queueTimer);
@@ -2283,6 +2284,7 @@ function syncSessionRuntimeIndicators() {
 
 function closeChatPane({ dispose = false } = {}) {
   const chat = state.chat;
+  stopChatSubagentSync(chat);
   closeChatImageViewer({ restoreFocus: false });
   if (document.activeElement === $('#chat-input')) releaseVisualKeyboard();
   saveChatDraft(chat);
@@ -2371,6 +2373,278 @@ function chatRenderUnits(entries) {
   return units;
 }
 
+const CHAT_SUBAGENT_POLL_MS = 2500;
+const CHAT_SUBAGENT_HISTORY_PAGES = 5;
+
+function chatSubagentStatus(value) {
+  const status = String(value || '').toLowerCase();
+  if (['running', 'inprogress', 'in_progress', 'active', 'pendinginit', 'pending_init'].includes(status)) {
+    return { key: 'running', label: '进行中', dot: 'live' };
+  }
+  if (['completed', 'complete', 'done'].includes(status)) return { key: 'completed', label: '已完成', dot: 'on' };
+  if (['failed', 'error', 'errored'].includes(status)) return { key: 'failed', label: '失败', dot: 'fail' };
+  if (['interrupted', 'cancelled', 'canceled', 'stopped', 'blocked', 'budget_limited', 'usage_limited'].includes(status)) {
+    return { key: 'interrupted', label: '已中断', dot: 'wait' };
+  }
+  return { key: 'unknown', label: '状态未知', dot: 'off' };
+}
+
+function chatSubagentMeta(agent) {
+  return [agent?.role, agent?.nickname].filter(Boolean).join(' · ');
+}
+
+function chatSubagentShouldRefreshDetail(previousStatus, currentStatus, loaded) {
+  const previous = chatSubagentStatus(previousStatus).key;
+  const current = chatSubagentStatus(currentStatus).key;
+  return !loaded || current === 'running' || (previous === 'running' && current !== 'running');
+}
+
+function ensureChatSubagentState(chat) {
+  if (!chat) return;
+  if (!Array.isArray(chat.subagents)) chat.subagents = [];
+  if (!(chat.subagentDetails instanceof Map)) chat.subagentDetails = new Map();
+  if (!['closed', 'list', 'detail'].includes(chat.subagentPanelMode)) chat.subagentPanelMode = 'closed';
+  if (typeof chat.selectedSubagentId !== 'string') chat.selectedSubagentId = '';
+}
+
+function chatSubagentById(chat, threadId) {
+  return (chat?.subagents || []).find((agent) => agent.threadId === threadId) || null;
+}
+
+function chatSubagentPollNeeded(chat) {
+  if (!chat || state.chat !== chat || chat.assistant !== 'codex' || chat.pendingStart) return false;
+  return isChatRunning(chat) || chat.subagentPanelMode !== 'closed' || (chat.subagents || []).some((agent) => chatSubagentStatus(agent.status).key === 'running');
+}
+
+function stopChatSubagentSync(chat) {
+  if (!chat) return;
+  if (chat.subagentTimer) clearTimeout(chat.subagentTimer);
+  chat.subagentTimer = null;
+}
+
+function scheduleChatSubagentSync(chat) {
+  stopChatSubagentSync(chat);
+  if (!chatSubagentPollNeeded(chat)) return;
+  chat.subagentTimer = setTimeout(() => refreshChatSubagents(chat), CHAT_SUBAGENT_POLL_MS);
+}
+
+async function refreshChatSubagents(chat = state.chat) {
+  ensureChatSubagentState(chat);
+  if (!chat || state.chat !== chat || chat.assistant !== 'codex' || chat.pendingStart) return;
+  if (chat.subagentsPromise) return chat.subagentsPromise;
+  const task = (async () => {
+    try {
+      const previousStatuses = new Map(chat.subagents.map((agent) => [agent.threadId, chatSubagentStatus(agent.status).key]));
+      const page = await api(chat.macId, `chat/subagents?assistant=codex&sessionId=${encodeURIComponent(chat.sessionId)}`);
+      if (state.chat !== chat) return;
+      chat.subagents = Array.isArray(page.items) ? page.items.filter((agent) => agent?.threadId && agent?.name) : [];
+      if (chat.selectedSubagentId && !chatSubagentById(chat, chat.selectedSubagentId)) {
+        chat.selectedSubagentId = '';
+        chat.subagentPanelMode = chat.subagents.length ? 'list' : 'closed';
+      }
+      renderChatSubagents(chat);
+      if (chat.subagentPanelMode === 'detail' && chat.selectedSubagentId) {
+        const selected = chatSubagentById(chat, chat.selectedSubagentId);
+        const detail = chat.subagentDetails.get(chat.selectedSubagentId);
+        const previousStatus = previousStatuses.get(chat.selectedSubagentId) || '';
+        if (selected && chatSubagentShouldRefreshDetail(previousStatus, selected.status, detail?.loaded)) {
+          loadChatSubagentHistory(chat, selected, { initial: !detail?.loaded });
+        }
+      }
+    } catch (_) {
+      // 子 Agent 是附加只读信息；短暂查询失败不污染主会话。
+    } finally {
+      if (chat.subagentsPromise === task) chat.subagentsPromise = null;
+      scheduleChatSubagentSync(chat);
+    }
+  })();
+  chat.subagentsPromise = task;
+  return task;
+}
+
+function startChatSubagentSync(chat = state.chat) {
+  ensureChatSubagentState(chat);
+  stopChatSubagentSync(chat);
+  if (!chat || state.chat !== chat || chat.assistant !== 'codex' || chat.pendingStart) {
+    renderChatSubagents(chat);
+    return;
+  }
+  refreshChatSubagents(chat);
+}
+
+function setChatSubagentPanel(chat, mode, threadId = '') {
+  ensureChatSubagentState(chat);
+  if (!chat || !['closed', 'list', 'detail'].includes(mode)) return;
+  chat.subagentPanelMode = mode;
+  if (mode === 'detail') chat.selectedSubagentId = threadId || chat.selectedSubagentId;
+  if (mode === 'closed') chat.selectedSubagentId = '';
+  renderChatSubagents(chat);
+  scheduleChatSubagentSync(chat);
+}
+
+function toggleChatSubagentList() {
+  const chat = state.chat;
+  if (!chat?.subagents?.length) return;
+  setChatSubagentPanel(chat, chat.subagentPanelMode === 'closed' ? 'list' : 'closed');
+}
+
+function openChatSubagent(threadId) {
+  const chat = state.chat;
+  const agent = chatSubagentById(chat, threadId);
+  if (!chat || !agent) return;
+  setChatSubagentPanel(chat, 'detail', threadId);
+  loadChatSubagentHistory(chat, agent, { initial: !chat.subagentDetails.get(threadId)?.loaded });
+}
+
+function renderChatSubagentList(chat) {
+  const list = $('#chat-subagent-list');
+  if (!list) return;
+  clear(list);
+  for (const agent of chat.subagents) {
+    const status = chatSubagentStatus(agent.status);
+    const meta = chatSubagentMeta(agent) || (agent.depth > 1 ? `第 ${agent.depth} 层` : 'Sub Agent');
+    list.append(h('button', {
+      type: 'button', class: 'chat-subagent-list-item', role: 'listitem',
+      'aria-current': chat.selectedSubagentId === agent.threadId ? 'true' : null,
+      onclick: () => openChatSubagent(agent.threadId),
+    },
+    h('span', { class: `dot ${status.dot}`, 'aria-hidden': 'true' }),
+    h('span', { class: 'chat-subagent-list-copy' },
+      h('span', { class: 'chat-subagent-list-name', text: agent.name }),
+      h('span', { class: 'chat-subagent-list-meta', text: meta })),
+    h('span', { class: 'chat-subagent-state-label', text: status.label })));
+  }
+}
+
+function renderChatSubagentDetail(chat) {
+  const agent = chatSubagentById(chat, chat.selectedSubagentId);
+  const panel = $('#chat-subagent-detail');
+  const sc = $('#chat-subagent-detail-scroll');
+  if (!panel || !sc || !agent) {
+    if (panel) panel.hidden = true;
+    return;
+  }
+  panel.hidden = false;
+  const status = chatSubagentStatus(agent.status);
+  $('#chat-subagent-detail-name').textContent = agent.name;
+  $('#chat-subagent-detail-state').textContent = status.label;
+  $('#chat-subagent-detail-dot').className = `dot ${status.dot}`;
+  $('#chat-subagent-detail-meta').textContent = chatSubagentMeta(agent);
+
+  const detail = chat.subagentDetails.get(agent.threadId);
+  const stick = !sc.scrollHeight || sc.scrollHeight - sc.scrollTop - sc.clientHeight < 36;
+  if (!detail?.loaded) {
+    clear(sc);
+    sc.append(h('div', { class: 'chat-subagent-detail-empty', text: detail?.error || '正在读取 Sub Agent 执行情况…' }));
+    return;
+  }
+  const stack = h('div', { class: 'chat-stack' });
+  const model = detail.model || FleetChatModel.createChatState();
+  const entries = model.messages
+    .map((id) => ({ id, item: model.items[id] }))
+    .filter((entry) => entry.item && !entry.item.internal && !['collabAgentToolCall', 'subAgentActivity'].includes(entry.item.kind));
+  for (const unit of chatRenderUnits(entries)) {
+    const rows = unit.kind === 'trace'
+      ? renderChatActivityRun(unit.entries.map((entry) => entry.item), unit.entries.map((entry) => entry.id), detail.expandedActivityGroups)
+      : [renderChatItem(unit.entries[0].item, false)];
+    for (const row of rows) if (row) stack.append(row);
+  }
+  const progress = renderChatTurnProgress(FleetChatModel.chatTurnProgress(model));
+  if (progress) stack.append(progress);
+  if (detail.error) stack.append(renderChatError(detail.error));
+  if (!stack.children.length) stack.append(h('div', { class: 'chat-subagent-detail-empty', text: status.key === 'running' ? 'Sub Agent 正在启动…' : '暂无可显示的执行记录' }));
+  clear(sc); sc.append(stack);
+  if (stick) sc.scrollTop = sc.scrollHeight;
+}
+
+function renderChatSubagents(chat = state.chat) {
+  const section = $('#chat-subagents');
+  const chips = $('#chat-subagent-chips');
+  const drawer = $('#chat-subagent-drawer');
+  const list = $('#chat-subagent-list');
+  const detail = $('#chat-subagent-detail');
+  if (!section || !chips || !drawer || !list || !detail) return;
+  ensureChatSubagentState(chat);
+  const visible = !!chat && chat.assistant === 'codex' && chat.subagents.length > 0;
+  section.hidden = !visible;
+  if (!visible) return;
+
+  section.dataset.mode = chat.subagentPanelMode;
+  clear(chips);
+  for (const agent of chat.subagents) {
+    const status = chatSubagentStatus(agent.status);
+    chips.append(h('button', {
+      type: 'button', class: 'chat-subagent-chip', role: 'tab', title: `${agent.name} · ${status.label}`,
+      'aria-label': `${agent.name}，${status.label}`,
+      'aria-selected': chat.subagentPanelMode === 'detail' && chat.selectedSubagentId === agent.threadId ? 'true' : 'false',
+      onclick: () => openChatSubagent(agent.threadId),
+    }, h('span', { class: `dot ${status.dot}`, 'aria-hidden': 'true' }), h('span', { class: 'chat-subagent-chip-name', text: agent.name })));
+  }
+  const expanded = chat.subagentPanelMode !== 'closed';
+  const toggle = $('#chat-subagent-toggle');
+  toggle.setAttribute('aria-expanded', String(expanded));
+  toggle.setAttribute('aria-label', expanded ? '收起 Sub Agent 面板' : '展开 Sub Agent 列表');
+  drawer.hidden = !expanded;
+  list.hidden = chat.subagentPanelMode !== 'list';
+  detail.hidden = chat.subagentPanelMode !== 'detail';
+  if (chat.subagentPanelMode === 'list') renderChatSubagentList(chat);
+  if (chat.subagentPanelMode === 'detail') renderChatSubagentDetail(chat);
+}
+
+async function loadChatSubagentHistory(chat, agent, { initial = false } = {}) {
+  ensureChatSubagentState(chat);
+  if (!chat || !agent || state.chat !== chat) return;
+  let detail = chat.subagentDetails.get(agent.threadId);
+  if (!detail) {
+    detail = {
+      model: FleetChatModel.createChatState(), loaded: false, loading: false, reloadAfterLoad: false,
+      error: '', expandedActivityGroups: new Set(),
+    };
+    chat.subagentDetails.set(agent.threadId, detail);
+  }
+  if (detail.loading) {
+    detail.reloadAfterLoad = true;
+    return detail.loadingPromise;
+  }
+  detail.loading = true;
+  detail.error = '';
+  renderChatSubagentDetail(chat);
+  const task = (async () => {
+    try {
+      let cursor = '';
+      let pages = 0;
+      let events = [];
+      do {
+        const suffix = cursor ? `&cursor=${encodeURIComponent(cursor)}` : '';
+        const page = await api(chat.macId, `chat/history?assistant=codex&sessionId=${encodeURIComponent(agent.threadId)}${suffix}`);
+        if (initial) events = (page.events || []).concat(events);
+        else events = page.events || [];
+        cursor = initial ? (page.nextCursor || '') : '';
+        pages += 1;
+      } while (cursor && pages < CHAT_SUBAGENT_HISTORY_PAGES);
+      if (state.chat !== chat) return;
+      if (initial || !detail.loaded) {
+        detail.model = FleetChatModel.prependHistory(FleetChatModel.createChatState(), events);
+      } else {
+        for (const event of events) detail.model = FleetChatModel.reduceChatEvent(detail.model, event);
+      }
+      detail.loaded = true;
+    } catch (error) {
+      detail.error = error.message || '读取失败';
+    } finally {
+      detail.loading = false;
+      detail.loadingPromise = null;
+      if (state.chat === chat && chat.selectedSubagentId === agent.threadId) renderChatSubagentDetail(chat);
+      if (detail.reloadAfterLoad) {
+        detail.reloadAfterLoad = false;
+        loadChatSubagentHistory(chat, agent, { initial: !detail.loaded });
+      }
+    }
+  })();
+  detail.loadingPromise = task;
+  return task;
+}
+
 function renderChat({ preserveScroll = false, forceBottom = false } = {}) {
   const chat = state.chat;
   const sc = $('#chat-scroll');
@@ -2379,6 +2653,7 @@ function renderChat({ preserveScroll = false, forceBottom = false } = {}) {
   const oldTop = sc.scrollTop;
   const stick = !preserveScroll && chatAtBottom();
   const stack = h('div', { class: 'chat-stack' });
+  renderChatSubagents(chat);
   if (chat.historyReady && chat.historyLoading) {
     stack.append(h('div', { class: 'chat-history-state', text: '正在加载更早记录…' }));
   }
@@ -3890,6 +4165,7 @@ async function openChatSession(s) {
   } else {
     chat = {
       cacheKey: key, macId,
+      assistant: state.assistant,
       sessionId: s.sessionId, title: s.title || `${assistantLabel()} 会话`, cwd: s.cwd || '',
       model: FleetChatModel.createChatState(), loading: true, events: null, resumePromise: null,
       pendingStart: !!s.pendingStart, unscoped: !!s.unscoped, startPromise: null,
@@ -3909,10 +4185,14 @@ async function openChatSession(s) {
       turnPhase: s.pendingStart ? 'idle' : 'unknown', activeTurnId: '', turnOwner: '',
       releasingWriter: false, changingAccess: false, approvalControlsEnabled: false,
       approvalUpdateChain: Promise.resolve(), approvalUpdatePending: false, approvalUpdateSeq: 0,
+      subagents: [], subagentDetails: new Map(), subagentPanelMode: 'closed', selectedSubagentId: '',
+      subagentTimer: null, subagentsPromise: null,
     };
     state.chatCache.set(key, chat);
   }
   state.chat = chat;
+  chat.assistant = state.assistant;
+  ensureChatSubagentState(chat);
   if (!(chat.expandedActivityGroups instanceof Set)) chat.expandedActivityGroups = new Set();
   if (typeof chat.writerOwner !== 'string') chat.writerOwner = '';
   if (!['read_only', 'read_write', 'unknown'].includes(chat.accessMode)) chat.accessMode = 'unknown';
@@ -3963,6 +4243,7 @@ async function openChatSession(s) {
   if (chat.pendingStart) return;
   if (chat.historyReady) {
     startChatEvents(chat);
+    startChatSubagentSync(chat);
     return;
   }
   if (chat.resumePromise) return;
@@ -3985,6 +4266,7 @@ async function openChatSession(s) {
       chat.loading = false;
       applyChatMetadataDefaults(chat);
       startChatEvents(chat);
+      startChatSubagentSync(chat);
     }
     if (state.chat === chat) {
       renderChat({ forceBottom: true });
@@ -4380,6 +4662,11 @@ function startChatEvents(chat = state.chat) {
         updateChatComposerState();
         renderChatFollowups();
       }
+      const eventKind = ev?.data?.kind;
+      if ((ev.type === 'tool_update' && ['collabAgentToolCall', 'subAgentActivity'].includes(eventKind)) ||
+          ['turn_started', 'turn_done'].includes(ev.type)) {
+        refreshChatSubagents(chat);
+      }
       if (['turn_started', 'turn_done', 'thread_status', 'control_changed', 'user_done', 'interaction_request', 'interaction_resolved', 'approval_request', 'approval_resolved'].includes(ev.type)) {
         loadServerChatQueue(chat);
       }
@@ -4432,6 +4719,7 @@ async function restoreChatAfterForeground(chat = state.chat) {
       // 恢复时即使历史补偿暂时失败，也要重新建立实时流；下一次回前台会再次补偿。
     } finally {
       if (state.chatCache.get(chat.cacheKey) === chat) startChatEvents(chat);
+      if (state.chatCache.get(chat.cacheKey) === chat && state.chat === chat) startChatSubagentSync(chat);
     }
   })();
   chat.foregroundSyncPromise = task;
@@ -4504,6 +4792,7 @@ async function ensurePendingChatStarted(chat) {
     state.selectedSessionMacId = chat.macId;
     state.selectedSessionAssistant = state.assistant;
     startChatEvents(chat);
+    startChatSubagentSync(chat);
     if (preferredApproval !== chat.approvalConfirmedMode) {
       chat.approvalUpdatePending = true;
       const settingsRequestSeq = beginChatControlRequest(chat);
@@ -6833,6 +7122,10 @@ function init() {
     });
   });
   $('#chat-options-back').addEventListener('click', (e) => { e.stopPropagation(); showChatOptionsMain({ focus: true }); });
+  $('#chat-subagent-toggle').addEventListener('click', (e) => {
+    e.stopPropagation();
+    toggleChatSubagentList();
+  });
 
   // 全局设置菜单（桌面侧栏与移动端共用同一组动作）
   $('#user-btn').onclick = (e) => toggleMenu('usermenu', e);
@@ -6881,6 +7174,11 @@ function init() {
   document.addEventListener('keydown', (e) => {
     if (handleChatImageViewerKeydown(e)) return;
     if (e.key !== 'Escape') return;
+    if (state.chat?.subagentPanelMode && state.chat.subagentPanelMode !== 'closed') {
+      setChatSubagentPanel(state.chat, 'closed');
+      $('#chat-subagent-toggle').focus();
+      return;
+    }
     if (!$('#file-settings-menu').hidden) {
       closeFileSettings({ restoreFocus: true });
       return;

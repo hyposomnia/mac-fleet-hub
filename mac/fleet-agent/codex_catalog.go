@@ -60,6 +60,8 @@ type codexThreadWire struct {
 	UpdatedAt      int64           `json:"updatedAt"`
 	RecencyAt      *int64          `json:"recencyAt"`
 	Status         json.RawMessage `json:"status"`
+	AgentNickname  string          `json:"agentNickname"`
+	AgentRole      string          `json:"agentRole"`
 	GitInfo        *struct {
 		Branch string `json:"branch"`
 	} `json:"gitInfo"`

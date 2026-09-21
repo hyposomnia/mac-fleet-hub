@@ -17,7 +17,7 @@
        内联以避免首屏闪烁。 -->
   <script>(function () { var t; try { t = localStorage.getItem('fleet-theme'); } catch (e) {} if (t !== 'light' && t !== 'dark') t = matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark'; document.documentElement.dataset.theme = t; document.querySelector('meta[name="theme-color"]').content = t === 'light' ? '#f6f7f9' : '#090c12'; })();</script>
   <link rel="stylesheet" href="vendor/codemirror/lib/codemirror.css?v=5.65.20" />
-  <link rel="stylesheet" href="style.css?v=130" />
+  <link rel="stylesheet" href="style.css?v=131" />
 </head>
 <body>
   <!-- DeepSeek 官方 whale mark，来源与 MIT 许可见 icons/deepseek/LICENSE.md。 -->
@@ -283,6 +283,28 @@
             </div>
             <input id="chat-file" type="file" accept="image/*" multiple hidden />
             <div class="chat-composer-shell">
+              <section id="chat-subagents" class="chat-subagents" aria-label="Sub Agent" data-mode="closed" hidden>
+                <div class="chat-subagent-bar">
+                  <div id="chat-subagent-chips" class="chat-subagent-chips" role="tablist" aria-label="Sub Agent 状态"></div>
+                  <button id="chat-subagent-toggle" class="chat-subagent-toggle" type="button" aria-label="展开 Sub Agent 列表" aria-expanded="false">
+                    <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><polyline points="6 15 12 9 18 15"/></svg>
+                  </button>
+                </div>
+                <div id="chat-subagent-drawer" class="chat-subagent-drawer" hidden>
+                  <div id="chat-subagent-list" class="chat-subagent-list" role="list"></div>
+                  <section id="chat-subagent-detail" class="chat-subagent-detail" aria-live="polite" hidden>
+                    <header class="chat-subagent-detail-head">
+                      <div class="chat-subagent-detail-title">
+                        <span id="chat-subagent-detail-dot" class="dot off"></span>
+                        <strong id="chat-subagent-detail-name">Sub Agent</strong>
+                        <span id="chat-subagent-detail-state" class="chat-subagent-state-label"></span>
+                      </div>
+                      <span id="chat-subagent-detail-meta" class="chat-subagent-detail-meta"></span>
+                    </header>
+                    <div id="chat-subagent-detail-scroll" class="chat-subagent-detail-scroll"></div>
+                  </section>
+                </div>
+              </section>
               <div id="chat-pending-interaction" hidden></div>
               <div id="chat-followups" hidden></div>
               <div class="chat-composer-inner">
@@ -525,10 +547,10 @@
   <script src="vendor/codemirror/mode/yaml/yaml.js?v=5.65.20"></script>
   <script src="vendor/codemirror/mode/toml/toml.js?v=5.65.20"></script>
   <script src="vendor/codemirror/mode/properties/properties.js?v=5.65.20"></script>
-  <script src="markdown.js?v=130"></script>
-  <script src="preview.js?v=130"></script>
-  <script src="chat_model.js?v=130"></script>
-  <script src="upload_model.js?v=130"></script>
-  <script src="app.js?v=130"></script>
+  <script src="markdown.js?v=131"></script>
+  <script src="preview.js?v=131"></script>
+  <script src="chat_model.js?v=131"></script>
+  <script src="upload_model.js?v=131"></script>
+  <script src="app.js?v=131"></script>
 </body>
 </html>

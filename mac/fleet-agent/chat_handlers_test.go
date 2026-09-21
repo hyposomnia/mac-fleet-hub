@@ -30,6 +30,14 @@ type fakeChatBackend struct {
 	releaseFn   func(context.Context, string, string) error
 	settingsFn  func(context.Context, string, string, string) error
 	controlFn   func(context.Context, string, string) (ChatRuntimeState, error)
+	subagentsFn func(context.Context, string, string) (ChatSubagentPage, error)
+}
+
+func (f fakeChatBackend) Subagents(ctx context.Context, assistant, sessionID string) (ChatSubagentPage, error) {
+	if f.subagentsFn != nil {
+		return f.subagentsFn(ctx, assistant, sessionID)
+	}
+	return ChatSubagentPage{}, nil
 }
 
 func (f fakeChatBackend) Control(ctx context.Context, assistant, sessionID string) (ChatRuntimeState, error) {
@@ -194,6 +202,33 @@ func TestChatResumeRejectsClaude(t *testing.T) {
 	}
 	if !strings.Contains(rr.Body.String(), `"unsupported_assistant"`) {
 		t.Fatalf("body missing unsupported assistant: %s", rr.Body.String())
+	}
+}
+
+func TestChatSubagentsReturnsReadOnlyProjection(t *testing.T) {
+	withChatBackend(t, fakeChatBackend{subagentsFn: func(_ context.Context, assistant, sessionID string) (ChatSubagentPage, error) {
+		if assistant != "codex" || sessionID != "parent-1" {
+			t.Fatalf("subagent args assistant=%q session=%q", assistant, sessionID)
+		}
+		return ChatSubagentPage{Items: []ChatSubagent{{ThreadID: "child-1", Name: "review", Status: "running"}}}, nil
+	}})
+	req := httptest.NewRequest(http.MethodGet, "/api/chat/subagents?assistant=codex&sessionId=parent-1", nil)
+	rr := httptest.NewRecorder()
+
+	handleChatSubagents(rr, req)
+
+	if rr.Code != http.StatusOK || !strings.Contains(rr.Body.String(), `"threadId":"child-1"`) || !strings.Contains(rr.Body.String(), `"status":"running"`) {
+		t.Fatalf("status=%d body=%s", rr.Code, rr.Body.String())
+	}
+}
+
+func TestChatSubagentsRejectsDeepSeek(t *testing.T) {
+	withChatBackend(t, fakeChatBackend{})
+	req := httptest.NewRequest(http.MethodGet, "/api/chat/subagents?assistant=dsh&sessionId=parent-1", nil)
+	rr := httptest.NewRecorder()
+	handleChatSubagents(rr, req)
+	if rr.Code != http.StatusNotImplemented || !strings.Contains(rr.Body.String(), `"unsupported_assistant"`) {
+		t.Fatalf("status=%d body=%s", rr.Code, rr.Body.String())
 	}
 }
 

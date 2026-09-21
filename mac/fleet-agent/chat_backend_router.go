@@ -119,6 +119,13 @@ func (r *routingChatBackend) ThreadCwd(ctx context.Context, sessionID string) (s
 	return r.codex.ThreadCwd(ctx, sessionID)
 }
 
+func (r *routingChatBackend) Subagents(ctx context.Context, assistant, sessionID string) (ChatSubagentPage, error) {
+	if r == nil || r.codex == nil || normAssistant(assistant) != "codex" {
+		return ChatSubagentPage{}, errAppServerUnavailable
+	}
+	return r.codex.Subagents(ctx, assistant, sessionID)
+}
+
 // dshBackend 暴露 DSH 后端（可能为 nil）。
 func (r *routingChatBackend) dshBackend() *dshChatBackend {
 	if r == nil {

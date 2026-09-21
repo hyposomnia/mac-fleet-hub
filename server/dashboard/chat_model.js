@@ -366,6 +366,13 @@
     if (data.durationMs !== undefined && data.durationMs !== null) item.durationMs = data.durationMs;
     if (data.exitCode !== undefined && data.exitCode !== null) item.exitCode = data.exitCode;
     if (data.mediaPath !== undefined) item.mediaPath = data.mediaPath || '';
+    if (data.internal !== undefined) item.internal = Boolean(data.internal);
+    if (data.activityKind !== undefined) item.activityKind = data.activityKind || '';
+    if (data.agentThreadId !== undefined) item.agentThreadId = data.agentThreadId || '';
+    if (data.agentPath !== undefined) item.agentPath = data.agentPath || '';
+    if (data.senderThreadId !== undefined) item.senderThreadId = data.senderThreadId || '';
+    if (Array.isArray(data.receiverThreadIds)) item.receiverThreadIds = data.receiverThreadIds.slice();
+    if (data.agentsStates && typeof data.agentsStates === 'object') item.agentsStates = { ...data.agentsStates };
     if (Array.isArray(data.commandActions)) item.commandActions = data.commandActions.map((action) => ({ ...action }));
     return item;
   }

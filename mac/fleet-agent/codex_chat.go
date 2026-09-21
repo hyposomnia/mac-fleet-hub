@@ -3363,6 +3363,7 @@ func projectCodexToolItem(sessionID, turnID string, raw json.RawMessage, lifecyc
 		var item struct {
 			Tool              string                 `json:"tool"`
 			Status            string                 `json:"status"`
+			SenderThreadID    string                 `json:"senderThreadId"`
 			ReceiverThreadIDs []string               `json:"receiverThreadIds"`
 			Prompt            string                 `json:"prompt"`
 			AgentsStates      map[string]interface{} `json:"agentsStates"`
@@ -3372,18 +3373,27 @@ func projectCodexToolItem(sessionID, turnID string, raw json.RawMessage, lifecyc
 		data["summary"] = strings.Join(item.ReceiverThreadIDs, ", ")
 		data["detail"] = capChatHistoryText(item.Prompt, 12<<10)
 		data["output"] = compactChatValue(item.AgentsStates, 12<<10)
+		data["senderThreadId"] = item.SenderThreadID
+		data["receiverThreadIds"] = item.ReceiverThreadIDs
+		data["agentsStates"] = item.AgentsStates
+		data["internal"] = true
 		if item.Status != "" {
 			data["status"] = item.Status
 		}
 	case "subAgentActivity":
 		var item struct {
-			Kind      string `json:"kind"`
-			AgentPath string `json:"agentPath"`
+			Kind          string `json:"kind"`
+			AgentThreadID string `json:"agentThreadId"`
+			AgentPath     string `json:"agentPath"`
 		}
 		_ = json.Unmarshal(raw, &item)
 		data["title"] = "子任务活动"
 		data["summary"] = item.AgentPath
 		data["detail"] = item.Kind
+		data["activityKind"] = item.Kind
+		data["agentThreadId"] = item.AgentThreadID
+		data["agentPath"] = item.AgentPath
+		data["internal"] = true
 	default:
 		return ChatEvent{}, false
 	}
