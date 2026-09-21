@@ -65,6 +65,9 @@ dsh_block="$(block_of 'location ^~ /m__N__/dsh/' "$MAC_TMPL")"
 [[ "$dsh_block" == *'proxy_set_header Upgrade $http_upgrade;'* ]] \
   || fail 'DSH 原生 UI 缺少 WebSocket Upgrade'
 grep -q 'location = /m__N__/dsh' "$MAC_TMPL" || fail 'DSH 原生 UI 缺少尾斜杠重定向'
+redirect_block="$(block_of 'location = /m__N__/dsh {' "$MAC_TMPL")"
+[[ "$redirect_block" == *'return 308 $scheme://$http_host/m__N__/dsh/;'* ]] \
+  || fail 'DSH 原生 UI 尾斜杠重定向没有保留公网 host/高位端口'
 
 # 6) 公网消息 API 必须只由 Bearer key 认证，不能被 Authelia Cookie 拦住；密钥管理和消息记录则反过来
 #    必须保留 auth_request，避免公网 key 自己轮换/撤销密钥或读取所有消息正文。
