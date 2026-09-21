@@ -342,6 +342,70 @@ test('ChatGPT is the first and default session assistant', () => {
   assert.match(appSrc, /assistant:\s*'codex',\s*\/\/ codex \| dsh/);
 });
 
+test('DeepSeek native UI uses the official black whale button and opens a host-scoped path', () => {
+  const buttons = [...indexHTML.matchAll(/<button[^>]*data-dsh-native-open[^>]*>/g)].map((match) => match[0]);
+  assert.equal(buttons.length, 2, 'desktop and mobile each expose the native DSH entrance');
+  for (const button of buttons) {
+    assert.match(button, /disabled/);
+    assert.match(button, /aria-label="打开 DeepSeek Harness"/);
+  }
+  assert.match(indexHTML, /<symbol id="deepseek-whale-mark"[^>]*>[\s\S]*?<path d="M22\.9168 1\.43018/);
+  assert.equal((indexHTML.match(/<use href="#deepseek-whale-mark"/g) || []).length, 2);
+  assert.match(styleCSS, /\.dsh-native-open\s*\{[^}]*color:\s*#111827;/s);
+  assert.match(styleCSS, /\.dsh-native-open:disabled\s*\{[^}]*color:\s*var\(--text-3\);/s);
+  assert.match(appSrc, /function dshNativeTargetMac\(\)/);
+  assert.match(appSrc, /window\.open\(`\$\{apiBase\(macId\)\}\/dsh\/`, '_blank', 'noopener,noreferrer'\)/);
+  assert.match(appSrc, /dsh\.nativeUI !== true/);
+});
+
+test('DeepSeek native UI stays disabled until one online host reports a live native UI', () => {
+  const result = vm.runInContext(`(() => {
+    const saved = {
+      macs: [...MACS], mode: state.mode, sessionMacId: state.sessionMacId,
+      nodes: state.nodes, assistantInfo: state.assistantInfo,
+    };
+    const previousWindow = globalThis.window;
+    try {
+      MACS.splice(0, MACS.length, { id: 'm2' });
+      state.mode = 'sessions';
+      state.nodes = { m2: true };
+      state.assistantInfo = {};
+      state.sessionMacId = 'all';
+      const allDevices = dshNativeButtonState();
+      state.sessionMacId = 'm2';
+      const probing = dshNativeButtonState();
+      state.assistantInfo = { m2: { dsh: { enabled: true, installed: true, nativeUI: false, hostRunning: true, degraded: false } } };
+      const oldAgent = dshNativeButtonState();
+      state.assistantInfo.m2.dsh.nativeUI = true;
+      state.assistantInfo.m2.dsh.hostRunning = false;
+      state.assistantInfo.m2.dsh.degraded = true;
+      const stopped = dshNativeButtonState();
+      state.assistantInfo.m2.dsh.hostRunning = true;
+      state.assistantInfo.m2.dsh.degraded = false;
+      const ready = dshNativeButtonState();
+      let opened = null;
+      globalThis.window = { open: (...args) => { opened = args; } };
+      openDshNativeUI();
+      return { allDevices, probing, oldAgent, stopped, ready, opened };
+    } finally {
+      MACS.splice(0, MACS.length, ...saved.macs);
+      state.mode = saved.mode;
+      state.sessionMacId = saved.sessionMacId;
+      state.nodes = saved.nodes;
+      state.assistantInfo = saved.assistantInfo;
+      if (previousWindow === undefined) delete globalThis.window;
+      else globalThis.window = previousWindow;
+    }
+  })()`, appSandbox);
+  const value = JSON.parse(JSON.stringify(result));
+  assert.equal(value.allDevices.enabled, false);
+  assert.equal(value.probing.enabled, false);
+  assert.equal(value.oldAgent.enabled, false);
+  assert.equal(value.stopped.enabled, false);
+  assert.equal(value.ready.enabled, true);
+  assert.deepEqual(value.opened, ['/m2/dsh/', '_blank', 'noopener,noreferrer']);
+});
+
 test('settings menu owns archive browsing and session settings', () => {
   const header = indexHTML.match(/<header class="sc-head">[\s\S]*?<\/header>/)?.[0] || '';
   assert.ok(header);

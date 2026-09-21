@@ -1845,6 +1845,7 @@ func handleInfo(w http.ResponseWriter, r *http.Request) {
 	// 才认为可用，避免在 Desktop 没跑时露出一个点了报错的入口。
 	dshInfo := map[string]interface{}{
 		"enabled":        cfg.DSHEnabled,
+		"nativeUI":       true,
 		"sessionActions": []string{"pin", "unpin", "rename", "archive", "delete"},
 		"desktopAppPath": dshDesktopAppPath,
 		"installed":      dshDesktopInstalled(),
@@ -1853,6 +1854,9 @@ func handleInfo(w http.ResponseWriter, r *http.Request) {
 		"authMode":       string(dshAuthNone),
 	}
 	if backend := router.dshBackend(); backend != nil {
+		probeCtx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
+		backend.probeNativeUI(probeCtx)
+		cancel()
 		endpoint, mode, lastErr, seen := backend.Status()
 		dshInfo["authMode"] = string(mode)
 		if endpoint.Port > 0 {
@@ -2008,6 +2012,7 @@ func runServer() {
 	mux.HandleFunc("/api/reload", handleReload)
 	mux.HandleFunc("/api/proxy", handleProxy)
 	mux.HandleFunc("/api/info", handleInfo)
+	mux.Handle("/api/dsh-native/", newDSHNativeProxy(cfg.MacIndex, resolveDSHNativeTarget, markDSHNativeProxyFailure))
 	mux.HandleFunc("/api/file/list", handleFileList)
 	mux.HandleFunc("/api/file/preview", handleFilePreview)
 	mux.HandleFunc("/api/file/content", handleFileContent)

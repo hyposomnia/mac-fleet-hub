@@ -28,8 +28,8 @@ block_of() {
 block_of 'location = /authz' "$SITE" | grep -q 'client_max_body_size 513m' \
   || fail 'server/nginx/fleet.conf 的 location = /authz 缺少 client_max_body_size 513m'
 
-# 2) 每台 Mac 的 api / files 反代块同样要放宽，与 fleet-agent 的 512 MiB 上限对齐。
-for loc in 'location ^~ /m__N__/api/' 'location ^~ /m__N__/files/'; do
+# 2) 每台 Mac 的 api / files / DSH 原生 UI 反代块同样要放宽，与 fleet-agent 的 512 MiB 上限对齐。
+for loc in 'location ^~ /m__N__/api/' 'location ^~ /m__N__/files/' 'location ^~ /m__N__/dsh/'; do
   block_of "$loc" "$MAC_TMPL" | grep -q 'client_max_body_size 513m' \
     || fail "server/nginx/fleet-mac.conf 的 ${loc} 缺少 client_max_body_size 513m"
 done
@@ -57,7 +57,16 @@ awk -v f="$tmpdir/mac-blocks" -f "$tmpdir/prog.awk" "$SITE" > "$tmpdir/rendered.
 grep -q 'location ^~ /m2/files/' "$tmpdir/rendered.conf" \
   || fail '渲染结果缺少第二台 Mac 的反代块'
 
-# 5) 公网消息 API 必须只由 Bearer key 认证，不能被 Authelia Cookie 拦住；密钥管理和消息记录则反过来
+# 5) DSH 原生 UI 保持同域路径，必须经过 Authelia，并把 HTTP/WS 全量转给 agent 的专用代理。
+dsh_block="$(block_of 'location ^~ /m__N__/dsh/' "$MAC_TMPL")"
+[[ "$dsh_block" == *'auth_request /authz;'* ]] || fail 'DSH 原生 UI 缺少 Authelia 鉴权'
+[[ "$dsh_block" == *'proxy_pass http://__MAC_IP__:__AGENT_PORT__/api/dsh-native/;'* ]] \
+  || fail 'DSH 原生 UI 没有转发到 fleet-agent 专用代理'
+[[ "$dsh_block" == *'proxy_set_header Upgrade $http_upgrade;'* ]] \
+  || fail 'DSH 原生 UI 缺少 WebSocket Upgrade'
+grep -q 'location = /m__N__/dsh' "$MAC_TMPL" || fail 'DSH 原生 UI 缺少尾斜杠重定向'
+
+# 6) 公网消息 API 必须只由 Bearer key 认证，不能被 Authelia Cookie 拦住；密钥管理和消息记录则反过来
 #    必须保留 auth_request，避免公网 key 自己轮换/撤销密钥或读取所有消息正文。
 for loc in 'location = /api/v1/messages' 'location ^~ /api/v1/messages/'; do
   block="$(block_of "$loc" "$SITE")"

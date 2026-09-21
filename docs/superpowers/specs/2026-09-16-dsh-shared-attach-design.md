@@ -34,7 +34,7 @@ Fleet 的自绘聊天目前只支持 Codex：`chat.go` / `chat_queue.go` 用 `Ch
   理由：跨进程无锁，第二个写入方是真实的数据损坏风险；isolated 需要独立的 `DSH_HOME`，
   而独立 home 就看不到 Desktop 的会话历史。
 - **不接 ACP / SDK 协议**：`dsh --profile acp` 虽有正式协议契约，但它是第二个写入方且 profile 需自建。
-- **不代理 DSH 原生 GUI**：不把 `dsh web` 的网页界面经 nginx 暴露到 `/mN/dsh/`（资产路径 `<base href="/">`
+- **不代理 DSH 原生 GUI（v1 决策，已被 2026-09-21 规格替代）**：不把 `dsh web` 的网页界面经 nginx 暴露到 `/mN/dsh/`（资产路径 `<base href="/">`
   与 Authelia 前缀冲突，且需要独立域名）。Fleet 只提供自绘界面。
 - **不接管模型凭据**：shared 模式下模型调用由 DSH host 自己完成，fleet-agent 不接触
   `DEEPSEEK_API_KEY`，也不需要它。

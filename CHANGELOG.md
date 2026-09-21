@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-09-21
+
+- Fleet 同域新增每台 Mac 的 DeepSeek Harness 原生 Web UI 入口：选择具体设备后，黑色官方鲸鱼按钮在 DSH Desktop 正在运行时可用，并在新页面打开 `/mN/dsh/`；离线、未安装、未启动或旧 agent 会保持置灰。网关经 Authelia 把该路径转到 fleet-agent，由 agent 只在本机 loopback 访问 DSH、服务端持有上游凭据并兼容 DSH 的根路径资源、API、WebSocket 与文件上传，不新增域名解析，也不把 Harness 凭据交给浏览器。PWA 外壳缓存升级到 v128。
+
 ## 2026-09-20
 
 - 新增由 Fleet 访问密钥保护的异步公网消息 API：外部系统可按大小写不敏感的设备显示名/ID、项目名/路径、会话名/ID，把消息发送到内网 Mac 上的 Codex 或 DeepSeek 会话；支持新建会话、`Idempotency-Key`、任务持久化与重启恢复、同会话串行执行、状态查询以及带 HMAC 签名和 SSRF 防护的终态回调。

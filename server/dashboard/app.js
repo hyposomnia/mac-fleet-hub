@@ -355,6 +355,40 @@ function dshEnabled(macId) {
   return !!(dsh && dsh.enabled);
 }
 
+// 原生 DSH Web UI 必须绑定一台明确的 Mac；“全部设备”没有唯一的代理目标。
+function dshNativeTargetMac() {
+  const macId = state.mode === 'sessions' ? state.sessionMacId : '';
+  return /^m\d+$/.test(macId || '') && MACS.some((m) => m.id === macId) ? macId : '';
+}
+
+function dshNativeButtonState() {
+  const macId = dshNativeTargetMac();
+  if (!macId) return { macId: '', enabled: false, title: '请先选择一台 Mac' };
+  if (!state.nodes[macId]) return { macId, enabled: false, title: `${macName(macId)} 当前离线` };
+  const dsh = state.assistantInfo[macId]?.dsh;
+  if (!dsh) return { macId, enabled: false, title: '正在检查 DeepSeek Harness' };
+  if (dsh.nativeUI !== true) return { macId, enabled: false, title: '请先更新这台 Mac 的 Fleet Agent' };
+  if (!dsh.enabled) return { macId, enabled: false, title: '这台 Mac 未启用 DeepSeek Harness' };
+  if (!dsh.installed) return { macId, enabled: false, title: '这台 Mac 未安装 DSH Desktop' };
+  if (!dsh.hostRunning || dsh.degraded) return { macId, enabled: false, title: '请先在这台 Mac 上启动 DSH Desktop' };
+  return { macId, enabled: true, title: `在新页面打开 ${macName(macId)} 的 DeepSeek Harness` };
+}
+
+function syncDshNativeButtons() {
+  const status = dshNativeButtonState();
+  $$('[data-dsh-native-open]').forEach((button) => {
+    button.disabled = !status.enabled;
+    button.title = status.title;
+    button.setAttribute('aria-disabled', String(!status.enabled));
+  });
+}
+
+function openDshNativeUI() {
+  const { macId, enabled } = dshNativeButtonState();
+  if (!enabled) return;
+  window.open(`${apiBase(macId)}/dsh/`, '_blank', 'noopener,noreferrer');
+}
+
 // 聊天入口只看会话模式与助手能力，旧自绘开关不再参与。
 function canSelfDrawChat(assistant = state.assistant, macId = '') {
   return state.mode === 'sessions' && assistantCapabilities(assistant, macId).selfDraw;
@@ -441,6 +475,7 @@ function renderHosts() {
   const nav = $('#host-list'); clear(nav);
   nav.append(h('div', { class: 'hd eyebrow', text: state.mode === 'files' ? '文件所在设备' : '会话设备' }));
   const chips = $('#host-chips'); clear(chips);
+  syncDshNativeButtons();
   if (!MACS.length) { nav.append(h('div', { class: 'empty', text: '暂无已入网的 Mac' })); return; }
   const selected = state.mode === 'files' ? state.fileMacId : state.sessionMacId;
   if (state.mode === 'sessions') {
@@ -582,6 +617,7 @@ async function refreshAssistantCapabilities() {
 function syncAssistantTabs() {
   const available = Object.keys(state.assistantInfo).some(dshEnabled);
   $$('[data-assistant="dsh"]').forEach((b) => { b.hidden = !available; });
+  syncDshNativeButtons();
   // 选中的 dsh 已经不可用（agent 没开 / 换了旧 agent）：退回 codex，不停在一个空列表上
   if (!available && state.assistant === 'dsh') { setAssistant('codex'); return; }
   syncDshBanner();
@@ -6574,6 +6610,9 @@ function init() {
   };
   $$('#new-session, #new-session-mobile').forEach((button) => {
     button.onclick = requestNewSession;
+  });
+  $$('[data-dsh-native-open]').forEach((button) => {
+    button.onclick = openDshNativeUI;
   });
   // 自绘文件浏览器
   $('#file-search').oninput = (event) => { state.fileSearch = event.target.value.trim(); renderFileEntries(); };
