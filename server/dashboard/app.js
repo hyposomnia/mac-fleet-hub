@@ -335,12 +335,14 @@ function initSessionListPreferences() {
 //   selfDraw      自绘聊天面（历史分页、发送、流式、审批往返都在这个面里）
 //   sessionCursor 会话列表走游标 + 服务端筛选（archived/limit/search/cursor）；否则走 scope=active|all
 //   terminal      网页已退役 ttyd；所有助手均关闭终端入口。
+//   approvalModes 会话级权限预设（untrusted/on-request/full-access）。DSH 的权限由 host 自己的
+//                 permission 设置决定，Fleet 侧没有对应预设：既不下发 approvalMode，也不开放审批入口。
 // DSH 的 selfDraw 还要求目标 Mac 的 /api/info 报 dsh.enabled 且未降级（DSH Desktop 在跑）；
 // 拿不到 info（旧 agent / 离线）按不可用处理，不露出半成品入口。macId 省略时取当前设备。
 function assistantCapabilities(assistant = state.assistant, macId = '') {
-  if (assistant === 'codex') return { selfDraw: true, sessionCursor: true, terminal: false };
-  if (assistant !== 'dsh') return { selfDraw: false, sessionCursor: false, terminal: false };
-  return { selfDraw: dshReady(macId || state.macId), sessionCursor: true, terminal: false };
+  if (assistant === 'codex') return { selfDraw: true, sessionCursor: true, terminal: false, approvalModes: true };
+  if (assistant !== 'dsh') return { selfDraw: false, sessionCursor: false, terminal: false, approvalModes: false };
+  return { selfDraw: dshReady(macId || state.macId), sessionCursor: true, terminal: false, approvalModes: false };
 }
 
 // 该 Mac 的 DSH 是否可用：agent 报了能力块、enabled 且未降级。旧 agent 不返回 dsh 块 → false。
@@ -4394,12 +4396,15 @@ function renderChatApprovalMenu(chat = state.chat) {
 function setChatApprovalEnabled(chat, enabled) {
   const trigger = $('#chat-approval');
   if (!trigger) return;
+  // 没有会话级权限预设的助手（DSH）保持禁用：入口点下去只会拿到一个"暂不支持"，
+  // 与 agent 侧 chat_capabilities.ApprovalModes 同一判定。
+  const supported = assistantCapabilities().approvalModes;
   if (chat) {
     chat.approvalMode = normalizeChatApprovalMode(chat.approvalMode);
-    chat.approvalControlsEnabled = !!enabled;
+    chat.approvalControlsEnabled = !!enabled && supported;
   }
-  trigger.disabled = !enabled || chatMutationsBlocked(chat);
-  if (!enabled) closeChatApproval();
+  trigger.disabled = !enabled || !supported || chatMutationsBlocked(chat);
+  if (!enabled || !supported) closeChatApproval();
   renderChatApprovalMenu(chat);
 }
 
@@ -4939,7 +4944,9 @@ function chatTurnOptions(chat) {
     if (chat.selectedEffort) turnOptions.effort = chat.selectedEffort;
   }
   if (chat.serviceTierDirty) turnOptions.serviceTier = chat.selectedServiceTier;
-  if (chat.approvalMode) turnOptions.approvalMode = chat.approvalMode;
+  // 审批模式只发给有会话级权限预设的助手：DSH 没有对应语义，带过去会让 agent 的
+  // 投递前同步整条失败（failed: dsh_unsupported），消息根本发不出去。
+  if (chat.approvalMode && assistantCapabilities().approvalModes) turnOptions.approvalMode = chat.approvalMode;
   return turnOptions;
 }
 

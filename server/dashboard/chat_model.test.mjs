@@ -97,6 +97,8 @@ vm.runInContext('globalThis.__chatQueuePresentationTest = chatQueuePresentation;
 const chatQueuePresentation = appSandbox.__chatQueuePresentationTest;
 vm.runInContext('globalThis.__queueStatusCardTest = queueStatusCard;', appSandbox);
 const queueStatusCard = appSandbox.__queueStatusCardTest;
+vm.runInContext('globalThis.__chatApprovalCapabilityTest = { assistantCapabilities, chatTurnOptions };', appSandbox);
+const { assistantCapabilities, chatTurnOptions } = appSandbox.__chatApprovalCapabilityTest;
 function toolLabelText(item) {
   const status = chatToolStatus(item.status);
   return chatToolActivityLabel(item, status, chatToolDuration(item.durationMs)).map(nodeText).join('');
@@ -1414,7 +1416,7 @@ test('composer lets the server route running input and only stops when empty', (
   assert.match(appSrc, /attach\.disabled = mutationBlocked/);
   assert.match(appSrc, /approval\.disabled = mutationBlocked/);
   assert.match(appSrc, /function chatMutationsBlocked/);
-  assert.match(appSrc, /trigger\.disabled = !enabled \|\| chatMutationsBlocked\(chat\)/);
+  assert.match(appSrc, /trigger\.disabled = !enabled \|\| !supported \|\| chatMutationsBlocked\(chat\)/);
   assert.match(appSrc, /if \(!state\.chat \|\| chatMutationsBlocked\(state\.chat\)\) return/);
   assert.match(appSrc, /disabled: chatMutationsBlocked\(\) \? '' : null/);
   assert.match(appSrc, /if \(chatMutationsBlocked\(chat\) \|\| !requestId/);
@@ -1803,7 +1805,7 @@ test('self-drawn approval menu mirrors Codex three presets', () => {
   assert.match(appSrc, /return 'on-request';/);
   assert.match(appSrc, /trigger\.dataset\.value\s*=\s*selected\.value/);
   assert.match(appSrc, /api\(chat\.macId,\s*'chat\/settings'/);
-  assert.match(appSrc, /if\s*\(chat\.approvalMode\)\s*turnOptions\.approvalMode\s*=\s*chat\.approvalMode/);
+  assert.match(appSrc, /if\s*\(chat\.approvalMode && assistantCapabilities\(\)\.approvalModes\)\s*turnOptions\.approvalMode\s*=\s*chat\.approvalMode/);
   assert.match(appSrc, /已开启完全访问，当前任务后续审批将自动允许。/);
   assert.match(appSrc, /https:\/\/developers\.openai\.com\/codex\/concepts\/sandboxing#how-you-control-it/);
   assert.match(styleCSS, /\.chat-approval-choice\.full-access\s*\{\s*color:\s*#f04b14/);
@@ -1812,6 +1814,29 @@ test('self-drawn approval menu mirrors Codex three presets', () => {
   assert.match(styleCSS, /\.chat-approval-title\s*\{[^}]*font-size:\s*var\(--t-body\)/s);
   assert.match(styleCSS, /\.chat-approval-desc\s*\{[^}]*font-size:\s*var\(--t-secondary\)/s);
   assert.match(styleCSS, /\.chat-approval-popover,\s*\.chat-options-popover\s*\{[^}]*position:\s*fixed;[^}]*bottom:\s*0/s);
+});
+
+// 回归背景（2026-09-22 真机）：dashboard 对每条消息都下发 approvalMode（默认 on-request），
+// agent 的投递前同步又对它无条件调 chat/settings，而 DSH 明确不支持 → 每条 DeepSeek 消息
+// 都停在 failed: dsh_unsupported。DSH 不得再下发该选项。
+test('approval mode is only sent for assistants that support session presets', () => {
+  const previous = appState.assistant;
+  try {
+    appState.assistant = 'codex';
+    assert.equal(assistantCapabilities().approvalModes, true);
+    assert.deepEqual({ ...chatTurnOptions({ approvalMode: 'on-request' }) }, { approvalMode: 'on-request' });
+
+    appState.assistant = 'dsh';
+    assert.equal(assistantCapabilities().approvalModes, false);
+    assert.deepEqual({ ...chatTurnOptions({ approvalMode: 'on-request' }) }, {});
+    // 其它 turn 选项不受影响：DSH 仍带模型/档位。
+    assert.deepEqual(
+      { ...chatTurnOptions({ approvalMode: 'full-access', modelDirty: true, selectedModel: 'deepseek-chat', selectedEffort: 'high' }) },
+      { model: 'deepseek-chat', effort: 'high' },
+    );
+  } finally {
+    appState.assistant = previous;
+  }
 });
 
 test('self-drawn option submenu grows to the available viewport height', () => {

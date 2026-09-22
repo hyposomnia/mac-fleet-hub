@@ -389,6 +389,46 @@ func TestBackendQueueSenderAppliesApprovalModeBeforeSteer(t *testing.T) {
 	}
 }
 
+// TestBackendQueueSenderSkipsApprovalModeWithoutPreset 锁住 DSH 的投递路径。
+//
+// 回归背景（2026-09-22 真机）：dashboard 每条消息都带 approvalMode（默认 on-request），
+// Deliver 又无条件先调 Settings，而 dshChatBackend.Settings 刻意返回 errDSHUnsupported，
+// 于是**每条** DeepSeek 消息都停在 failed: dsh_unsupported，一次都没发出去。
+func TestBackendQueueSenderSkipsApprovalModeWithoutPreset(t *testing.T) {
+	prev := cfg.DSHEnabled
+	t.Cleanup(func() { cfg.DSHEnabled = prev })
+	cfg.DSHEnabled = true
+
+	settingsCalls := 0
+	steerCalls := 0
+	sender := backendChatQueueSender{backend: fakeChatBackend{
+		settingsFn: func(context.Context, string, string, string) error {
+			settingsCalls++
+			return errDSHUnsupported
+		},
+		steerFn: func(_ context.Context, assistant, sessionID, clientMessageID, text string, _ []ChatAttachment, _ []ChatSkill) (ChatInputResult, error) {
+			steerCalls++
+			if assistant != "dsh" || sessionID != "session-1" || clientMessageID != "dsh-approval" || text != "继续" {
+				t.Fatalf("steer identity assistant=%q session=%q client=%q text=%q", assistant, sessionID, clientMessageID, text)
+			}
+			// DSH 的 steer 走 host 的有序 inbox，空闲会话也能起一轮——不会报 no_active_turn。
+			return ChatInputResult{TurnID: "turn-dsh"}, nil
+		},
+	}}
+
+	result, err := sender.Deliver(ChatQueueItem{
+		ClientMessageID: "dsh-approval", Assistant: "dsh", SessionID: "session-1",
+		Text: "继续", DeliveryMode: chatDeliveryAuto,
+		Options: ChatTurnOptions{ApprovalMode: "on-request"},
+	})
+	if err != nil || result.Delivery != chatDeliverySteer || result.TurnID != "turn-dsh" {
+		t.Fatalf("deliver result=%+v err=%v", result, err)
+	}
+	if settingsCalls != 0 || steerCalls != 1 {
+		t.Fatalf("settings=%d steer=%d, want 0/1（没有权限预设就不该同步）", settingsCalls, steerCalls)
+	}
+}
+
 func TestChatQueuePersistsAndDeduplicatesClientMessage(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "queue.json")
 	q, err := openChatQueue(path)

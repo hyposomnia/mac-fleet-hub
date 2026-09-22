@@ -7,7 +7,9 @@ import "testing"
 // 存在的理由：自绘链路原本靠 16 处硬编码 `assistant != "codex"` 守卫，加第三个
 // assistant 时每一处都要改，且容易漏。能力化之后只在这里判定。
 func TestChatCapabilities(t *testing.T) {
-	all := assistantCapabilities{SelfDraw: true, Queue: true}
+	codexAll := assistantCapabilities{SelfDraw: true, Queue: true, ApprovalModes: true}
+	// dsh 有自绘面与队列，但没有会话级权限预设：权限由 host 自己的设置决定。
+	dshAll := assistantCapabilities{SelfDraw: true, Queue: true}
 	none := assistantCapabilities{}
 
 	// dsh 的能力受 FLEET_DSH_ENABLED 控制：关着的时候必须是 false，
@@ -17,10 +19,13 @@ func TestChatCapabilities(t *testing.T) {
 
 	cfg.DSHEnabled = true
 	dshEnabled := chatCapabilities("dsh")
-	if dshEnabled != all {
-		t.Fatalf("启用时 chatCapabilities(dsh) = %+v, want %+v", dshEnabled, all)
+	if dshEnabled != dshAll {
+		t.Fatalf("启用时 chatCapabilities(dsh) = %+v, want %+v", dshEnabled, dshAll)
 	}
-	if got := chatCapabilities("DSH"); got != all {
+	if dshEnabled.ApprovalModes {
+		t.Fatal("DSH 不得声明 ApprovalModes：Settings 明确返回 errDSHUnsupported")
+	}
+	if got := chatCapabilities("DSH"); got != dshAll {
 		t.Fatalf("大小写不敏感失败: %+v", got)
 	}
 
@@ -34,9 +39,9 @@ func TestChatCapabilities(t *testing.T) {
 		assistant string
 		want      assistantCapabilities
 	}{
-		{"codex 小写", "codex", all},
-		{"codex 大写", "Codex", all},
-		{"codex 带空格", "  codex  ", all},
+		{"codex 小写", "codex", codexAll},
+		{"codex 大写", "Codex", codexAll},
+		{"codex 带空格", "  codex  ", codexAll},
 		{"claude 仍走终端，不得自绘", "claude", none},
 		{"claude 大写", "Claude", none},
 		{"空串回退 claude", "", none},

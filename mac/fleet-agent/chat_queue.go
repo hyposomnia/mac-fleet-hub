@@ -162,7 +162,10 @@ func (s backendChatQueueSender) Deliver(item ChatQueueItem) (chatQueueDeliveryRe
 	if err != nil {
 		return chatQueueDeliveryResult{}, err
 	}
-	if item.Options.ApprovalMode != "" {
+	// 审批模式是会话级权限预设（Codex 语义）。没有这个能力的 assistant 必须整步跳过：
+	// DSH 的 Settings 刻意返回 errDSHUnsupported，而这里是**投递前**的同步——照旧把
+	// 错误往上抛，就等于每条 DeepSeek 消息都停在 failed: dsh_unsupported（真机实测）。
+	if item.Options.ApprovalMode != "" && chatCapabilities(item.Assistant).ApprovalModes {
 		if err := s.backend.Settings(ctx, item.Assistant, item.SessionID, item.Options.ApprovalMode); err != nil {
 			return chatQueueDeliveryResult{}, err
 		}

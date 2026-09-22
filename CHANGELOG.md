@@ -2,6 +2,7 @@
 
 ## 2026-09-22
 
+- 修复 **DeepSeek 会话在网页端发不出任何消息**（真机：每条消息都停在 `failed: dsh_unsupported`，卡片只剩「重新尝试 / 取消」）：dashboard 对每条消息都下发 `approvalMode`（默认 `on-request`），而 agent 的服务端队列在投递**之前**无条件调用 `chat/settings`，DSH backend 又刻意对该端点返回 `errDSHUnsupported`——于是投递在真正 `session/prompt` 之前就被中止，消息一次都没进过 host。现在把「会话级权限预设」独立成一维能力（agent `assistantCapabilities.ApprovalModes` / dashboard `approvalModes`）：没有该能力的助手既不执行投递前同步（整步跳过，不再连消息一起丢），也不在网页端暴露审批入口、不下发 `approvalMode`；Codex 行为不变。PWA 外壳缓存升级到 v132。
 - ChatGPT 自绘会话新增 Sub Agent 状态条与执行详情：父会话出现子任务后，输入框上方按名称横向展示全部 Sub Agent，并复用现有状态点区分进行中、完成、失败、中断与未知；点击名称打开执行记录，箭头展开完整列表，桌面详情占约半屏、移动端统一使用大半屏抽屉。子线程继续从普通会话目录隐藏，主对话也不再重复渲染协作协议事件；dashboard 通过只读子线程查询与历史接口实时补偿状态和输出，PWA 外壳缓存升级到 v131。
 
 ## 2026-09-21
