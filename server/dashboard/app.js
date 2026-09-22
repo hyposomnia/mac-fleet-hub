@@ -130,6 +130,8 @@ const state = {
   killAssistant: null,   // 待终止会话所属助手
   killMacId: null,       // 待终止会话所在设备
   nodes: {},             // id -> online
+  gatewayDown: false,    // /api/nodes.json 拉取失败（网关不可达）——与「没有 Mac 入网」区分开
+  gatewayReason: '',     // 失败原因（HTTP 5xx / network error），排障用
   counts: {},            // id -> 活跃会话数（主机栏/主机条展示）
   assistantInfo: {},     // id -> /api/info 响应（dsh 能力块：tab 显隐、自绘能力、降级横幅）
   collapsed: new Set(),  // 已折叠的分组 cwd
@@ -478,7 +480,23 @@ function renderHosts() {
   nav.append(h('div', { class: 'hd eyebrow', text: state.mode === 'files' ? '文件所在设备' : '会话设备' }));
   const chips = $('#host-chips'); clear(chips);
   syncDshNativeButtons();
-  if (!MACS.length) { nav.append(h('div', { class: 'empty', text: '暂无已入网的 Mac' })); return; }
+  if (!MACS.length) {
+    // 空态有两种成因，必须说清是哪一种——否则「网关挂了」会被读成「车队是空的」，
+    // 用户会跑去排查终端/设备，而真正的问题在网关那一层。
+    if (state.gatewayDown) {
+      const retry = h('button', { class: 'btn sm empty-retry', type: 'button', text: '重试' });
+      retry.onclick = retryNodes;
+      nav.append(h('div', { class: 'empty empty-down' },
+        h('div', { class: 'ed-t', text: '⚠ 无法连接服务器' }),
+        h('div', { class: 'ed-s', text: '网关暂时不可用，设备列表取不到。' }),
+        h('div', { class: 'ed-s', text: '这不代表没有 Mac 入网。' }),
+        retry,
+      ));
+    } else {
+      nav.append(h('div', { class: 'empty', text: '暂无已入网的 Mac' }));
+    }
+    return;
+  }
   const selected = state.mode === 'files' ? state.fileMacId : state.sessionMacId;
   if (state.mode === 'sessions') {
     const onlineCount = MACS.filter((m) => state.nodes[m.id]).length;
@@ -567,8 +585,14 @@ function setFileDevice(id) {
 async function refreshNodes() {
   try {
     const r = await fetch(`${BASE}/api/nodes.json`, { cache: 'no-store' });
-    if (!r.ok) return;
+    // 拉不到节点清单 = 网关这一层有问题，**不等于**「一台 Mac 都没入网」。
+    // 两者都会让 MACS 为空、左栏都显示空态，所以必须分开记状态：
+    // 不然后端挂了却被读成「车队是空的」，用户会去查终端/设备，白跑一趟。
+    // （/api/nodes.json 由网关的 fleet-nodes.timer 每 30s 调 headscale 写出；网关一死它必然拿不到。）
+    if (!r.ok) { markGatewayUnreachable(`HTTP ${r.status}`); return; }
     const list = await r.json();
+    // 解析成功即证明网关这一层是活的（后面若因数据形状抛错，不该被误判成「连不上」）。
+    markGatewayReachable();
     const online = {};
     const ids = [];
     for (const n of (Array.isArray(list) ? list : (list.nodes || []))) {
@@ -595,7 +619,32 @@ async function refreshNodes() {
     else if (state.mode === 'files' && state.fileMacId && !state.fileEntries.length) loadFiles();
     refreshHostCounts();
     refreshAssistantCapabilities();
-  } catch (_) {}
+  } catch (e) {
+    // fetch 抛错（断网 / 网关不可达 / 请求超时）同样按「网关不可达」处理，不再静默吞掉。
+    markGatewayUnreachable(e && e.message ? e.message : 'network error');
+  }
+}
+
+// 网关可达性状态：仅用于把「网关挂了」和「确实没有 Mac」在 UI 上分开，不做任何业务判断。
+// 记 reason 便于排障时能区分是 HTTP 5xx 还是压根连不上。
+function markGatewayUnreachable(reason) {
+  if (state.gatewayDown && state.gatewayReason === reason) return;  // 状态没变，别每 30s 重渲染
+  state.gatewayDown = true;
+  state.gatewayReason = reason;
+  renderHosts();
+}
+
+function markGatewayReachable() {
+  if (!state.gatewayDown) return;
+  state.gatewayDown = false;
+  state.gatewayReason = '';
+  renderHosts();
+}
+
+// 手动重试：立刻再拉一次节点清单（用户看到故障态时的「再试一次」）。
+function retryNodes() {
+  toast('正在重新连接网关…');
+  refreshNodes();
 }
 
 // 探测在线 Mac 的 /api/info，取 dsh 能力块（第三个 tab 的显隐、自绘能力、降级横幅都吃它）。
@@ -5364,7 +5413,12 @@ function renderDeviceOptions() {
       online: !!state.nodes[mac.id],
     });
   }
-  if (!wrap.children.length) wrap.append(h('div', { class: 'empty', text: '暂无可用设备' }));
+  // 与左栏空态同理：网关不可达 ≠ 没有设备，移动端选择器也要说清是哪一种。
+  if (!wrap.children.length) {
+    wrap.append(state.gatewayDown
+      ? h('div', { class: 'empty', text: '⚠ 无法连接服务器，设备列表取不到' })
+      : h('div', { class: 'empty', text: '暂无可用设备' }));
+  }
 }
 
 function requestNewSession() {
@@ -5644,7 +5698,10 @@ function loadFiles(opts = {}) {
   }
   if (!state.fileMacId) {
     const list = $('#file-list');
-    if (list) { clear(list); list.append(h('div', { class: 'file-empty', text: '暂无可用设备' })); }
+    if (list) {
+      clear(list);
+      list.append(h('div', { class: 'file-empty', text: state.gatewayDown ? '⚠ 无法连接服务器，设备列表取不到' : '暂无可用设备' }));
+    }
     return;
   }
   state.macId = state.fileMacId;

@@ -670,6 +670,12 @@ html.automation-doc-root, html.automation-doc-root body { height: auto; min-heig
 
 .empty { color: var(--text-2); text-align: center; padding: 40px 18px; font-size: var(--t-body); }
 .empty small { color: var(--text-3); }
+/* 网关不可达的空态：要和「确实没有 Mac」一眼区分开，所以用 danger 色调 + 可点的重试。
+   padding 比 .empty 小 —— 这里有三行信息，40px 会把重试按钮顶出可视区。 */
+.empty-down { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 28px 14px; }
+.empty-down .ed-t { color: var(--danger); font-weight: 600; }
+.empty-down .ed-s { color: var(--text-3); font-size: var(--t-secondary); line-height: 1.5; }
+.empty-retry { margin-top: 8px; }
 
 /* 骨架占位行（加载会话时） */
 .skel-ses { padding: 11px; margin-bottom: 8px; }
