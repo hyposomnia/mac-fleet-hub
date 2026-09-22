@@ -17,7 +17,7 @@
        内联以避免首屏闪烁。 -->
   <script>(function () { var t; try { t = localStorage.getItem('fleet-theme'); } catch (e) {} if (t !== 'light' && t !== 'dark') t = matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark'; document.documentElement.dataset.theme = t; document.querySelector('meta[name="theme-color"]').content = t === 'light' ? '#f6f7f9' : '#090c12'; })();</script>
   <link rel="stylesheet" href="vendor/codemirror/lib/codemirror.css?v=5.65.20" />
-  <link rel="stylesheet" href="style.css?v=132" />
+  <link rel="stylesheet" href="style.css?v=133" />
 </head>
 <body>
   <!-- DeepSeek 官方 whale mark，来源与 MIT 许可见 icons/deepseek/LICENSE.md。 -->
@@ -127,20 +127,27 @@
           <div class="seg assistant-seg" role="tablist">
             <button data-assistant="codex" role="tab" aria-selected="true">ChatGPT</button>
             <!-- DeepSeek 默认隐藏：只有该 Mac 的 /api/info 报了 dsh 能力才由 syncAssistantTabs 放出来 -->
-            <button data-assistant="dsh" role="tab" aria-selected="false" hidden>DeepSeek</button>
+            <!-- 官方鲸鱼入口嵌在 DeepSeek tab 内：点鲸鱼在新页面打开原生 UI，点文字切助手。
+                 wrapper 只做「一个 tab」的视觉外壳（role=presentation），里面两个各自独立的
+                 button——既避开 button 套 button 的非法结构，也保住鲸鱼的键盘可达。 -->
+            <div class="assistant-tab" data-assistant-entry="dsh" role="presentation" hidden>
+              <button class="assistant-tab-label" data-assistant="dsh" role="tab" aria-selected="false">DeepSeek</button>
+              <button class="dsh-native-open" type="button" data-dsh-native-open title="请先选择一台 Mac" aria-label="打开 DeepSeek Harness" disabled><svg class="dsh-whale" viewBox="0 0 23.16 17.04" aria-hidden="true"><use href="#deepseek-whale-mark" /></svg></button>
+            </div>
           </div>
           <span data-device-scope-slot="sessions"></span>
           <div class="sc-head-actions">
             <button class="iconbtn bare mobile-menu-trigger" title="菜单" aria-label="菜单" aria-haspopup="true"><svg class="ic" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.87l.04.04-2.87 2.87-.04-.04A1.7 1.7 0 0 0 15 19.4a1.7 1.7 0 0 0-1 1.55V21h-4v-.05A1.7 1.7 0 0 0 9 19.4a1.7 1.7 0 0 0-1.87.34l-.04.04-2.87-2.87.04-.04A1.7 1.7 0 0 0 4.6 15a1.7 1.7 0 0 0-1.55-1H3v-4h.05A1.7 1.7 0 0 0 4.6 9a1.7 1.7 0 0 0-.34-1.87l-.04-.04 2.87-2.87.04.04A1.7 1.7 0 0 0 9 4.6a1.7 1.7 0 0 0 1-1.55V3h4v.05A1.7 1.7 0 0 0 15 4.6a1.7 1.7 0 0 0 1.87-.34l.04-.04 2.87 2.87-.04.04A1.7 1.7 0 0 0 19.4 9a1.7 1.7 0 0 0 1.55 1H21v4h-.05a1.7 1.7 0 0 0-1.55 1Z"/></svg></button>
-            <button class="iconbtn dsh-native-open desktop-dsh-native-open" type="button" data-dsh-native-open title="请先选择一台 Mac" aria-label="打开 DeepSeek Harness" disabled><svg class="dsh-whale" viewBox="0 0 23.16 17.04" aria-hidden="true"><use href="#deepseek-whale-mark" /></svg></button>
-            <button class="iconbtn dsh-native-open mobile-dsh-native-open" type="button" data-dsh-native-open title="请先选择一台 Mac" aria-label="打开 DeepSeek Harness" disabled><svg class="dsh-whale" viewBox="0 0 23.16 17.04" aria-hidden="true"><use href="#deepseek-whale-mark" /></svg></button>
             <button id="new-session" class="iconbtn primary-action" title="新建无项目会话" aria-label="新建无项目会话"><svg class="ic" viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg></button>
           </div>
         </div>
         <div class="seg mobile-assistant-seg" role="tablist">
           <button data-assistant="codex" role="tab" aria-selected="true">ChatGPT</button>
           <!-- 与桌面 seg 同步显隐，见 syncAssistantTabs -->
-          <button data-assistant="dsh" role="tab" aria-selected="false" hidden>DeepSeek</button>
+          <div class="assistant-tab" data-assistant-entry="dsh" role="presentation" hidden>
+            <button class="assistant-tab-label" data-assistant="dsh" role="tab" aria-selected="false">DeepSeek</button>
+            <button class="dsh-native-open" type="button" data-dsh-native-open title="请先选择一台 Mac" aria-label="打开 DeepSeek Harness" disabled><svg class="dsh-whale" viewBox="0 0 23.16 17.04" aria-hidden="true"><use href="#deepseek-whale-mark" /></svg></button>
+          </div>
         </div>
         <div class="session-search-row">
           <button id="session-view-toggle" class="iconbtn" title="按最近更新排序" aria-label="按最近更新排序" aria-pressed="false"><svg class="ic" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg></button>
@@ -547,10 +554,10 @@
   <script src="vendor/codemirror/mode/yaml/yaml.js?v=5.65.20"></script>
   <script src="vendor/codemirror/mode/toml/toml.js?v=5.65.20"></script>
   <script src="vendor/codemirror/mode/properties/properties.js?v=5.65.20"></script>
-  <script src="markdown.js?v=132"></script>
-  <script src="preview.js?v=132"></script>
-  <script src="chat_model.js?v=132"></script>
-  <script src="upload_model.js?v=132"></script>
-  <script src="app.js?v=132"></script>
+  <script src="markdown.js?v=133"></script>
+  <script src="preview.js?v=133"></script>
+  <script src="chat_model.js?v=133"></script>
+  <script src="upload_model.js?v=133"></script>
+  <script src="app.js?v=133"></script>
 </body>
 </html>

@@ -616,9 +616,10 @@ async function refreshAssistantCapabilities() {
 }
 
 // DeepSeek 入口显隐：拿不到 info 就藏起来（旧 agent / 探测失败），不露半成品入口。
+// 鲸鱼嵌在 tab 内，所以显隐落在 tab 外壳（data-assistant-entry）上，一次带掉文字与鲸鱼。
 function syncAssistantTabs() {
   const available = Object.keys(state.assistantInfo).some(dshEnabled);
-  $$('[data-assistant="dsh"]').forEach((b) => { b.hidden = !available; });
+  $$('[data-assistant-entry="dsh"]').forEach((entry) => { entry.hidden = !available; });
   syncDshNativeButtons();
   // 选中的 dsh 已经不可用（agent 没开 / 换了旧 agent）：退回 codex，不停在一个空列表上
   if (!available && state.assistant === 'dsh') { setAssistant('codex'); return; }

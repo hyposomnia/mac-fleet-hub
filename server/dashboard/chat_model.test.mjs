@@ -361,6 +361,32 @@ test('DeepSeek native UI uses the official black whale button and opens a host-s
   assert.match(appSrc, /dsh\.nativeUI !== true/);
 });
 
+// 鲸鱼从操作区挪进 DeepSeek tab：wrapper 是「一个 tab」的视觉外壳，里面 label 与鲸鱼
+// 各自是独立按钮（点文字切助手、点鲸鱼开原生 UI），既不出现 button 套 button，也不丢键盘可达。
+test('DeepSeek whale sits inside the assistant tab instead of the header actions', () => {
+  const tabs = [...indexHTML.matchAll(/<div class="assistant-tab"[^>]*>[\s\S]*?<\/div>/g)].map((match) => match[0]);
+  assert.equal(tabs.length, 2, '桌面 seg 与移动 seg 各一个 DeepSeek tab 外壳');
+  for (const tab of tabs) {
+    assert.match(tab, /data-assistant-entry="dsh"/);
+    assert.match(tab, /role="presentation"/);
+    assert.match(tab, /\bhidden\b/, 'tab 外壳默认隐藏，由 syncAssistantTabs 放出来');
+    const label = tab.indexOf('class="assistant-tab-label"');
+    const whale = tab.indexOf('data-dsh-native-open');
+    assert.ok(label >= 0 && whale > label, 'tab 里先 label 后鲸鱼，两个都是独立 button');
+    assert.match(tab, /<button class="assistant-tab-label"[^>]*data-assistant="dsh"[^>]*role="tab"/);
+    assert.match(tab, /<button class="dsh-native-open"[^>]*data-dsh-native-open/);
+    assert.doesNotMatch(tab, /<button[^>]*>\s*<button/);
+  }
+  // 操作区不再有独立鲸鱼按钮
+  assert.doesNotMatch(indexHTML, /class="iconbtn dsh-native-open/);
+  assert.match(appSrc, /\$\$\('\[data-assistant-entry="dsh"\]'\)\.forEach\(\(entry\) => \{ entry\.hidden = !available; \}\)/);
+  // wrapper 自带 inline-flex，必须显式关掉 [hidden]，否则藏不住
+  assert.match(styleCSS, /\.seg \.assistant-tab\[hidden\]\s*\{\s*display:\s*none;\s*\}/);
+  assert.match(styleCSS, /\.seg \.assistant-tab:has\(\[aria-selected="true"\]\)\s*\{\s*background:\s*var\(--surface-1\);/);
+  assert.match(styleCSS, /\.seg \.assistant-tab \.dsh-native-open\s*\{[^}]*flex:\s*none;/s);
+  assert.match(styleCSS, /\.seg \.assistant-tab \.dsh-whale\s*\{\s*width:\s*18px;\s*\}/);
+});
+
 test('DeepSeek native UI stays disabled until one online host reports a live native UI', () => {
   const result = vm.runInContext(`(() => {
     const saved = {

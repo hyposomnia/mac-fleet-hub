@@ -1334,7 +1334,26 @@ textarea.chat-request-input { resize: vertical; }
 .sc-title-row { display: flex; align-items: center; gap: 10px; }
 .sc-title-row .assistant-seg { flex: 1; min-width: 0; }
 .sc-title-row .assistant-seg button { flex: 1; text-align: center; }
-.mobile-title-switch, .mobile-device-scope, .mobile-assistant-seg, .file-mobile-head, .mobile-menu-trigger, .mobile-new-session, .mobile-dsh-native-open { display: none; }
+/* DeepSeek tab：官方鲸鱼入口嵌在 tab 内。wrapper 只做「一个 tab」的视觉外壳，
+   选中态挂在 wrapper 上（:has），label 切助手、鲸鱼开原生 UI，互不干扰。
+   注意 [hidden] 必须显式关掉 display——wrapper 自己的 inline-flex 会盖过 UA 的隐藏。 */
+.seg .assistant-tab {
+  display: inline-flex; align-items: center; flex: 1; min-width: 0; border-radius: 7px;
+  transition: background var(--dur-1) var(--ease), box-shadow var(--dur-1) var(--ease);
+}
+.seg .assistant-tab[hidden] { display: none; }
+.seg .assistant-tab:has([aria-selected="true"]) { background: var(--surface-1); box-shadow: var(--e1); }
+.seg .assistant-tab .assistant-tab-label {
+  flex: 1; min-width: 0; padding: 6px 0 6px 12px; border-radius: 7px; background: none; box-shadow: none;
+}
+.seg .assistant-tab .assistant-tab-label[aria-selected="true"] { background: none; box-shadow: none; color: var(--text); }
+.seg .assistant-tab .dsh-native-open {
+  flex: none; display: grid; place-items: center; width: 26px; height: 26px; min-height: 0;
+  margin: 0 3px 0 2px; padding: 0; border-color: transparent; border-radius: 6px; background: none;
+}
+.seg .assistant-tab .dsh-native-open:not(:disabled):hover { background: var(--surface-hover); }
+.seg .assistant-tab .dsh-whale { width: 18px; }
+.mobile-title-switch, .mobile-device-scope, .mobile-assistant-seg, .file-mobile-head, .mobile-menu-trigger, .mobile-new-session { display: none; }
 .sc-head-actions { display: flex; align-items: center; gap: 7px; margin-left: auto; }
 .iconbtn.primary-action { border-color: transparent; background: var(--accent); color: #fff; }
 .iconbtn.primary-action:hover { background: var(--accent-1); color: #fff; }
@@ -1760,8 +1779,7 @@ textarea.chat-request-input { resize: vertical; }
   .sc-head-actions .iconbtn { width: 42px; height: 42px; }
   .mobile-assistant-seg { display: flex; width: 100%; margin-top: 10px; }
   .mobile-assistant-seg button { flex: 1; min-height: 38px; text-align: center; }
-  .sc-head-actions #new-session, .sc-head-actions .desktop-dsh-native-open { display: none; }
-  .sc-head-actions .mobile-dsh-native-open { display: grid; }
+  .sc-head-actions #new-session { display: none; }
   .session-search-row { grid-template-columns: 46px minmax(0, 1fr) 46px; margin-top: 10px; }
   .session-search-row .mobile-new-session { display: grid; }
   .session-search-row .session-searchbar { min-height: 46px; height: 46px; }
