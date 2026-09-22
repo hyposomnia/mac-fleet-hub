@@ -4630,7 +4630,7 @@ async function loadOlderChatHistory() {
   chat.historyLoading = true;
   renderChat({ preserveScroll: true });
   try {
-    const page = await api(chat.macId, `chat/history?assistant=codex&sessionId=${encodeURIComponent(chat.sessionId)}&cursor=${encodeURIComponent(chat.historyCursor)}`);
+    const page = await api(chat.macId, `chat/history?assistant=${state.assistant}&sessionId=${encodeURIComponent(chat.sessionId)}&cursor=${encodeURIComponent(chat.historyCursor)}`);
     if (state.chat !== chat) return;
     chat.model = FleetChatModel.prependHistory(chat.model, page.events || []);
     applyChatMetadataDefaults(chat);
@@ -4648,7 +4648,7 @@ async function loadOlderChatHistory() {
 function startChatEvents(chat = state.chat) {
   if (!chat) return;
   if (chat.events && chat.events.readyState !== EventSource.CLOSED) return;
-  const url = `${apiBase(chat.macId)}/api/chat/events?assistant=codex&sessionId=${encodeURIComponent(chat.sessionId)}`;
+  const url = `${apiBase(chat.macId)}/api/chat/events?assistant=${state.assistant}&sessionId=${encodeURIComponent(chat.sessionId)}`;
   const es = new EventSource(url);
   chat.events = es;
   syncSessionRuntimeIndicators();

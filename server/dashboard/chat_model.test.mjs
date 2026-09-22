@@ -99,6 +99,8 @@ vm.runInContext('globalThis.__queueStatusCardTest = queueStatusCard;', appSandbo
 const queueStatusCard = appSandbox.__queueStatusCardTest;
 vm.runInContext('globalThis.__chatApprovalCapabilityTest = { assistantCapabilities, chatTurnOptions };', appSandbox);
 const { assistantCapabilities, chatTurnOptions } = appSandbox.__chatApprovalCapabilityTest;
+vm.runInContext('globalThis.__chatEventsTest = { startChatEvents };', appSandbox);
+const { startChatEvents } = appSandbox.__chatEventsTest;
 function toolLabelText(item) {
   const status = chatToolStatus(item.status);
   return chatToolActivityLabel(item, status, chatToolDuration(item.durationMs)).map(nodeText).join('');
@@ -1863,6 +1865,31 @@ test('approval mode is only sent for assistants that support session presets', (
   } finally {
     appState.assistant = previous;
   }
+});
+
+// 回归背景（2026-09-22 真机）：自绘聊天的实时流 URL 写死 `assistant=codex`——那是 7 月
+// Codex-only 时代留下的，DSH 接进来时没跟着改。后果是 DeepSeek 会话**永远收不到任何事件**：
+// turn 在 host 上真跑、工具在调，浏览器里却一片空白（只有乐观插入的用户气泡 + 队列轮询的"进行中"）。
+test('self-drawn chat subscribes to the current assistant stream instead of a hardcoded codex', () => {
+  const previous = appState.assistant;
+  try {
+    appState.assistant = 'dsh';
+    const chat = {
+      macId: 'm1', sessionId: 'session-dsh-1', assistant: 'dsh', cacheKey: 'm1/session-dsh-1',
+      events: null, subagents: [], subagentDetails: new Map(), subagentPanelMode: 'closed', selectedSubagentId: '',
+    };
+    appState.chatCache.set(chat.cacheKey, chat);
+    startChatEvents(chat);
+    assert.ok(chat.events, 'startChatEvents 应建立 EventSource');
+    assert.match(chat.events.url, /\/m1\/api\/chat\/events\?assistant=dsh&sessionId=session-dsh-1$/);
+    chat.events.close();
+    appState.chatCache.delete(chat.cacheKey);
+  } finally {
+    appState.assistant = previous;
+  }
+  // 共享路径（实时流 + 历史分页）不得再出现写死的 codex；子 Agent 查询是 Codex 专属，保持原样
+  assert.doesNotMatch(appSrc, /chat\/events\?assistant=codex/);
+  assert.doesNotMatch(appSrc, /chat\/history\?assistant=codex&sessionId=\$\{encodeURIComponent\(chat\.sessionId\)\}/);
 });
 
 test('self-drawn option submenu grows to the available viewport height', () => {
