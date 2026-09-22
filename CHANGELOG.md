@@ -2,6 +2,7 @@
 
 ## 2026-09-22
 
+- 修复 **DeepSeek tab 会整段消失**（真机：页面加载后 60s 内右上角只剩 ChatGPT，用户看到「deepseek 咋没了」）：`/api/info` 能力探测没有超时，只要有一台在线 Mac 在 mesh 上不可达（本次是 mac3 到网关的路径断了、`rx 0`，网关要等满 nginx 的 60s 连接超时），`refreshAssistantCapabilities` 就整批卡住，`syncAssistantTabs` 迟迟不跑，而 DSH tab 的初始态是隐藏的。现在探测自带 5s AbortController 超时，单台不可达不再拖住整体显隐；失败设备仍按「没有能力」处理（策略不变）。PWA 外壳缓存升级到 v135。
 - 修复 **DeepSeek 会话在网页端看不到任何实时内容**（真机：turn 在 Mac 上真跑、工具在调，浏览器里只有乐观插入的用户气泡 + 队列轮询的"进行中"，正文与 thinking 一片空白）：自绘聊天的实时流 URL 写死 `assistant=codex`（2026-07 的 Codex-only 时代遗留，DSH 接入时没跟着改），DSH 会话因此永远订阅到 Codex 后端、收不到任何事件；历史分页那条同样写死。现在两条共享路径都跟随当前助手（子 Agent 查询是 Codex 专属，保持原样）。PWA 外壳缓存升级到 v134。
 - DeepSeek 原生 Web UI 入口从右上角操作区挪进 DeepSeek tab 内：tab 变成「DeepSeek 🐋」，点鲸鱼在新页面打开该 Mac 的 DSH 原生界面、点文字仍是切换助手；两个可点区域是 tab 外壳内并列的两个独立按钮（不出现 button 套 button），鲸鱼的键盘可达与 disabled/提示态都保留，可用性判定不变。PWA 外壳缓存升级到 v133。
 - 修复 **DeepSeek 会话在网页端发不出任何消息**（真机：每条消息都停在 `failed: dsh_unsupported`，卡片只剩「重新尝试 / 取消」）：dashboard 对每条消息都下发 `approvalMode`（默认 `on-request`），而 agent 的服务端队列在投递**之前**无条件调用 `chat/settings`，DSH backend 又刻意对该端点返回 `errDSHUnsupported`——于是投递在真正 `session/prompt` 之前就被中止，消息一次都没进过 host。现在把「会话级权限预设」独立成一维能力（agent `assistantCapabilities.ApprovalModes` / dashboard `approvalModes`）：没有该能力的助手既不执行投递前同步（整步跳过，不再连消息一起丢），也不在网页端暴露审批入口、不下发 `approvalMode`；Codex 行为不变。PWA 外壳缓存升级到 v132。

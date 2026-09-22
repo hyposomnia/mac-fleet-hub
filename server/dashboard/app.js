@@ -600,10 +600,26 @@ async function refreshNodes() {
 
 // 探测在线 Mac 的 /api/info，取 dsh 能力块（第三个 tab 的显隐、自绘能力、降级横幅都吃它）。
 // 只缓存本轮探测成功的设备，整份替换：某台 Mac 探测失败就当它没有能力，不留上一轮的旧结论。
+//
+// 探测必须自带超时：网关连不上某台 Mac 时要等满 nginx 的 60s 连接超时才返回，
+// 而 DSH tab 的初始态是隐藏的——那 60s 里用户看到的就是「DeepSeek 没了」（真机 2026-09-22，
+// mac3 的 mesh 到网关断、rx 0）。5s 足够一台活着的 Mac 答完这个几百字节的本地探测。
+const CHAT_INFO_PROBE_TIMEOUT_MS = 5000;
+
+async function probeAssistantInfo(macId, timeoutMs = CHAT_INFO_PROBE_TIMEOUT_MS) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await api(macId, 'info', { signal: controller.signal });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 async function refreshAssistantCapabilities() {
   const probed = {};
   await Promise.all(MACS.filter((m) => state.nodes[m.id]).map(async (m) => {
-    try { probed[m.id] = await api(m.id, 'info'); } catch (_) {}
+    try { probed[m.id] = await probeAssistantInfo(m.id); } catch (_) {}
   }));
   const dshChanged = Object.keys({ ...state.assistantInfo, ...probed }).some((id) =>
     JSON.stringify(state.assistantInfo[id]?.dsh) !== JSON.stringify(probed[id]?.dsh));
