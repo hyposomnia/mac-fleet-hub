@@ -34,6 +34,22 @@ func TestChatQueuePersistsServerAuthoritativeAccessMode(t *testing.T) {
 	}
 }
 
+func TestChatQueueDefaultsToNextTurn(t *testing.T) {
+	q, err := openChatQueue(filepath.Join(t.TempDir(), "queue.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	item, err := q.Enqueue(ChatQueueItem{
+		ClientMessageID: "client-next", Assistant: "codex", SessionID: "thread-1", Text: "follow up",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if item.DeliveryMode != chatDeliveryNext {
+		t.Fatalf("default delivery mode=%q, want %q", item.DeliveryMode, chatDeliveryNext)
+	}
+}
+
 func TestChatQueueAcceptsEnabledDeepSeekAssistant(t *testing.T) {
 	previous := cfg.DSHEnabled
 	cfg.DSHEnabled = true

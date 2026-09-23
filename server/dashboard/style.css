@@ -638,6 +638,12 @@ html.automation-doc-root, html.automation-doc-root body { height: auto; min-heig
 .ses:hover { background: var(--surface-1); border-color: var(--border); }
 .ses.sel { background: var(--accent-soft); border-color: var(--accent-line); }
 .ses-top { display: flex; align-items: center; gap: 9px; }
+.session-state-dot { width: 8px; height: 8px; border-radius: 50%; flex: none; background: var(--offline); }
+.session-state-dot.read { width: 7px; height: 7px; background: transparent; border: 1.5px solid var(--offline); opacity: .58; }
+.session-state-dot.archived { background: var(--offline); opacity: .58; }
+.session-state-dot.unread { background: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+.session-state-dot.running { background: var(--online); box-shadow: 0 0 0 3px var(--online-soft); animation: pulse 1.8s var(--ease) infinite; }
+.session-state-dot.waiting { background: var(--wait); box-shadow: 0 0 0 3px var(--wait-soft); }
 .ses-top .t { flex: 1; font-weight: 500; font-size: var(--t-body); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 /* 终止进程图标：仅「已开 pty / 有进程」(.conn) 的会话显示（不论是否选中）；非删除，终止后会话仍保留 */
 /* 正常态：静态绿点（无呼吸）；hover：红色停止按钮（圆形边框） */
@@ -660,9 +666,6 @@ html.automation-doc-root, html.automation-doc-root body { height: auto; min-heig
 .ses-menu button { display: block; width: 100%; padding: 7px 9px; border-radius: 5px; color: var(--text); font-size: var(--t-secondary); text-align: left; }
 .ses-menu button:hover { background: var(--surface-hover); }
 .ses-menu button.danger { color: var(--danger); }
-/* 紧凑化：时间内联在标题同行尾部（不再单起 meta 行显示分支/路径） */
-.ses-time { font-size: var(--t-caption); color: var(--text-2); flex: none; white-space: nowrap; font-variant-numeric: tabular-nums; }
-.ses.session-running .ses-time, .ses.conn .ses-time, .ses.session-waiting .ses-time { display: none; }
 /* 操作按钮：仅「选中」时展开（不再 hover 显示）。
    收起态 margin 归零——否则 margin 即便 max-height:0 仍占 9px，把标题往上顶、未选中行看着不垂直居中。 */
 .ses-acts { display: flex; gap: 7px; margin: 0; max-height: 0; overflow: hidden; opacity: 0; transition: max-height var(--dur-2) var(--ease), opacity var(--dur-2) var(--ease), margin-top var(--dur-2) var(--ease); }
@@ -1075,6 +1078,11 @@ textarea.chat-request-input { resize: vertical; }
 .chat-att { position: relative; width: 78px; height: 78px; border-radius: 12px; overflow: hidden; background: var(--chat-surface-2); border: 1px solid var(--chat-border); box-shadow: inset 0 0 0 1px color-mix(in srgb, #fff 7%, transparent); }
 .chat-att .chat-att-preview { position: absolute; inset: 0; width: 100%; height: 100%; border-radius: 0; }
 .chat-att .chat-att-preview img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.chat-att-file { width: 100%; height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 5px; padding: 9px 6px 7px; }
+.chat-att-file > .file-type-icon { width: 31px; height: 31px; object-fit: contain; }
+.chat-att-file .chat-file-copy { width: 100%; }
+.chat-att-file .chat-file-name { display: block; overflow: hidden; color: var(--chat-text-1); font-size: var(--t-caption); line-height: 1.2; text-align: center; text-overflow: ellipsis; white-space: nowrap; }
+.chat-att-file .chat-file-size { display: none; }
 .chat-att .st { position: absolute; z-index: 1; inset: auto 4px 4px 4px; padding: 2px 5px; border-radius: 999px; font-size: var(--t-caption); text-align: center; background: color-mix(in srgb, var(--chat-bg) 72%, transparent); color: var(--chat-text-1); backdrop-filter: blur(8px); pointer-events: none; }
 .chat-att.err { border-color: color-mix(in srgb, var(--danger) 55%, var(--chat-border)); }
 .chat-att .chat-att-remove { position: absolute; z-index: 2; top: 4px; right: 4px; width: 24px; height: 24px; padding: 0; display: grid; place-items: center; border: 0; border-radius: 50%; background: color-mix(in srgb, #000 82%, transparent); color: #fff; cursor: pointer; box-shadow: 0 1px 4px rgba(0, 0, 0, .28); }
@@ -1082,6 +1090,14 @@ textarea.chat-request-input { resize: vertical; }
 .chat-att .chat-att-remove .ic { width: 13px; height: 13px; }
 .chat-images { display: grid; grid-template-columns: repeat(auto-fit, minmax(118px, 180px)); gap: 8px; margin-top: 8px; }
 .chat-img { max-width: 180px; max-height: 180px; object-fit: cover; border-radius: 12px; border: 1px solid var(--chat-border); background: var(--chat-surface-2); }
+.chat-file-card { width: 180px; min-height: 64px; display: flex; align-items: center; gap: 10px; padding: 10px; overflow: hidden; border: 1px solid var(--chat-border); border-radius: 12px; background: var(--chat-surface-2); color: var(--chat-text-1); }
+.chat-file-card > .file-type-icon { width: 34px; height: 34px; flex: 0 0 auto; object-fit: contain; }
+.chat-file-copy { display: flex; min-width: 0; flex-direction: column; gap: 2px; }
+.chat-file-name { overflow: hidden; font-size: var(--t-secondary); font-weight: 600; line-height: 1.25; text-overflow: ellipsis; white-space: nowrap; }
+.chat-file-size { color: var(--chat-text-2); font-size: var(--t-caption); }
+.chat-file-link { display: block; width: fit-content; max-width: 100%; border-radius: 12px; color: inherit; text-decoration: none; }
+.chat-file-link:hover .chat-file-card { border-color: color-mix(in srgb, var(--chat-link) 48%, var(--chat-border)); background: var(--chat-surface-hover); }
+.chat-file-link:focus-visible { outline: 2px solid var(--chat-link); outline-offset: 3px; }
 .chat-image-button { display: block; width: fit-content; max-width: 100%; padding: 0; border: 0; border-radius: 12px; background: transparent; line-height: 0; cursor: zoom-in; }
 .chat-image-button:focus-visible { outline: 2px solid var(--chat-link); outline-offset: 3px; }
 .chat-image-button .chat-img, .chat-image-button .chat-tool-media { width: auto; height: auto; }
@@ -1399,9 +1415,6 @@ textarea.chat-request-input { resize: vertical; }
 .ses-meta span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ses-meta .session-device-name { flex: none; max-width: 48%; color: var(--text-1); }
 .ses-meta .session-project-name { flex: 1; }
-.ses-status { flex: none; color: var(--text-2); font-size: var(--t-caption); white-space: nowrap; }
-.ses-status.waiting { color: var(--wait); }
-.ses-status.running { color: var(--online); }
 .session-partial-note { margin: 8px; padding: 9px 10px; border-radius: 7px; background: var(--danger-soft); color: var(--danger); font-size: var(--t-caption); }
 .host-stack { display: grid; place-items: center; width: 10px; height: 10px; flex: none; color: var(--accent-text); }
 .host-stack .ic { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 2; }
@@ -1800,7 +1813,6 @@ textarea.chat-request-input { resize: vertical; }
   .ses { min-height: 40px; padding: 2px 8px; justify-content: center; }
   .ses-top .t { font-size: var(--t-title); line-height: 1.25; }
   .ses-meta { margin-top: 1px; font-size: var(--t-secondary); }
-  .ses-time, .ses-status { font-size: var(--t-secondary); }
   #app[data-mode="files"] #win { display: flex; flex: 1; min-height: 0; }
   #file-browser { width: 100%; }
   .file-mobile-head {

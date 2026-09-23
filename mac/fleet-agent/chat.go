@@ -927,7 +927,7 @@ func handleChatUpload(w http.ResponseWriter, r *http.Request) {
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, maxChatUploadBytes+(1<<20))
 	if err := r.ParseMultipartForm(maxChatUploadBytes); err != nil {
-		writeErr(w, http.StatusBadRequest, "bad_upload", "图片过大或上传格式不正确。")
+		writeErr(w, http.StatusBadRequest, "bad_upload", "附件过大或上传格式不正确。")
 		return
 	}
 	assistant := normAssistant(r.FormValue("assistant"))
@@ -942,7 +942,7 @@ func handleChatUpload(w http.ResponseWriter, r *http.Request) {
 	}
 	file, header, err := r.FormFile("file")
 	if err != nil {
-		writeErr(w, http.StatusBadRequest, "bad_upload", "没有收到图片文件。")
+		writeErr(w, http.StatusBadRequest, "bad_upload", "没有收到附件文件。")
 		return
 	}
 	defer file.Close()
@@ -951,18 +951,14 @@ func handleChatUpload(w http.ResponseWriter, r *http.Request) {
 	n, _ := file.Read(sniff)
 	detected := http.DetectContentType(sniff[:n])
 	declared, _, _ := mime.ParseMediaType(header.Header.Get("Content-Type"))
-	mimeType := declared
-	if !strings.HasPrefix(mimeType, "image/") && strings.HasPrefix(detected, "image/") {
-		mimeType = detected
+	mimeType := strings.ToLower(strings.TrimSpace(declared))
+	if mimeType == "" || mimeType == "application/octet-stream" {
+		mimeType = strings.ToLower(strings.TrimSpace(detected))
 	}
-	ext := strings.ToLower(filepath.Ext(header.Filename))
-	if !allowedChatImage(mimeType, ext) {
-		writeErr(w, http.StatusBadRequest, "bad_upload", "只支持上传图片。")
-		return
+	if mimeType == "" {
+		mimeType = "application/octet-stream"
 	}
-	if ext == "" {
-		ext = extFromImageMIME(mimeType)
-	}
+	ext := safeChatAttachmentExt(header.Filename)
 	id, err := randomChatUploadID(ext)
 	if err != nil {
 		writeChatErr(w, err)
@@ -993,11 +989,15 @@ func handleChatUpload(w http.ResponseWriter, r *http.Request) {
 	}
 	if size > maxChatUploadBytes {
 		_ = os.Remove(dst)
-		writeErr(w, http.StatusRequestEntityTooLarge, "upload_too_large", "图片不能超过 20MB。")
+		writeErr(w, http.StatusRequestEntityTooLarge, "upload_too_large", "附件不能超过 20MB。")
 		return
 	}
+	name := filepath.Base(strings.TrimSpace(header.Filename))
+	if name == "" || name == "." {
+		name = "附件" + ext
+	}
 	writeJSON(w, ChatAttachment{
-		ID: id, Name: filepath.Base(header.Filename), MIME: mimeType, Size: size,
+		ID: id, Name: name, MIME: mimeType, Size: size,
 		URL: chatAttachmentURL(sessionID, id),
 	})
 }
@@ -1012,6 +1012,15 @@ func handleChatAttachment(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
+	w.Header().Set("Content-Type", att.MIME)
+	disposition := "attachment"
+	if chatAttachmentIsImage(att) {
+		disposition = "inline"
+	}
+	if value := mime.FormatMediaType(disposition, map[string]string{"filename": att.Name}); value != "" {
+		w.Header().Set("Content-Disposition", value)
+	}
+	w.Header().Set("X-Content-Type-Options", "nosniff")
 	http.ServeFile(w, r, att.Path)
 }
 
@@ -1049,41 +1058,64 @@ func handleChatMedia(w http.ResponseWriter, r *http.Request) {
 
 func resolveChatUpload(sessionID, id string) (ChatAttachment, error) {
 	if sessionID == "" || id == "" || filepath.Base(id) != id || strings.Contains(id, "/") || strings.Contains(id, "\\") {
-		return ChatAttachment{}, fmt.Errorf("无效的图片附件")
+		return ChatAttachment{}, fmt.Errorf("无效的附件")
 	}
 	path := filepath.Join(chatUploadSessionDir(sessionID), id)
 	st, err := os.Stat(path)
-	if err != nil || st.IsDir() {
-		return ChatAttachment{}, fmt.Errorf("图片附件不存在或已失效")
+	if err != nil || !st.Mode().IsRegular() || st.Size() > maxChatUploadBytes {
+		return ChatAttachment{}, fmt.Errorf("附件不存在或已失效")
 	}
-	return ChatAttachment{ID: id, Path: path, Size: st.Size(), URL: chatAttachmentURL(sessionID, id)}, nil
+	mimeType := strings.ToLower(strings.TrimSpace(mime.TypeByExtension(filepath.Ext(id))))
+	if mimeType == "" {
+		if file, openErr := os.Open(path); openErr == nil {
+			var sniff [512]byte
+			n, _ := file.Read(sniff[:])
+			_ = file.Close()
+			mimeType = http.DetectContentType(sniff[:n])
+		}
+	}
+	if mimeType == "" {
+		mimeType = "application/octet-stream"
+	}
+	return ChatAttachment{ID: id, Name: id, MIME: mimeType, Path: path, Size: st.Size(), URL: chatAttachmentURL(sessionID, id)}, nil
 }
 
-func allowedChatImage(mimeType, ext string) bool {
-	switch strings.ToLower(ext) {
-	case ".png", ".jpg", ".jpeg", ".gif", ".webp":
+func safeChatAttachmentExt(name string) string {
+	ext := strings.ToLower(filepath.Ext(filepath.Base(name)))
+	if len(ext) < 2 || len(ext) > 17 {
+		return ""
+	}
+	for _, r := range ext[1:] {
+		if (r < 'a' || r > 'z') && (r < '0' || r > '9') {
+			return ""
+		}
+	}
+	return ext
+}
+
+func chatAttachmentIsImage(att ChatAttachment) bool {
+	switch strings.ToLower(strings.TrimSpace(att.MIME)) {
+	case "image/png", "image/jpeg", "image/gif", "image/webp":
 		return true
 	}
-	switch strings.ToLower(mimeType) {
-	case "image/png", "image/jpeg", "image/gif", "image/webp":
+	switch strings.ToLower(filepath.Ext(firstNonEmpty(att.Name, att.Path, att.ID))) {
+	case ".png", ".jpg", ".jpeg", ".gif", ".webp":
 		return true
 	default:
 		return false
 	}
 }
 
-func extFromImageMIME(mimeType string) string {
-	switch strings.ToLower(mimeType) {
-	case "image/png":
-		return ".png"
-	case "image/jpeg":
-		return ".jpg"
-	case "image/gif":
-		return ".gif"
-	case "image/webp":
-		return ".webp"
+func chatAttachmentIsAudio(att ChatAttachment) bool {
+	switch strings.ToLower(strings.TrimSpace(att.MIME)) {
+	case "audio/aac", "audio/flac", "audio/m4a", "audio/mp4", "audio/mpeg", "audio/ogg", "audio/opus", "audio/wav", "audio/x-aiff", "audio/x-m4a", "audio/x-wav":
+		return true
+	}
+	switch strings.ToLower(filepath.Ext(firstNonEmpty(att.Name, att.Path, att.ID))) {
+	case ".aac", ".aif", ".aiff", ".flac", ".m4a", ".mp3", ".ogg", ".opus", ".wav", ".wma":
+		return true
 	default:
-		return ".img"
+		return false
 	}
 }
 

@@ -843,7 +843,12 @@ func TestChatInputRejectsUnknownApprovalMode(t *testing.T) {
 	}
 }
 
-func TestChatUploadRejectsNonImage(t *testing.T) {
+func TestChatUploadAcceptsArbitraryAttachment(t *testing.T) {
+	tmp := t.TempDir()
+	prevRoot := chatUploadRoot
+	chatUploadRoot = func() string { return tmp }
+	t.Cleanup(func() { chatUploadRoot = prevRoot })
+
 	var body bytes.Buffer
 	mw := multipart.NewWriter(&body)
 	_ = mw.WriteField("assistant", "codex")
@@ -862,8 +867,22 @@ func TestChatUploadRejectsNonImage(t *testing.T) {
 
 	handleChatUpload(rr, req)
 
-	if rr.Code != http.StatusBadRequest {
+	if rr.Code != http.StatusOK {
 		t.Fatalf("status got %d body %s", rr.Code, rr.Body.String())
+	}
+	var upload ChatAttachment
+	if err := json.Unmarshal(rr.Body.Bytes(), &upload); err != nil {
+		t.Fatal(err)
+	}
+	if upload.ID == "" || upload.Name != "note.txt" || !strings.HasPrefix(upload.MIME, "text/plain") || upload.Size != int64(len("not an image")) {
+		t.Fatalf("unexpected upload metadata: %+v", upload)
+	}
+	resolved, err := resolveChatUpload("s1", upload.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resolved.MIME != "text/plain; charset=utf-8" && resolved.MIME != "text/plain" {
+		t.Fatalf("resolved MIME = %q", resolved.MIME)
 	}
 }
 

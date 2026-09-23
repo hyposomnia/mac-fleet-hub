@@ -293,7 +293,7 @@ test('dashboard typography uses one UI scale and reserves monospace for technica
   )].sort((a, b) => a - b);
   assert.deepEqual(weights, [400, 500, 600, 700]);
 
-  for (const selector of ['.ping-chip', '.ses-time', '.win-head .mt']) {
+  for (const selector of ['.ping-chip', '.win-head .mt']) {
     const rule = styleCSS.match(new RegExp(`${selector.replaceAll('.', '\\.')}\\s*\\{[^}]*\\}`))?.[0] || '';
     assert.ok(rule, `missing ${selector} rule`);
     assert.doesNotMatch(rule, /font-family:\s*var\(--mono\)/);
@@ -756,12 +756,13 @@ test('session rows remove redundant device, assistant, and idle labels', () => {
     });
     assert.equal(nodesWithClass(selectedDevice, 'session-device-name').length, 0);
     assert.equal(nodesWithClass(selectedDevice, 'session-project-name').length, 0);
-    assert.equal(nodesWithClass(selectedDevice, 'ses-status')[0]?.textContent, '');
-    assert.equal(nodesWithClass(selectedDevice, 'ses-time')[0]?.textContent, '刚刚');
+    assert.equal(nodesWithClass(selectedDevice, 'ses-status').length, 0);
+    assert.equal(nodesWithClass(selectedDevice, 'ses-time').length, 0);
+    assert.equal(nodesWithClass(selectedDevice, 'session-state-dot')[0]?.attributes['aria-label'], '已读');
     // 保持连接的会话不再画空心圈，改由标题加粗表示（CSS 契约）。
     assert.equal(nodesWithClass(selectedDevice, 'chat-cache-status').length, 0);
     assert.match(styleCSS, /\.ses\.chat-connected \.ses-top \.t \{ font-weight: 600; \}/);
-    assert.equal(sessionStatus({ status: 'idle' }).text, '');
+    assert.equal(sessionStatus({ status: 'idle' }).label, '已读');
     assert.doesNotMatch(nodeText(selectedDevice), /Codex/);
     assert.match(
       styleCSS,
@@ -777,7 +778,7 @@ test('session rows remove redundant device, assistant, and idle labels', () => {
     assert.equal(nodesWithClass(recent, 'session-project-name')[0]?.textContent, 'mac-fleet-hub');
 
     appState.scope = 'all';
-    assert.equal(sessionStatus({ status: 'idle' }).text, '已归档');
+    assert.equal(sessionStatus({ status: 'idle' }).label, '已归档');
   } finally {
     appState.sessionMacId = previousMac;
     appState.scope = previousScope;
@@ -785,7 +786,7 @@ test('session rows remove redundant device, assistant, and idle labels', () => {
   }
 });
 
-test('session state uses one right-side text label without leading or running dots', () => {
+test('session state uses leading dots and never renders relative time labels', () => {
   const waiting = sessionRow({
     sessionId: 'thread-waiting', macId: 'm1', assistant: 'codex',
     title: 'Waiting for input', mtime: fixedAppNowMs, status: 'active', waiting: true,
@@ -794,16 +795,48 @@ test('session state uses one right-side text label without leading or running do
     sessionId: 'thread-running', macId: 'm1', assistant: 'codex',
     title: 'Working', mtime: fixedAppNowMs, status: 'active',
   });
-  assert.equal(nodesWithClass(waiting, 'dot').length, 0);
-  assert.equal(nodesWithClass(waiting, 'session-running-status').length, 0);
-  assert.equal(nodesWithClass(nodesWithClass(waiting, 'ses-top')[0], 'ses-status')[0]?.textContent, '等待回复');
-  assert.equal(nodesWithClass(nodesWithClass(running, 'ses-top')[0], 'ses-status')[0]?.textContent, '正在进行');
-  assert.match(
-    styleCSS,
-    /\.ses\.session-running \.ses-time,\s*\.ses\.conn \.ses-time,\s*\.ses\.session-waiting \.ses-time\s*\{\s*display:\s*none;\s*\}/,
-  );
-  assert.doesNotMatch(styleCSS, /session-running-status/);
-  assert.doesNotMatch(styleCSS, /\.ses-status\.running\s*\{\s*display:\s*none;\s*\}/);
+  const waitingDot = nodesWithClass(waiting, 'session-state-dot')[0];
+  const runningDot = nodesWithClass(running, 'session-state-dot')[0];
+  assert.equal(waitingDot?.attributes['aria-label'], '等待回复');
+  assert.equal(runningDot?.attributes['aria-label'], '进行中');
+  assert.ok(String(waitingDot?.className).includes('waiting'));
+  assert.ok(String(runningDot?.className).includes('running'));
+  assert.equal(nodesWithClass(waiting, 'ses-time').length, 0);
+  assert.equal(nodesWithClass(running, 'ses-time').length, 0);
+  assert.doesNotMatch(appSrc, /class:\s*'ses-time'/);
+  assert.match(styleCSS, /\.session-state-dot\.unread\s*\{/);
+  assert.match(styleCSS, /\.session-state-dot\.running\s*\{[^}]*animation:\s*pulse/s);
+});
+
+test('a newer background reply becomes unread until that session is selected', () => {
+  const previousReadAt = appState.sessionReadAt;
+  const previousSid = appState.selectedSid;
+  const previousMac = appState.selectedSessionMacId;
+  const previousAssistant = appState.selectedSessionAssistant;
+  const session = {
+    sessionId: 'thread-unread', macId: 'm1', assistant: 'codex', title: 'New reply',
+    mtime: fixedAppNowMs, outputEndedAt: fixedAppNowMs, status: 'idle',
+  };
+  try {
+    appState.sessionReadAt = new Map([['m1\ncodex\nthread-unread', fixedAppNowMs - 1000]]);
+    appState.selectedSid = null;
+    appState.selectedSessionMacId = null;
+    appState.selectedSessionAssistant = null;
+    const unread = nodesWithClass(sessionRow(session), 'session-state-dot')[0];
+    assert.equal(unread?.attributes['aria-label'], '未读');
+    assert.ok(String(unread?.className).includes('unread'));
+
+    appState.selectedSid = session.sessionId;
+    appState.selectedSessionMacId = session.macId;
+    appState.selectedSessionAssistant = session.assistant;
+    const selected = nodesWithClass(sessionRow(session), 'session-state-dot')[0];
+    assert.equal(selected?.attributes['aria-label'], '已读');
+  } finally {
+    appState.sessionReadAt = previousReadAt;
+    appState.selectedSid = previousSid;
+    appState.selectedSessionMacId = previousMac;
+    appState.selectedSessionAssistant = previousAssistant;
+  }
 });
 
 test('external Codex writer keeps Fleet visible and queues confirmed input without acquire takeover', () => {
@@ -842,7 +875,7 @@ test('Dashboard is a server-authoritative chat shell with no local delivery stat
   assert.doesNotMatch(appSrc, /chat\/input/);
   assert.doesNotMatch(appSrc, /chat\/steer/);
   assert.doesNotMatch(appSrc, /writerOwner:\s*item\.externalWriter/);
-  assert.match(appSrc, /submitChatInput\(\{ deliveryMode = 'auto' \} = \{\}\)/);
+  assert.match(appSrc, /submitChatInput\(\{ deliveryMode = 'next' \} = \{\}\)/);
   assert.match(appSrc, /applyChatControlSnapshot/);
   assert.doesNotMatch(appSrc, /forceQueue/);
   assert.match(appSrc, /chat\/queue/);
@@ -1051,8 +1084,8 @@ test('takeover is offered only for an external writer, never the current Fleet t
 });
 
 test('waiting reply label is suppressed after an opened chat proves there is no actionable request', () => {
-  assert.equal(sessionStatus({ waiting: true, waitingVisible: false, status: 'active' }).text, '正在进行');
-  assert.equal(sessionStatus({ waiting: true, waitingVisible: true, status: 'active' }).text, '等待回复');
+  assert.equal(sessionStatus({ waiting: true, waitingVisible: false, status: 'active' }).label, '进行中');
+  assert.equal(sessionStatus({ waiting: true, waitingVisible: true, status: 'active' }).label, '等待回复');
   assert.match(appSrc, /for \(const event of resumed\.pendingEvents \|\| \[\]\)/);
   assert.match(appSrc, /function pendingChatRequestCount/);
   assert.match(appSrc, /request\?\.status === 'pending'/);
@@ -1434,7 +1467,7 @@ test('no-active errors support structured and legacy agent responses', () => {
   assert.equal(isNoActiveTurnError({ code: 'chat_failed', message: 'connection reset' }), false);
 });
 
-test('composer lets the server route running input and only stops when empty', () => {
+test('composer queues non-empty running input and only stops when empty', () => {
   const unknown = { controlReady: false, accessMode: 'unknown', turnPhase: 'idle', model: { phase: 'idle' } };
   const idle = { controlReady: true, accessMode: 'read_write', turnPhase: 'idle', model: { phase: 'idle' } };
   const running = { controlReady: true, accessMode: 'read_write', turnPhase: 'running', turnOwner: 'fleet', model: { phase: 'running' } };
@@ -1457,7 +1490,7 @@ test('composer lets the server route running input and only stops when empty', (
   assert.match(appSrc, /ChatGPT 桌面端正在输出/);
   assert.match(appSrc, /chatComposerAction[\s\S]*queue-desktop/);
   assert.match(appSrc, /enqueueServerChatMessage\(chat, item, deliveryMode\)/);
-  assert.match(appSrc, /submitChatInput\(\{ deliveryMode = 'auto' \} = \{\}\)/);
+  assert.match(appSrc, /submitChatInput\(\{ deliveryMode = 'next' \} = \{\}\)/);
   assert.doesNotMatch(appSrc, /external_turn_running|flushChatFollowups/);
   assert.match(appSrc, /input\.placeholder = action === 'readonly' \? 'Fleet 已释放此会话'/);
   assert.match(appSrc, /attach\.disabled = mutationBlocked/);
@@ -1469,13 +1502,13 @@ test('composer lets the server route running input and only stops when empty', (
   assert.match(appSrc, /if \(chatMutationsBlocked\(chat\) \|\| !requestId/);
 });
 
-test('command enter uses server auto routing and shift-command-enter explicitly queues next', () => {
+test('command enter queues the message for the next turn', () => {
   const commandEnter = appSrc.indexOf("if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)");
   const skillMenu = appSrc.indexOf('const menu = state.chat?.skillMenu;', commandEnter);
 
   assert.notEqual(commandEnter, -1);
   assert.ok(commandEnter < skillMenu);
-  assert.match(appSrc.slice(commandEnter, skillMenu), /submitChatInput\(\{ deliveryMode: e\.shiftKey \? 'next' : 'auto' \}\);\s*return;/);
+  assert.match(appSrc.slice(commandEnter, skillMenu), /submitChatInput\(\{ deliveryMode: 'next' \}\);\s*return;/);
 });
 
 test('chat skill trigger recognizes dollar and slash only at token start', () => {
@@ -1731,6 +1764,27 @@ test('chat image attachments open through one accessible fullscreen viewer with 
   assert.match(appSrc, /captureTarget:\s*event\.target[\s\S]*?event\.target\.setPointerCapture\?\./);
   assert.match(appSrc, /pan\.captureTarget\?\.releasePointerCapture\?\./);
   assert.match(appSrc, /addEventListener\('touchmove',\s*moveChatImageViewerPinch,\s*\{ passive: false \}\)/);
+});
+
+test('chat composer accepts arbitrary attachments and renders non-images as downloadable file cards', () => {
+  const picker = indexHTML.match(/<input id="chat-file"[^>]*>/)?.[0] || '';
+  assert.ok(picker);
+  assert.doesNotMatch(picker, /\baccept=/);
+  assert.match(indexHTML, /id="chat-attach"[^>]*title="添加附件"[^>]*aria-label="添加附件"/);
+  assert.doesNotMatch(appSrc, /只能上传图片/);
+
+  const row = renderChatItem({
+    type: 'user', text: '请看看',
+    images: [{ url: '/api/chat/attachment?sessionId=s1&id=report.pdf', name: 'report.pdf', mime: 'application/pdf', size: 2048 }],
+  });
+  const cards = nodesWithClass(row, 'chat-file-card');
+  const links = nodesWithClass(row, 'chat-file-link');
+  assert.equal(cards.length, 1);
+  assert.equal(links.length, 1);
+  assert.equal(links[0].tagName, 'a');
+  assert.equal(links[0].attributes.download, 'report.pdf');
+  assert.match(nodeText(cards[0]), /report\.pdf/);
+  assert.match(nodeText(cards[0]), /2 KB/);
 });
 
 test('chat image viewer keeps zoom bounded and derives a useful download filename', () => {
@@ -2774,7 +2828,7 @@ test('composer draft normalization rejects null-like persisted values', () => {
 });
 
 test('send and stop source contracts reject stale active state', () => {
-  assert.match(appSrc, /deliveryMode: deliveryMode === 'next' \? 'next' : 'auto'/);
+  assert.match(appSrc, /deliveryMode: deliveryMode === 'auto' \? 'auto' : 'next'/);
   assert.match(appSrc, /FleetChatModel\.removeMessage\(chat\.model, item\.id\)/);
   assert.match(appSrc, /restoreChatComposerItem\(chat, item\)/);
   assert.match(appSrc, /Skill 列表加载失败，消息未发送/);

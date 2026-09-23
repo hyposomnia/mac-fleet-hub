@@ -1591,6 +1591,25 @@ func TestCodexChatBackendInputUsesLocalImages(t *testing.T) {
 	}
 }
 
+func TestCodexUserInputUsesNativeMediaAndFileMentions(t *testing.T) {
+	got := codexUserInput("inspect these", []ChatAttachment{
+		{Name: "shot.png", MIME: "image/png", Path: "/tmp/shot.png"},
+		{Name: "voice.mp3", MIME: "audio/mpeg", Path: "/tmp/voice.mp3"},
+		{Name: "report.pdf", MIME: "application/pdf", Path: "/tmp/report.pdf"},
+		{Name: "archive.bin", MIME: "application/octet-stream", Path: "/tmp/archive.bin"},
+	}, nil)
+	want := []map[string]string{
+		{"type": "text", "text": "inspect these"},
+		{"type": "localImage", "path": "/tmp/shot.png"},
+		{"type": "localAudio", "path": "/tmp/voice.mp3"},
+		{"type": "mention", "name": "report.pdf", "path": "/tmp/report.pdf"},
+		{"type": "mention", "name": "archive.bin", "path": "/tmp/archive.bin"},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("codex input = %#v, want %#v", got, want)
+	}
+}
+
 func TestCodexChatBackendInputPassesModelAndApprovalOverrides(t *testing.T) {
 	rpc := newFakeRPCConn()
 	rpc.reply["thread/resume"] = json.RawMessage(`{"thread":{"id":"thread-1"}}`)

@@ -17,7 +17,7 @@
        内联以避免首屏闪烁。 -->
   <script>(function () { var t; try { t = localStorage.getItem('fleet-theme'); } catch (e) {} if (t !== 'light' && t !== 'dark') t = matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark'; document.documentElement.dataset.theme = t; document.querySelector('meta[name="theme-color"]').content = t === 'light' ? '#f6f7f9' : '#090c12'; })();</script>
   <link rel="stylesheet" href="vendor/codemirror/lib/codemirror.css?v=5.65.20" />
-  <link rel="stylesheet" href="style.css?v=135" />
+  <link rel="stylesheet" href="style.css?v=138" />
 </head>
 <body>
   <!-- DeepSeek 官方 whale mark，来源与 MIT 许可见 icons/deepseek/LICENSE.md。 -->
@@ -288,7 +288,7 @@
                 </svg>
               </button>
             </div>
-            <input id="chat-file" type="file" accept="image/*" multiple hidden />
+            <input id="chat-file" type="file" multiple hidden />
             <div class="chat-composer-shell">
               <section id="chat-subagents" class="chat-subagents" aria-label="Sub Agent" data-mode="closed" hidden>
                 <div class="chat-subagent-bar">
@@ -320,7 +320,7 @@
                 <textarea id="chat-input" rows="1" placeholder="给 ChatGPT 发送消息…" autocapitalize="off" autocomplete="off" autocorrect="off" spellcheck="false"></textarea>
                 <div class="chat-composer-toolbar">
                   <div class="chat-tools-left">
-                  <button id="chat-attach" type="button" class="iconbtn chat-attach" title="添加图片" aria-label="添加图片"><svg class="ic" viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg></button>
+                  <button id="chat-attach" type="button" class="iconbtn chat-attach" title="添加附件" aria-label="添加附件"><svg class="ic" viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg></button>
                   <div id="chat-approval-menu" class="chat-approval-menu">
                     <button id="chat-approval" type="button" class="chat-approval-trigger" title="如何批准 ChatGPT 操作？" aria-label="如何批准 ChatGPT 操作？" aria-haspopup="menu" aria-expanded="false" disabled>
                       <svg class="ic" viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10"/><path d="m9 12 2 2 4-4"/></svg>
@@ -554,10 +554,10 @@
   <script src="vendor/codemirror/mode/yaml/yaml.js?v=5.65.20"></script>
   <script src="vendor/codemirror/mode/toml/toml.js?v=5.65.20"></script>
   <script src="vendor/codemirror/mode/properties/properties.js?v=5.65.20"></script>
-  <script src="markdown.js?v=135"></script>
-  <script src="preview.js?v=135"></script>
-  <script src="chat_model.js?v=135"></script>
-  <script src="upload_model.js?v=135"></script>
-  <script src="app.js?v=135"></script>
+  <script src="markdown.js?v=138"></script>
+  <script src="preview.js?v=138"></script>
+  <script src="chat_model.js?v=138"></script>
+  <script src="upload_model.js?v=138"></script>
+  <script src="app.js?v=138"></script>
 </body>
 </html>

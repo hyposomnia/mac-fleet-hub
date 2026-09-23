@@ -111,6 +111,19 @@ function svgStop() {
   return svg;
 }
 
+const SESSION_READ_KEY = 'fleet-session-read-v1';
+
+function loadSessionReadState() {
+  try {
+    if (typeof localStorage === 'undefined') return new Map();
+    const saved = JSON.parse(localStorage.getItem(SESSION_READ_KEY) || '{}');
+    return new Map(Object.entries(saved || {}).filter(([, value]) => Number.isFinite(Number(value)))
+      .map(([key, value]) => [key, Number(value)]));
+  } catch (_) {
+    return new Map();
+  }
+}
+
 const state = {
   macId: null,
   sessionMacId: 'all', // 会话列表设备范围：all | mN；终端 / 自绘会话仍使用具体 macId
@@ -143,6 +156,7 @@ const state = {
   chatCache: new Map(),  // key(macId/sessionId) -> 自绘 Codex 会话状态；保持 SSE 连接，切回秒开
   sessionSearch: '',
   sessionResults: [],
+  sessionReadAt: loadSessionReadState(), // key -> 最后已读的会话活动时间（毫秒）
   sessionCursors: {},    // macId -> Codex nextCursor
   sessionErrors: {},
   sessionsLoadingMore: false,
@@ -208,13 +222,6 @@ function releaseVisualKeyboard() {
   const active = document.activeElement;
   if (active?.matches?.('#chat-input, #cmd-input')) active.blur();
   setVisualKeyboardInset(0);
-}
-function relTime(ms) {
-  const d = Date.now() - ms;
-  if (d < 60e3) return '刚刚';
-  if (d < 3600e3) return Math.round(d / 60e3) + ' 分钟前';
-  if (d < 86400e3) return Math.round(d / 3600e3) + ' 小时前';
-  return Math.round(d / 86400e3) + ' 天前';
 }
 function projName(cwd) { return cwd ? cwd.split('/').filter(Boolean).pop() : '(未知项目)'; }
 function projFull(cwd) { return (cwd || '(未知路径)').replace(/^\/Users\/[^/]+/, '~'); }
@@ -1073,11 +1080,61 @@ function sessionKey(session) {
   return `${session?.macId || ''}\n${session?.assistant || state.assistant}\n${session?.sessionId || ''}`;
 }
 
+function sessionActivityAt(session) {
+  return Math.max(Number(session?.outputEndedAt) || 0, Number(session?.mtime) || 0);
+}
+
+function persistSessionReadState() {
+  try {
+    if (typeof localStorage === 'undefined') return;
+    const newest = [...state.sessionReadAt.entries()].sort((left, right) => right[1] - left[1]).slice(0, 1000);
+    state.sessionReadAt = new Map(newest);
+    localStorage.setItem(SESSION_READ_KEY, JSON.stringify(Object.fromEntries(newest)));
+  } catch (_) {}
+}
+
+// 首次见到的旧会话作为已读基线，避免升级后整列都亮蓝点。
+// 之后活动时间增长而已读游标不变，才表示有新回复。
+function observeSessionActivity(sessions) {
+  let changed = false;
+  for (const session of sessions || []) {
+    const key = sessionKey(session);
+    const activity = sessionActivityAt(session);
+    if (!key || activity <= 0 || state.sessionReadAt.has(key)) continue;
+    state.sessionReadAt.set(key, activity);
+    changed = true;
+  }
+  if (changed) persistSessionReadState();
+}
+
+function markSessionRead(session, readAt = Date.now()) {
+  if (!session?.sessionId) return;
+  const key = sessionKey(session);
+  const next = Math.max(Number(readAt) || 0, sessionActivityAt(session));
+  if (next > (state.sessionReadAt.get(key) || 0)) {
+    state.sessionReadAt.set(key, next);
+    persistSessionReadState();
+  }
+  const chat = state.chatCache.get(chatCacheKey(session.macId, session.sessionId));
+  if (chat) chat.unread = false;
+}
+
+function sessionIsUnread(session) {
+  if (!session?.sessionId) return false;
+  if (session.sessionId === state.selectedSid && session.macId === state.selectedSessionMacId &&
+      (session.assistant || state.assistant) === (state.selectedSessionAssistant || state.assistant)) return false;
+  const chat = state.chatCache.get(chatCacheKey(session.macId, session.sessionId));
+  if (chat?.unread) return true;
+  const readAt = state.sessionReadAt.get(sessionKey(session));
+  return Number.isFinite(readAt) && sessionActivityAt(session) > readAt;
+}
+
 function sessionRenderSignature(session) {
   return JSON.stringify({
     title: session?.title || '', cwd: session?.cwd || '', projectId: session?.projectId || '',
     projectName: session?.projectName || '', projectCwd: session?.projectCwd || '',
     projectless: !!session?.projectless, mtime: Number(session?.mtime) || 0,
+    outputEndedAt: Number(session?.outputEndedAt) || 0, unread: sessionIsUnread(session),
     pinned: !!session?.pinned, pty: !!session?.pty, waiting: !!session?.waiting,
     status: session?.status || '', live: !!session?.live,
   });
@@ -1309,6 +1366,7 @@ async function loadSessions(opts = {}) {
     })]
     : incoming;
   state.sessionResults = sessions;
+  observeSessionActivity(sessions);
   for (const s of sessions) updateCachedChatFromSession(s.macId, s);
   for (const macId of targets) {
     const own = sessions.filter((s) => s.macId === macId);
@@ -1350,6 +1408,7 @@ async function refreshSessionsSoft() {
     fresh.push(...sessions);
     freshByMac[result.macId] = { sessions, nextCursor: result.data.nextCursor || '' };
   }
+  observeSessionActivity(fresh);
   const currentByKey = new Map(state.sessionResults.map((session) => [sessionKey(session), session]));
   const freshByKey = new Map(fresh.map((session) => [sessionKey(session), session]));
   const structuralChange = fresh.some((session) => {
@@ -1401,23 +1460,32 @@ async function refreshSessionsSoft() {
     const session = freshByKey.get(`${el.dataset.mac}\n${el.dataset.assistant}\n${el.dataset.sid}`);
     if (!session) continue;
     el.classList.toggle('session-waiting', sessionHasVisibleRequest(session));
-    const tEl = el.querySelector('.ses-time');
-    if (tEl) tEl.textContent = relTime(session.outputEndedAt || session.mtime);
-    const status = el.querySelector('.ses-status');
-    if (status) {
-      const value = sessionStatus(session);
-      status.textContent = value.text;
-      status.className = `ses-status${value.className ? ' ' + value.className : ''}`;
-    }
+    updateSessionStateDot(el.querySelector('.session-state-dot'), session);
   }
   syncSessionRuntimeIndicators();
 }
 
 // 会话行：统一聊天入口，展示运行状态、置顶与会话操作。
 function sessionStatus(session, running = !!session?.pty || FleetChatModel.chatPhase(session?.status) === 'running') {
-  if (sessionHasVisibleRequest(session)) return { text: '等待回复', className: 'waiting' };
-  if (running) return { text: '正在进行', className: 'running' };
-  return { text: state.scope === 'all' ? '已归档' : '', className: '' };
+  if (sessionHasVisibleRequest(session)) return { label: '等待回复', className: 'waiting' };
+  if (running) return { label: '进行中', className: 'running' };
+  if (sessionIsUnread(session)) return { label: '未读', className: 'unread' };
+  if (state.scope === 'all') return { label: '已归档', className: 'archived' };
+  return { label: '已读', className: 'read' };
+}
+
+function updateSessionStateDot(dot, session, running) {
+  if (!dot) return;
+  const status = sessionStatus(session, running);
+  dot.className = `session-state-dot ${status.className}`;
+  dot.title = status.label;
+  dot.setAttribute('aria-label', status.label);
+}
+
+function renderSessionStateDot(session, running) {
+  const dot = h('span', { class: 'session-state-dot', role: 'img' });
+  updateSessionStateDot(dot, session, running);
+  return dot;
 }
 
 function activateSession(session) {
@@ -1425,7 +1493,9 @@ function activateSession(session) {
   state.selectedSid = session.sessionId;
   state.selectedSessionMacId = session.macId;
   state.selectedSessionAssistant = session.assistant || state.assistant;
+  markSessionRead(session);
   renderHosts();
+  syncSessionRuntimeIndicators();
 }
 
 function sessionRow(s) {
@@ -1441,12 +1511,10 @@ function sessionRow(s) {
     ? h('span', { class: 'ses-pin', title: '已置顶' }, svgIcon('ic', 'M12 17v5M5 3h14l-3 6v4l2 2H6l2-2V9Z'))
     : null;
   const menu = renderSessionMenu(s);
-  const status = sessionStatus(s, sessionRunning || live || FleetChatModel.chatPhase(s.status) === 'running');
+  const running = sessionRunning || live || FleetChatModel.chatPhase(s.status) === 'running';
   const top = h('div', { class: 'ses-top' },
+    renderSessionStateDot(s, running),
     h('span', { class: 't', text: s.title || '(无标题)' }),
-    // 紧凑化：不再单起一行显示分支/路径，仅在同行标题后跟相对时间
-    h('span', { class: 'ses-time', text: relTime(s.outputEndedAt || s.mtime) }),
-    h('span', { class: `ses-status${status.className ? ' ' + status.className : ''}`, text: status.text }),
     pin,
     menu,
   );
@@ -2341,12 +2409,7 @@ function syncSessionRuntimeIndicators() {
     row.classList.toggle('chat-connected', isChatConnectionKept(row.dataset.mac, row.dataset.sid));
     row.classList.toggle('session-running', running);
     row.classList.toggle('session-waiting', sessionHasVisibleRequest(session));
-    const status = row.querySelector('.ses-status');
-    if (status) {
-      const value = sessionStatus(session, running || !!session?.pty);
-      status.textContent = value.text;
-      status.className = `ses-status${value.className ? ' ' + value.className : ''}`;
-    }
+    updateSessionStateDot(row.querySelector('.session-state-dot'), session, running || !!session?.pty);
   });
 }
 
@@ -3545,15 +3608,47 @@ function renderChatElicitationRequest(item) {
   return chatRow(form, 'approval');
 }
 
+function chatAttachmentIsImage(att) {
+  const mime = String(att?.mime || att?.type || '').toLowerCase();
+  if (mime.startsWith('image/')) return true;
+  const name = String(att?.name || att?.path || att?.id || '').toLowerCase();
+  return /\.(?:png|jpe?g|gif|webp)$/.test(name);
+}
+
+function chatAttachmentHref(att) {
+  const value = String(att?.url || att?.previewUrl || '').trim();
+  if (!value) return '';
+  if (/^(?:https?:|blob:|data:)/i.test(value)) return value;
+  if (value.startsWith('/api/')) return `${apiBase(state.chat?.macId || state.macId)}${value}`;
+  return '';
+}
+
+function chatAttachmentFileCard(att, className = 'chat-file-card') {
+  const name = att?.name || '附件';
+  return h('div', { class: className, title: name },
+    fileTypeIcon(fileIconName({ name, mime: att?.mime || '' })),
+    h('span', { class: 'chat-file-copy' },
+      h('span', { class: 'chat-file-name', text: name }),
+      att?.size ? h('span', { class: 'chat-file-size', text: formatBytes(att.size) }) : null));
+}
+
+function renderChatMessageAttachment(att) {
+  if (chatAttachmentIsImage(att)) {
+    const src = chatImageSrc(att);
+    return src ? chatImagePreview(src, att.name || '图片', 'chat-img', 'chat-attachment-preview')
+      : h('div', { class: 'chat-img muted', text: att.name || '图片' });
+  }
+  const card = chatAttachmentFileCard(att);
+  const href = chatAttachmentHref(att);
+  return href ? h('a', { class: 'chat-file-link', href, download: att.name || '附件', title: `下载 ${att.name || '附件'}` }, card) : card;
+}
+
 function renderChatItem(item, showMeta = true) {
   if (item.type === 'user') {
     const parts = [];
     if (item.text) parts.push(h('div', { text: item.text }));
     if (item.images && item.images.length) {
-      parts.push(h('div', { class: 'chat-images' }, item.images.map((img) => {
-        const src = chatImageSrc(img);
-        return src ? chatImagePreview(src, img.name || '图片', 'chat-img', 'chat-attachment-preview') : h('div', { class: 'chat-img muted', text: img.name || '图片' });
-      })));
+      parts.push(h('div', { class: 'chat-images' }, item.images.map(renderChatMessageAttachment)));
     }
     const steeringLabel = item.steering && item.steeringStatus !== 'persisted'
       ? h('span', { class: `chat-steer-state ${item.steeringStatus || 'pending'}`,
@@ -4071,7 +4166,7 @@ function updateChatComposerState() {
     : action === 'interrupt'
     ? '停止生成'
     : (action === 'wait-desktop' ? 'ChatGPT 桌面端正在使用此会话' :
-      (blocked ? '等待图片上传完成' : (action === 'queue-desktop' ? '提交到服务器队列' : '发送')));
+      (blocked ? '等待附件上传完成' : (action === 'queue-desktop' ? '提交到服务器队列' : '发送')));
   send.setAttribute('aria-label', send.title);
 }
 
@@ -4117,7 +4212,7 @@ function renderChatFollowups() {
   for (const item of items) {
     const images = item.images || [];
     const label = item.displayText || item.text
-      || (item.skills?.length ? item.skills.map((skill) => `$${skill.name}`).join(' ') : `${images.length} 张图片`);
+      || (item.skills?.length ? item.skills.map((skill) => `$${skill.name}`).join(' ') : `${images.length} 个附件`);
     box.append(h('div', { class: 'chat-followup', dataset: { id: item.id } },
       svgIconParts('chat-followup-icon', [
         { tag: 'path', attrs: { d: 'M8 6h11M8 12h11M8 18h7' } },
@@ -4126,7 +4221,7 @@ function renderChatFollowups() {
         { tag: 'circle', attrs: { cx: '3.5', cy: '18', r: '1', fill: 'currentColor', stroke: 'none' } },
       ]),
       h('span', { class: 'chat-followup-text', text: label, title: label }),
-      images.length ? h('span', { class: 'chat-followup-images', text: `+${images.length} 图` }) : null,
+      images.length ? h('span', { class: 'chat-followup-images', text: `+${images.length} 附件` }) : null,
       h('div', { class: 'chat-followup-actions' },
         h('span', { class: 'chat-followup-waiting', text: chatQueuePresentation(item).label }),
         h('button', { type: 'button', class: 'chat-followup-guide', title: '改为引导当前任务',
@@ -4146,9 +4241,11 @@ function renderChatAttachments() {
   clear(box);
   for (const att of atts) {
     box.append(h('div', { class: 'chat-att' + (att.error ? ' err' : '') },
-      att.previewUrl ? chatImagePreview(att.previewUrl, att.name || '图片', '', 'chat-att-preview') : null,
+      chatAttachmentIsImage(att) && att.previewUrl
+        ? chatImagePreview(att.previewUrl, att.name || '图片', '', 'chat-att-preview')
+        : chatAttachmentFileCard(att, 'chat-att-file'),
       att.error || att.uploading ? h('span', { class: 'st', text: att.error ? '失败' : '上传中' }) : null,
-      h('button', { type: 'button', class: 'chat-att-remove', title: '移除图片', 'aria-label': '移除图片', onclick: () => removeChatAttachment(att.localId) },
+      h('button', { type: 'button', class: 'chat-att-remove', title: '移除附件', 'aria-label': '移除附件', onclick: () => removeChatAttachment(att.localId) },
         svgIcon('ic', 'M18 6 6 18 M6 6l12 12'))));
   }
   updateChatComposerState();
@@ -4167,12 +4264,9 @@ async function addChatFiles(files) {
   chat.attachments = chat.attachments || [];
   chat.objectUrls = chat.objectUrls || [];
   for (const file of Array.from(files)) {
-    if (!file || !String(file.type || '').startsWith('image/')) {
-      toast('只能上传图片。', 'err');
-      continue;
-    }
-    const previewUrl = URL.createObjectURL(file);
-    chat.objectUrls.push(previewUrl);
+    if (!file) continue;
+    const previewUrl = chatAttachmentIsImage({ name: file.name, mime: file.type }) ? URL.createObjectURL(file) : '';
+    if (previewUrl) chat.objectUrls.push(previewUrl);
     const pendingUpload = !!chat.pendingStart;
     const att = {
       localId: 'local-' + Date.now() + '-' + Math.random().toString(16).slice(2),
@@ -4190,7 +4284,7 @@ async function uploadChatFile(chat, att, file) {
     const fd = new FormData();
     fd.append('assistant', state.assistant);
     fd.append('sessionId', chat.sessionId);
-    fd.append('file', file, file.name || 'image');
+    fd.append('file', file, file.name || 'attachment');
     const r = await fetch(`${apiBase(chat.macId)}/api/chat/upload`, { method: 'POST', body: fd });
     if (!r.ok) {
       let msg = `上传失败：${r.status}`;
@@ -4204,7 +4298,7 @@ async function uploadChatFile(chat, att, file) {
     att.uploading = false;
     att.pendingUpload = false;
     att.error = e.message || '上传失败';
-    toast('图片上传失败：' + att.error, 'err');
+    toast('附件上传失败：' + att.error, 'err');
   } finally {
     if (state.chat === chat) renderChatAttachments();
   }
@@ -4221,6 +4315,7 @@ async function openChatSession(s) {
   state.selectedSid = s.sessionId;
   state.selectedSessionMacId = macId;
   state.selectedSessionAssistant = state.assistant;
+  markSessionRead({ ...s, macId, assistant: state.assistant });
   $$('.ses').forEach((el) => el.classList.toggle('sel',
     el.dataset.sid === s.sessionId && el.dataset.mac === macId && el.dataset.assistant === state.assistant));
   closeChatPane();
@@ -4723,6 +4818,14 @@ function startChatEvents(chat = state.chat) {
       const ev = JSON.parse(e.data);
       updateChatUpdatedAt(chat, Date.now());
       chat.model = FleetChatModel.reduceChatEvent(chat.model, ev);
+      if (ev.type === 'turn_done') {
+        const session = state.sessionResults.find((item) => item.macId === chat.macId &&
+          item.sessionId === chat.sessionId && (item.assistant || state.assistant) === chat.assistant) || {
+          macId: chat.macId, assistant: chat.assistant, sessionId: chat.sessionId, mtime: Date.now(),
+        };
+        if (state.chat === chat) markSessionRead(session);
+        else chat.unread = true;
+      }
       // EventSource reconnects replay unresolved requests. Derive this from the
       // reducer so the same request never creates a phantom waiting badge.
       chat.pendingRequestCount = pendingChatRequestCount(chat);
@@ -4903,7 +5006,7 @@ async function ensurePendingChatStarted(chat) {
   }
 }
 
-async function submitChatInput({ deliveryMode = 'auto' } = {}) {
+async function submitChatInput({ deliveryMode = 'next' } = {}) {
   const chat = state.chat;
   const input = $('#chat-input');
   let raw = typeof input.value === 'string' ? input.value : '';
@@ -4940,8 +5043,8 @@ async function submitChatInput({ deliveryMode = 'auto' } = {}) {
     : { text: raw.trim(), skills: [] };
   const text = parsed.text;
   const pending = chat.attachments || [];
-  if (pending.some((att) => att.uploading)) { toast('图片还在上传，稍等一下。'); return; }
-  if (pending.some((att) => att.error || !att.id)) { toast('有图片上传失败，先移除或重新选择。', 'err'); return; }
+  if (pending.some((att) => att.uploading)) { toast('附件还在上传，稍等一下。'); return; }
+  if (pending.some((att) => att.error || !att.id)) { toast('有附件上传失败，先移除或重新选择。', 'err'); return; }
   if (!text && pending.length === 0 && parsed.skills.length === 0) return;
   const images = pending.map((att) => ({
     localId: att.localId, id: att.id, name: att.name, mime: att.mime, size: att.size,
@@ -4992,7 +5095,7 @@ async function saveServerChatQueueItem(chat, item, deliveryMode) {
       body: JSON.stringify({
         assistant: state.assistant, sessionId: chat.sessionId, clientMessageId: item.id,
         cwd: chat.cwd || '', text: item.text, displayText: item.displayText,
-        deliveryMode: deliveryMode === 'next' ? 'next' : 'auto',
+        deliveryMode: deliveryMode === 'auto' ? 'auto' : 'next',
         skills: item.skills || [], images: item.images.map(({ id, name, mime, size, url }) => ({ id, name, mime, size, url })),
         options: chatTurnOptions(chat),
       }),
@@ -7096,7 +7199,7 @@ function init() {
   $('#chat-input').addEventListener('keydown', (e) => {
     if (e.key === 'Enter' && (e.metaKey || e.ctrlKey) && !isIMEComposing(e, chatIMEComposing)) {
       e.preventDefault();
-      submitChatInput({ deliveryMode: e.shiftKey ? 'next' : 'auto' });
+      submitChatInput({ deliveryMode: 'next' });
       return;
     }
     const menu = state.chat?.skillMenu;
@@ -7127,7 +7230,7 @@ function init() {
     }
   });
   $('#chat-input').addEventListener('paste', (e) => {
-    const files = [...(e.clipboardData?.files || [])].filter((f) => String(f.type || '').startsWith('image/'));
+    const files = [...(e.clipboardData?.files || [])];
     if (files.length) { e.preventDefault(); addChatFiles(files); }
   });
   $('#chat-input').addEventListener('compositionstart', () => { chatIMEComposing = true; });

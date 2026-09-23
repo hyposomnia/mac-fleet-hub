@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"mime"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -2353,9 +2354,21 @@ func codexUserInput(text string, images []ChatAttachment, skills []ChatSkill) []
 	if text != "" {
 		input = append(input, map[string]string{"type": "text", "text": text})
 	}
-	for _, img := range images {
-		if img.Path != "" {
-			input = append(input, map[string]string{"type": "localImage", "path": img.Path})
+	for _, attachment := range images {
+		if attachment.Path == "" {
+			continue
+		}
+		switch {
+		case chatAttachmentIsImage(attachment):
+			input = append(input, map[string]string{"type": "localImage", "path": attachment.Path})
+		case chatAttachmentIsAudio(attachment):
+			input = append(input, map[string]string{"type": "localAudio", "path": attachment.Path})
+		default:
+			name := strings.TrimSpace(attachment.Name)
+			if name == "" {
+				name = filepath.Base(attachment.Path)
+			}
+			input = append(input, map[string]string{"type": "mention", "name": name, "path": attachment.Path})
 		}
 	}
 	return input
@@ -3113,11 +3126,13 @@ func projectCodexHistoryItemWithUsage(sessionID, turnID string, raw json.RawMess
 				}
 				images = append(images, img)
 			case "localImage":
-				images = append(images, map[string]string{"name": filepath.Base(part.Path), "path": part.Path})
+				images = append(images, codexHistoryAttachment(sessionID, part.Name, part.Path))
+			case "localAudio":
+				images = append(images, codexHistoryAttachment(sessionID, part.Name, part.Path))
 			case "skill":
 				texts = append(texts, "$"+part.Name)
 			case "mention":
-				texts = append(texts, "@"+part.Name)
+				images = append(images, codexHistoryAttachment(sessionID, part.Name, part.Path))
 			}
 		}
 		text := visibleCodexHistoryUserText(strings.Join(texts, "\n"))
@@ -3148,6 +3163,27 @@ func projectCodexHistoryItemWithUsage(sessionID, turnID string, raw json.RawMess
 		}
 		return projectCodexToolItem(sessionID, turnID, raw, "completed")
 	}
+}
+
+func codexHistoryAttachment(sessionID, name, path string) map[string]string {
+	if strings.TrimSpace(name) == "" {
+		name = filepath.Base(path)
+	}
+	attachment := map[string]string{"name": name, "path": path}
+	if mimeType := mime.TypeByExtension(filepath.Ext(name)); mimeType != "" {
+		attachment["mime"] = mimeType
+	}
+	if filepath.Clean(filepath.Dir(path)) != filepath.Clean(chatUploadSessionDir(sessionID)) {
+		return attachment
+	}
+	if uploaded, err := resolveChatUpload(sessionID, filepath.Base(path)); err == nil {
+		attachment["url"] = uploaded.URL
+		attachment["size"] = strconv.FormatInt(uploaded.Size, 10)
+		if attachment["mime"] == "" {
+			attachment["mime"] = uploaded.MIME
+		}
+	}
+	return attachment
 }
 
 func projectCodexSemanticItem(sessionID, turnID string, raw json.RawMessage, lifecycleStatus string) (ChatEvent, bool) {

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -257,15 +258,15 @@ func (b *dshChatBackend) prompt(ctx context.Context, sessionID, text string, ima
 	if text != "" {
 		content = append(content, map[string]any{"type": "text", "text": text})
 	}
-	for _, image := range images {
-		part, err := dshImagePart(image)
-		if err != nil || part == nil {
-			continue
+	for _, attachment := range images {
+		part, err := dshAttachmentPart(attachment)
+		if err != nil {
+			return ChatInputResult{}, err
 		}
 		content = append(content, part)
 	}
 	if len(content) == 0 {
-		return ChatInputResult{}, errors.New("空消息：既没有文本也没有可发送的图片")
+		return ChatInputResult{}, errors.New("空消息：既没有文本也没有可发送的附件")
 	}
 
 	requestID := strings.TrimSpace(clientMessageID)
@@ -941,6 +942,38 @@ func dshImagePart(att ChatAttachment) (map[string]any, error) {
 	}
 	if att.Name != "" {
 		part["name"] = att.Name
+	}
+	return part, nil
+}
+
+// dshAttachmentPart 使用 ACP 兼容的内容块：图片继续内嵌给视觉模型，其它文件用所有
+// ACP Agent 都必须支持的 resource_link 引用。文件保留在 host 本机，模型能解析就读，
+// 不能解析时也不会因为 Fleet 预先猜测类型而拦截上传。
+func dshAttachmentPart(att ChatAttachment) (map[string]any, error) {
+	if part, err := dshImagePart(att); err != nil || part != nil {
+		return part, err
+	}
+	if att.Path == "" || !filepath.IsAbs(att.Path) {
+		return nil, fmt.Errorf("附件路径必须是绝对的: %q", att.Path)
+	}
+	info, err := os.Stat(att.Path)
+	if err != nil || !info.Mode().IsRegular() {
+		if err == nil {
+			err = errors.New("不是普通文件")
+		}
+		return nil, fmt.Errorf("无法读取附件 %q: %w", att.Path, err)
+	}
+	name := strings.TrimSpace(att.Name)
+	if name == "" {
+		name = filepath.Base(att.Path)
+	}
+	part := map[string]any{
+		"type": "resource_link",
+		"name": name,
+		"uri":  (&url.URL{Scheme: "file", Path: att.Path}).String(),
+	}
+	if mimeType := strings.TrimSpace(att.MIME); mimeType != "" {
+		part["mimeType"] = mimeType
 	}
 	return part, nil
 }

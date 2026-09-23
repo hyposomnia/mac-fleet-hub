@@ -134,6 +134,12 @@ func (s backendChatQueueSender) resolve(item ChatQueueItem) ([]ChatAttachment, [
 		if err != nil {
 			return nil, nil, err
 		}
+		if stored.Name != "" {
+			attachment.Name = stored.Name
+		}
+		if stored.MIME != "" {
+			attachment.MIME = stored.MIME
+		}
 		images = append(images, attachment)
 	}
 	skills := make([]ChatSkill, 0, len(item.Skills))
@@ -767,7 +773,7 @@ func (q *chatQueue) Enqueue(input ChatQueueItem) (ChatQueueItem, error) {
 	input.AttemptedAt = 0
 	input.SentAt = 0
 	if input.DeliveryMode == "" {
-		input.DeliveryMode = chatDeliveryAuto
+		input.DeliveryMode = chatDeliveryNext
 	}
 	if input.ClientMessageID == "" || !chatCapabilities(input.Assistant).Queue || input.SessionID == "" {
 		return ChatQueueItem{}, errors.New("invalid queue item")

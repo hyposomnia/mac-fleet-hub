@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -378,6 +380,23 @@ func TestDSHImagePartOnlyAcceptsHostMediaTypes(t *testing.T) {
 	// 非绝对路径拒绝：Path 是 agent 本地路径，相对路径含义不明确。
 	if _, err := dshImagePart(ChatAttachment{MIME: "image/png", Path: "rel.png"}); err == nil {
 		t.Fatal("相对路径应被拒绝")
+	}
+}
+
+func TestDSHAttachmentPartUsesACPResourceLinkForAnyFile(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "report.pdf")
+	if err := os.WriteFile(path, []byte("pdf-ish"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	part, err := dshAttachmentPart(ChatAttachment{Name: "季度 报告.pdf", MIME: "application/pdf", Path: path})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if part["type"] != "resource_link" || part["name"] != "季度 报告.pdf" || part["mimeType"] != "application/pdf" {
+		t.Fatalf("resource link = %#v", part)
+	}
+	if uri, _ := part["uri"].(string); !strings.HasPrefix(uri, "file://") || !strings.Contains(uri, "report.pdf") {
+		t.Fatalf("resource URI = %q", uri)
 	}
 }
 
