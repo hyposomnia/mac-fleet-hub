@@ -955,13 +955,10 @@ textarea.chat-request-input { resize: vertical; }
 .chat-followup-icon { width: 15px; height: 15px; flex: none; color: var(--chat-text-2); fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; }
 .chat-followup-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .chat-followup-images { flex: none; color: var(--chat-text-2); }
-.chat-followup-actions { display: flex; align-items: center; gap: 1px; margin-left: auto; flex: none; }
+.chat-followup-actions { display: flex; align-items: center; gap: 2px; margin-left: auto; flex: none; }
 .chat-followup-actions .iconbtn { width: 28px; height: 28px; color: var(--chat-text-2); }
 .chat-followup-actions .ic { width: 14px; height: 14px; }
-.chat-followup-guide { display: inline-flex; align-items: center; gap: 4px; min-height: 28px; padding: 0 7px; border-radius: 7px; color: var(--chat-text-2); font-size: var(--t-secondary); }
-.chat-followup-guide .ic { width: 15px; height: 15px; }
-.chat-followup-waiting { padding: 0 6px; color: var(--chat-text-2); font-size: var(--t-secondary); white-space: nowrap; }
-.chat-followup-guide:hover, .chat-followup-actions .iconbtn:hover { color: var(--chat-text); background: var(--chat-surface-hover); }
+.chat-followup-actions .iconbtn:hover { color: var(--chat-text); background: var(--chat-surface-hover); }
 .chat-row.user.queue-status-row { margin-top: -6px; }
 .chat-queue-status { width: min(520px, 82%); margin-left: auto; padding: 10px 12px; border: 1px solid var(--chat-border); border-radius: 13px; background: var(--chat-surface-1); color: var(--chat-text-2); font-size: var(--t-secondary); }
 .chat-queue-status-title { color: var(--chat-text); font-weight: 600; }

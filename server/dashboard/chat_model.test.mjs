@@ -887,7 +887,7 @@ test('server queue states map to distinct native UI treatments and actions', () 
   assert.match(appSrc, /waiting_access/);
   assert.match(appSrc, /uncertain/);
   assert.match(appSrc, /正在插入当前任务/);
-  assert.match(appSrc, /服务器已保存 · 当前任务结束后发送/);
+  assert.doesNotMatch(appSrc, /服务器已保存 · 当前任务结束后发送/);
   assert.match(appSrc, /等待释放/);
   assert.match(appSrc, /Fleet 当前只读；恢复 Fleet 写入后才会发送/);
   assert.match(appSrc, /上次投递结果未知/);
@@ -978,10 +978,16 @@ test('Fleet-owned turn queue reuses the composer follow-up stack instead of tran
   assert.match(appSrc, /function isFleetQueueFollowup/);
   assert.match(appSrc, /!isFleetQueueFollowup\(queued\)/);
   assert.match(followups, /filter\(isFleetQueueFollowup\)/);
-  assert.match(followups, /chatQueuePresentation\(item\)\.label/);
+  assert.doesNotMatch(followups, /chatQueuePresentation\(item\)\.label|chat-followup-waiting/);
+  assert.match(followups, /editServerChatQueue\(item\)/);
   assert.match(followups, /decideServerChatQueue\(item, 'steer'\)/);
   assert.match(followups, /decideServerChatQueue\(item, 'cancel'\)/);
+  assert.match(followups, /title: '编辑排队消息', 'aria-label': '编辑排队消息'/);
+  assert.match(followups, /title: '引导当前任务', 'aria-label': '引导当前任务'/);
+  assert.match(followups, /title: '删除排队消息', 'aria-label': '删除排队消息'/);
+  assert.doesNotMatch(followups, />引导当前任务<|'引导中…'/);
   assert.match(followups, /disabled: item\.decisionPending \|\| chatControlActionsBlocked\(\) \? '' : null/);
+  assert.match(appSrc, /if \(!await decideServerChatQueue\(item, 'cancel'\) \|\| state\.chat !== chat\) return;[\s\S]*restoreChatComposerItem\(chat, item\)/);
   assert.match(appSrc, /previous\?\.stateVersion === item\.stateVersion/);
   assert.match(appSrc, /chat\.model = FleetChatModel\.appendUserMessage/);
   assert.match(appSrc, /chat\.model = FleetChatModel\.removeMessage\(chat\.model, item\.clientMessageId\)/);

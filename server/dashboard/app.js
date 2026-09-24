@@ -2195,7 +2195,7 @@ async function loadServerChatQueue(chat) {
 const CHAT_QUEUE_UI = Object.freeze({
   queued: { placement: 'transcript', label: '消息已保存' },
   steering: { placement: 'transcript', label: '正在插入当前任务…' },
-  waiting_turn: { placement: 'followup', label: '服务器已保存 · 当前任务结束后发送' },
+  waiting_turn: { placement: 'followup', label: '已排队' },
   writer_confirmation_required: { placement: 'transcript', label: '此会话正在其他 ChatGPT 客户端中使用。等待释放，或确认强制接管。' },
   waiting_writer: { placement: 'transcript', label: '已由服务器排队，等待其他 ChatGPT 客户端释放会话。' },
   waiting_access: { placement: 'transcript', label: 'Fleet 当前只读；恢复 Fleet 写入后才会发送。' },
@@ -2235,11 +2235,12 @@ function startServerChatQueueSync(chat) {
 
 async function decideServerChatQueue(item, action) {
   const chat = state.chat;
-  if (!chat || !item || item.decisionPending || !chat.controlReady) return;
-  if (!chatQueuePresentation(item).actions.includes(action)) return;
+  if (!chat || !item || item.decisionPending || !chat.controlReady) return false;
+  if (!chatQueuePresentation(item).actions.includes(action)) return false;
   item.decisionPending = action;
   renderChat();
   renderChatFollowups();
+  let completed = false;
   try {
     const requestSeq = beginChatControlRequest(chat);
     const control = await api(chat.macId, 'chat/queue/decision', {
@@ -2250,7 +2251,7 @@ async function decideServerChatQueue(item, action) {
     if (!applyChatControlSnapshot(chat, control, requestSeq)) {
       item.decisionPending = '';
       await loadServerChatQueue(chat);
-    }
+    } else completed = true;
   } catch (error) {
     item.decisionPending = '';
     toast(`操作失败：${error.message}`, 'err');
@@ -2258,6 +2259,15 @@ async function decideServerChatQueue(item, action) {
   }
   renderChat();
   renderChatFollowups();
+  return completed;
+}
+
+async function editServerChatQueue(item) {
+  const chat = state.chat;
+  if (!chat || !item || !chatQueuePresentation(item).actions.includes('cancel')) return;
+  if (!await decideServerChatQueue(item, 'cancel') || state.chat !== chat) return;
+  restoreChatComposerItem(chat, item);
+  $('#chat-input')?.focus({ preventScroll: true });
 }
 
 function queueStatusCard(item) {
@@ -4223,11 +4233,13 @@ function renderChatFollowups() {
       h('span', { class: 'chat-followup-text', text: label, title: label }),
       images.length ? h('span', { class: 'chat-followup-images', text: `+${images.length} 附件` }) : null,
       h('div', { class: 'chat-followup-actions' },
-        h('span', { class: 'chat-followup-waiting', text: chatQueuePresentation(item).label }),
-        h('button', { type: 'button', class: 'chat-followup-guide', title: '改为引导当前任务',
+        h('button', { type: 'button', class: 'iconbtn bare chat-followup-edit', title: '编辑排队消息', 'aria-label': '编辑排队消息',
+          disabled: item.decisionPending || chatControlActionsBlocked() ? '' : null, onclick: () => editServerChatQueue(item) },
+          svgIconParts('ic', [{ tag: 'path', attrs: { d: 'M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L8 18l-4 1 1-4Z' } }])),
+        h('button', { type: 'button', class: 'iconbtn bare chat-followup-guide', title: '引导当前任务', 'aria-label': '引导当前任务',
           disabled: item.decisionPending || chatControlActionsBlocked() ? '' : null, onclick: () => decideServerChatQueue(item, 'steer') },
-          svgIconParts('ic', [{ tag: 'path', attrs: { d: 'M4 5v6a4 4 0 0 0 4 4h11M15 11l4 4-4 4' } }]), item.decisionPending === 'steer' ? '引导中…' : '引导当前任务'),
-        h('button', { type: 'button', class: 'iconbtn bare', disabled: item.decisionPending || chatControlActionsBlocked() ? '' : null, title: '取消排队', 'aria-label': '取消排队', onclick: () => decideServerChatQueue(item, 'cancel') },
+          svgIconParts('ic', [{ tag: 'path', attrs: { d: 'M4 5v6a4 4 0 0 0 4 4h11M15 11l4 4-4 4' } }])),
+        h('button', { type: 'button', class: 'iconbtn bare chat-followup-delete', disabled: item.decisionPending || chatControlActionsBlocked() ? '' : null, title: '删除排队消息', 'aria-label': '删除排队消息', onclick: () => decideServerChatQueue(item, 'cancel') },
           svgIconParts('ic', [{ tag: 'path', attrs: { d: 'M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6M10 11v5M14 11v5' } }])))));
   }
 }
