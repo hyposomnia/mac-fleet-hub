@@ -901,7 +901,7 @@ textarea.chat-request-input { resize: vertical; }
 }
 .chat-composer-float { position: absolute; top: -62px; left: clamp(18px, 4vw, 52px); right: clamp(18px, 4vw, 52px); z-index: 3; max-width: 860px; margin: 0 auto; display: flex; justify-content: flex-end; pointer-events: none; }
 .chat-composer-shell { position: relative; z-index: 1; width: 100%; max-width: 860px; margin: 0 auto; }
-.chat-subagents { position: relative; z-index: 2; width: 100%; margin-bottom: 8px; color: var(--chat-text); }
+.chat-subagents { position: relative; z-index: 1; width: 100%; margin-bottom: 8px; color: var(--chat-text); }
 .chat-subagents[hidden], .chat-subagent-drawer[hidden], .chat-subagent-detail[hidden] { display: none; }
 .chat-subagent-bar {
   display: flex; align-items: center; min-width: 0; min-height: 40px; padding: 4px 4px 4px 8px;
@@ -975,7 +975,7 @@ textarea.chat-request-input { resize: vertical; }
 .chat-queue-warning { margin: 6px 0 0; color: var(--danger); font-size: var(--t-caption); line-height: 1.5; }
 .chat-queue-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 7px; margin-top: 9px; }
 .chat-composer-inner {
-  position: relative; z-index: 1; width: 100%; min-height: 112px; display: flex; flex-direction: column; min-width: 0;
+  position: relative; z-index: 2; width: 100%; min-height: 112px; display: flex; flex-direction: column; min-width: 0;
   padding: 8px; border-radius: 24px; background: var(--chat-composer-bg); border: 1px solid var(--chat-border);
   box-shadow: var(--chat-composer-shadow);
   transition: border-color var(--dur-1) var(--ease), box-shadow var(--dur-1) var(--ease), background var(--dur-1) var(--ease);

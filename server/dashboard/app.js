@@ -2619,6 +2619,10 @@ function chatSubagentMeta(agent) {
   return [agent?.role, agent?.nickname].filter(Boolean).join(' · ');
 }
 
+function chatSubagentShouldShow(agent) {
+  return !!(agent?.threadId && agent?.name) && chatSubagentStatus(agent.status).key !== 'completed';
+}
+
 function chatSubagentShouldRefreshDetail(previousStatus, currentStatus, loaded) {
   const previous = chatSubagentStatus(previousStatus).key;
   const current = chatSubagentStatus(currentStatus).key;
@@ -2663,10 +2667,13 @@ async function refreshChatSubagents(chat = state.chat) {
       const previousStatuses = new Map(chat.subagents.map((agent) => [agent.threadId, chatSubagentStatus(agent.status).key]));
       const page = await api(chat.macId, `chat/subagents?assistant=codex&sessionId=${encodeURIComponent(chat.sessionId)}`);
       if (state.chat !== chat) return;
-      chat.subagents = Array.isArray(page.items) ? page.items.filter((agent) => agent?.threadId && agent?.name) : [];
-      if (chat.selectedSubagentId && !chatSubagentById(chat, chat.selectedSubagentId)) {
+      chat.subagents = Array.isArray(page.items) ? page.items.filter(chatSubagentShouldShow) : [];
+      if (!chat.subagents.length) {
         chat.selectedSubagentId = '';
-        chat.subagentPanelMode = chat.subagents.length ? 'list' : 'closed';
+        chat.subagentPanelMode = 'closed';
+      } else if (chat.selectedSubagentId && !chatSubagentById(chat, chat.selectedSubagentId)) {
+        chat.selectedSubagentId = '';
+        chat.subagentPanelMode = 'list';
       }
       renderChatSubagents(chat);
       if (chat.subagentPanelMode === 'detail' && chat.selectedSubagentId) {
