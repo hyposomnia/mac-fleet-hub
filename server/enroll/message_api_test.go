@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -223,5 +224,137 @@ func TestLegacyAccessKeyMigratesWithoutRevocation(t *testing.T) {
 	migrated, err := os.ReadFile(keyFile)
 	if err != nil || !bytes.Contains(migrated, []byte(`"keys"`)) {
 		t.Fatalf("legacy store not migrated: %v %s", err, migrated)
+	}
+}
+
+func TestAccessKeyBindingCreateEditPersistAndValidation(t *testing.T) {
+	dir := t.TempDir()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/sessions" || r.URL.Query().Get("assistant") != "codex" {
+			t.Errorf("unexpected sessions request: %s", r.URL)
+		}
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{"sessions": []targetSession{{SessionID: "thread-1", Cwd: "/Users/a/demo", Title: "Demo"}}})
+	}))
+	defer server.Close()
+	port := server.Listener.Addr().(*net.TCPAddr).Port
+	api := &messageAPI{keyFile: filepath.Join(dir, "keys.json"), jobsFile: filepath.Join(dir, "jobs.json"),
+		macIPs: []string{"127.0.0.1"}, agentPort: port, client: server.Client(), jobs: map[string]*messageJob{}}
+	call := func(method, path, body string) *httptest.ResponseRecorder {
+		rr := httptest.NewRecorder()
+		api.handleAccessKeys(rr, httptest.NewRequest(method, path, bytes.NewBufferString(body)))
+		return rr
+	}
+	for _, body := range []string{
+		`{"name":"CI","binding":{"device_id":"m1","project_path":"/Users/a/demo"}}`,
+		`{"name":"CI","binding":{"device_id":"m1","ai_client":"other"}}`,
+		`{"name":"CI","binding":{"device_id":"m1","ai_client":"codex","project_path":"demo"}}`,
+		`{"name":"CI","binding":{"device_id":"m2"}}`,
+		`{"name":"CI","binding":{"device_id":"m1","unknown":"x"}}`,
+		`{"name":"CI","binding":{"device_id":"m1","ai_client":"codex","project_path":"/Users/a/demo","session_id":"wrong"}}`,
+	} {
+		rr := call(http.MethodPost, "/automation/access-keys", body)
+		if rr.Code != http.StatusBadRequest {
+			t.Fatalf("invalid binding %s: %d %s", body, rr.Code, rr.Body.String())
+		}
+	}
+	created := call(http.MethodPost, "/automation/access-keys", `{"name":"CI","binding":{"device_id":"m1","ai_client":"codex","project_path":"/Users/a/demo","session_id":"thread-1"}}`)
+	if created.Code != http.StatusCreated {
+		t.Fatalf("create: %d %s", created.Code, created.Body.String())
+	}
+	var key accessKeyState
+	if err := json.Unmarshal(created.Body.Bytes(), &key); err != nil || key.Binding == nil || key.Binding.SessionID != "thread-1" {
+		t.Fatalf("create binding: %v %s", err, created.Body.String())
+	}
+	loaded := &messageAPI{keyFile: api.keyFile, jobsFile: api.jobsFile, jobs: map[string]*messageJob{}}
+	if err := loaded.load(); err != nil || len(loaded.keys) != 1 || loaded.keys[0].Binding.SessionID != "thread-1" {
+		t.Fatalf("binding persistence: %v %#v", err, loaded.keys)
+	}
+	api.resolveTarget = api.resolveMessageTarget
+	api.wake = make(chan struct{}, 1)
+	request := httptest.NewRequest(http.MethodPost, "/v1/messages", bytes.NewBufferString(`{"device":"m1","ai_client":"codex","project":"DEMO","session":"demo","message":"hello"}`))
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("Authorization", "Bearer "+key.Secret)
+	accepted := httptest.NewRecorder()
+	api.handleMessages(accepted, request)
+	if accepted.Code != http.StatusAccepted {
+		t.Fatalf("canonical target names should match binding: %d %s", accepted.Code, accepted.Body.String())
+	}
+	// Changing only the authorization scope must not depend on the job store.
+	jobsFile := api.jobsFile
+	api.jobsFile = dir // A directory cannot be replaced by the job-store file.
+	patched := call(http.MethodPatch, "/automation/access-keys/"+key.ID, `{"binding":{"device_id":"m1"}}`)
+	api.jobsFile = jobsFile
+	if patched.Code != http.StatusOK || api.keys[0].Name != "CI" || api.keys[0].Binding.AIClient != "" {
+		t.Fatalf("patch should preserve name and narrow hierarchy: %d %s", patched.Code, patched.Body.String())
+	}
+	stored := &messageAPI{keyFile: api.keyFile, jobsFile: api.jobsFile, jobs: map[string]*messageJob{}}
+	if err := stored.load(); err != nil || stored.keys[0].Binding.AIClient != "" {
+		t.Fatalf("scope edit must persist independently of job store: %v %#v", err, stored.keys)
+	}
+	cleared := call(http.MethodPatch, "/automation/access-keys/"+key.ID, `{"binding":null}`)
+	if cleared.Code != http.StatusOK || api.keys[0].Binding != nil {
+		t.Fatalf("clear binding: %d %s", cleared.Code, cleared.Body.String())
+	}
+}
+
+func TestBoundKeyCannotSubmitOrReadOutsideScope(t *testing.T) {
+	dir := t.TempDir()
+	first, _ := newAccessKey("bound")
+	first.Binding = &accessKeyBinding{DeviceID: "m1", AIClient: "codex", ProjectPath: "/Users/a/demo", SessionID: "thread-1"}
+	second, _ := newAccessKey("other")
+	api := &messageAPI{keyFile: filepath.Join(dir, "keys.json"), jobsFile: filepath.Join(dir, "jobs.json"),
+		macIPs: []string{"100.64.0.2", "100.64.0.3"}, keys: []accessKeyState{first, second}, jobs: map[string]*messageJob{}, wake: make(chan struct{}, 1)}
+	api.resolveTarget = func(_ context.Context, req submitMessageRequest) (resolvedTarget, *apiProblem) {
+		return resolvedTarget{DeviceID: req.Device, AIClient: req.AIClient, ProjectPath: req.Project, SessionID: *req.Session}, nil
+	}
+	submit := func(secret, device, client, project, session, idem string) *httptest.ResponseRecorder {
+		payload, _ := json.Marshal(submitMessageRequest{Device: device, AIClient: client, Project: project, Session: &session, Message: "hello"})
+		req := httptest.NewRequest(http.MethodPost, "/v1/messages", bytes.NewReader(payload))
+		req.Header.Set("Authorization", "Bearer "+secret)
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Idempotency-Key", idem)
+		rr := httptest.NewRecorder()
+		api.handleMessages(rr, req)
+		return rr
+	}
+	for _, tc := range []struct{ device, client, project, session string }{
+		{"m2", "codex", "/Users/a/demo", "thread-1"},
+		{"m1", "deepseek", "/Users/a/demo", "thread-1"},
+		{"m1", "codex", "/Users/a/other", "thread-1"},
+		{"m1", "codex", "/Users/a/demo", "thread-2"},
+		{"m1", "codex", "/Users/a/demo", ""},
+	} {
+		rr := submit(first.Secret, tc.device, tc.client, tc.project, tc.session, "")
+		if rr.Code != http.StatusForbidden || !bytes.Contains(rr.Body.Bytes(), []byte("access_key_scope_mismatch")) {
+			t.Fatalf("out-of-scope target %+v: %d %s", tc, rr.Code, rr.Body.String())
+		}
+	}
+	accepted := submit(first.Secret, "m1", "codex", "/Users/a/demo", "thread-1", "retry-1")
+	if accepted.Code != http.StatusAccepted || len(api.jobs) != 1 {
+		t.Fatalf("valid target: %d %s", accepted.Code, accepted.Body.String())
+	}
+	var result map[string]string
+	_ = json.Unmarshal(accepted.Body.Bytes(), &result)
+	read := func(secret string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(http.MethodGet, "/v1/messages/"+result["message_id"], nil)
+		req.Header.Set("Authorization", "Bearer "+secret)
+		rr := httptest.NewRecorder()
+		api.handleMessages(rr, req)
+		return rr
+	}
+	if rr := read(second.Secret); rr.Code != http.StatusNotFound {
+		t.Fatalf("other key read: %d %s", rr.Code, rr.Body.String())
+	}
+	if rr := read(first.Secret); rr.Code != http.StatusOK {
+		t.Fatalf("own read: %d %s", rr.Code, rr.Body.String())
+	}
+	api.mu.Lock()
+	api.keys[0].Binding = &accessKeyBinding{DeviceID: "m2"}
+	api.mu.Unlock()
+	if rr := read(first.Secret); rr.Code != http.StatusNotFound {
+		t.Fatalf("read after narrowing: %d %s", rr.Code, rr.Body.String())
+	}
+	if rr := submit(first.Secret, "m1", "codex", "/Users/a/demo", "thread-1", "retry-1"); rr.Code != http.StatusForbidden {
+		t.Fatalf("idempotent replay after narrowing: %d %s", rr.Code, rr.Body.String())
 	}
 }

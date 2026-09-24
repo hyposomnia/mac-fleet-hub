@@ -17,7 +17,7 @@
        内联以避免首屏闪烁。 -->
   <script>(function () { var t; try { t = localStorage.getItem('fleet-theme'); } catch (e) {} if (t !== 'light' && t !== 'dark') t = matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark'; document.documentElement.dataset.theme = t; document.querySelector('meta[name="theme-color"]').content = t === 'light' ? '#f6f7f9' : '#090c12'; })();</script>
   <link rel="stylesheet" href="vendor/codemirror/lib/codemirror.css?v=5.65.20" />
-  <link rel="stylesheet" href="style.css?v=139" />
+  <link rel="stylesheet" href="style.css?v=140" />
 </head>
 <body>
   <!-- DeepSeek 官方 whale mark，来源与 MIT 许可见 icons/deepseek/LICENSE.md。 -->
@@ -459,9 +459,21 @@
           </div>
           <section class="set-group set-panel" data-automation-panel="keys">
             <div class="set-group-title automation-panel-title"><span>访问密钥</span><button id="automation-key-create" class="btn sm primary" type="button">新建密钥</button></div>
-            <p class="hint">可为不同系统建立独立密钥。密钥会保存在网关上，可随时回来查看或复制。</p>
+            <p class="hint">可为不同系统建立独立密钥，并逐级限定设备、AI 客户端、项目和会话。留空的后续层级表示不限制。</p>
+            <form id="automation-key-form" class="automation-key-form" hidden>
+              <strong id="automation-key-form-title">新建密钥</strong>
+              <label>名称<input id="automation-key-name" class="input" maxlength="80" required /></label>
+              <div class="automation-binding-grid">
+                <label>设备<select id="automation-key-device" class="input"><option value="">全部设备</option></select></label>
+                <label>AI 客户端<select id="automation-key-client" class="input" disabled><option value="">全部客户端</option><option value="codex">ChatGPT (Codex)</option><option value="deepseek">DeepSeek</option></select></label>
+                <label>项目绝对路径<input id="automation-key-project" class="input" list="automation-key-project-options" placeholder="全部项目" disabled /><datalist id="automation-key-project-options"></datalist></label>
+                <label>会话 ID<input id="automation-key-session" class="input" list="automation-key-session-options" placeholder="全部会话（可新建）" disabled /><datalist id="automation-key-session-options"></datalist></label>
+              </div>
+              <p id="automation-key-options-status" class="hint" role="status"></p>
+              <div class="automation-key-form-actions"><button id="automation-key-cancel" class="btn sm" type="button">取消</button><button id="automation-key-save" class="btn sm primary" type="submit">保存密钥</button></div>
+            </form>
             <div id="automation-key-list" class="automation-key-list"><div class="message-record-empty">正在加载…</div></div>
-            <p class="hint warn">持有密钥的人可以向所有已纳管设备的 Codex / DeepSeek 项目会话发送消息。请放在 <code>Authorization: Bearer …</code> 请求头中，不要写入 URL。</p>
+            <p class="hint warn">未绑定的密钥可向所有已纳管设备的项目会话发送消息。密钥应放在 <code>Authorization: Bearer …</code> 请求头中。</p>
           </section>
           <section class="set-group set-panel message-records-panel" data-automation-panel="messages" hidden>
             <div class="set-group-title automation-panel-title"><span>API 消息记录</span><button id="automation-message-refresh" class="btn sm" type="button">刷新</button></div>
@@ -554,10 +566,10 @@
   <script src="vendor/codemirror/mode/yaml/yaml.js?v=5.65.20"></script>
   <script src="vendor/codemirror/mode/toml/toml.js?v=5.65.20"></script>
   <script src="vendor/codemirror/mode/properties/properties.js?v=5.65.20"></script>
-  <script src="markdown.js?v=139"></script>
-  <script src="preview.js?v=139"></script>
-  <script src="chat_model.js?v=139"></script>
-  <script src="upload_model.js?v=139"></script>
-  <script src="app.js?v=139"></script>
+  <script src="markdown.js?v=140"></script>
+  <script src="preview.js?v=140"></script>
+  <script src="chat_model.js?v=140"></script>
+  <script src="upload_model.js?v=140"></script>
+  <script src="app.js?v=140"></script>
 </body>
 </html>

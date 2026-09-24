@@ -6,7 +6,7 @@
   <meta name="theme-color" content="#090c12" />
   <title>自动化使用文档 · fleet hub</title>
   <script>(function () { var t; try { t = localStorage.getItem('fleet-theme'); } catch (e) {} if (t !== 'light' && t !== 'dark') t = matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark'; document.documentElement.dataset.theme = t; document.querySelector('meta[name="theme-color"]').content = t === 'light' ? '#f6f7f9' : '#090c12'; })();</script>
-  <link rel="stylesheet" href="style.css?v=129" />
+  <link rel="stylesheet" href="style.css?v=140" />
 </head>
 <body class="automation-doc-page">
   <header class="automation-doc-head">
@@ -23,7 +23,7 @@
 
     <section class="automation-doc-section">
       <h2>1. 创建访问密钥</h2>
-      <p>打开 <b>自动化 → 访问密钥</b>，点击“新建密钥”。每个调用方建议使用独立密钥，方便撤销和筛选消息记录。</p>
+      <p>打开 <b>自动化 → 访问密钥</b>，点击“新建密钥”。可依次绑定设备、AI 客户端、项目绝对路径和已有会话 ID；后续层级留空即允许该层级下所有目标。绑定会话的密钥只能继续该会话，不能新建会话。可通过“编辑”调整现有密钥的范围。</p>
       <div class="automation-doc-note">密钥可随时回来查看。请求时放入 <code>Authorization: Bearer …</code>，不要写在 URL 中。</div>
     </section>
 
@@ -59,6 +59,7 @@
         </table>
       </div>
       <p>设备、项目和会话匹配均不区分大小写。名称重名时接口会返回候选路径或 ID，按提示重新提交即可。</p>
+      <p>若密钥已绑定范围，请在请求中明确传入该范围内的目标；绑定会话时必须传入对应的 <code>session</code>。不匹配的目标返回 <code>403 access_key_scope_mismatch</code>。</p>
     </section>
 
     <section class="automation-doc-section">
@@ -83,6 +84,7 @@
       <h2>常见响应</h2>
       <ul>
         <li><code>401 invalid_access_key</code>：密钥缺失、错误或已删除。</li>
+        <li><code>403 access_key_scope_mismatch</code>：目标超出密钥绑定范围。</li>
         <li><code>409 ambiguous_project</code>：项目重名，使用返回的完整路径。</li>
         <li><code>409 ambiguous_session</code>：会话重名，使用返回的会话 ID。</li>
         <li><code>503 device_unavailable</code>：目标设备当前不可达。</li>

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"crypto/sha256"
@@ -32,14 +33,36 @@ const (
 )
 
 type accessKeyState struct {
-	ID         string    `json:"id"`
-	Name       string    `json:"name"`
-	Secret     string    `json:"key,omitempty"`
-	Hash       string    `json:"hash"`
-	Prefix     string    `json:"prefix"`
-	CreatedAt  time.Time `json:"created_at"`
-	UpdatedAt  time.Time `json:"updated_at,omitempty"`
-	LastUsedAt time.Time `json:"last_used_at,omitempty"`
+	ID         string            `json:"id"`
+	Name       string            `json:"name"`
+	Secret     string            `json:"key,omitempty"`
+	Hash       string            `json:"hash"`
+	Prefix     string            `json:"prefix"`
+	CreatedAt  time.Time         `json:"created_at"`
+	UpdatedAt  time.Time         `json:"updated_at,omitempty"`
+	LastUsedAt time.Time         `json:"last_used_at,omitempty"`
+	Binding    *accessKeyBinding `json:"binding,omitempty"`
+}
+
+// A binding is a hierarchy of canonical target identifiers. Empty trailing fields
+// mean the key may address any target beneath the last specified level.
+type accessKeyBinding struct {
+	DeviceID    string `json:"device_id"`
+	AIClient    string `json:"ai_client,omitempty"`
+	ProjectPath string `json:"project_path,omitempty"`
+	SessionID   string `json:"session_id,omitempty"`
+}
+
+func (b *accessKeyBinding) allows(target resolvedTarget) bool {
+	return b == nil || (b.DeviceID == target.DeviceID &&
+		(b.AIClient == "" || b.AIClient == target.AIClient) &&
+		(b.ProjectPath == "" || b.ProjectPath == target.ProjectPath) &&
+		(b.SessionID == "" || b.SessionID == target.SessionID))
+}
+
+func (b *accessKeyBinding) allowsJob(job *messageJob) bool {
+	return b.allows(resolvedTarget{DeviceID: job.DeviceID, AIClient: job.AIClient,
+		ProjectPath: job.ProjectPath, SessionID: job.SessionID})
 }
 
 type accessKeyStoreDisk struct {
@@ -306,6 +329,7 @@ func accessKeyResponse(key accessKeyState) map[string]interface{} {
 		"id": key.ID, "name": key.Name, "key": key.Secret, "recoverable": key.Secret != "",
 		"prefix": key.Prefix, "created_at": omitZeroTime(key.CreatedAt),
 		"updated_at": omitZeroTime(key.UpdatedAt), "last_used_at": omitZeroTime(key.LastUsedAt),
+		"binding": key.Binding,
 	}
 }
 
@@ -337,19 +361,76 @@ func newAccessKey(name string) (accessKeyState, error) {
 	}, nil
 }
 
-func decodeAccessKeyName(w http.ResponseWriter, r *http.Request, fallback string) (string, *apiProblem) {
+func decodeAccessKeyEdit(w http.ResponseWriter, r *http.Request, fallback string) (string, *accessKeyBinding, bool, *apiProblem) {
 	var body struct {
-		Name string `json:"name"`
+		Name    string          `json:"name"`
+		Binding json.RawMessage `json:"binding"`
 	}
 	dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, 16<<10))
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(&body); err != nil && !errors.Is(err, io.EOF) {
-		return "", &apiProblem{Status: 400, Code: "invalid_request", Message: "请求 JSON 格式或字段不正确"}
+		return "", nil, false, &apiProblem{Status: 400, Code: "invalid_request", Message: "请求 JSON 格式或字段不正确"}
+	}
+	if err := dec.Decode(new(interface{})); !errors.Is(err, io.EOF) {
+		return "", nil, false, &apiProblem{Status: 400, Code: "invalid_request", Message: "请求只能包含一个 JSON 对象"}
 	}
 	if strings.TrimSpace(body.Name) == "" {
 		body.Name = fallback
 	}
-	return validateAccessKeyName(body.Name)
+	name, problem := validateAccessKeyName(body.Name)
+	if problem != nil {
+		return "", nil, false, problem
+	}
+	if len(body.Binding) == 0 || string(body.Binding) == "null" {
+		return name, nil, len(body.Binding) > 0, nil
+	}
+	var binding accessKeyBinding
+	bindDec := json.NewDecoder(bytes.NewReader(body.Binding))
+	bindDec.DisallowUnknownFields()
+	if err := bindDec.Decode(&binding); err != nil || bindDec.Decode(new(interface{})) != io.EOF {
+		return "", nil, false, &apiProblem{Status: 400, Code: "invalid_binding", Message: "密钥绑定字段不正确"}
+	}
+	return name, &binding, true, nil
+}
+
+func (a *messageAPI) validateBinding(ctx context.Context, binding *accessKeyBinding) (*accessKeyBinding, *apiProblem) {
+	if binding == nil {
+		return nil, nil
+	}
+	if binding.DeviceID == "" || len(binding.DeviceID) > 128 ||
+		(binding.AIClient == "" && (binding.ProjectPath != "" || binding.SessionID != "")) ||
+		(binding.ProjectPath == "" && binding.SessionID != "") ||
+		(binding.AIClient != "" && binding.AIClient != "codex" && binding.AIClient != "deepseek") ||
+		(binding.ProjectPath != "" && (!filepath.IsAbs(binding.ProjectPath) || filepath.Clean(binding.ProjectPath) != binding.ProjectPath || len(binding.ProjectPath) > 4096)) ||
+		len(binding.SessionID) > 256 {
+		return nil, &apiProblem{Status: 400, Code: "invalid_binding", Message: "绑定须按设备、AI 客户端、项目绝对路径、会话 ID 逐级指定"}
+	}
+	device, problem := a.resolveDevice(binding.DeviceID)
+	if problem != nil || device.ID != binding.DeviceID {
+		return nil, &apiProblem{Status: 400, Code: "invalid_binding", Message: "绑定设备 ID 不存在"}
+	}
+	if binding.SessionID != "" {
+		assistant := binding.AIClient
+		if assistant == "deepseek" {
+			assistant = "dsh"
+		}
+		sessions, problem := a.fetchSessions(ctx, device, assistant)
+		if problem != nil {
+			return nil, problem
+		}
+		found := false
+		for _, session := range sessions {
+			if session.SessionID == binding.SessionID && sessionProjectPath(session) == binding.ProjectPath {
+				found = true
+				break
+			}
+		}
+		if !found {
+			return nil, &apiProblem{Status: 400, Code: "invalid_binding", Message: "绑定会话 ID 不属于指定设备、客户端及项目"}
+		}
+	}
+	copy := *binding
+	return &copy, nil
 }
 
 func (a *messageAPI) handleAccessKeys(w http.ResponseWriter, r *http.Request) {
@@ -371,7 +452,14 @@ func (a *messageAPI) handleAccessKeys(w http.ResponseWriter, r *http.Request) {
 			a.mu.Lock()
 			fallback := fmt.Sprintf("访问密钥 %d", len(a.keys)+1)
 			a.mu.Unlock()
-			name, problem := decodeAccessKeyName(w, r, fallback)
+			name, requestedBinding, _, problem := decodeAccessKeyEdit(w, r, fallback)
+			if problem != nil {
+				writeAPIProblem(w, problem)
+				return
+			}
+			ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+			binding, problem := a.validateBinding(ctx, requestedBinding)
+			cancel()
 			if problem != nil {
 				writeAPIProblem(w, problem)
 				return
@@ -381,6 +469,7 @@ func (a *messageAPI) handleAccessKeys(w http.ResponseWriter, r *http.Request) {
 				writeAPIProblem(w, &apiProblem{Status: 500, Code: "key_generation_failed", Message: "生成访问密钥失败"})
 				return
 			}
+			key.Binding = binding
 			a.mu.Lock()
 			a.keys = append(a.keys, key)
 			err = a.saveKeysLocked()
@@ -405,10 +494,33 @@ func (a *messageAPI) handleAccessKeys(w http.ResponseWriter, r *http.Request) {
 	}
 	switch r.Method {
 	case http.MethodPatch:
-		name, problem := decodeAccessKeyName(w, r, "")
+		a.mu.Lock()
+		fallback := ""
+		for _, key := range a.keys {
+			if key.ID == id {
+				fallback = key.Name
+				break
+			}
+		}
+		a.mu.Unlock()
+		if fallback == "" {
+			writeAPIProblem(w, &apiProblem{Status: 404, Code: "access_key_not_found", Message: "访问密钥不存在"})
+			return
+		}
+		name, requestedBinding, hasBinding, problem := decodeAccessKeyEdit(w, r, fallback)
 		if problem != nil {
 			writeAPIProblem(w, problem)
 			return
+		}
+		var binding *accessKeyBinding
+		if hasBinding {
+			ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+			binding, problem = a.validateBinding(ctx, requestedBinding)
+			cancel()
+			if problem != nil {
+				writeAPIProblem(w, problem)
+				return
+			}
 		}
 		a.mu.Lock()
 		index := -1
@@ -425,18 +537,22 @@ func (a *messageAPI) handleAccessKeys(w http.ResponseWriter, r *http.Request) {
 		}
 		previous := a.keys[index]
 		a.keys[index].Name = name
+		if hasBinding {
+			a.keys[index].Binding = binding
+		}
 		a.keys[index].UpdatedAt = time.Now().UTC()
-		for _, job := range a.jobs {
-			if job.AccessKeyID == id {
-				job.AccessKeyName = name
-			}
-		}
 		err := a.saveKeysLocked()
-		if err == nil {
-			err = a.saveJobsLocked()
-		}
 		if err != nil {
 			a.keys[index] = previous
+		} else if previous.Name != name {
+			for _, job := range a.jobs {
+				if job.AccessKeyID == id {
+					job.AccessKeyName = name
+				}
+			}
+			if jobsErr := a.saveJobsLocked(); jobsErr != nil {
+				log.Printf("更新访问密钥的历史消息名称失败: %v", jobsErr)
+			}
 		}
 		key := a.keys[index]
 		a.mu.Unlock()
@@ -504,6 +620,7 @@ func (a *messageAPI) handleAccessKey(w http.ResponseWriter, r *http.Request) {
 			a.keys = append(a.keys, key)
 		} else {
 			key.ID, key.Name = a.keys[0].ID, a.keys[0].Name
+			key.Binding = a.keys[0].Binding
 			a.keys[0] = key
 		}
 		err = a.saveKeysLocked()
@@ -571,6 +688,35 @@ func (a *messageAPI) authenticate(r *http.Request) (accessKeyState, *apiProblem)
 	return a.keys[index], nil
 }
 
+func scopeMismatch() *apiProblem {
+	return &apiProblem{Status: 403, Code: "access_key_scope_mismatch", Message: "访问密钥未获授权访问该目标"}
+}
+
+func (a *messageAPI) preflightBinding(binding *accessKeyBinding, req submitMessageRequest) bool {
+	if binding == nil {
+		return true
+	}
+	device, problem := a.resolveDevice(req.Device)
+	if problem != nil || device.ID != binding.DeviceID ||
+		(binding.AIClient != "" && req.AIClient != binding.AIClient) ||
+		(binding.SessionID != "" && (req.Session == nil || *req.Session == "")) {
+		return false
+	}
+	return binding.ProjectPath == "" || !filepath.IsAbs(req.Project) ||
+		strings.EqualFold(filepath.Clean(req.Project), binding.ProjectPath)
+}
+
+// Re-check the current key under the same lock used to persist or return a job.
+// A revoked, rotated, or narrowed key must not retain its old permissions in flight.
+func (a *messageAPI) currentKeyLocked(key accessKeyState) (accessKeyState, bool) {
+	for _, current := range a.keys {
+		if current.ID == key.ID && current.Hash == key.Hash {
+			return current, true
+		}
+	}
+	return accessKeyState{}, false
+}
+
 func writeAPIProblem(w http.ResponseWriter, problem *apiProblem) {
 	requestID, _ := randomToken("req_", 9)
 	errorBody := map[string]interface{}{
@@ -607,8 +753,9 @@ func (a *messageAPI) handleMessages(w http.ResponseWriter, r *http.Request) {
 	}
 	a.mu.Lock()
 	job := cloneMessageJob(a.jobs[id])
+	current, active := a.currentKeyLocked(key)
 	a.mu.Unlock()
-	if job == nil {
+	if !active || job == nil || job.AccessKeyID != key.ID || !current.Binding.allowsJob(job) {
 		writeAPIProblem(w, &apiProblem{Status: 404, Code: "message_not_found", Message: "message_id 不存在或已过保留期"})
 		return
 	}
@@ -664,6 +811,13 @@ func (a *messageAPI) submitMessage(w http.ResponseWriter, r *http.Request, key a
 	}
 	requestJSON, _ := json.Marshal(req)
 	requestHash := hashString(string(requestJSON))
+	a.mu.Lock()
+	current, active := a.currentKeyLocked(key)
+	a.mu.Unlock()
+	if !active || !a.preflightBinding(current.Binding, req) {
+		writeAPIProblem(w, scopeMismatch())
+		return
+	}
 	if idempotencyKey != "" {
 		a.mu.Lock()
 		for _, existing := range a.jobs {
@@ -673,6 +827,12 @@ func (a *messageAPI) submitMessage(w http.ResponseWriter, r *http.Request, key a
 			if existing.RequestHash != requestHash {
 				a.mu.Unlock()
 				writeAPIProblem(w, &apiProblem{Status: 409, Code: "idempotency_conflict", Message: "相同 Idempotency-Key 对应了不同请求"})
+				return
+			}
+			current, active := a.currentKeyLocked(key)
+			if !active || !a.preflightBinding(current.Binding, req) || !current.Binding.allowsJob(existing) {
+				a.mu.Unlock()
+				writeAPIProblem(w, scopeMismatch())
 				return
 			}
 			id := existing.ID
@@ -688,6 +848,13 @@ func (a *messageAPI) submitMessage(w http.ResponseWriter, r *http.Request, key a
 	cancel()
 	if problem != nil {
 		writeAPIProblem(w, problem)
+		return
+	}
+	a.mu.Lock()
+	current, active = a.currentKeyLocked(key)
+	a.mu.Unlock()
+	if !active || !a.preflightBinding(current.Binding, req) || !current.Binding.allows(target) {
+		writeAPIProblem(w, scopeMismatch())
 		return
 	}
 	id, err := randomToken("msg_", 16)
@@ -715,6 +882,12 @@ func (a *messageAPI) submitMessage(w http.ResponseWriter, r *http.Request, key a
 		}
 	}
 	a.mu.Lock()
+	current, active = a.currentKeyLocked(key)
+	if !active || !a.preflightBinding(current.Binding, req) || !current.Binding.allows(target) {
+		a.mu.Unlock()
+		writeAPIProblem(w, scopeMismatch())
+		return
+	}
 	a.jobs[id] = job
 	err = a.saveJobsLocked()
 	if err != nil {

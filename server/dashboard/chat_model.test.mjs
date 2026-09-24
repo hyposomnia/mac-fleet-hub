@@ -560,6 +560,15 @@ test('automation modal links to a concise cached API guide', () => {
   assert.match(styleCSS, /\.automation-doc-main\s*\{/);
 });
 
+test('automation keys expose a four-level binding editor and submit the scope', () => {
+  for (const field of ['device', 'client', 'project', 'session']) {
+    assert.match(indexHTML, new RegExp(`id="automation-key-${field}"`));
+  }
+  assert.match(appSrc, /JSON\.stringify\(\{ name, binding \}\)/);
+  assert.match(appSrc, /function accessKeyBindingLabel\(binding\)/);
+  assert.match(automationGuideHTML, /403 access_key_scope_mismatch/);
+});
+
 test('mobile session toolbar keeps square actions on both sides of search', () => {
   assert.match(
     styleCSS,
