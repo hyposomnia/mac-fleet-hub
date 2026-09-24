@@ -68,6 +68,7 @@ func (b *accessKeyBinding) allowsJob(job *messageJob) bool {
 type accessKeyStoreDisk struct {
 	Version int              `json:"version"`
 	Keys    []accessKeyState `json:"keys"`
+	Aliases []targetAlias    `json:"aliases,omitempty"`
 }
 
 type messageError struct {
@@ -105,6 +106,7 @@ type messageJob struct {
 	Error              *messageError `json:"error,omitempty"`
 	IdempotencyKey     string        `json:"idempotency_key,omitempty"`
 	RequestHash        string        `json:"request_hash,omitempty"`
+	TargetAlias        string        `json:"target_alias,omitempty"`
 	AccessKeyID        string        `json:"access_key_id,omitempty"`
 	AccessKeyName      string        `json:"access_key_name,omitempty"`
 	AgentQueueID       string        `json:"agent_queue_id,omitempty"`
@@ -121,6 +123,7 @@ type messageStoreDisk struct {
 }
 
 type submitMessageRequest struct {
+	Alias       string  `json:"alias,omitempty"`
 	Device      string  `json:"device"`
 	AIClient    string  `json:"ai_client"`
 	Project     string  `json:"project"`
@@ -161,6 +164,7 @@ func (p *apiProblem) Error() string { return p.Code + ": " + p.Message }
 type messageAPI struct {
 	mu             sync.Mutex
 	keys           []accessKeyState
+	aliases        []targetAlias
 	jobs           map[string]*messageJob
 	keyFile        string
 	jobsFile       string
@@ -206,6 +210,7 @@ func (a *messageAPI) load() error {
 		}
 		if disk.Keys != nil {
 			a.keys = disk.Keys
+			a.aliases = disk.Aliases
 		} else {
 			// v1 只保存一个不可逆哈希。迁移后继续接受旧密钥，但无法展示原文。
 			var legacy struct {
@@ -299,7 +304,7 @@ func (a *messageAPI) saveKeysLocked() error {
 	if keys == nil {
 		keys = []accessKeyState{}
 	}
-	return writePrivateJSON(a.keyFile, accessKeyStoreDisk{Version: 2, Keys: keys})
+	return writePrivateJSON(a.keyFile, accessKeyStoreDisk{Version: 3, Keys: keys, Aliases: a.aliases})
 }
 
 func (a *messageAPI) saveJobsLocked() error {
@@ -436,6 +441,10 @@ func (a *messageAPI) validateBinding(ctx context.Context, binding *accessKeyBind
 func (a *messageAPI) handleAccessKeys(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
 	const base = "/automation/access-keys"
+	if r.URL.Path == base+"/aliases" || strings.HasPrefix(r.URL.Path, base+"/aliases/") {
+		a.handleTargetAliases(w, r)
+		return
+	}
 	if r.URL.Path == base {
 		switch r.Method {
 		case http.MethodGet:
@@ -768,12 +777,52 @@ func (a *messageAPI) submitMessage(w http.ResponseWriter, r *http.Request, key a
 		writeAPIProblem(w, &apiProblem{Status: 415, Code: "unsupported_media_type", Message: "Content-Type 必须是 application/json"})
 		return
 	}
+	requestBody, err := io.ReadAll(http.MaxBytesReader(w, r.Body, 256<<10))
+	if err != nil {
+		writeAPIProblem(w, &apiProblem{Status: 400, Code: "invalid_request", Message: "请求体过大或无法读取"})
+		return
+	}
 	var req submitMessageRequest
-	dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, 256<<10))
+	dec := json.NewDecoder(bytes.NewReader(requestBody))
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(&req); err != nil {
 		writeAPIProblem(w, &apiProblem{Status: 400, Code: "invalid_request", Message: "请求 JSON 格式或字段不正确"})
 		return
+	}
+	if err := dec.Decode(new(interface{})); !errors.Is(err, io.EOF) {
+		writeAPIProblem(w, &apiProblem{Status: 400, Code: "invalid_request", Message: "请求只能包含一个 JSON 对象"})
+		return
+	}
+	// Presence matters: an alias and even an empty explicit target cannot be combined.
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(requestBody, &fields); err != nil {
+		writeAPIProblem(w, &apiProblem{Status: 400, Code: "invalid_request", Message: "请求 JSON 格式不正确"})
+		return
+	}
+	req.Alias = strings.TrimSpace(req.Alias)
+	if hasField(fields, "alias") {
+		if req.Alias == "" || hasExplicitTarget(fields) {
+			writeAPIProblem(w, &apiProblem{Status: 400, Code: "invalid_target", Message: "alias 与设备、客户端、项目、会话目标只能二选一"})
+			return
+		}
+	}
+	if req.Alias == "" && (req.Device == "" || req.Project == "") {
+		writeAPIProblem(w, &apiProblem{Status: 400, Code: "invalid_request", Message: "device 和 project 为必填字段"})
+		return
+	}
+	if req.Alias != "" {
+		a.mu.Lock()
+		alias, ok := a.targetAliasLocked(req.Alias)
+		a.mu.Unlock()
+		if !ok {
+			writeAPIProblem(w, &apiProblem{Status: 404, Code: "target_alias_not_found", Message: "找不到指定别名"})
+			return
+		}
+		req.Alias = alias.Alias
+		req.Device = alias.Target.DeviceID
+		req.AIClient = alias.Target.AIClient
+		req.Project = alias.Target.ProjectPath
+		req.Session = &alias.Target.SessionID
 	}
 	req.Device = strings.TrimSpace(req.Device)
 	req.AIClient = strings.ToLower(strings.TrimSpace(req.AIClient))
@@ -830,7 +879,7 @@ func (a *messageAPI) submitMessage(w http.ResponseWriter, r *http.Request, key a
 				return
 			}
 			current, active := a.currentKeyLocked(key)
-			if !active || !a.preflightBinding(current.Binding, req) || !current.Binding.allowsJob(existing) {
+			if !active || !a.preflightBinding(current.Binding, req) || !current.Binding.allowsJob(existing) || !a.aliasMatchesJobLocked(req.Alias, existing) {
 				a.mu.Unlock()
 				writeAPIProblem(w, scopeMismatch())
 				return
@@ -870,7 +919,7 @@ func (a *messageAPI) submitMessage(w http.ResponseWriter, r *http.Request, key a
 		ProjectName: target.ProjectName, ProjectPath: target.ProjectPath,
 		SessionID: target.SessionID, SessionName: target.SessionName,
 		Message: req.Message, IdempotencyKey: idempotencyKey, RequestHash: requestHash, CreatedAt: now,
-		AccessKeyID: key.ID, AccessKeyName: key.Name, CallbackSigningKey: key.Hash,
+		AccessKeyID: key.ID, AccessKeyName: key.Name, CallbackSigningKey: key.Hash, TargetAlias: req.Alias,
 	}
 	if req.Session != nil {
 		job.SessionInput = *req.Session
@@ -883,7 +932,7 @@ func (a *messageAPI) submitMessage(w http.ResponseWriter, r *http.Request, key a
 	}
 	a.mu.Lock()
 	current, active = a.currentKeyLocked(key)
-	if !active || !a.preflightBinding(current.Binding, req) || !current.Binding.allows(target) {
+	if !active || !a.preflightBinding(current.Binding, req) || !current.Binding.allows(target) || !a.aliasMatchesJobLocked(req.Alias, job) {
 		a.mu.Unlock()
 		writeAPIProblem(w, scopeMismatch())
 		return
@@ -969,17 +1018,24 @@ func (a *messageAPI) handleMessageRecords(w http.ResponseWriter, r *http.Request
 func publicMessage(job *messageJob, admin bool) map[string]interface{} {
 	result := map[string]interface{}{
 		"message_id": job.ID, "status": job.Status,
-		"device":    map[string]string{"id": job.DeviceID, "name": job.DeviceName},
-		"ai_client": job.AIClient, "project": job.ProjectPath, "project_name": job.ProjectName,
 		"created_at": job.CreatedAt,
 	}
-	if job.SessionID != "" {
-		result["session_id"] = job.SessionID
-	} else {
-		result["session_id"] = nil
+	if job.TargetAlias != "" {
+		result["alias"] = job.TargetAlias
 	}
-	if job.SessionName != "" {
-		result["session_name"] = job.SessionName
+	if job.TargetAlias == "" || admin {
+		result["device"] = map[string]string{"id": job.DeviceID, "name": job.DeviceName}
+		result["ai_client"] = job.AIClient
+		result["project"] = job.ProjectPath
+		result["project_name"] = job.ProjectName
+		if job.SessionID != "" {
+			result["session_id"] = job.SessionID
+		} else {
+			result["session_id"] = nil
+		}
+		if job.SessionName != "" {
+			result["session_name"] = job.SessionName
+		}
 	}
 	if !job.StartedAt.IsZero() {
 		result["started_at"] = job.StartedAt
@@ -989,7 +1045,11 @@ func publicMessage(job *messageJob, admin bool) map[string]interface{} {
 		result["completed_at"] = job.CompletedAt
 	}
 	if job.Status == messageFailed {
-		result["error"] = job.Error
+		if job.TargetAlias != "" && !admin && job.Error != nil {
+			result["error"] = &messageError{Code: job.Error.Code, Message: "执行失败；请联系管理员查看详情", Retryable: job.Error.Retryable}
+		} else {
+			result["error"] = job.Error
+		}
 		result["failed_at"] = job.FailedAt
 	}
 	if job.CallbackURL != "" {

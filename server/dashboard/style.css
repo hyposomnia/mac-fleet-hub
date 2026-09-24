@@ -459,6 +459,7 @@ svg.ic.fill { fill: currentColor; stroke: none; }
 .api-key-copy-row .input { min-width: 0; }
 .hint.warn { color: var(--wait); }
 .automation-panel-title { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.automation-alias-heading { margin-top: var(--s6); }
 .automation-key-list { display: grid; gap: 10px; margin-top: var(--s4); }
 .automation-key-form { display: grid; gap: 12px; margin-top: var(--s4); padding: 14px; border: 1px solid var(--border-1); border-radius: var(--r); background: var(--surface-1); }
 .automation-key-form[hidden] { display: none; }
@@ -470,7 +471,7 @@ svg.ic.fill { fill: currentColor; stroke: none; }
 .automation-key-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
 .automation-key-title { display: grid; gap: 3px; min-width: 0; }
 .automation-key-title strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); font-size: var(--t-body); }
-.automation-key-title span { color: var(--text-2); font-size: var(--t-caption); }
+.automation-key-title span { overflow-wrap: anywhere; color: var(--text-2); font-size: var(--t-caption); }
 .automation-key-actions { display: flex; gap: 7px; flex: none; }
 .automation-key-meta { display: flex; flex-wrap: wrap; gap: 6px 18px; color: var(--text-2); font-size: var(--t-caption); }
 .automation-message-filter { display: grid; grid-template-columns: auto minmax(180px, 280px); align-items: center; justify-content: end; gap: 9px; margin-top: var(--s3); }

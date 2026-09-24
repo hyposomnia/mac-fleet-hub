@@ -585,6 +585,16 @@ test('automation keys expose a four-level binding editor and submit the scope', 
   assert.match(automationGuideHTML, /403 access_key_scope_mismatch/);
 });
 
+test('automation aliases map a concrete session and offer a private public API target', () => {
+  for (const field of ['name', 'device', 'client', 'project', 'session']) {
+    assert.match(indexHTML, new RegExp(`id="automation-alias-${field}"`));
+  }
+  assert.match(appSrc, /function renderTargetAliases\(\)/);
+  assert.match(appSrc, /JSON\.stringify\(\{ alias, target \}\)/);
+  assert.match(automationGuideHTML, /"alias":"daily-review"/);
+  assert.match(automationGuideHTML, /alias.*device.*ai_client.*project.*session/);
+});
+
 test('mobile session toolbar keeps square actions on both sides of search', () => {
   assert.match(
     styleCSS,
