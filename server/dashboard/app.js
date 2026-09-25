@@ -805,15 +805,20 @@ function renderAccessKeys() {
       type: 'button', class: 'btn sm', text: '复制', disabled: key.recoverable ? null : '',
       onclick: () => copyAccessKeyValue(key.key),
     });
-    const edit = h('button', { type: 'button', class: 'btn sm', text: '编辑', onclick: () => openAccessKeyForm(key) });
+    const request = h('button', {
+      type: 'button', class: 'btn sm', text: '复制请求', disabled: key.recoverable ? null : '',
+      title: key.recoverable ? '复制 curl 请求' : '旧版密钥原文不可恢复',
+      onclick: () => copyAccessKeyRequest(key),
+    });
+    const edit = h('button', { type: 'button', class: 'btn sm automation-key-edit', text: '编辑', 'aria-expanded': 'false', onclick: () => openAccessKeyForm(key) });
     const remove = h('button', { type: 'button', class: 'btn sm danger', text: '删除', onclick: () => deleteAccessKey(key) });
     const secret = key.recoverable ? key.key : '旧版密钥原文不可恢复；该密钥仍可继续使用';
-    root.append(h('article', { class: 'automation-key-card' },
+    root.append(h('article', { class: 'automation-key-card', dataset: { keyId: key.id } },
       h('div', { class: 'automation-key-head' },
         h('div', { class: 'automation-key-title' },
           h('strong', { text: key.name || '未命名密钥' }),
           h('span', { class: 'tnum', text: `${key.prefix || 'mfh_live_'}…` })),
-        h('div', { class: 'automation-key-actions' }, edit, remove)),
+        h('div', { class: 'automation-key-actions' }, request, edit, remove)),
       h('div', { class: 'api-key-copy-row' },
         h('input', { class: 'input tnum', readonly: '', value: secret, 'aria-label': `${key.name || '访问密钥'}的值` }), copy),
       h('div', { class: 'automation-key-meta' },
@@ -911,8 +916,19 @@ function renderAccessKeySessionOptions(selected = $('#automation-key-session').v
   root.value = selected;
 }
 function openAccessKeyForm(key = null) {
-  automationEditingKey = key;
   const form = $('#automation-key-form');
+  if (key && automationEditingKey?.id === key.id && !form.hidden) { closeAccessKeyForm(); return; }
+  closeAccessKeyForm();
+  automationEditingKey = key;
+  if (key) {
+    const card = $$('.automation-key-card').find((item) => item.dataset.keyId === key.id);
+    if (card) {
+      card.append(form);
+      const edit = $('.automation-key-edit', card);
+      edit.textContent = '收起';
+      edit.setAttribute('aria-expanded', 'true');
+    }
+  }
   form.hidden = false;
   $('#automation-key-form-title').textContent = key ? '编辑访问密钥' : '新建访问密钥';
   $('#automation-key-save').textContent = key ? '保存修改' : '创建密钥';
@@ -938,7 +954,15 @@ function openAccessKeyForm(key = null) {
 }
 function closeAccessKeyForm() {
   ++automationBindingLoadSeq;
-  $('#automation-key-form').hidden = true;
+  const form = $('#automation-key-form');
+  const card = form.closest('.automation-key-card');
+  if (card) {
+    const edit = $('.automation-key-edit', card);
+    edit.textContent = '编辑';
+    edit.setAttribute('aria-expanded', 'false');
+  }
+  $('#automation-key-list').before(form);
+  form.hidden = true;
   automationEditingKey = null;
 }
 async function saveAccessKey(event) {
@@ -973,6 +997,7 @@ async function saveAccessKey(event) {
   } finally { button.disabled = false; }
 }
 async function refreshAccessKeys() {
+  if (!$('#automation-key-form').hidden) closeAccessKeyForm();
   const root = $('#automation-key-list');
   if (root) root.replaceChildren(h('div', { class: 'message-record-empty', text: '正在加载…' }));
   try {
@@ -1003,6 +1028,39 @@ async function copyAccessKeyValue(value) {
     toast('访问密钥已复制', 'ok');
   } catch (_) {
     window.prompt('复制访问密钥', value);
+  }
+}
+const ACCESS_KEY_TEST_MESSAGE = '这是一条测试消息，请只回复收到，不用做任何实际操作。';
+function shellQuote(value) {
+  return "'" + String(value).replaceAll("'", "'\\''") + "'";
+}
+function accessKeyRequestBody(key) {
+  const binding = key.binding || {};
+  if (binding.session_id && key.name) return { alias: key.name, message: ACCESS_KEY_TEST_MESSAGE };
+  return {
+    device: binding.device_id || '设备ID',
+    ai_client: binding.ai_client || 'codex',
+    project: binding.project_path || '/项目绝对路径',
+    message: ACCESS_KEY_TEST_MESSAGE,
+  };
+}
+function accessKeyCurl(key, origin) {
+  const url = `${origin}${BASE}/api/v1/messages`;
+  return [
+    `curl -sS -X POST ${shellQuote(url)}`,
+    `-H ${shellQuote(`Authorization: Bearer ${key.key}`)}`,
+    "-H 'Content-Type: application/json'",
+    `-d ${shellQuote(JSON.stringify(accessKeyRequestBody(key)))}`,
+  ].join(' \\\n  ');
+}
+async function copyAccessKeyRequest(key) {
+  if (!key.recoverable || !key.key) return;
+  const request = accessKeyCurl(key, window.location.origin);
+  try {
+    await navigator.clipboard.writeText(request);
+    toast('请求已复制', 'ok');
+  } catch (_) {
+    window.prompt('复制请求', request);
   }
 }
 function messageStatusLabel(status) {

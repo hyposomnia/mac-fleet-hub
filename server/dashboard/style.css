@@ -469,6 +469,7 @@ svg.ic.fill { fill: currentColor; stroke: none; }
 .automation-key-form .input[hidden] { display: none; }
 .automation-key-form-actions { display: flex; justify-content: flex-end; gap: 8px; }
 .automation-key-card { display: grid; gap: 10px; padding: 13px; border: 1px solid var(--border); border-radius: var(--r); background: var(--surface-2); }
+.automation-key-card > .automation-key-form { margin-top: 2px; padding: 14px 0 0; border: 0; border-top: 1px solid var(--border-1); border-radius: 0; background: transparent; }
 .automation-key-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
 .automation-key-title { display: grid; gap: 3px; min-width: 0; }
 .automation-key-title strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); font-size: var(--t-body); }

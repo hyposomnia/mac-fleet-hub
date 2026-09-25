@@ -587,6 +587,33 @@ test('automation keys expose a four-level binding editor and submit the scope', 
   assert.match(automationGuideHTML, /403 access_key_scope_mismatch/);
 });
 
+test('automation key editing stays inside its card and copied requests target the key scope', () => {
+  assert.match(appSrc, /class: 'btn sm', text: '复制请求'[\s\S]*?onclick: \(\) => copyAccessKeyRequest\(key\)/);
+  assert.match(appSrc, /card\.append\(form\)/);
+  assert.match(appSrc, /\$\('#automation-key-list'\)\.before\(form\)/);
+  assert.match(styleCSS, /\.automation-key-card > \.automation-key-form\s*\{/);
+  vm.runInContext('globalThis.__accessKeyCurlTest = accessKeyCurl;', appSandbox);
+  const curlFor = appSandbox.__accessKeyCurlTest;
+  const full = curlFor({
+    key: "mfh_live_o'neil", name: "部署'检查",
+    binding: { device_id: 'm2', ai_client: 'codex', project_path: '/Users/test/project', session_id: 'sid-123' },
+  }, 'https://fleet.example.test:20443');
+  assert.match(full, /^curl -sS -X POST 'https:\/\/fleet\.example\.test:20443\/api\/v1\/messages' \\\n  -H /);
+  assert.ok(full.includes('\"alias\":\"部署' + "'\\''" + '检查\"'));
+  assert.ok(full.includes('"message":"这是一条测试消息，请只回复收到，不用做任何实际操作。"'));
+  assert.doesNotMatch(full, /"device"|"project"|"session"/);
+  assert.ok(full.includes("'\\''"), 'shell single quotes must be escaped');
+
+  const explicit = curlFor({
+    key: 'mfh_live_example', name: 'partial',
+    binding: { device_id: 'm1', ai_client: 'deepseek', project_path: '/Users/test/repo' },
+  }, 'https://fleet.example.test');
+  assert.match(explicit, /"device":"m1","ai_client":"deepseek","project":"\/Users\/test\/repo"/);
+  assert.doesNotMatch(explicit, /"alias"|"session"/);
+  const unbound = curlFor({ key: 'mfh_live_example', name: 'all' }, 'https://fleet.example.test');
+  assert.match(unbound, /"device":"设备ID","ai_client":"codex","project":"\/项目绝对路径"/);
+});
+
 test('automation uses the key name as a session alias without a separate editor', () => {
   assert.match(indexHTML, /名称（绑定到会话后即为别名）/);
   assert.doesNotMatch(indexHTML, /id="automation-alias-/);
