@@ -462,7 +462,8 @@ svg.ic.fill { fill: currentColor; stroke: none; }
 .automation-key-list { display: grid; gap: 10px; margin-top: var(--s4); }
 .automation-key-form { display: grid; gap: 12px; margin-top: var(--s4); padding: 14px; border: 1px solid var(--border-1); border-radius: var(--r); background: var(--surface-1); }
 .automation-key-form[hidden] { display: none; }
-.automation-key-form > label, .automation-binding-grid label { display: grid; gap: 6px; min-width: 0; color: var(--text-1); font-size: var(--t-secondary); }
+.automation-key-form > label, .automation-key-identity label, .automation-binding-grid label { display: grid; gap: 6px; min-width: 0; color: var(--text-1); font-size: var(--t-secondary); }
+.automation-key-identity { display: grid; grid-template-columns: minmax(0, 1fr) 130px; gap: 12px; }
 .automation-binding-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
 .automation-key-form .input { width: 100%; min-width: 0; }
 .automation-key-form .input[hidden] { display: none; }
@@ -1321,6 +1322,7 @@ textarea.chat-request-input { resize: vertical; }
   #settings-modal .modal-foot { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
   #settings-modal .modal-foot .btn { width: 100%; min-height: 48px; font-size: var(--t-body); }
   .automation-key-head { align-items: stretch; flex-direction: column; }
+  .automation-key-identity { grid-template-columns: minmax(0, 1fr) 100px; }
   .automation-binding-grid { grid-template-columns: 1fr; }
   .automation-key-actions { width: 100%; }
   .automation-key-actions .btn { flex: 1; }

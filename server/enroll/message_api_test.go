@@ -358,3 +358,128 @@ func TestBoundKeyCannotSubmitOrReadOutsideScope(t *testing.T) {
 		t.Fatalf("idempotent replay after narrowing: %d %s", rr.Code, rr.Body.String())
 	}
 }
+
+func TestAccessKeyRPMCreateEditAndLegacyDefault(t *testing.T) {
+	dir := t.TempDir()
+	api := &messageAPI{keyFile: filepath.Join(dir, "keys.json"), jobsFile: filepath.Join(dir, "jobs.json"), jobs: map[string]*messageJob{}}
+	call := func(method, path, body string) *httptest.ResponseRecorder {
+		rr := httptest.NewRecorder()
+		api.handleAccessKeys(rr, httptest.NewRequest(method, path, bytes.NewBufferString(body)))
+		return rr
+	}
+	for _, rpm := range []string{"0", "-1", "10001", "1.5", `"ten"`} {
+		rr := call(http.MethodPost, "/automation/access-keys", `{"name":"invalid","rpm":`+rpm+`}`)
+		if rr.Code != http.StatusBadRequest {
+			t.Fatalf("rpm %s accepted: %d %s", rpm, rr.Code, rr.Body.String())
+		}
+	}
+	created := call(http.MethodPost, "/automation/access-keys", `{"name":"CI"}`)
+	if created.Code != http.StatusCreated {
+		t.Fatalf("create: %d %s", created.Code, created.Body.String())
+	}
+	var key accessKeyState
+	if err := json.Unmarshal(created.Body.Bytes(), &key); err != nil || key.RPM != 10 {
+		t.Fatalf("default rpm: %v %+v", err, key)
+	}
+	path := "/automation/access-keys/" + key.ID
+	if rr := call(http.MethodPatch, path, `{"rpm":2}`); rr.Code != http.StatusOK || api.keys[0].RPM != 2 {
+		t.Fatalf("edit rpm: %d %s", rr.Code, rr.Body.String())
+	}
+	if rr := call(http.MethodPatch, path, `{"name":"renamed"}`); rr.Code != http.StatusOK || api.keys[0].RPM != 2 {
+		t.Fatalf("name-only edit must retain rpm: %d %s", rr.Code, rr.Body.String())
+	}
+	loaded := &messageAPI{keyFile: api.keyFile, jobsFile: api.jobsFile, jobs: map[string]*messageJob{}}
+	if err := loaded.load(); err != nil || len(loaded.keys) != 1 || loaded.keys[0].RPM != 2 {
+		t.Fatalf("persisted rpm: %v %+v", err, loaded.keys)
+	}
+	// A key written before this field existed must remain usable and inherit 10 RPM.
+	loaded.keys[0].RPM = 0
+	if err := loaded.saveKeysLocked(); err != nil {
+		t.Fatal(err)
+	}
+	migrated := &messageAPI{keyFile: api.keyFile, jobsFile: api.jobsFile, jobs: map[string]*messageJob{}}
+	if err := migrated.load(); err != nil || migrated.keys[0].RPM != 10 {
+		t.Fatalf("legacy rpm migration: %v %+v", err, migrated.keys)
+	}
+	data, err := os.ReadFile(api.keyFile)
+	if err != nil || !bytes.Contains(data, []byte(`"rpm": 10`)) {
+		t.Fatalf("legacy rpm not persisted: %v", err)
+	}
+}
+
+func TestAccessKeyRPMRollingWindowAndIndependentKeys(t *testing.T) {
+	first, _ := newAccessKey("first")
+	first.RPM = 2
+	second, _ := newAccessKey("second")
+	second.RPM = 1
+	api := &messageAPI{keys: []accessKeyState{first, second}}
+	start := time.Date(2026, 9, 26, 0, 0, 0, 0, time.UTC)
+	allow := func(key accessKeyState, at time.Time) (*apiProblem, string) {
+		rr := httptest.NewRecorder()
+		problem := api.checkRateLimit(rr, key, at)
+		return problem, rr.Header().Get("Retry-After")
+	}
+	for _, at := range []time.Time{start, start.Add(10 * time.Second)} {
+		if problem, _ := allow(first, at); problem != nil {
+			t.Fatalf("first key rejected early: %v", problem)
+		}
+	}
+	if problem, wait := allow(first, start.Add(10*time.Second)); problem == nil || problem.Status != http.StatusTooManyRequests || problem.Code != "rate_limit_exceeded" || wait != "50" {
+		t.Fatalf("first key limit: %v Retry-After=%q", problem, wait)
+	}
+	if problem, _ := allow(second, start.Add(10*time.Second)); problem != nil {
+		t.Fatalf("second key shared first key's limit: %v", problem)
+	}
+	if problem, _ := allow(first, start.Add(time.Minute)); problem != nil {
+		t.Fatalf("rolling window did not expire: %v", problem)
+	}
+	api.mu.Lock()
+	api.keys[0].RPM = 1
+	api.mu.Unlock()
+	if problem, _ := allow(first, start.Add(time.Minute+time.Second)); problem == nil || problem.Status != http.StatusTooManyRequests {
+		t.Fatalf("rpm edit not applied immediately: %v", problem)
+	}
+	api.mu.Lock()
+	api.keys[0].Hash = "rotated"
+	api.mu.Unlock()
+	if problem, _ := allow(first, start.Add(2*time.Minute)); problem == nil || problem.Status != http.StatusUnauthorized {
+		t.Fatalf("rotated key still usable: %v", problem)
+	}
+}
+
+func TestAccessKeyRPMCountsSubmissionsAndResultReads(t *testing.T) {
+	dir := t.TempDir()
+	key, _ := newAccessKey("CI")
+	key.RPM = 2
+	api := &messageAPI{keyFile: filepath.Join(dir, "keys.json"), jobsFile: filepath.Join(dir, "jobs.json"), keys: []accessKeyState{key}, jobs: map[string]*messageJob{}, wake: make(chan struct{}, 1)}
+	api.resolveTarget = func(context.Context, submitMessageRequest) (resolvedTarget, *apiProblem) {
+		return resolvedTarget{DeviceID: "m1", AIClient: "codex", Assistant: "codex", ProjectPath: "/repo"}, nil
+	}
+	call := func(method, path, body string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(method, path, bytes.NewBufferString(body))
+		req.Header.Set("Authorization", "Bearer "+key.Secret)
+		req.Header.Set("Content-Type", "application/json")
+		rr := httptest.NewRecorder()
+		api.handleMessages(rr, req)
+		return rr
+	}
+	body := `{"device":"m1","ai_client":"codex","project":"/repo","message":"hello"}`
+	first := call(http.MethodPost, "/v1/messages", body)
+	if first.Code != http.StatusAccepted {
+		t.Fatalf("first submit: %d %s", first.Code, first.Body.String())
+	}
+	var response struct {
+		MessageID string `json:"message_id"`
+	}
+	if err := json.Unmarshal(first.Body.Bytes(), &response); err != nil || response.MessageID == "" {
+		t.Fatalf("first message id: %v %s", err, first.Body.String())
+	}
+	read := call(http.MethodGet, "/v1/messages/"+response.MessageID, "")
+	if read.Code != http.StatusOK {
+		t.Fatalf("read: %d %s", read.Code, read.Body.String())
+	}
+	limited := call(http.MethodPost, "/v1/messages", body)
+	if limited.Code != http.StatusTooManyRequests || !bytes.Contains(limited.Body.Bytes(), []byte("rate_limit_exceeded")) || limited.Header().Get("Retry-After") == "" || len(api.jobs) != 1 {
+		t.Fatalf("third request: %d %s retry=%q jobs=%d", limited.Code, limited.Body.String(), limited.Header().Get("Retry-After"), len(api.jobs))
+	}
+}

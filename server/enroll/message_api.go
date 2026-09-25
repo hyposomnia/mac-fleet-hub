@@ -26,15 +26,18 @@ import (
 )
 
 const (
-	messageQueued    = "queued"
-	messageRunning   = "running"
-	messageFailed    = "failed"
-	messageCompleted = "completed"
+	messageQueued       = "queued"
+	messageRunning      = "running"
+	messageFailed       = "failed"
+	messageCompleted    = "completed"
+	defaultAccessKeyRPM = 10
+	maxAccessKeyRPM     = 10000
 )
 
 type accessKeyState struct {
 	ID         string            `json:"id"`
 	Name       string            `json:"name"`
+	RPM        int               `json:"rpm"`
 	Secret     string            `json:"key,omitempty"`
 	Hash       string            `json:"hash"`
 	Prefix     string            `json:"prefix"`
@@ -163,6 +166,7 @@ func (p *apiProblem) Error() string { return p.Code + ": " + p.Message }
 type messageAPI struct {
 	mu             sync.Mutex
 	keys           []accessKeyState
+	rateLimits     map[string][]time.Time
 	jobs           map[string]*messageJob
 	keyFile        string
 	jobsFile       string
@@ -186,6 +190,7 @@ func newMessageAPIFromEnv() (*messageAPI, error) {
 		client:         &http.Client{Timeout: 20 * time.Second},
 		wake:           make(chan struct{}, 1),
 		jobs:           map[string]*messageJob{},
+		rateLimits:     map[string][]time.Time{},
 		activeExec:     map[string]bool{},
 		activeCallback: map[string]bool{},
 		maxConcurrent:  envInt("ENROLL_MESSAGE_CONCURRENCY", 4),
@@ -233,7 +238,12 @@ func (a *messageAPI) load() error {
 				return fmt.Errorf("迁移 access key: %w", err)
 			}
 		}
+		migrateRPM := false
 		for i := range a.keys {
+			if a.keys[i].RPM <= 0 {
+				a.keys[i].RPM = defaultAccessKeyRPM
+				migrateRPM = true
+			}
 			if a.keys[i].Name == "" {
 				a.keys[i].Name = fmt.Sprintf("访问密钥 %d", i+1)
 			}
@@ -241,13 +251,13 @@ func (a *messageAPI) load() error {
 				a.keys[i].Hash = hashString(a.keys[i].Secret)
 			}
 		}
-		// Remove mappings from the former standalone alias store on startup.
+		// Persist defaults for existing keys and remove the former standalone alias store.
 		var oldFields map[string]json.RawMessage
-		if err := json.Unmarshal(raw, &oldFields); err == nil {
-			if _, hadAliases := oldFields["aliases"]; hadAliases {
-				if err := a.saveKeysLocked(); err != nil {
-					return fmt.Errorf("清理旧别名数据: %w", err)
-				}
+		_ = json.Unmarshal(raw, &oldFields)
+		_, hadAliases := oldFields["aliases"]
+		if migrateRPM || hadAliases {
+			if err := a.saveKeysLocked(); err != nil {
+				return fmt.Errorf("迁移访问密钥配置: %w", err)
 			}
 		}
 	} else if !errors.Is(err, os.ErrNotExist) {
@@ -337,11 +347,18 @@ func hashString(value string) string {
 
 func accessKeyResponse(key accessKeyState) map[string]interface{} {
 	return map[string]interface{}{
-		"id": key.ID, "name": key.Name, "key": key.Secret, "recoverable": key.Secret != "",
+		"id": key.ID, "name": key.Name, "rpm": accessKeyRPM(key.RPM), "key": key.Secret, "recoverable": key.Secret != "",
 		"prefix": key.Prefix, "created_at": omitZeroTime(key.CreatedAt),
 		"updated_at": omitZeroTime(key.UpdatedAt), "last_used_at": omitZeroTime(key.LastUsedAt),
 		"binding": key.Binding,
 	}
+}
+
+func accessKeyRPM(value int) int {
+	if value <= 0 {
+		return defaultAccessKeyRPM
+	}
+	return value
 }
 
 func validateAccessKeyName(value string) (string, *apiProblem) {
@@ -367,41 +384,49 @@ func newAccessKey(name string) (accessKeyState, error) {
 	}
 	now := time.Now().UTC()
 	return accessKeyState{
-		ID: id, Name: name, Secret: secret, Hash: hashString(secret), Prefix: prefix,
+		ID: id, Name: name, RPM: defaultAccessKeyRPM, Secret: secret, Hash: hashString(secret), Prefix: prefix,
 		CreatedAt: now, UpdatedAt: now,
 	}, nil
 }
 
-func decodeAccessKeyEdit(w http.ResponseWriter, r *http.Request, fallback string) (string, *accessKeyBinding, bool, *apiProblem) {
+func decodeAccessKeyEdit(w http.ResponseWriter, r *http.Request, fallback string, fallbackRPM int) (string, int, *accessKeyBinding, bool, *apiProblem) {
 	var body struct {
 		Name    string          `json:"name"`
+		RPM     *int            `json:"rpm"`
 		Binding json.RawMessage `json:"binding"`
 	}
 	dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, 16<<10))
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(&body); err != nil && !errors.Is(err, io.EOF) {
-		return "", nil, false, &apiProblem{Status: 400, Code: "invalid_request", Message: "请求 JSON 格式或字段不正确"}
+		return "", 0, nil, false, &apiProblem{Status: 400, Code: "invalid_request", Message: "请求 JSON 格式或字段不正确"}
 	}
 	if err := dec.Decode(new(interface{})); !errors.Is(err, io.EOF) {
-		return "", nil, false, &apiProblem{Status: 400, Code: "invalid_request", Message: "请求只能包含一个 JSON 对象"}
+		return "", 0, nil, false, &apiProblem{Status: 400, Code: "invalid_request", Message: "请求只能包含一个 JSON 对象"}
 	}
 	if strings.TrimSpace(body.Name) == "" {
 		body.Name = fallback
 	}
 	name, problem := validateAccessKeyName(body.Name)
 	if problem != nil {
-		return "", nil, false, problem
+		return "", 0, nil, false, problem
+	}
+	rpm := accessKeyRPM(fallbackRPM)
+	if body.RPM != nil {
+		rpm = *body.RPM
+		if rpm < 1 || rpm > maxAccessKeyRPM {
+			return "", 0, nil, false, &apiProblem{Status: 400, Code: "invalid_rpm", Message: "RPM 须在 1 到 10000 之间"}
+		}
 	}
 	if len(body.Binding) == 0 || string(body.Binding) == "null" {
-		return name, nil, len(body.Binding) > 0, nil
+		return name, rpm, nil, len(body.Binding) > 0, nil
 	}
 	var binding accessKeyBinding
 	bindDec := json.NewDecoder(bytes.NewReader(body.Binding))
 	bindDec.DisallowUnknownFields()
 	if err := bindDec.Decode(&binding); err != nil || bindDec.Decode(new(interface{})) != io.EOF {
-		return "", nil, false, &apiProblem{Status: 400, Code: "invalid_binding", Message: "密钥绑定字段不正确"}
+		return "", 0, nil, false, &apiProblem{Status: 400, Code: "invalid_binding", Message: "密钥绑定字段不正确"}
 	}
-	return name, &binding, true, nil
+	return name, rpm, &binding, true, nil
 }
 
 func (a *messageAPI) validateBinding(ctx context.Context, binding *accessKeyBinding) (*accessKeyBinding, *apiProblem) {
@@ -463,7 +488,7 @@ func (a *messageAPI) handleAccessKeys(w http.ResponseWriter, r *http.Request) {
 			a.mu.Lock()
 			fallback := fmt.Sprintf("访问密钥 %d", len(a.keys)+1)
 			a.mu.Unlock()
-			name, requestedBinding, _, problem := decodeAccessKeyEdit(w, r, fallback)
+			name, rpm, requestedBinding, _, problem := decodeAccessKeyEdit(w, r, fallback, defaultAccessKeyRPM)
 			if problem != nil {
 				writeAPIProblem(w, problem)
 				return
@@ -481,6 +506,7 @@ func (a *messageAPI) handleAccessKeys(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			key.Binding = binding
+			key.RPM = rpm
 			a.mu.Lock()
 			a.keys = append(a.keys, key)
 			err = a.saveKeysLocked()
@@ -507,9 +533,11 @@ func (a *messageAPI) handleAccessKeys(w http.ResponseWriter, r *http.Request) {
 	case http.MethodPatch:
 		a.mu.Lock()
 		fallback := ""
+		fallbackRPM := defaultAccessKeyRPM
 		for _, key := range a.keys {
 			if key.ID == id {
 				fallback = key.Name
+				fallbackRPM = accessKeyRPM(key.RPM)
 				break
 			}
 		}
@@ -518,7 +546,7 @@ func (a *messageAPI) handleAccessKeys(w http.ResponseWriter, r *http.Request) {
 			writeAPIProblem(w, &apiProblem{Status: 404, Code: "access_key_not_found", Message: "访问密钥不存在"})
 			return
 		}
-		name, requestedBinding, hasBinding, problem := decodeAccessKeyEdit(w, r, fallback)
+		name, rpm, requestedBinding, hasBinding, problem := decodeAccessKeyEdit(w, r, fallback, fallbackRPM)
 		if problem != nil {
 			writeAPIProblem(w, problem)
 			return
@@ -548,6 +576,7 @@ func (a *messageAPI) handleAccessKeys(w http.ResponseWriter, r *http.Request) {
 		}
 		previous := a.keys[index]
 		a.keys[index].Name = name
+		a.keys[index].RPM = rpm
 		if hasBinding {
 			a.keys[index].Binding = binding
 		}
@@ -591,6 +620,8 @@ func (a *messageAPI) handleAccessKeys(w http.ResponseWriter, r *http.Request) {
 		err := a.saveKeysLocked()
 		if err != nil {
 			a.keys = previous
+		} else {
+			delete(a.rateLimits, id)
 		}
 		a.mu.Unlock()
 		if err != nil {
@@ -632,11 +663,14 @@ func (a *messageAPI) handleAccessKey(w http.ResponseWriter, r *http.Request) {
 		} else {
 			key.ID, key.Name = a.keys[0].ID, a.keys[0].Name
 			key.Binding = a.keys[0].Binding
+			key.RPM = accessKeyRPM(a.keys[0].RPM)
 			a.keys[0] = key
 		}
 		err = a.saveKeysLocked()
 		if err != nil {
 			a.keys = previous
+		} else {
+			delete(a.rateLimits, key.ID)
 		}
 		a.mu.Unlock()
 		if err != nil {
@@ -653,6 +687,8 @@ func (a *messageAPI) handleAccessKey(w http.ResponseWriter, r *http.Request) {
 		err := a.saveKeysLocked()
 		if err != nil {
 			a.keys = previous
+		} else if len(previous) > 0 {
+			delete(a.rateLimits, previous[0].ID)
 		}
 		a.mu.Unlock()
 		if err != nil {
@@ -699,6 +735,39 @@ func (a *messageAPI) authenticate(r *http.Request) (accessKeyState, *apiProblem)
 	return a.keys[index], nil
 }
 
+// Every authenticated public API request consumes one slot in its key's rolling minute.
+// Check the current key again so edits and revocations take effect immediately.
+func (a *messageAPI) checkRateLimit(w http.ResponseWriter, key accessKeyState, now time.Time) *apiProblem {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	current, active := a.currentKeyLocked(key)
+	if !active {
+		return &apiProblem{Status: http.StatusUnauthorized, Code: "invalid_access_key", Message: "访问密钥无效或已撤销"}
+	}
+	if a.rateLimits == nil {
+		a.rateLimits = map[string][]time.Time{}
+	}
+	cutoff := now.Add(-time.Minute)
+	requests := a.rateLimits[key.ID]
+	first := 0
+	for first < len(requests) && !requests[first].After(cutoff) {
+		first++
+	}
+	requests = requests[first:]
+	if len(requests) >= accessKeyRPM(current.RPM) {
+		a.rateLimits[key.ID] = requests
+		wait := requests[0].Add(time.Minute).Sub(now)
+		seconds := int((wait + time.Second - 1) / time.Second)
+		if seconds < 1 {
+			seconds = 1
+		}
+		w.Header().Set("Retry-After", strconv.Itoa(seconds))
+		return &apiProblem{Status: http.StatusTooManyRequests, Code: "rate_limit_exceeded", Message: "访问密钥每分钟请求次数已达上限"}
+	}
+	a.rateLimits[key.ID] = append(requests, now)
+	return nil
+}
+
 func scopeMismatch() *apiProblem {
 	return &apiProblem{Status: 403, Code: "access_key_scope_mismatch", Message: "访问密钥未获授权访问该目标"}
 }
@@ -742,6 +811,11 @@ func writeAPIProblem(w http.ResponseWriter, problem *apiProblem) {
 func (a *messageAPI) handleMessages(w http.ResponseWriter, r *http.Request) {
 	key, problem := a.authenticate(r)
 	if problem != nil {
+		writeAPIProblem(w, problem)
+		return
+	}
+	w.Header().Set("Cache-Control", "no-store")
+	if problem := a.checkRateLimit(w, key, time.Now().UTC()); problem != nil {
 		writeAPIProblem(w, problem)
 		return
 	}

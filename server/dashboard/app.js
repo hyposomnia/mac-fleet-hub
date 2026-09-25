@@ -818,6 +818,7 @@ function renderAccessKeys() {
         h('input', { class: 'input tnum', readonly: '', value: secret, 'aria-label': `${key.name || '访问密钥'}的值` }), copy),
       h('div', { class: 'automation-key-meta' },
         h('span', { text: accessKeyBindingLabel(key.binding) }),
+        h('span', { text: `RPM：${key.rpm || 10}` }),
         h('span', { text: `创建：${settingsDate(key.created_at)}` }),
         h('span', { text: `最近使用：${settingsDate(key.last_used_at)}` }))));
   }
@@ -916,6 +917,7 @@ function openAccessKeyForm(key = null) {
   $('#automation-key-form-title').textContent = key ? '编辑访问密钥' : '新建访问密钥';
   $('#automation-key-save').textContent = key ? '保存修改' : '创建密钥';
   $('#automation-key-name').value = key?.name || `访问密钥 ${automationAccessKeys.length + 1}`;
+  $('#automation-key-rpm').value = key?.rpm || 10;
   const device = $('#automation-key-device');
   device.replaceChildren(h('option', { value: '', text: '全部设备' }));
   for (const mac of MACS) device.append(h('option', { value: mac.id, text: `${macName(mac.id)} (${mac.id})` }));
@@ -942,6 +944,11 @@ function closeAccessKeyForm() {
 async function saveAccessKey(event) {
   event.preventDefault();
   const name = $('#automation-key-name').value.trim();
+  const rpm = Number($('#automation-key-rpm').value);
+  if (!Number.isInteger(rpm) || rpm < 1 || rpm > 10000) {
+    toast('RPM 须在 1 到 10000 之间', 'err');
+    return;
+  }
   const device_id = $('#automation-key-device').value;
   const ai_client = $('#automation-key-client').value;
   const project_path = accessKeyProjectPath();
@@ -956,7 +963,7 @@ async function saveAccessKey(event) {
   button.disabled = true;
   try {
     await settingsJSON(key ? `${BASE}/api/automation/access-keys/${encodeURIComponent(key.id)}` : `${BASE}/api/automation/access-keys`, {
-      method: key ? 'PATCH' : 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name, binding }),
+      method: key ? 'PATCH' : 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name, rpm, binding }),
     });
     closeAccessKeyForm();
     await refreshAccessKeys();

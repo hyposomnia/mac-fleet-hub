@@ -17,7 +17,7 @@
        内联以避免首屏闪烁。 -->
   <script>(function () { var t; try { t = localStorage.getItem('fleet-theme'); } catch (e) {} if (t !== 'light' && t !== 'dark') t = matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark'; document.documentElement.dataset.theme = t; document.querySelector('meta[name="theme-color"]').content = t === 'light' ? '#f6f7f9' : '#090c12'; })();</script>
   <link rel="stylesheet" href="vendor/codemirror/lib/codemirror.css?v=5.65.20" />
-  <link rel="stylesheet" href="style.css?v=144" />
+  <link rel="stylesheet" href="style.css?v=145" />
 </head>
 <body>
   <!-- DeepSeek 官方 whale mark，来源与 MIT 许可见 icons/deepseek/LICENSE.md。 -->
@@ -462,7 +462,10 @@
             <p class="hint">可逐级限定设备、AI 客户端、项目和会话；后续层级留空表示不限制。绑定到具体会话后，密钥名称可作为 alias 调用。</p>
             <form id="automation-key-form" class="automation-key-form" hidden>
               <strong id="automation-key-form-title">新建密钥</strong>
-              <label>名称（绑定到会话后即为别名）<input id="automation-key-name" class="input" maxlength="80" required /></label>
+              <div class="automation-key-identity">
+                <label>名称（绑定到会话后即为别名）<input id="automation-key-name" class="input" maxlength="80" required /></label>
+                <label>RPM<input id="automation-key-rpm" class="input" type="number" min="1" max="10000" step="1" value="10" required /></label>
+              </div>
               <div class="automation-binding-grid">
                 <label>设备<select id="automation-key-device" class="input"><option value="">全部设备</option></select></label>
                 <label>AI 客户端<select id="automation-key-client" class="input" disabled><option value="">全部客户端</option><option value="codex">ChatGPT (Codex)</option><option value="deepseek">DeepSeek</option></select></label>
@@ -566,10 +569,10 @@
   <script src="vendor/codemirror/mode/yaml/yaml.js?v=5.65.20"></script>
   <script src="vendor/codemirror/mode/toml/toml.js?v=5.65.20"></script>
   <script src="vendor/codemirror/mode/properties/properties.js?v=5.65.20"></script>
-  <script src="markdown.js?v=144"></script>
-  <script src="preview.js?v=144"></script>
-  <script src="chat_model.js?v=144"></script>
-  <script src="upload_model.js?v=144"></script>
-  <script src="app.js?v=144"></script>
+  <script src="markdown.js?v=145"></script>
+  <script src="preview.js?v=145"></script>
+  <script src="chat_model.js?v=145"></script>
+  <script src="upload_model.js?v=145"></script>
+  <script src="app.js?v=145"></script>
 </body>
 </html>

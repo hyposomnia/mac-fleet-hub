@@ -580,7 +580,9 @@ test('automation keys expose a four-level binding editor and submit the scope', 
   for (const field of ['device', 'client', 'project', 'session']) {
     assert.match(indexHTML, new RegExp(`id="automation-key-${field}"`));
   }
-  assert.match(appSrc, /JSON\.stringify\(\{ name, binding \}\)/);
+  assert.match(indexHTML, /id="automation-key-rpm"[^>]*value="10"/);
+  assert.match(appSrc, /JSON\.stringify\(\{ name, rpm, binding \}\)/);
+  assert.match(automationGuideHTML, /429 rate_limit_exceeded/);
   assert.match(appSrc, /function accessKeyBindingLabel\(binding\)/);
   assert.match(automationGuideHTML, /403 access_key_scope_mismatch/);
 });

@@ -23,7 +23,7 @@
 
     <section class="automation-doc-section">
       <h2>1. 创建访问密钥</h2>
-      <p>打开 <b>自动化 → 访问密钥</b>，点击“新建密钥”。名称就是别名。若要用别名调用，须把密钥绑定到设备、客户端、项目绝对路径和已有会话 ID。绑定范围只能按这个顺序逐级指定；后续层级留空表示全部，留空时只能显式指定请求目标。编辑名称会立即改变别名。</p>
+      <p>打开 <b>自动化 → 访问密钥</b>，点击“新建密钥”。名称就是别名。若要用别名调用，须把密钥绑定到设备、客户端、项目绝对路径和已有会话 ID。绑定范围只能按这个顺序逐级指定；后续层级留空表示全部，留空时只能显式指定请求目标。编辑名称会立即改变别名。每个密钥可设置 RPM，默认 10。</p>
       <div class="automation-doc-note">请求头使用 <code>Authorization: Bearer …</code>。</div>
     </section>
 
@@ -92,6 +92,7 @@
       <ul>
         <li><code>401 invalid_access_key</code>：密钥缺失、错误或已删除。</li>
         <li><code>403 access_key_scope_mismatch</code>：目标超出密钥绑定范围。</li>
+        <li><code>429 rate_limit_exceeded</code>：该密钥最近 60 秒的请求次数达到 RPM。提交与查询均计数，按响应头 <code>Retry-After</code> 稍后重试。</li>
         <li><code>400 alias_requires_bound_session</code>：密钥尚未绑定具体会话。</li>
         <li><code>404 target_alias_not_found</code>：alias 与该密钥名称不符。</li>
         <li><code>400 invalid_target</code>：alias 与显式目标混用。</li>
