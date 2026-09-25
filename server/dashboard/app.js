@@ -1036,11 +1036,14 @@ function shellQuote(value) {
 }
 function accessKeyRequestBody(key) {
   const binding = key.binding || {};
-  if (binding.session_id && key.name) return { alias: key.name, message: ACCESS_KEY_TEST_MESSAGE };
+  if (binding.device_id && binding.ai_client && binding.project_path && binding.session_id && key.name) {
+    return { alias: key.name, message: ACCESS_KEY_TEST_MESSAGE };
+  }
   return {
-    device: binding.device_id || '设备ID',
-    ai_client: binding.ai_client || 'codex',
-    project: binding.project_path || '/项目绝对路径',
+    device: binding.device_id || '替换为实际设备',
+    ai_client: binding.ai_client || '替换为实际AI客户端',
+    project: binding.project_path || '替换为实际项目',
+    session: binding.session_id || '替换为实际会话名或ID',
     message: ACCESS_KEY_TEST_MESSAGE,
   };
 }

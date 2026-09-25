@@ -608,10 +608,19 @@ test('automation key editing stays inside its card and copied requests target th
     key: 'mfh_live_example', name: 'partial',
     binding: { device_id: 'm1', ai_client: 'deepseek', project_path: '/Users/test/repo' },
   }, 'https://fleet.example.test');
-  assert.match(explicit, /"device":"m1","ai_client":"deepseek","project":"\/Users\/test\/repo"/);
-  assert.doesNotMatch(explicit, /"alias"|"session"/);
+  assert.match(explicit, /"device":"m1","ai_client":"deepseek","project":"\/Users\/test\/repo","session":"替换为实际会话名或ID"/);
+  assert.doesNotMatch(explicit, /"alias"/);
   const unbound = curlFor({ key: 'mfh_live_example', name: 'all' }, 'https://fleet.example.test');
-  assert.match(unbound, /"device":"设备ID","ai_client":"codex","project":"\/项目绝对路径"/);
+  assert.match(unbound, /"device":"替换为实际设备","ai_client":"替换为实际AI客户端","project":"替换为实际项目","session":"替换为实际会话名或ID"/);
+  vm.runInContext('globalThis.__accessKeyRequestBodyTest = accessKeyRequestBody;', appSandbox);
+  const requestBody = appSandbox.__accessKeyRequestBodyTest;
+  const binding = { device_id: 'm1', ai_client: 'codex', project_path: '/repo', session_id: 'sid-123' };
+  const placeholders = { device_id: ['device', '替换为实际设备'], ai_client: ['ai_client', '替换为实际AI客户端'], project_path: ['project', '替换为实际项目'], session_id: ['session', '替换为实际会话名或ID'] };
+  for (const [emptyField, [requestField, placeholder]] of Object.entries(placeholders)) {
+    const body = requestBody({ name: 'name', binding: { ...binding, [emptyField]: '' } });
+    assert.deepEqual(Object.keys(body), ['device', 'ai_client', 'project', 'session', 'message']);
+    assert.equal(body[requestField], placeholder);
+  }
 });
 
 test('automation uses the key name as a session alias without a separate editor', () => {
