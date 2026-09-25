@@ -17,7 +17,7 @@
        内联以避免首屏闪烁。 -->
   <script>(function () { var t; try { t = localStorage.getItem('fleet-theme'); } catch (e) {} if (t !== 'light' && t !== 'dark') t = matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark'; document.documentElement.dataset.theme = t; document.querySelector('meta[name="theme-color"]').content = t === 'light' ? '#f6f7f9' : '#090c12'; })();</script>
   <link rel="stylesheet" href="vendor/codemirror/lib/codemirror.css?v=5.65.20" />
-  <link rel="stylesheet" href="style.css?v=142" />
+  <link rel="stylesheet" href="style.css?v=143" />
 </head>
 <body>
   <!-- DeepSeek 官方 whale mark，来源与 MIT 许可见 icons/deepseek/LICENSE.md。 -->
@@ -459,10 +459,10 @@
           </div>
           <section class="set-group set-panel" data-automation-panel="keys">
             <div class="set-group-title automation-panel-title"><span>访问密钥</span><button id="automation-key-create" class="btn sm primary" type="button">新建密钥</button></div>
-            <p class="hint">可为不同系统建立独立密钥，并逐级限定设备、AI 客户端、项目和会话。留空的后续层级表示不限制。</p>
+            <p class="hint">可逐级限定设备、AI 客户端、项目和会话；后续层级留空表示不限制。绑定到具体会话后，密钥名称可作为 alias 调用。</p>
             <form id="automation-key-form" class="automation-key-form" hidden>
               <strong id="automation-key-form-title">新建密钥</strong>
-              <label>名称<input id="automation-key-name" class="input" maxlength="80" required /></label>
+              <label>名称（绑定到会话后即为别名）<input id="automation-key-name" class="input" maxlength="80" required /></label>
               <div class="automation-binding-grid">
                 <label>设备<select id="automation-key-device" class="input"><option value="">全部设备</option></select></label>
                 <label>AI 客户端<select id="automation-key-client" class="input" disabled><option value="">全部客户端</option><option value="codex">ChatGPT (Codex)</option><option value="deepseek">DeepSeek</option></select></label>
@@ -474,21 +474,6 @@
             </form>
             <div id="automation-key-list" class="automation-key-list"><div class="message-record-empty">正在加载…</div></div>
             <p class="hint warn">未绑定的密钥可向所有已纳管设备的项目会话发送消息。密钥应放在 <code>Authorization: Bearer …</code> 请求头中。</p>
-            <div class="set-group-title automation-panel-title automation-alias-heading"><span>会话别名</span><button id="automation-alias-create" class="btn sm primary" type="button">新建别名</button></div>
-            <p class="hint">别名绑定一个已有会话。外部请求只需提供别名，设备与项目等内部信息仅在此管理页展示；密钥的绑定范围仍会检查。</p>
-            <form id="automation-alias-form" class="automation-key-form" hidden>
-              <strong id="automation-alias-form-title">新建会话别名</strong>
-              <label>别名<input id="automation-alias-name" class="input" maxlength="64" pattern="[^\s/]+" placeholder="例如 daily-review" required /></label>
-              <div class="automation-binding-grid">
-                <label>设备<select id="automation-alias-device" class="input" required><option value="">选择设备</option></select></label>
-                <label>AI 客户端<select id="automation-alias-client" class="input" required disabled><option value="">选择客户端</option><option value="codex">ChatGPT (Codex)</option><option value="deepseek">DeepSeek</option></select></label>
-                <label>项目绝对路径<input id="automation-alias-project" class="input" list="automation-alias-project-options" placeholder="选择已有项目" required disabled /><datalist id="automation-alias-project-options"></datalist></label>
-                <label>会话 ID<input id="automation-alias-session" class="input" list="automation-alias-session-options" placeholder="选择已有会话" required disabled /><datalist id="automation-alias-session-options"></datalist></label>
-              </div>
-              <p id="automation-alias-options-status" class="hint" role="status"></p>
-              <div class="automation-key-form-actions"><button id="automation-alias-cancel" class="btn sm" type="button">取消</button><button id="automation-alias-save" class="btn sm primary" type="submit">创建别名</button></div>
-            </form>
-            <div id="automation-alias-list" class="automation-key-list"><div class="message-record-empty">正在加载…</div></div>
           </section>
           <section class="set-group set-panel message-records-panel" data-automation-panel="messages" hidden>
             <div class="set-group-title automation-panel-title"><span>API 消息记录</span><button id="automation-message-refresh" class="btn sm" type="button">刷新</button></div>
@@ -581,10 +566,10 @@
   <script src="vendor/codemirror/mode/yaml/yaml.js?v=5.65.20"></script>
   <script src="vendor/codemirror/mode/toml/toml.js?v=5.65.20"></script>
   <script src="vendor/codemirror/mode/properties/properties.js?v=5.65.20"></script>
-  <script src="markdown.js?v=142"></script>
-  <script src="preview.js?v=142"></script>
-  <script src="chat_model.js?v=142"></script>
-  <script src="upload_model.js?v=142"></script>
-  <script src="app.js?v=142"></script>
+  <script src="markdown.js?v=143"></script>
+  <script src="preview.js?v=143"></script>
+  <script src="chat_model.js?v=143"></script>
+  <script src="upload_model.js?v=143"></script>
+  <script src="app.js?v=143"></script>
 </body>
 </html>

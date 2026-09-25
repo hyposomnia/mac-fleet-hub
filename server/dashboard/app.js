@@ -751,10 +751,6 @@ async function saveSettings() {
 }
 
 let automationAccessKeys = [];
-let automationTargetAliases = [];
-let automationEditingAlias = null;
-let automationBindingPrefix = 'automation-key';
-function automationBindingField(name) { return $(`#${automationBindingPrefix}-${name}`); }
 let automationRecordKeys = [];
 let automationEditingKey = null;
 let automationBindingSessions = [];
@@ -781,7 +777,7 @@ function showAutomationTab(tab) {
   const key = tab === 'messages' ? 'messages' : 'keys';
   $$('[data-automation-tab]').forEach((button) => button.setAttribute('aria-selected', String(button.dataset.automationTab === key)));
   $$('[data-automation-panel]').forEach((panel) => { panel.hidden = panel.dataset.automationPanel !== key; });
-  if (key === 'keys') { refreshAccessKeys(); refreshTargetAliases(); }
+  if (key === 'keys') refreshAccessKeys();
   else refreshAccessKeys().then(refreshMessageRecords);
 }
 function renderAccessKeyFilter() {
@@ -831,24 +827,22 @@ function accessKeyBindingLabel(binding) {
   return `范围：${macName(binding.device_id)} · ${binding.ai_client === 'codex' ? 'ChatGPT' : binding.ai_client === 'deepseek' ? 'DeepSeek' : '全部客户端'} · ${binding.project_path || '全部项目'} · ${binding.session_id || '全部会话'}`;
 }
 function updateAccessKeyBindingFields() {
-  const device = automationBindingField('device').value;
-  const client = automationBindingField('client');
-  const project = automationBindingField('project');
-  const session = automationBindingField('session');
+  const device = $('#automation-key-device').value;
+  const client = $('#automation-key-client');
+  const project = $('#automation-key-project');
+  const session = $('#automation-key-session');
   client.disabled = !device;
   project.disabled = !device || !client.value;
   session.disabled = project.disabled || !project.value.trim();
 }
 async function loadAccessKeyBindingSessions() {
   const sequence = ++automationBindingLoadSeq;
-  const prefix = automationBindingPrefix;
   automationBindingSessions = [];
-  const field = (name) => $(`#${prefix}-${name}`);
-  field('project-options').replaceChildren();
-  field('session-options').replaceChildren();
-  const device = field('device').value;
-  const client = field('client').value;
-  const status = field('options-status');
+  $('#automation-key-project-options').replaceChildren();
+  $('#automation-key-session-options').replaceChildren();
+  const device = $('#automation-key-device').value;
+  const client = $('#automation-key-client').value;
+  const status = $('#automation-key-options-status');
   if (!device || !client) { status.textContent = ''; return; }
   status.textContent = '正在读取项目与会话…';
   try {
@@ -868,7 +862,7 @@ async function loadAccessKeyBindingSessions() {
       const path = item.projectCwd || item.cwd;
       if (path && path.startsWith('/')) projects.set(path, item.projectName || projName(path));
     }
-    for (const [path, name] of projects) field('project-options').append(h('option', { value: path, label: name }));
+    for (const [path, name] of projects) $('#automation-key-project-options').append(h('option', { value: path, label: name }));
     status.textContent = projects.size ? '可选已有项目，也可填写项目绝对路径。' : '没有已发现的项目，可填写项目绝对路径。';
     renderAccessKeySessionOptions();
   } catch (error) {
@@ -876,9 +870,9 @@ async function loadAccessKeyBindingSessions() {
   }
 }
 function renderAccessKeySessionOptions() {
-  const root = automationBindingField('session-options');
+  const root = $('#automation-key-session-options');
   root.replaceChildren();
-  const project = automationBindingField('project').value.trim();
+  const project = $('#automation-key-project').value.trim();
   for (const item of automationBindingSessions) {
     if ((item.projectCwd || item.cwd) === project && item.sessionId) {
       root.append(h('option', { value: item.sessionId, label: item.title || item.sessionId }));
@@ -887,8 +881,6 @@ function renderAccessKeySessionOptions() {
 }
 function openAccessKeyForm(key = null) {
   automationEditingKey = key;
-  closeTargetAliasForm();
-  automationBindingPrefix = 'automation-key';
   const form = $('#automation-key-form');
   form.hidden = false;
   $('#automation-key-form-title').textContent = key ? '编辑访问密钥' : '新建访问密钥';
@@ -912,100 +904,6 @@ function closeAccessKeyForm() {
   ++automationBindingLoadSeq;
   $('#automation-key-form').hidden = true;
   automationEditingKey = null;
-}
-function renderTargetAliases() {
-  const root = $('#automation-alias-list');
-  root.replaceChildren();
-  if (!automationTargetAliases.length) {
-    root.append(h('div', { class: 'message-record-empty', text: '尚未创建会话别名' }));
-    return;
-  }
-  for (const item of automationTargetAliases) {
-    const target = item.target || {};
-    root.append(h('article', { class: 'automation-key-card' },
-      h('div', { class: 'automation-key-head' },
-        h('div', { class: 'automation-key-title' }, h('strong', { text: item.alias }),
-          h('span', { text: `${macName(target.device_id)} · ${target.ai_client} · ${target.project_path} · ${target.session_id}` })),
-        h('div', { class: 'automation-key-actions' },
-          h('button', { type: 'button', class: 'btn sm', text: '复制', onclick: () => copyTargetAlias(item.alias) }),
-          h('button', { type: 'button', class: 'btn sm', text: '编辑', onclick: () => openTargetAliasForm(item) }),
-          h('button', { type: 'button', class: 'btn sm danger', text: '删除', onclick: () => deleteTargetAlias(item) })))));
-  }
-}
-async function refreshTargetAliases() {
-  const root = $('#automation-alias-list');
-  root.replaceChildren(h('div', { class: 'message-record-empty', text: '正在加载…' }));
-  try {
-    const result = await settingsJSON(`${BASE}/api/automation/access-keys/aliases`, { cache: 'no-store' });
-    automationTargetAliases = result?.aliases || [];
-    renderTargetAliases();
-  } catch (error) {
-    automationTargetAliases = [];
-    root.replaceChildren(h('div', { class: 'message-record-empty', text: '加载失败：' + error.message }));
-  }
-}
-function openTargetAliasForm(item = null) {
-  closeAccessKeyForm();
-  automationBindingPrefix = 'automation-alias';
-  automationEditingAlias = item;
-  $('#automation-alias-form').hidden = false;
-  $('#automation-alias-form-title').textContent = item ? '编辑会话别名' : '新建会话别名';
-  $('#automation-alias-save').textContent = item ? '保存修改' : '创建别名';
-  $('#automation-alias-name').value = item?.alias || '';
-  const target = item?.target || {};
-  const device = $('#automation-alias-device');
-  device.replaceChildren(h('option', { value: '', text: '选择设备' }));
-  for (const mac of MACS) device.append(h('option', { value: mac.id, text: `${macName(mac.id)} (${mac.id})` }));
-  if (target.device_id && !MACS.some((mac) => mac.id === target.device_id)) {
-    device.append(h('option', { value: target.device_id, text: `${target.device_id}（当前不在设备列表）` }));
-  }
-  device.value = target.device_id || '';
-  $('#automation-alias-client').value = target.ai_client || '';
-  $('#automation-alias-project').value = target.project_path || '';
-  $('#automation-alias-session').value = target.session_id || '';
-  updateAccessKeyBindingFields();
-  loadAccessKeyBindingSessions();
-  $('#automation-alias-name').focus();
-}
-function closeTargetAliasForm() {
-  ++automationBindingLoadSeq;
-  $('#automation-alias-form').hidden = true;
-  automationEditingAlias = null;
-}
-async function saveTargetAlias(event) {
-  event.preventDefault();
-  const alias = $('#automation-alias-name').value.trim();
-  const target = {
-    device_id: $('#automation-alias-device').value,
-    ai_client: $('#automation-alias-client').value,
-    project_path: $('#automation-alias-project').value.trim(),
-    session_id: $('#automation-alias-session').value.trim(),
-  };
-  if (!target.project_path.startsWith('/')) { toast('请选择项目绝对路径', 'err'); return; }
-  const existing = automationEditingAlias;
-  const button = $('#automation-alias-save');
-  button.disabled = true;
-  try {
-    await settingsJSON(existing ? `${BASE}/api/automation/access-keys/aliases/${encodeURIComponent(existing.alias)}` : `${BASE}/api/automation/access-keys/aliases`, {
-      method: existing ? 'PATCH' : 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ alias, target }),
-    });
-    closeTargetAliasForm();
-    await refreshTargetAliases();
-    toast(existing ? '别名已更新' : '会话别名已创建', 'ok');
-  } catch (error) { toast('保存会话别名失败：' + error.message, 'err'); }
-  finally { button.disabled = false; }
-}
-async function deleteTargetAlias(item) {
-  if (!window.confirm(`删除别名“${item.alias}”后，使用它的新请求将无法定位会话。继续吗？`)) return;
-  try {
-    await settingsJSON(`${BASE}/api/automation/access-keys/aliases/${encodeURIComponent(item.alias)}`, { method: 'DELETE' });
-    await refreshTargetAliases();
-    toast('会话别名已删除', 'ok');
-  } catch (error) { toast('删除会话别名失败：' + error.message, 'err'); }
-}
-async function copyTargetAlias(value) {
-  try { await navigator.clipboard.writeText(value); toast('别名已复制', 'ok'); }
-  catch (_) { window.prompt('复制别名', value); }
 }
 async function saveAccessKey(event) {
   event.preventDefault();
@@ -7542,33 +7440,24 @@ function init() {
   $('#automation-key-create').onclick = () => openAccessKeyForm();
   $('#automation-key-cancel').onclick = closeAccessKeyForm;
   $('#automation-key-form').onsubmit = saveAccessKey;
-  $('#automation-alias-create').onclick = () => openTargetAliasForm();
-  $('#automation-alias-cancel').onclick = closeTargetAliasForm;
-  $('#automation-alias-form').onsubmit = saveTargetAlias;
-  for (const prefix of ['automation-key', 'automation-alias']) {
-    const field = (name) => $(`#${prefix}-${name}`);
-    field('device').onchange = () => {
-      automationBindingPrefix = prefix;
-      field('client').value = '';
-      field('project').value = '';
-      field('session').value = '';
-      updateAccessKeyBindingFields();
-      loadAccessKeyBindingSessions();
-    };
-    field('client').onchange = () => {
-      automationBindingPrefix = prefix;
-      field('project').value = '';
-      field('session').value = '';
-      updateAccessKeyBindingFields();
-      loadAccessKeyBindingSessions();
-    };
-    field('project').oninput = () => {
-      automationBindingPrefix = prefix;
-      field('session').value = '';
-      updateAccessKeyBindingFields();
-      renderAccessKeySessionOptions();
-    };
-  }
+  $('#automation-key-device').onchange = () => {
+    $('#automation-key-client').value = '';
+    $('#automation-key-project').value = '';
+    $('#automation-key-session').value = '';
+    updateAccessKeyBindingFields();
+    loadAccessKeyBindingSessions();
+  };
+  $('#automation-key-client').onchange = () => {
+    $('#automation-key-project').value = '';
+    $('#automation-key-session').value = '';
+    updateAccessKeyBindingFields();
+    loadAccessKeyBindingSessions();
+  };
+  $('#automation-key-project').oninput = () => {
+    $('#automation-key-session').value = '';
+    updateAccessKeyBindingFields();
+    renderAccessKeySessionOptions();
+  };
   $('#automation-message-refresh').onclick = refreshMessageRecords;
   $('#automation-message-key-filter').onchange = refreshMessageRecords;
   $('#m-info-btn').onclick = () => { if (state.macId) openHostModal(state.macId); };

@@ -68,7 +68,6 @@ func (b *accessKeyBinding) allowsJob(job *messageJob) bool {
 type accessKeyStoreDisk struct {
 	Version int              `json:"version"`
 	Keys    []accessKeyState `json:"keys"`
-	Aliases []targetAlias    `json:"aliases,omitempty"`
 }
 
 type messageError struct {
@@ -164,7 +163,6 @@ func (p *apiProblem) Error() string { return p.Code + ": " + p.Message }
 type messageAPI struct {
 	mu             sync.Mutex
 	keys           []accessKeyState
-	aliases        []targetAlias
 	jobs           map[string]*messageJob
 	keyFile        string
 	jobsFile       string
@@ -210,7 +208,6 @@ func (a *messageAPI) load() error {
 		}
 		if disk.Keys != nil {
 			a.keys = disk.Keys
-			a.aliases = disk.Aliases
 		} else {
 			// v1 只保存一个不可逆哈希。迁移后继续接受旧密钥，但无法展示原文。
 			var legacy struct {
@@ -304,7 +301,7 @@ func (a *messageAPI) saveKeysLocked() error {
 	if keys == nil {
 		keys = []accessKeyState{}
 	}
-	return writePrivateJSON(a.keyFile, accessKeyStoreDisk{Version: 3, Keys: keys, Aliases: a.aliases})
+	return writePrivateJSON(a.keyFile, accessKeyStoreDisk{Version: 3, Keys: keys})
 }
 
 func (a *messageAPI) saveJobsLocked() error {
@@ -441,10 +438,6 @@ func (a *messageAPI) validateBinding(ctx context.Context, binding *accessKeyBind
 func (a *messageAPI) handleAccessKeys(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
 	const base = "/automation/access-keys"
-	if r.URL.Path == base+"/aliases" || strings.HasPrefix(r.URL.Path, base+"/aliases/") {
-		a.handleTargetAliases(w, r)
-		return
-	}
 	if r.URL.Path == base {
 		switch r.Method {
 		case http.MethodGet:
@@ -812,17 +805,16 @@ func (a *messageAPI) submitMessage(w http.ResponseWriter, r *http.Request, key a
 	}
 	if req.Alias != "" {
 		a.mu.Lock()
-		alias, ok := a.targetAliasLocked(req.Alias)
+		binding, problem := a.keyAliasTargetLocked(key, req.Alias)
 		a.mu.Unlock()
-		if !ok {
-			writeAPIProblem(w, &apiProblem{Status: 404, Code: "target_alias_not_found", Message: "找不到指定别名"})
+		if problem != nil {
+			writeAPIProblem(w, problem)
 			return
 		}
-		req.Alias = alias.Alias
-		req.Device = alias.Target.DeviceID
-		req.AIClient = alias.Target.AIClient
-		req.Project = alias.Target.ProjectPath
-		req.Session = &alias.Target.SessionID
+		req.Device = binding.DeviceID
+		req.AIClient = binding.AIClient
+		req.Project = binding.ProjectPath
+		req.Session = &binding.SessionID
 	}
 	req.Device = strings.TrimSpace(req.Device)
 	req.AIClient = strings.ToLower(strings.TrimSpace(req.AIClient))
@@ -879,7 +871,7 @@ func (a *messageAPI) submitMessage(w http.ResponseWriter, r *http.Request, key a
 				return
 			}
 			current, active := a.currentKeyLocked(key)
-			if !active || !a.preflightBinding(current.Binding, req) || !current.Binding.allowsJob(existing) || !a.aliasMatchesJobLocked(req.Alias, existing) {
+			if !active || !a.preflightBinding(current.Binding, req) || !current.Binding.allowsJob(existing) || !a.aliasMatchesJobLocked(key, req.Alias, existing) {
 				a.mu.Unlock()
 				writeAPIProblem(w, scopeMismatch())
 				return
@@ -932,7 +924,7 @@ func (a *messageAPI) submitMessage(w http.ResponseWriter, r *http.Request, key a
 	}
 	a.mu.Lock()
 	current, active = a.currentKeyLocked(key)
-	if !active || !a.preflightBinding(current.Binding, req) || !current.Binding.allows(target) || !a.aliasMatchesJobLocked(req.Alias, job) {
+	if !active || !a.preflightBinding(current.Binding, req) || !current.Binding.allows(target) || !a.aliasMatchesJobLocked(key, req.Alias, job) {
 		a.mu.Unlock()
 		writeAPIProblem(w, scopeMismatch())
 		return

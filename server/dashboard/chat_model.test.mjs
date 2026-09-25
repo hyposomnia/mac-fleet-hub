@@ -585,14 +585,12 @@ test('automation keys expose a four-level binding editor and submit the scope', 
   assert.match(automationGuideHTML, /403 access_key_scope_mismatch/);
 });
 
-test('automation aliases map a concrete session and offer a private public API target', () => {
-  for (const field of ['name', 'device', 'client', 'project', 'session']) {
-    assert.match(indexHTML, new RegExp(`id="automation-alias-${field}"`));
-  }
-  assert.match(appSrc, /function renderTargetAliases\(\)/);
-  assert.match(appSrc, /JSON\.stringify\(\{ alias, target \}\)/);
-  assert.match(automationGuideHTML, /"alias":"daily-review"/);
-  assert.match(automationGuideHTML, /alias.*device.*ai_client.*project.*session/);
+test('automation uses the key name as a session alias without a separate editor', () => {
+  assert.match(indexHTML, /名称（绑定到会话后即为别名）/);
+  assert.doesNotMatch(indexHTML, /id="automation-alias-/);
+  assert.doesNotMatch(appSrc, /refreshTargetAliases|renderTargetAliases/);
+  assert.match(automationGuideHTML, /"alias":"每日同步"/);
+  assert.match(automationGuideHTML, /alias_requires_bound_session/);
 });
 
 test('mobile session toolbar keeps square actions on both sides of search', () => {

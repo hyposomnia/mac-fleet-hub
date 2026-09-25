@@ -6,7 +6,7 @@
   <meta name="theme-color" content="#090c12" />
   <title>自动化使用文档 · fleet hub</title>
   <script>(function () { var t; try { t = localStorage.getItem('fleet-theme'); } catch (e) {} if (t !== 'light' && t !== 'dark') t = matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark'; document.documentElement.dataset.theme = t; document.querySelector('meta[name="theme-color"]').content = t === 'light' ? '#f6f7f9' : '#090c12'; })();</script>
-  <link rel="stylesheet" href="style.css?v=142" />
+  <link rel="stylesheet" href="style.css?v=143" />
 </head>
 <body class="automation-doc-page">
   <header class="automation-doc-head">
@@ -18,30 +18,23 @@
     <section class="automation-doc-hero">
       <div class="eyebrow">HTTP API · 异步执行</div>
       <h1>从外部系统向内网 AI 会话发送消息</h1>
-      <p>使用访问密钥发送消息，可指定设备、AI 客户端、项目和会话，或使用指向已有会话的别名。提交接口立即返回 <code>message_id</code>，随后通过查询接口或 HTTPS 回调获取最终回复。</p>
+      <p>用密钥名称定位其绑定的会话，或直接指定目标。提交后返回 <code>message_id</code>，可查询结果或接收回调。</p>
     </section>
 
     <section class="automation-doc-section">
       <h2>1. 创建访问密钥</h2>
-      <p>打开 <b>自动化 → 访问密钥</b>，点击“新建密钥”。可依次绑定设备、AI 客户端、项目绝对路径和已有会话 ID；后续层级留空即允许该层级下所有目标。绑定会话的密钥只能继续该会话，不能新建会话。只能从设备到会话依次指定，不能跳过前一级。可通过“编辑”调整现有密钥的范围。</p>
-      <div class="automation-doc-note">密钥可随时回来查看。请求时放入 <code>Authorization: Bearer …</code>，不要写在 URL 中。</div>
+      <p>打开 <b>自动化 → 访问密钥</b>，点击“新建密钥”。名称就是别名。若要用别名调用，须把密钥绑定到设备、客户端、项目绝对路径和已有会话 ID。绑定范围只能按这个顺序逐级指定；后续层级留空表示全部，留空时只能显式指定请求目标。编辑名称会立即改变别名。</p>
+      <div class="automation-doc-note">请求头使用 <code>Authorization: Bearer …</code>。</div>
     </section>
 
     <section class="automation-doc-section">
-      <h2>2. 创建会话别名</h2>
-      <p>在同一管理页点击“新建别名”，为一个已有会话选择设备、客户端、项目绝对路径和会话 ID，再填写别名。别名一对一定位这个会话，创建时会验证会话确实属于所选目标；可随时编辑或删除。外部系统只需知道别名，不必取得设备或项目的内部标识。</p>
-      <div class="automation-doc-note">别名与访问密钥独立管理。调用时仍会验证该密钥是否有权访问别名所指向的会话。</div>
-    </section>
-
-    <section class="automation-doc-section">
-      <h2>3. 提交消息</h2>
-      <p>使用别名（推荐对外集成）：</p>
+      <h2>2. 提交消息</h2>
+      <p>使用密钥名称：</p>
       <pre><code>curl -sS https://fleet.hyposomnia.top:20443/api/v1/messages \
   -H 'Authorization: Bearer mfh_live_替换为你的密钥' \
   -H 'Content-Type: application/json' \
-  -H 'Idempotency-Key: your-request-001' \
-  -d '{"alias":"daily-review","message":"检查项目状态，只回复简要结论"}'</code></pre>
-      <p>也可以直接指定目标：</p>
+  -d '{"alias":"每日同步","message":"检查项目状态"}'</code></pre>
+      <p>或直接指定目标：</p>
       <pre><code>curl -sS https://fleet.hyposomnia.top:20443/api/v1/messages \
   -H 'Authorization: Bearer mfh_live_替换为你的密钥' \
   -H 'Content-Type: application/json' \
@@ -62,10 +55,10 @@
         <table>
           <thead><tr><th>字段</th><th>必填</th><th>说明</th></tr></thead>
           <tbody>
-            <tr><td><code>alias</code></td><td>二选一</td><td>已创建的会话别名，与 device / ai_client / project / session 不可同时出现。</td></tr>
-            <tr><td><code>device</code></td><td>直接指定时必填</td><td>设备显示名称，兼容 <code>m1</code> 等设备 ID。</td></tr>
-            <tr><td><code>ai_client</code></td><td>直接指定时必填</td><td><code>codex</code> 或 <code>deepseek</code>。</td></tr>
-            <tr><td><code>project</code></td><td>直接指定时必填</td><td>项目名称，重名时改用完整路径。</td></tr>
+            <tr><td><code>alias</code></td><td>二选一</td><td>此 Bearer 密钥的名称；需要密钥绑定到具体会话，不能与目标字段同时传入。</td></tr>
+            <tr><td><code>device</code></td><td>显式调用必填</td><td>设备显示名称，兼容 <code>m1</code> 等设备 ID。</td></tr>
+            <tr><td><code>ai_client</code></td><td>显式调用必填</td><td><code>codex</code> 或 <code>deepseek</code>。</td></tr>
+            <tr><td><code>project</code></td><td>显式调用必填</td><td>项目名称，重名时改用完整路径。</td></tr>
             <tr><td><code>session</code></td><td>否</td><td>会话名称或 ID；省略时新建会话。</td></tr>
             <tr><td><code>message</code></td><td>是</td><td>发送给 AI 的用户消息。</td></tr>
             <tr><td><code>callback_url</code></td><td>否</td><td>接收终态结果的公网 HTTPS 地址。</td></tr>
@@ -73,11 +66,11 @@
         </table>
       </div>
       <p>设备、项目和会话匹配均不区分大小写。名称重名时接口会返回候选路径或 ID，按提示重新提交即可。</p>
-      <p>若密钥已绑定范围，请在请求中提供该范围内的目标或指向该范围的别名；直接指定绑定会话时必须传入对应的 <code>session</code>。不匹配的目标返回 <code>403 access_key_scope_mismatch</code>。</p>
+      <p>显式目标须在密钥绑定范围内；绑定会话时须传入对应的 <code>session</code>。不匹配的目标返回 <code>403 access_key_scope_mismatch</code>。</p>
     </section>
 
     <section class="automation-doc-section">
-      <h2>4. 查询结果</h2>
+      <h2>3. 查询结果</h2>
       <pre><code>curl -sS \
   -H 'Authorization: Bearer mfh_live_替换为你的密钥' \
   https://fleet.hyposomnia.top:20443/api/v1/messages/msg_xxx</code></pre>
@@ -85,11 +78,11 @@
         <span><b>queued</b> 队列中</span><span><b>running</b> 执行中</span>
         <span><b>completed</b> 已完成</span><span><b>failed</b> 失败</span>
       </div>
-      <p><code>completed</code> 时读取 <code>ai_message.content</code>。别名模式下，查询结果和回调的目标字段只显示 <code>alias</code>，不返回设备、客户端、项目或会话 ID。直接指定且新建会话时请保存响应中的 <code>session_id</code>；后续请求传入该 ID 即可继续同一会话。</p>
+      <p><code>completed</code> 时读取 <code>ai_message.content</code>。别名调用的响应及回调仅返回 <code>alias</code> 作为目标标识，不返回设备、客户端、项目或会话 ID。显式调用新建会话后，请保存返回的 <code>session_id</code>。</p>
     </section>
 
     <section class="automation-doc-section">
-      <h2>5. 回调与安全重试</h2>
+      <h2>4. 回调与安全重试</h2>
       <p>提供 <code>callback_url</code> 后，网关会在完成或失败时 POST JSON。完成回调至少包含 <code>message_id</code>、<code>status</code> 和 <code>ai_message</code>。</p>
       <p><code>Idempotency-Key</code> 不是访问密钥。每条新消息使用不同值；网络失败重试同一条消息时复用原值，可避免 AI 重复执行。</p>
     </section>
@@ -99,8 +92,9 @@
       <ul>
         <li><code>401 invalid_access_key</code>：密钥缺失、错误或已删除。</li>
         <li><code>403 access_key_scope_mismatch</code>：目标超出密钥绑定范围。</li>
-        <li><code>404 target_alias_not_found</code>：别名不存在或已删除。</li>
-        <li><code>400 invalid_target</code>：同时提交了别名与直接目标。</li>
+        <li><code>400 alias_requires_bound_session</code>：密钥尚未绑定具体会话。</li>
+        <li><code>404 target_alias_not_found</code>：alias 与该密钥名称不符。</li>
+        <li><code>400 invalid_target</code>：alias 与显式目标混用。</li>
         <li><code>409 ambiguous_project</code>：项目重名，使用返回的完整路径。</li>
         <li><code>409 ambiguous_session</code>：会话重名，使用返回的会话 ID。</li>
         <li><code>503 device_unavailable</code>：目标设备当前不可达。</li>
