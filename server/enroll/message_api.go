@@ -241,6 +241,15 @@ func (a *messageAPI) load() error {
 				a.keys[i].Hash = hashString(a.keys[i].Secret)
 			}
 		}
+		// Remove mappings from the former standalone alias store on startup.
+		var oldFields map[string]json.RawMessage
+		if err := json.Unmarshal(raw, &oldFields); err == nil {
+			if _, hadAliases := oldFields["aliases"]; hadAliases {
+				if err := a.saveKeysLocked(); err != nil {
+					return fmt.Errorf("清理旧别名数据: %w", err)
+				}
+			}
+		}
 	} else if !errors.Is(err, os.ErrNotExist) {
 		return err
 	}

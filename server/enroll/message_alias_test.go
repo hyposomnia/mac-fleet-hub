@@ -7,6 +7,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -182,5 +183,44 @@ func TestKeyAliasRenameDuringResolutionRejectsInFlightRequest(t *testing.T) {
 	api.handleAccessKeys(admin, httptest.NewRequest(http.MethodGet, "/automation/access-keys/aliases", nil))
 	if admin.Code != http.StatusMethodNotAllowed {
 		t.Fatalf("separate alias endpoint still active: %d %s", admin.Code, admin.Body.String())
+	}
+}
+
+func TestStandaloneAliasDataRemovedWithoutLosingKeys(t *testing.T) {
+	dir := t.TempDir()
+	key, _ := newAccessKey("Current name")
+	key.Binding = &accessKeyBinding{DeviceID: "m1", AIClient: "codex", ProjectPath: "/private", SessionID: "thread-1"}
+	file := filepath.Join(dir, "keys.json")
+	raw, _ := json.Marshal(map[string]interface{}{
+		"version": 3, "keys": []accessKeyState{key},
+		"aliases": []map[string]interface{}{{"alias": "old-independent-alias", "target": key.Binding}},
+	})
+	if err := os.WriteFile(file, raw, 0600); err != nil {
+		t.Fatal(err)
+	}
+	api := &messageAPI{keyFile: file, jobsFile: filepath.Join(dir, "jobs.json"), jobs: map[string]*messageJob{}}
+	if err := api.load(); err != nil {
+		t.Fatal(err)
+	}
+	stored, err := os.ReadFile(file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(stored, &fields); err != nil {
+		t.Fatal(err)
+	}
+	if _, exists := fields["aliases"]; exists {
+		t.Fatal("old standalone aliases remain in key file")
+	}
+	if len(api.keys) != 1 || api.keys[0].ID != key.ID || api.keys[0].Name != key.Name {
+		t.Fatalf("key lost: %#v", api.keys)
+	}
+	api.mu.Lock()
+	_, oldProblem := api.keyAliasTargetLocked(key, "old-independent-alias")
+	binding, currentProblem := api.keyAliasTargetLocked(key, "Current name")
+	api.mu.Unlock()
+	if oldProblem == nil || oldProblem.Code != "target_alias_not_found" || currentProblem != nil || binding.SessionID != "thread-1" {
+		t.Fatalf("aliases after migration: old=%v current=%v binding=%#v", oldProblem, currentProblem, binding)
 	}
 }
