@@ -826,20 +826,51 @@ function accessKeyBindingLabel(binding) {
   if (!binding) return '范围：全部设备 / 客户端 / 项目 / 会话';
   return `范围：${macName(binding.device_id)} · ${binding.ai_client === 'codex' ? 'ChatGPT' : binding.ai_client === 'deepseek' ? 'DeepSeek' : '全部客户端'} · ${binding.project_path || '全部项目'} · ${binding.session_id || '全部会话'}`;
 }
+const CUSTOM_ACCESS_KEY_PROJECT = '__custom__';
+function accessKeyProjectPath() {
+  const project = $('#automation-key-project');
+  return (project.value === CUSTOM_ACCESS_KEY_PROJECT
+    ? $('#automation-key-project-custom').value : project.value).trim();
+}
 function updateAccessKeyBindingFields() {
   const device = $('#automation-key-device').value;
   const client = $('#automation-key-client');
   const project = $('#automation-key-project');
+  const custom = $('#automation-key-project-custom');
   const session = $('#automation-key-session');
   client.disabled = !device;
   project.disabled = !device || !client.value;
-  session.disabled = project.disabled || !project.value.trim();
+  custom.hidden = project.value !== CUSTOM_ACCESS_KEY_PROJECT;
+  custom.disabled = project.disabled || custom.hidden;
+  session.disabled = project.disabled || !accessKeyProjectPath();
+}
+function renderAccessKeyProjectOptions() {
+  const project = $('#automation-key-project');
+  const custom = $('#automation-key-project-custom');
+  const selected = accessKeyProjectPath();
+  const wasCustom = project.value === CUSTOM_ACCESS_KEY_PROJECT;
+  const projects = new Map();
+  for (const item of automationBindingSessions) {
+    const path = item.projectCwd || item.cwd;
+    if (path && path.startsWith('/')) projects.set(path, item.projectName || projName(path));
+  }
+  project.replaceChildren(h('option', { value: '', text: '全部项目' }));
+  for (const [path, name] of projects) project.append(h('option', { value: path, text: `${name} · ${path}` }));
+  project.append(h('option', { value: CUSTOM_ACCESS_KEY_PROJECT, text: '手动输入项目路径…' }));
+  if (selected && projects.has(selected)) {
+    project.value = selected;
+    custom.value = '';
+  } else if (selected || wasCustom) {
+    project.value = CUSTOM_ACCESS_KEY_PROJECT;
+    custom.value = selected;
+  }
+  updateAccessKeyBindingFields();
+  return projects.size;
 }
 async function loadAccessKeyBindingSessions() {
   const sequence = ++automationBindingLoadSeq;
   automationBindingSessions = [];
-  $('#automation-key-project-options').replaceChildren();
-  $('#automation-key-session-options').replaceChildren();
+  renderAccessKeyProjectOptions();
   const device = $('#automation-key-device').value;
   const client = $('#automation-key-client').value;
   const status = $('#automation-key-options-status');
@@ -857,27 +888,26 @@ async function loadAccessKeyBindingSessions() {
       if (!result.nextCursor || result.nextCursor === cursor || client !== 'codex') break;
       cursor = result.nextCursor;
     }
-    const projects = new Map();
-    for (const item of automationBindingSessions) {
-      const path = item.projectCwd || item.cwd;
-      if (path && path.startsWith('/')) projects.set(path, item.projectName || projName(path));
-    }
-    for (const [path, name] of projects) $('#automation-key-project-options').append(h('option', { value: path, label: name }));
-    status.textContent = projects.size ? '可选已有项目，也可填写项目绝对路径。' : '没有已发现的项目，可填写项目绝对路径。';
+    const count = renderAccessKeyProjectOptions();
+    status.textContent = count ? '' : '没有已发现的项目，可手动输入项目路径。';
     renderAccessKeySessionOptions();
   } catch (error) {
-    if (sequence === automationBindingLoadSeq) status.textContent = `读取候选失败：${error.message}。仍可填写项目绝对路径。`;
+    if (sequence === automationBindingLoadSeq) status.textContent = `读取候选失败：${error.message}。可手动输入项目路径。`;
   }
 }
-function renderAccessKeySessionOptions() {
-  const root = $('#automation-key-session-options');
-  root.replaceChildren();
-  const project = $('#automation-key-project').value.trim();
+function renderAccessKeySessionOptions(selected = $('#automation-key-session').value) {
+  const root = $('#automation-key-session');
+  root.replaceChildren(h('option', { value: '', text: '全部会话' }));
+  const project = accessKeyProjectPath();
+  const seen = new Set();
   for (const item of automationBindingSessions) {
-    if ((item.projectCwd || item.cwd) === project && item.sessionId) {
-      root.append(h('option', { value: item.sessionId, label: item.title || item.sessionId }));
+    if ((item.projectCwd || item.cwd) === project && item.sessionId && !seen.has(item.sessionId)) {
+      seen.add(item.sessionId);
+      root.append(h('option', { value: item.sessionId, text: item.title ? `${item.title} · ${item.sessionId}` : item.sessionId }));
     }
   }
+  if (selected && !seen.has(selected)) root.append(h('option', { value: selected, text: `${selected}（当前不在列表）` }));
+  root.value = selected;
 }
 function openAccessKeyForm(key = null) {
   automationEditingKey = key;
@@ -894,8 +924,12 @@ function openAccessKeyForm(key = null) {
   }
   device.value = key?.binding?.device_id || '';
   $('#automation-key-client').value = key?.binding?.ai_client || '';
-  $('#automation-key-project').value = key?.binding?.project_path || '';
-  $('#automation-key-session').value = key?.binding?.session_id || '';
+  const projectPath = key?.binding?.project_path || '';
+  $('#automation-key-project').value = projectPath ? CUSTOM_ACCESS_KEY_PROJECT : '';
+  $('#automation-key-project-custom').value = projectPath;
+  automationBindingSessions = [];
+  renderAccessKeyProjectOptions();
+  renderAccessKeySessionOptions(key?.binding?.session_id || '');
   updateAccessKeyBindingFields();
   loadAccessKeyBindingSessions();
   $('#automation-key-name').focus();
@@ -910,7 +944,7 @@ async function saveAccessKey(event) {
   const name = $('#automation-key-name').value.trim();
   const device_id = $('#automation-key-device').value;
   const ai_client = $('#automation-key-client').value;
-  const project_path = $('#automation-key-project').value.trim();
+  const project_path = accessKeyProjectPath();
   const session_id = $('#automation-key-session').value.trim();
   if ((project_path && !project_path.startsWith('/')) || (session_id && !project_path)) {
     toast('项目须填写绝对路径；绑定会话时须先绑定项目', 'err');
@@ -7443,17 +7477,26 @@ function init() {
   $('#automation-key-device').onchange = () => {
     $('#automation-key-client').value = '';
     $('#automation-key-project').value = '';
+    $('#automation-key-project-custom').value = '';
     $('#automation-key-session').value = '';
     updateAccessKeyBindingFields();
     loadAccessKeyBindingSessions();
   };
   $('#automation-key-client').onchange = () => {
     $('#automation-key-project').value = '';
+    $('#automation-key-project-custom').value = '';
     $('#automation-key-session').value = '';
     updateAccessKeyBindingFields();
     loadAccessKeyBindingSessions();
   };
-  $('#automation-key-project').oninput = () => {
+  $('#automation-key-project').onchange = () => {
+    $('#automation-key-project-custom').value = '';
+    $('#automation-key-session').value = '';
+    updateAccessKeyBindingFields();
+    renderAccessKeySessionOptions();
+    if (!$('#automation-key-project-custom').hidden) $('#automation-key-project-custom').focus();
+  };
+  $('#automation-key-project-custom').oninput = () => {
     $('#automation-key-session').value = '';
     updateAccessKeyBindingFields();
     renderAccessKeySessionOptions();

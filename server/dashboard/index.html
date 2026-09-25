@@ -17,7 +17,7 @@
        内联以避免首屏闪烁。 -->
   <script>(function () { var t; try { t = localStorage.getItem('fleet-theme'); } catch (e) {} if (t !== 'light' && t !== 'dark') t = matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark'; document.documentElement.dataset.theme = t; document.querySelector('meta[name="theme-color"]').content = t === 'light' ? '#f6f7f9' : '#090c12'; })();</script>
   <link rel="stylesheet" href="vendor/codemirror/lib/codemirror.css?v=5.65.20" />
-  <link rel="stylesheet" href="style.css?v=143" />
+  <link rel="stylesheet" href="style.css?v=144" />
 </head>
 <body>
   <!-- DeepSeek 官方 whale mark，来源与 MIT 许可见 icons/deepseek/LICENSE.md。 -->
@@ -466,8 +466,8 @@
               <div class="automation-binding-grid">
                 <label>设备<select id="automation-key-device" class="input"><option value="">全部设备</option></select></label>
                 <label>AI 客户端<select id="automation-key-client" class="input" disabled><option value="">全部客户端</option><option value="codex">ChatGPT (Codex)</option><option value="deepseek">DeepSeek</option></select></label>
-                <label>项目绝对路径<input id="automation-key-project" class="input" list="automation-key-project-options" placeholder="全部项目" disabled /><datalist id="automation-key-project-options"></datalist></label>
-                <label>会话 ID<input id="automation-key-session" class="input" list="automation-key-session-options" placeholder="全部会话（可新建）" disabled /><datalist id="automation-key-session-options"></datalist></label>
+                <label>项目绝对路径<select id="automation-key-project" class="input" disabled><option value="">全部项目</option><option value="__custom__">手动输入项目路径…</option></select><input id="automation-key-project-custom" class="input" placeholder="项目绝对路径" aria-label="手动输入项目绝对路径" hidden disabled /></label>
+                <label>会话 ID<select id="automation-key-session" class="input" disabled><option value="">全部会话</option></select></label>
               </div>
               <p id="automation-key-options-status" class="hint" role="status"></p>
               <div class="automation-key-form-actions"><button id="automation-key-cancel" class="btn sm" type="button">取消</button><button id="automation-key-save" class="btn sm primary" type="submit">保存密钥</button></div>
@@ -566,10 +566,10 @@
   <script src="vendor/codemirror/mode/yaml/yaml.js?v=5.65.20"></script>
   <script src="vendor/codemirror/mode/toml/toml.js?v=5.65.20"></script>
   <script src="vendor/codemirror/mode/properties/properties.js?v=5.65.20"></script>
-  <script src="markdown.js?v=143"></script>
-  <script src="preview.js?v=143"></script>
-  <script src="chat_model.js?v=143"></script>
-  <script src="upload_model.js?v=143"></script>
-  <script src="app.js?v=143"></script>
+  <script src="markdown.js?v=144"></script>
+  <script src="preview.js?v=144"></script>
+  <script src="chat_model.js?v=144"></script>
+  <script src="upload_model.js?v=144"></script>
+  <script src="app.js?v=144"></script>
 </body>
 </html>

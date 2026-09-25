@@ -465,6 +465,7 @@ svg.ic.fill { fill: currentColor; stroke: none; }
 .automation-key-form > label, .automation-binding-grid label { display: grid; gap: 6px; min-width: 0; color: var(--text-1); font-size: var(--t-secondary); }
 .automation-binding-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
 .automation-key-form .input { width: 100%; min-width: 0; }
+.automation-key-form .input[hidden] { display: none; }
 .automation-key-form-actions { display: flex; justify-content: flex-end; gap: 8px; }
 .automation-key-card { display: grid; gap: 10px; padding: 13px; border: 1px solid var(--border); border-radius: var(--r); background: var(--surface-2); }
 .automation-key-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
