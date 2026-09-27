@@ -830,6 +830,8 @@ test('session rows remove redundant device, assistant, and idle labels', () => {
     assert.equal(nodesWithClass(selectedDevice, 'ses-status').length, 0);
     assert.equal(nodesWithClass(selectedDevice, 'ses-time').length, 0);
     assert.equal(nodesWithClass(selectedDevice, 'session-state-dot')[0]?.attributes['aria-label'], '已读');
+    // 普通已读会话仍保留状态节点供轮询更新，但不占用标题前的位置。
+    assert.match(styleCSS, /\.session-state-dot\.read\s*\{[^}]*display:\s*none/);
     // 保持连接的会话不再画空心圈，改由标题加粗表示（CSS 契约）。
     assert.equal(nodesWithClass(selectedDevice, 'chat-cache-status').length, 0);
     assert.match(styleCSS, /\.ses\.chat-connected \.ses-top \.t \{ font-weight: 600; \}/);
@@ -857,7 +859,7 @@ test('session rows remove redundant device, assistant, and idle labels', () => {
   }
 });
 
-test('session state uses leading dots and never renders relative time labels', () => {
+test('special session states use leading dots and never render relative time labels', () => {
   const waiting = sessionRow({
     sessionId: 'thread-waiting', macId: 'm1', assistant: 'codex',
     title: 'Waiting for input', mtime: fixedAppNowMs, status: 'active', waiting: true,
