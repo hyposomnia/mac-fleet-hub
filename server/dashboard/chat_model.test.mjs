@@ -475,7 +475,7 @@ test('Sub Agent strip sits above the composer and supports detail and list drawe
   assert.match(appSrc, /\['collabAgentToolCall', 'subAgentActivity'\]\.includes\(eventKind\)/);
 });
 
-test('Sub Agent statuses reuse the existing agent dot vocabulary', () => {
+test('Sub Agent running status uses the task spinner without changing terminal states', () => {
   const values = JSON.parse(JSON.stringify([
     chatSubagentStatus('running'),
     chatSubagentStatus('completed'),
@@ -484,7 +484,7 @@ test('Sub Agent statuses reuse the existing agent dot vocabulary', () => {
     chatSubagentStatus('notLoaded'),
   ]));
   assert.deepEqual(values, [
-    { key: 'running', label: '进行中', dot: 'live' },
+    { key: 'running', label: '进行中', dot: 'running' },
     { key: 'completed', label: '已完成', dot: 'on' },
     { key: 'failed', label: '失败', dot: 'fail' },
     { key: 'interrupted', label: '已中断', dot: 'wait' },
@@ -876,7 +876,12 @@ test('session state uses leading dots and never renders relative time labels', (
   assert.equal(nodesWithClass(running, 'ses-time').length, 0);
   assert.doesNotMatch(appSrc, /class:\s*'ses-time'/);
   assert.match(styleCSS, /\.session-state-dot\.unread\s*\{/);
-  assert.match(styleCSS, /\.session-state-dot\.running\s*\{[^}]*animation:\s*pulse/s);
+  const runningStyle = styleCSS.match(/\.session-state-dot\.running,\s*\.chat-subagents \.dot\.running\s*\{([^}]*)\}/)?.[1];
+  assert.ok(runningStyle, '会话和 Sub Agent 的进行中标记应共用旋转圈');
+  assert.match(runningStyle, /background:\s*transparent/);
+  assert.match(runningStyle, /box-shadow:\s*none/);
+  assert.match(runningStyle, /border:\s*1\.5px solid var\(--text-2\)/);
+  assert.match(runningStyle, /animation:\s*spin/);
 });
 
 test('a newer background reply becomes unread until that session is selected', () => {

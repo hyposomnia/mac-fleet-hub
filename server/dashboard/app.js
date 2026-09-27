@@ -2707,7 +2707,7 @@ const CHAT_SUBAGENT_HISTORY_PAGES = 5;
 function chatSubagentStatus(value) {
   const status = String(value || '').toLowerCase();
   if (['running', 'inprogress', 'in_progress', 'active', 'pendinginit', 'pending_init'].includes(status)) {
-    return { key: 'running', label: '进行中', dot: 'live' };
+    return { key: 'running', label: '进行中', dot: 'running' };
   }
   if (['completed', 'complete', 'done'].includes(status)) return { key: 'completed', label: '已完成', dot: 'on' };
   if (['failed', 'error', 'errored'].includes(status)) return { key: 'failed', label: '失败', dot: 'fail' };
