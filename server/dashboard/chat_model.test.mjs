@@ -542,8 +542,13 @@ test('settings menu owns archive browsing and session settings', () => {
   assert.match(indexHTML, /id="user-name">设置</);
   assert.deepEqual(
     [...indexHTML.matchAll(/<button data-act="([^"]+)"/g)].map((match) => match[1]),
-    ['theme', 'archive', 'automation', 'settings', 'logout', 'theme', 'archive', 'automation', 'settings', 'logout'],
+    ['archive', 'automation', 'settings', 'logout', 'archive', 'automation', 'settings', 'logout'],
   );
+  assert.deepEqual(
+    [...indexHTML.matchAll(/data-theme-choice="([^"]+)"/g)].map((match) => match[1]),
+    ['system', 'light', 'dark', 'system', 'light', 'dark'],
+  );
+  assert.equal((indexHTML.match(/role="group" aria-label="外观"/g) || []).length, 2);
   assert.equal((indexHTML.match(/>显示已归档会话</g) || []).length, 2);
   assert.equal((indexHTML.match(/>会话设置</g) || []).length, 3);
   assert.doesNotMatch(indexHTML, /data-settings-tab="sessions"|id="st-show-archived"/);
@@ -2177,6 +2182,76 @@ test('manual theme selection updates the browser chrome color', () => {
   applyTheme('dark');
   assert.equal(themeMeta.content, '#090c12');
   assert.equal((indexHTML.match(/<meta name="theme-color"/g) || []).length, 1);
+});
+
+test('system theme follows OS changes until a manual choice and can be selected again', () => {
+  const previousStorage = appSandbox.localStorage;
+  const previousMatchMedia = appSandbox.matchMedia;
+  const previousQuery = appSandbox.document.querySelector;
+  const previousQueryAll = appSandbox.document.querySelectorAll;
+  let stored = null;
+  let prefersLight = false;
+  let onSystemChange;
+  const controls = ['system', 'light', 'dark', 'system', 'light', 'dark'].map((choice) => {
+    const button = testElement('button');
+    button.dataset.themeChoice = choice;
+    return button;
+  });
+  const themeMeta = testElement('meta');
+  const media = {
+    get matches() { return prefersLight; },
+    addEventListener(type, listener) {
+      assert.equal(type, 'change');
+      onSystemChange = listener;
+    },
+  };
+  appSandbox.localStorage = {
+    getItem: (key) => { assert.equal(key, 'fleet-theme'); return stored; },
+    setItem: (key, value) => { assert.equal(key, 'fleet-theme'); stored = value; },
+    removeItem: (key) => { assert.equal(key, 'fleet-theme'); stored = null; },
+  };
+  appSandbox.matchMedia = (query) => {
+    assert.equal(query, '(prefers-color-scheme: light)');
+    return media;
+  };
+  appSandbox.document.querySelector = (selector) => selector === 'meta[name="theme-color"]' ? themeMeta : null;
+  appSandbox.document.querySelectorAll = (selector) => selector === '[data-theme-choice]' ? controls : [];
+  try {
+    const { initTheme, setThemePreference } = vm.runInContext('({ initTheme, setThemePreference })', appSandbox);
+    initTheme();
+    assert.equal(stored, null);
+    assert.equal(appSandbox.document.documentElement.getAttribute('data-theme'), 'dark');
+    assert.deepEqual(controls.map((button) => button.getAttribute('aria-pressed')), ['true', 'false', 'false', 'true', 'false', 'false']);
+
+    prefersLight = true;
+    onSystemChange();
+    assert.equal(appSandbox.document.documentElement.getAttribute('data-theme'), 'light');
+    assert.equal(themeMeta.content, '#f6f7f9');
+
+    setThemePreference('dark');
+    assert.equal(stored, 'dark');
+    assert.deepEqual(controls.map((button) => button.getAttribute('aria-pressed')), ['false', 'false', 'true', 'false', 'false', 'true']);
+    prefersLight = false;
+    onSystemChange();
+    prefersLight = true;
+    onSystemChange();
+    assert.equal(appSandbox.document.documentElement.getAttribute('data-theme'), 'dark');
+
+    setThemePreference('light');
+    assert.equal(stored, 'light');
+    assert.equal(appSandbox.document.documentElement.getAttribute('data-theme'), 'light');
+    assert.deepEqual(controls.map((button) => button.getAttribute('aria-pressed')), ['false', 'true', 'false', 'false', 'true', 'false']);
+
+    setThemePreference('system');
+    assert.equal(stored, null);
+    assert.equal(appSandbox.document.documentElement.getAttribute('data-theme'), 'light');
+    assert.deepEqual(controls.map((button) => button.getAttribute('aria-pressed')), ['true', 'false', 'false', 'true', 'false', 'false']);
+  } finally {
+    appSandbox.localStorage = previousStorage;
+    appSandbox.matchMedia = previousMatchMedia;
+    appSandbox.document.querySelector = previousQuery;
+    appSandbox.document.querySelectorAll = previousQueryAll;
+  }
 });
 
 test('mobile text controls prevent iOS focus zoom without disabling pinch zoom', () => {

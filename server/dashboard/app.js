@@ -409,15 +409,16 @@ function isIMEComposing(e, composingFlag) {
 }
 
 // ============================================================
-//  主题（默认跟随系统 prefers-color-scheme，切换后写 localStorage 覆盖）
+//  主题（默认跟随系统，手动选择时才写 localStorage）
 // ============================================================
 const THEME_COLORS = { dark: '#090c12', light: '#f6f7f9' };
+let themePreference = 'system';
+let themeMediaQuery;
 
 function applyTheme(t) {
   document.documentElement.setAttribute('data-theme', t);
   const themeColor = document.querySelector('meta[name="theme-color"]');
   if (themeColor) themeColor.content = THEME_COLORS[t] || THEME_COLORS.dark;
-  try { localStorage.setItem('fleet-theme', t); } catch (_) {}
   applyTermTheme(); // 终端(iframe 内 xterm)跟随切换
 }
 
@@ -460,13 +461,32 @@ function applyTermTheme() {
   }
 }
 function initTheme() {
-  let t;
-  try { t = localStorage.getItem('fleet-theme'); } catch (_) {}
-  if (!t) t = matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
-  applyTheme(t);
+  try { themePreference = localStorage.getItem('fleet-theme'); } catch (_) {}
+  if (themePreference !== 'light' && themePreference !== 'dark') themePreference = 'system';
+  themeMediaQuery = matchMedia('(prefers-color-scheme: light)');
+  themeMediaQuery.addEventListener('change', () => {
+    if (themePreference === 'system') applyTheme(resolvedTheme());
+  });
+  applyTheme(resolvedTheme());
+  syncThemeControls();
 }
-function toggleTheme() {
-  applyTheme(document.documentElement.getAttribute('data-theme') === 'light' ? 'dark' : 'light');
+function resolvedTheme() {
+  return themePreference === 'system' ? (themeMediaQuery.matches ? 'light' : 'dark') : themePreference;
+}
+function syncThemeControls() {
+  $$('[data-theme-choice]').forEach((button) => {
+    button.setAttribute('aria-pressed', String(button.dataset.themeChoice === themePreference));
+  });
+}
+function setThemePreference(preference) {
+  if (preference !== 'system' && preference !== 'light' && preference !== 'dark') return;
+  themePreference = preference;
+  try {
+    if (preference === 'system') localStorage.removeItem('fleet-theme');
+    else localStorage.setItem('fleet-theme', preference);
+  } catch (_) {}
+  applyTheme(resolvedTheme());
+  syncThemeControls();
 }
 
 // ============================================================
@@ -7527,10 +7547,10 @@ function init() {
     };
   });
   $$('#usermenu button, #m-menu button').forEach((b) => {
-    if (!b.dataset.act) return;
+    if (!b.dataset.act && !b.dataset.themeChoice) return;
     b.onclick = () => {
       closeMenus();
-      if (b.dataset.act === 'theme') toggleTheme();
+      if (b.dataset.themeChoice) setThemePreference(b.dataset.themeChoice);
       else if (b.dataset.act === 'archive') toggleArchivedSessions();
       else if (b.dataset.act === 'automation') openAutomation();
       else if (b.dataset.act === 'settings') openSettings();
