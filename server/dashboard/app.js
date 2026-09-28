@@ -111,7 +111,7 @@ function svgStop() {
   return svg;
 }
 
-const SESSION_READ_KEY = 'fleet-session-read-v1';
+const SESSION_READ_KEY = 'fleet-session-read-v2';
 
 function loadSessionReadState() {
   try {
@@ -1307,33 +1307,46 @@ function observeSessionActivity(sessions) {
   for (const session of sessions || []) {
     const key = sessionKey(session);
     const activity = sessionActivityAt(session);
-    if (!key || activity <= 0 || state.sessionReadAt.has(key)) continue;
+    if (!key || activity <= 0 || state.sessionReadAt.has(key) || session.desktopUnread === true) continue;
     state.sessionReadAt.set(key, activity);
     changed = true;
   }
   if (changed) persistSessionReadState();
 }
 
-function markSessionRead(session, readAt = Date.now()) {
+function markSessionRead(session) {
   if (!session?.sessionId) return;
   const key = sessionKey(session);
-  const next = Math.max(Number(readAt) || 0, sessionActivityAt(session));
+  const next = sessionActivityAt(session);
   if (next > (state.sessionReadAt.get(key) || 0)) {
     state.sessionReadAt.set(key, next);
     persistSessionReadState();
   }
   const chat = state.chatCache.get(chatCacheKey(session.macId, session.sessionId));
   if (chat) chat.unread = false;
+  // The agent owns the shared cursor; another browser will receive it on the next list refresh.
+  // Do not send a wall-clock timestamp: it would mark replies arriving shortly afterward as read.
+  if (next > 0 && session.macId) {
+    api(session.macId, 'sessions/read', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ assistant: session.assistant || state.assistant,
+        sessionId: session.sessionId, activityAt: next }),
+    }).catch(() => {});
+  }
 }
 
 function sessionIsUnread(session) {
   if (!session?.sessionId) return false;
   if (session.sessionId === state.selectedSid && session.macId === state.selectedSessionMacId &&
       (session.assistant || state.assistant) === (state.selectedSessionAssistant || state.assistant)) return false;
+  const activity = sessionActivityAt(session);
+  const readAt = Math.max(Number(session.readAt) || 0, state.sessionReadAt.get(sessionKey(session)) || 0);
+  if (readAt >= activity && readAt > 0) return false;
+  // Desktop's explicit read state clears old Fleet-only unread markers.
+  if (session.desktopUnread === false) return false;
   const chat = state.chatCache.get(chatCacheKey(session.macId, session.sessionId));
-  if (chat?.unread) return true;
-  const readAt = state.sessionReadAt.get(sessionKey(session));
-  return Number.isFinite(readAt) && sessionActivityAt(session) > readAt;
+  if (chat?.unread || session.desktopUnread === true) return true;
+  return readAt > 0 && activity > readAt;
 }
 
 function sessionRenderSignature(session) {
@@ -1658,7 +1671,8 @@ async function refreshSessionsSoft() {
     if (current) {
       Object.assign(current, {
         live: session.live, waiting: session.waiting, status: session.status, mtime: session.mtime,
-        outputEndedAt: session.outputEndedAt,
+        outputEndedAt: session.outputEndedAt, readAt: session.readAt,
+        desktopUnread: session.desktopUnread,
       });
     }
     updateCachedChatFromSession(session.macId, session);

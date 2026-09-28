@@ -224,6 +224,8 @@ type Session struct {
 	GitBranch     string `json:"gitBranch"`
 	Mtime         int64  `json:"mtime"`                   // 毫秒
 	OutputEndedAt int64  `json:"outputEndedAt,omitempty"` // 最近一次 Codex 输出完成（task_complete）时间，毫秒
+	ReadAt        int64  `json:"readAt,omitempty"`        // Fleet 各浏览器共享的已读活动时间
+	DesktopUnread *bool  `json:"desktopUnread,omitempty"` // Codex Desktop 当前账号/本机的未读集合
 	Live          bool   `json:"live"`                    // Desktop 未归档（活跃）
 	Pty           bool   `json:"pty"`                     // 控制台已为该会话起过 fleet tmux（有可终止/可回到的进程）
 	Waiting       bool   `json:"waiting"`                 // 卡在「等你回答/授权」：jsonl 最后一条 assistant 且 stop_reason==tool_use
@@ -1493,6 +1495,7 @@ func handleSessions(w http.ResponseWriter, r *http.Request) {
 			writeChatErr(w, err)
 			return
 		}
+		applySessionReadState(sessions)
 		writeJSON(w, map[string]interface{}{"sessions": sessions, "total": len(sessions)})
 		return
 	}
@@ -1514,6 +1517,7 @@ func handleSessions(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		markSessionRuntime(assistant, page.Sessions, fleetTmuxSet(), jsonlPathsFor(assistant))
+		applySessionReadState(page.Sessions)
 		writeJSON(w, map[string]interface{}{
 			"sessions": page.Sessions, "total": len(page.Sessions), "nextCursor": page.NextCursor,
 		})
@@ -1523,6 +1527,7 @@ func handleSessions(w http.ResponseWriter, r *http.Request) {
 	// 标记每个会话：是否已有 fleet tmux 进程（pty，前端显示「终止」「进入连接」）、
 	// 是否卡在等你回答/授权（waiting，前端显示棕色点）。jsonl 路径一次性建映射避免逐会话扫目录。
 	markSessionRuntime(assistant, all, fleetTmuxSet(), jsonlPathsFor(assistant))
+	applySessionReadState(all)
 	scope := r.URL.Query().Get("scope")
 	list := all
 	if scope == "active" {
@@ -2004,6 +2009,7 @@ func runServer() {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/sessions", handleSessions)
 	mux.HandleFunc("/api/sessions/action", handleSessionAction)
+	mux.HandleFunc("/api/sessions/read", handleSessionRead)
 	mux.HandleFunc("/api/projects", handleProjects)
 	mux.HandleFunc("/api/open", handleOpen)
 	mux.HandleFunc("/api/new", handleNew)
