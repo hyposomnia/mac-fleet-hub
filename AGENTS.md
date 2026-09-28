@@ -161,7 +161,7 @@ Accepted、目标机实际执行及 launchd canary 为准。
 ssh <签名构建机用户>@<签名构建机当前 mesh IP>
 cd ~/Git_Repositories/mac-fleet-hub
 bash scripts/release-fleet-agent.sh --check   # 只读预检
-bash scripts/release-fleet-agent.sh           # 完整发布
+bash scripts/release-fleet-agent.sh           # 签名二进制发布 + 逐台自更新
 ```
 
 完整脚本按以下顺序执行，AI 不得拆开、跳步或用手工替换冒充完成：
@@ -170,15 +170,15 @@ bash scripts/release-fleet-agent.sh           # 完整发布
 2. 运行 `bash scripts/verify.sh`。
 3. 双架构构建，以固定 identifier 做 Developer ID 签名、可信时间戳和严格验签，并等待 Apple 公证
    `Accepted`。
-4. 提交/push 精确产物；从同一不可变提交生成 `mac-bundle.tar.gz`。
-5. 网关先备份现有 bundle/dist，再替换，核 amd64/arm64 SHA 与核心服务状态；从公网下载再次核 SHA。
-6. 按私有节点清单逐台备份、运行正式 `fleet-agent update`、验签并核新 PID、磁盘 SHA、mesh health。
+4. 提交/push 精确产物；从同一不可变提交取得空闲守卫与新安装入口脚本。
+5. 网关先备份现有 dist 和 bootstrap，再替换，核 amd64/arm64 SHA 与核心服务状态；从公网下载再次核 SHA。新 Mac 初装从现有 bundle 安装，再由 bootstrap 执行 `fleet-agent update` 拉取最新版。
+6. 按私有节点清单逐台做空闲守卫、备份、运行正式 `fleet-agent update`、验签并核新 PID、磁盘 SHA、mesh health。仅 agent 更新不重新打包 `mac-bundle.tar.gz`。
 7. SSH/SCP 和远端验证 stdout/stderr 原样输出；SSH 连续三次失败或任一步异常立即停止，不带病继续。
 
 真实基础设施值只放在签名机 `~/.config/mac-fleet-hub/release.env`（`0600`），格式参考
 `scripts/release-fleet-agent.env.example`。证书、私钥、App 专用密码、notarytool 凭据和真实节点配置
 不得进入仓库。其他开发机只提交源码；正式签名、公证和 rollout 统一由签名机构建脚本完成。
-若只迁移 plist/keeper/Desktop 启动环境、并明确保留仓库内已有的已签名公证 agent，可在签名机运行
+若需迁移 plist/keeper/Desktop 启动环境、并明确保留仓库内已有的已签名公证 agent，可在签名机运行
 `bash scripts/deploy-shared-config.sh`；它只替换 `mac-bundle.tar.gz`，不构建或发布新二进制，并逐台执行
 空闲守卫、shared UAT 与 SHA/验签。不得用它冒充新 agent 的正式发布。
 签名构建机 mesh IP 由每套 Headscale/Fleet 当前分配，并非 mac-fleet-hub 的固定/保留地址，重新入网

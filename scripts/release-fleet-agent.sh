@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# 在唯一签名构建机上发布 fleet-agent：测试 → 签名/公证 → commit/push → 网关 → 全 Fleet。
+# 在唯一签名构建机上发布 fleet-agent：测试 → 签名/公证 → commit/push → 网关 dist → 各 Mac 自更新。
 set -euo pipefail
 
 # Remote SSH sessions on the signing Mac do not necessarily source Homebrew's
@@ -17,9 +17,9 @@ case "${1:-}" in
     cat <<'EOF'
 用法：
   bash scripts/release-fleet-agent.sh --check  # 只检查签名机、配置、SSH 与当前服务
-  bash scripts/release-fleet-agent.sh          # 完整发布
+  bash scripts/release-fleet-agent.sh          # 发布签名二进制并逐台自更新
 
-完整发布：pull --ff-only → verify → build/sign/notarize → commit/push → gateway → Macs。
+正式发布：pull --ff-only → verify → build/sign/notarize → commit/push → gateway dist → Macs update。
 EOF
     exit 0
     ;;
@@ -62,9 +62,12 @@ ssh_retry() { # port target description command
     ssh_note "$target:$port" "$description (attempt $attempt/3)"
     if ssh -o BatchMode=yes -o ConnectTimeout=8 -p "$port" "$target" "$command"; then
       return 0
+    else
+      status=$?
+      [[ "$status" == 255 ]] || die "远端步骤失败：$target:$port (exit=$status)"
     fi
   done
-  die "SSH 连续三次失败：$target:$port"
+  die "SSH 连续三次连接失败：$target:$port"
 }
 
 [[ "$(uname -s)" == "Darwin" ]] || die "发布必须在持有 Developer ID 私钥的 macOS 构建机运行。"
@@ -145,76 +148,71 @@ release_short="$(git rev-parse --short HEAD)"
 arm_sha="$(shasum -a 256 "$ARM_ASSET" | awk '{print $1}')"
 amd_sha="$(shasum -a 256 "$AMD_ASSET" | awk '{print $1}')"
 
-step "生成提交 $release_short 的客户端包"
+step "准备提交 $release_short 的空闲守卫与新安装入口"
 release_tmp="$(mktemp -d)"
 cleanup_release_tmp() { [[ -n "${release_tmp:-}" && -d "$release_tmp" ]] && rm -rf -- "$release_tmp"; }
 trap cleanup_release_tmp EXIT
-git archive "$release_commit" mac | gzip -9 > "$release_tmp/mac-bundle.tar.gz"
-bundle_sha="$(shasum -a 256 "$release_tmp/mac-bundle.tar.gz" | awk '{print $1}')"
-cp "$AMD_ASSET" "$ARM_ASSET" "$release_tmp/"
+git show "$release_commit:mac/check-codex-idle.sh" > "$release_tmp/check-codex-idle.sh"
+git show "$release_commit:server/enroll/bootstrap.sh" > "$release_tmp/bootstrap.sh"
+check_script_b64="$(base64 < "$release_tmp/check-codex-idle.sh" | tr -d '\n')"
+bootstrap_sha="$(shasum -a 256 "$release_tmp/bootstrap.sh" | awk '{print $1}')"
 
 remote_prefix="fleet-agent-release-$release_short"
 ssh_retry "$FLEET_RELEASE_GATEWAY_PORT" "$FLEET_RELEASE_GATEWAY_SSH" \
   "创建远端暂存目录" "install -d -m 0700 /tmp/$remote_prefix-input"
-echo ">>> scp signed assets → $FLEET_RELEASE_GATEWAY_SSH:/tmp/$remote_prefix-input/"
+echo ">>> scp signed assets + bootstrap → $FLEET_RELEASE_GATEWAY_SSH:/tmp/$remote_prefix-input/"
 scp -o BatchMode=yes -o ConnectTimeout=8 -P "$FLEET_RELEASE_GATEWAY_PORT" \
-  "$release_tmp/mac-bundle.tar.gz" "$AMD_ASSET" "$ARM_ASSET" \
+  "$AMD_ASSET" "$ARM_ASSET" "$release_tmp/bootstrap.sh" \
   "$FLEET_RELEASE_GATEWAY_SSH:/tmp/$remote_prefix-input/"
 
-step "备份并更新网关分发源"
+step "备份并更新网关自更新源及新安装入口"
 ssh_retry "$FLEET_RELEASE_GATEWAY_PORT" "$FLEET_RELEASE_GATEWAY_SSH" "备份、替换、核 SHA、检查服务" \
   "set -e
    input=/tmp/$remote_prefix-input
    stamp=\$(date +%Y%m%d%H%M%S)
-   sudo cp -p /var/www/fleet-enroll/mac-bundle.tar.gz /var/www/fleet-enroll/mac-bundle.tar.gz.bak.\$stamp
+   sudo cp -p /var/www/fleet-enroll/bootstrap.sh /var/www/fleet-enroll/bootstrap.sh.bak.\$stamp
    for arch in amd64 arm64; do
      sudo cp -p /var/www/fleet-enroll/dist/fleet-agent-darwin-\$arch /var/www/fleet-enroll/dist/fleet-agent-darwin-\$arch.bak.\$stamp
      sudo install -m 0644 \$input/fleet-agent-darwin-\$arch /var/www/fleet-enroll/dist/fleet-agent-darwin-\$arch
    done
-   sudo install -m 0644 \$input/mac-bundle.tar.gz /var/www/fleet-enroll/mac-bundle.tar.gz
-   sudo chown www-data:www-data /var/www/fleet-enroll/mac-bundle.tar.gz /var/www/fleet-enroll/dist/fleet-agent-darwin-*
+   sudo install -m 0644 \$input/bootstrap.sh /var/www/fleet-enroll/bootstrap.sh
+   sudo chown www-data:www-data /var/www/fleet-enroll/bootstrap.sh /var/www/fleet-enroll/dist/fleet-agent-darwin-*
    test \"\$(sha256sum /var/www/fleet-enroll/dist/fleet-agent-darwin-arm64 | awk '{print \$1}')\" = '$arm_sha'
    test \"\$(sha256sum /var/www/fleet-enroll/dist/fleet-agent-darwin-amd64 | awk '{print \$1}')\" = '$amd_sha'
+   test \"\$(sha256sum /var/www/fleet-enroll/bootstrap.sh | awk '{print \$1}')\" = '$bootstrap_sha'
    systemctl is-active --quiet fleet-enroll nginx headscale authelia
    echo gateway_ok backup=\$stamp"
 
 step "从公网下载并核对发布 SHA"
-curl -fsSL "${FLEET_RELEASE_WEB_BASE%/}/enroll/dist/fleet-agent-darwin-arm64" \
-  -o "$release_tmp/public-arm64"
-[[ "$(shasum -a 256 "$release_tmp/public-arm64" | awk '{print $1}')" == "$arm_sha" ]] \
-  || die "公网分发包 SHA 不一致。"
-codesign --verify --deep --strict "$release_tmp/public-arm64"
-curl -fsSL "${FLEET_RELEASE_WEB_BASE%/}/enroll/mac-bundle.tar.gz" \
-  -o "$release_tmp/public-mac-bundle.tar.gz"
-[[ "$(shasum -a 256 "$release_tmp/public-mac-bundle.tar.gz" | awk '{print $1}')" == "$bundle_sha" ]] \
-  || die "公网客户端 bundle SHA 不一致。"
+for arch in arm64 amd64; do
+  curl -fsSL "${FLEET_RELEASE_WEB_BASE%/}/enroll/dist/fleet-agent-darwin-$arch" \
+    -o "$release_tmp/public-$arch"
+  expected_sha="$arm_sha"; [[ "$arch" == amd64 ]] && expected_sha="$amd_sha"
+  [[ "$(shasum -a 256 "$release_tmp/public-$arch" | awk '{print $1}')" == "$expected_sha" ]] \
+    || die "公网 $arch 产物 SHA 不一致。"
+  codesign --verify --deep --strict "$release_tmp/public-$arch"
+done
+curl -fsSL "${FLEET_RELEASE_WEB_BASE%/}/enroll/bootstrap.sh" -o "$release_tmp/public-bootstrap.sh"
+[[ "$(shasum -a 256 "$release_tmp/public-bootstrap.sh" | awk '{print $1}')" == "$bootstrap_sha" ]] \
+  || die "公网 bootstrap.sh SHA 不一致。"
 
-step "逐台备份、更新、迁移 shared WebSocket 并完成 Desktop/Fleet UAT"
+step "逐台空闲检查、备份并运行 fleet-agent update"
 for target in $FLEET_RELEASE_MAC_TARGETS; do
-  ssh_retry 22 "$target" "空闲守卫、更新、shared 迁移、Desktop/Fleet 同 PID UAT" \
+  ssh_retry 22 "$target" "空闲守卫、自更新、签名与 mesh health" \
     "set -e
      export PATH=/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
      bin=\"\$HOME/.local/bin/fleet-agent\"
      stamp=\$(date +%Y%m%d%H%M%S)
      work=\$(mktemp -d /tmp/macfleet-release-$release_short.XXXXXX)
      trap 'rm -rf \"\$work\"' EXIT
-     curl -fsSL '${FLEET_RELEASE_WEB_BASE%/}/enroll/mac-bundle.tar.gz' -o \"\$work/mac-bundle.tar.gz\"
-     test \"\$(shasum -a 256 \"\$work/mac-bundle.tar.gz\" | awk '{print \$1}')\" = '$bundle_sha'
-     tar -xzf \"\$work/mac-bundle.tar.gz\" -C \"\$work\"
-     FLEET_CODEX_HOME=\"\$(/usr/bin/plutil -extract EnvironmentVariables.FLEET_CODEX_HOME raw -o - \"\$HOME/Library/LaunchAgents/com.macfleet.fleet-agent.plist\" 2>/dev/null || printf '%s' \"\$HOME/.codex\")\" \
-       bash \"\$work/mac/check-codex-idle.sh\"
+     printf '%s' '$check_script_b64' | base64 -D > \"\$work/check-codex-idle.sh\"
+     codex_home=\$(/usr/bin/plutil -extract EnvironmentVariables.FLEET_CODEX_HOME raw -o - \"\$HOME/Library/LaunchAgents/com.macfleet.fleet-agent.plist\" 2>/dev/null || printf '%s' \"\$HOME/.codex\")
+     FLEET_CODEX_HOME=\"\$codex_home\" bash \"\$work/check-codex-idle.sh\"
      sleep 2
-     FLEET_CODEX_HOME=\"\$(/usr/bin/plutil -extract EnvironmentVariables.FLEET_CODEX_HOME raw -o - \"\$HOME/Library/LaunchAgents/com.macfleet.fleet-agent.plist\" 2>/dev/null || printf '%s' \"\$HOME/.codex\")\" \
-       bash \"\$work/mac/check-codex-idle.sh\"
+     FLEET_CODEX_HOME=\"\$codex_home\" bash \"\$work/check-codex-idle.sh\"
      oldpid=\$(launchctl print gui/\$(id -u)/com.macfleet.fleet-agent | awk '/pid =/{print \$3; exit}')
      cp -p \"\$bin\" \"\$bin.bak.\$stamp\"
      FLEET_UPDATE_BASE='${FLEET_RELEASE_WEB_BASE%/}/enroll/dist' \"\$bin\" update
-     FLEET_UPDATE_BASE='${FLEET_RELEASE_WEB_BASE%/}/enroll/dist' \
-       FLEET_CODEX_APPSERVER_MODE=shared \
-       FLEET_CODEX_APPSERVER_SOCK=\"\$HOME/.macfleet/codex-app-server.sock\" \
-       FLEET_CODEX_DESKTOP_WS_URL=ws://127.0.0.1:47682/rpc \
-       FLEET_CODEX_DESKTOP_SHARED_DAEMON=1 \
-       bash \"\$work/mac/migrate-existing-client-to-shared.sh\"
      ip=\$(/opt/homebrew/bin/tailscale ip -4 | head -n1)
      ok=0
      for n in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15; do
@@ -225,12 +223,14 @@ for target in $FLEET_RELEASE_MAC_TARGETS; do
      newpid=\$(launchctl print gui/\$(id -u)/com.macfleet.fleet-agent | awk '/pid =/{print \$3; exit}')
      test -n \"\$newpid\"
      codesign --verify --deep --strict \"\$bin\"
-     test \"\$(shasum -a 256 \"\$bin\" | awk '{print \$1}')\" = '$arm_sha'
-     plist=\"\$HOME/Library/LaunchAgents/com.macfleet.fleet-agent.plist\"
-     test \"\$(/usr/bin/plutil -extract EnvironmentVariables.FLEET_CODEX_APPSERVER_MODE raw -o - \"\$plist\")\" = shared
-     test \"\$(/usr/bin/plutil -extract EnvironmentVariables.FLEET_CODEX_DESKTOP_WS_URL raw -o - \"\$plist\")\" = ws://127.0.0.1:47682/rpc
+     case \"\$(uname -m)\" in
+       arm64) expected_sha='$arm_sha' ;;
+       x86_64) expected_sha='$amd_sha' ;;
+       *) echo 'unsupported architecture' >&2; exit 1 ;;
+     esac
+     test \"\$(shasum -a 256 \"\$bin\" | awk '{print \$1}')\" = \"\$expected_sha\"
      echo node_ok host=\$(hostname) oldpid=\$oldpid newpid=\$newpid binary_backup=\$stamp"
 done
 
 echo
-echo "✅ fleet-agent 发布完成：commit=$release_short arm64_sha=$arm_sha"
+echo "✅ fleet-agent 发布完成：commit=$release_short arm64_sha=$arm_sha amd64_sha=$amd_sha"

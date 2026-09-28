@@ -48,7 +48,11 @@ contains "$SHARED_KEEPER" 'kindAndPermissions === 0o140600'
 contains "$SHARED_KEEPER" 'mcp_servers.codex_app='
 contains "$MIGRATE" '/usr/bin/open --env "CODEX_APP_SERVER_WS_URL=$SHARED_WS_URL"'
 contains "$MIGRATE" 'Fleet PID is not connected to the shared Unix proxy'
-contains "$RELEASE" 'migrate-existing-client-to-shared.sh'
+contains "$RELEASE" '\"\$bin\" update'
+if rg -qF -- 'mac-bundle.tar.gz' "$RELEASE"; then
+  fail "agent-only release still publishes a full mac bundle"
+fi
+contains "$ROOT/server/enroll/bootstrap.sh" '"$HOME/.local/bin/fleet-agent" update'
 contains "$CONFIG_DEPLOY" '保留现有正式 agent 二进制'
 
 shared_install_block="$(awk '

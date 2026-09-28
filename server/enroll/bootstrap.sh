@@ -49,3 +49,6 @@ echo "→ 开始安装（接下来会提示输入本机 sudo 密码，用于装 
 MAC_INDEX="$IDX" AUTHKEY="$AUTHKEY" LOGIN_SERVER="$LOGIN" \
   FLEET_UPDATE_BASE="https://${DOMAIN}/enroll/dist" \
   bash "$TMP/mac/install.sh"
+# 安装包只负责初装；agent 总是从独立的已签名分发源拉到最新版。
+echo "→ 更新 fleet-agent 到最新版…"
+FLEET_UPDATE_BASE="https://${DOMAIN}/enroll/dist" "$HOME/.local/bin/fleet-agent" update
