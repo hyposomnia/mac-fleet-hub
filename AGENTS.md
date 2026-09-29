@@ -167,12 +167,12 @@ bash scripts/release-fleet-agent.sh           # 签名二进制发布 + 逐台�
 完整脚本按以下顺序执行，AI 不得拆开、跳步或用手工替换冒充完成：
 
 1. 确认当前 mesh IP 是签名机、工作树干净、分支正确，再 `git pull --ff-only origin main`。
-2. 运行 `bash scripts/verify.sh`，并在构建或修改网关前预检所有 Mac 的 Codex 空闲状态。
+2. 运行 `bash scripts/verify.sh`，并在构建或修改网关前预检所有 Mac 的 Fleet 自更新安全状态；Desktop-owned Codex turn 可继续运行。
 3. 双架构构建，以固定 identifier 做 Developer ID 签名、可信时间戳和严格验签，并等待 Apple 公证
    `Accepted`。
-4. 提交/push 精确产物；从同一不可变提交取得空闲守卫与新安装入口脚本。
+4. 提交/push 精确产物；从同一不可变提交取得新安装入口脚本。
 5. 网关先备份现有 dist 和 bootstrap，再替换，核 amd64/arm64 SHA 与核心服务状态；从公网下载再次核 SHA。新 Mac 初装从现有 bundle 安装，再由 bootstrap 执行 `fleet-agent update` 拉取最新版。
-6. 按私有节点清单逐台做空闲守卫、备份、运行正式 `fleet-agent update`、验签并核新 PID、磁盘 SHA、mesh health。仅 agent 更新不重新打包 `mac-bundle.tar.gz`。
+6. 按私有节点清单逐台检查 Fleet-owned turn 和进行中的消息投递、备份、运行正式 `fleet-agent update`、验签并核新 PID、磁盘 SHA、mesh health。仅 agent 更新不重新打包 `mac-bundle.tar.gz`。
 7. SSH/SCP 和远端验证 stdout/stderr 原样输出；SSH 连续三次失败或任一步异常立即停止，不带病继续。
 
 真实基础设施值只放在签名机 `~/.config/mac-fleet-hub/release.env`（`0600`），格式参考

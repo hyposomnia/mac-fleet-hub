@@ -95,17 +95,18 @@ command -v scp >/dev/null || die "未找到 scp。"
 [[ "$("$TAILSCALE_BIN" ip -4 2>/dev/null | head -n1)" == "$FLEET_RELEASE_BUILDER_IP" ]] \
   || die "当前机器不是签名构建机 ${FLEET_RELEASE_BUILDER_IP}。"
 
-# 发布前先确认全 Fleet 空闲，避免签名和网关分发源更新后才在某台 Mac 上停住。
-check_script_b64="$(base64 < "$ROOT/mac/check-codex-idle.sh" | tr -d '\n')"
+# 发布前只拦 Fleet-owned turn 和正在投递的队列；Desktop turn 不依赖 agent 进程。
+check_script_b64="$(base64 < "$ROOT/mac/check-fleet-update-safe.sh" | tr -d '\n')"
 check_target_idle() {
   local target="$1"
-  ssh_retry 22 "$target" "发布前 Codex 空闲检查" \
+  ssh_retry 22 "$target" "发布前 Fleet 自更新安全检查" \
     "set -e
-     work=\$(mktemp /tmp/macfleet-idle-check.XXXXXX)
+     work=\$(mktemp /tmp/macfleet-update-check.XXXXXX)
      trap 'rm -f \"\$work\"' EXIT
      printf '%s' '$check_script_b64' | base64 -D > \"\$work\"
      codex_home=\$(/usr/bin/plutil -extract EnvironmentVariables.FLEET_CODEX_HOME raw -o - \"\$HOME/Library/LaunchAgents/com.macfleet.fleet-agent.plist\" 2>/dev/null || printf '%s' \"\$HOME/.codex\")
-     FLEET_CODEX_HOME=\"\$codex_home\" bash \"\$work\""
+     ip=\$(/opt/homebrew/bin/tailscale ip -4 | head -n1)
+     FLEET_CODEX_HOME=\"\$codex_home\" FLEET_AGENT_URL=\"http://\$ip:7682\" bash \"\$work\""
 }
 
 if [[ "$MODE" == "check" ]]; then
@@ -123,9 +124,9 @@ if [[ "$MODE" == "check" ]]; then
     ssh_retry 22 "$target" "hostname + PID + mesh health" \
       'set -e; ip=$(/opt/homebrew/bin/tailscale ip -4 | head -n1); hostname; launchctl print gui/$(id -u)/com.macfleet.fleet-agent | awk "/pid =/{print \"pid=\" \$3; exit}"; printf "health="; curl -fsS --max-time 3 http://$ip:7682/api/health; echo'
   done
-  step "检查所有 Mac 是否空闲"
+  step "检查所有 Mac 的 Fleet 更新安全状态"
   for target in $FLEET_RELEASE_MAC_TARGETS; do check_target_idle "$target"; done
-  echo "✅ 发布环境及空闲检查通过"
+  echo "✅ 发布环境及 Fleet 更新安全检查通过"
   exit 0
 fi
 
@@ -138,12 +139,12 @@ echo ">>> git pull --ff-only origin $EXPECTED_BRANCH"
 GIT_SSH_COMMAND="ssh -o BatchMode=yes" git pull --ff-only origin "$EXPECTED_BRANCH"
 [[ "$(git rev-parse HEAD)" == "$(git rev-parse origin/$EXPECTED_BRANCH)" ]] \
   || die "pull 后本地 HEAD 仍与 origin/$EXPECTED_BRANCH 不一致。"
-check_script_b64="$(base64 < "$ROOT/mac/check-codex-idle.sh" | tr -d '\n')"
+check_script_b64="$(base64 < "$ROOT/mac/check-fleet-update-safe.sh" | tr -d '\n')"
 
 step "运行项目验证"
 bash "$ROOT/scripts/verify.sh"
 
-step "发布前确认所有 Mac 空闲"
+step "发布前确认所有 Mac 可安全自更新"
 for target in $FLEET_RELEASE_MAC_TARGETS; do check_target_idle "$target"; done
 
 step "预检公证凭据（失败时不产生任何产物）"
@@ -168,11 +169,10 @@ release_short="$(git rev-parse --short HEAD)"
 arm_sha="$(shasum -a 256 "$ARM_ASSET" | awk '{print $1}')"
 amd_sha="$(shasum -a 256 "$AMD_ASSET" | awk '{print $1}')"
 
-step "准备提交 $release_short 的空闲守卫与新安装入口"
+step "准备提交 $release_short 的新安装入口"
 release_tmp="$(mktemp -d)"
 cleanup_release_tmp() { [[ -n "${release_tmp:-}" && -d "$release_tmp" ]] && rm -rf -- "$release_tmp"; }
 trap cleanup_release_tmp EXIT
-git show "$release_commit:mac/check-codex-idle.sh" > "$release_tmp/check-codex-idle.sh"
 git show "$release_commit:server/enroll/bootstrap.sh" > "$release_tmp/bootstrap.sh"
 bootstrap_sha="$(shasum -a 256 "$release_tmp/bootstrap.sh" | awk '{print $1}')"
 
@@ -215,20 +215,22 @@ curl -fsSL "${FLEET_RELEASE_WEB_BASE%/}/enroll/bootstrap.sh" -o "$release_tmp/pu
 [[ "$(shasum -a 256 "$release_tmp/public-bootstrap.sh" | awk '{print $1}')" == "$bootstrap_sha" ]] \
   || die "公网 bootstrap.sh SHA 不一致。"
 
-step "逐台空闲检查、备份并运行 fleet-agent update"
+step "逐台 Fleet 更新安全检查、备份并运行 fleet-agent update"
 for target in $FLEET_RELEASE_MAC_TARGETS; do
-  ssh_retry 22 "$target" "空闲守卫、自更新、签名与 mesh health" \
+  ssh_retry 22 "$target" "Fleet 安全守卫、自更新、签名与 mesh health" \
     "set -e
      export PATH=/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
      bin=\"\$HOME/.local/bin/fleet-agent\"
      stamp=\$(date +%Y%m%d%H%M%S)
      work=\$(mktemp -d /tmp/macfleet-release-$release_short.XXXXXX)
      trap 'rm -rf \"\$work\"' EXIT
-     printf '%s' '$check_script_b64' | base64 -D > \"\$work/check-codex-idle.sh\"
+     printf '%s' '$check_script_b64' | base64 -D > \"\$work/check-fleet-update-safe.sh\"
      codex_home=\$(/usr/bin/plutil -extract EnvironmentVariables.FLEET_CODEX_HOME raw -o - \"\$HOME/Library/LaunchAgents/com.macfleet.fleet-agent.plist\" 2>/dev/null || printf '%s' \"\$HOME/.codex\")
-     FLEET_CODEX_HOME=\"\$codex_home\" bash \"\$work/check-codex-idle.sh\"
+     ip=\$(/opt/homebrew/bin/tailscale ip -4 | head -n1)
+     FLEET_CODEX_HOME=\"\$codex_home\" FLEET_AGENT_URL=\"http://\$ip:7682\" bash \"\$work/check-fleet-update-safe.sh\"
      sleep 2
-     FLEET_CODEX_HOME=\"\$codex_home\" bash \"\$work/check-codex-idle.sh\"
+     ip=\$(/opt/homebrew/bin/tailscale ip -4 | head -n1)
+     FLEET_CODEX_HOME=\"\$codex_home\" FLEET_AGENT_URL=\"http://\$ip:7682\" bash \"\$work/check-fleet-update-safe.sh\"
      oldpid=\$(launchctl print gui/\$(id -u)/com.macfleet.fleet-agent | awk '/pid =/{print \$3; exit}')
      cp -p \"\$bin\" \"\$bin.bak.\$stamp\"
      FLEET_UPDATE_BASE='${FLEET_RELEASE_WEB_BASE%/}/enroll/dist' \"\$bin\" update
