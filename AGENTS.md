@@ -167,7 +167,7 @@ bash scripts/release-fleet-agent.sh           # 签名二进制发布 + 逐台�
 完整脚本按以下顺序执行，AI 不得拆开、跳步或用手工替换冒充完成：
 
 1. 确认当前 mesh IP 是签名机、工作树干净、分支正确，再 `git pull --ff-only origin main`。
-2. 运行 `bash scripts/verify.sh`。
+2. 运行 `bash scripts/verify.sh`，并在构建或修改网关前预检所有 Mac 的 Codex 空闲状态。
 3. 双架构构建，以固定 identifier 做 Developer ID 签名、可信时间戳和严格验签，并等待 Apple 公证
    `Accepted`。
 4. 提交/push 精确产物；从同一不可变提交取得空闲守卫与新安装入口脚本。

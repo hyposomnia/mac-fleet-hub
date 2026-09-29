@@ -50,6 +50,7 @@ require_notary_credentials() {
     xcrun notarytool store-credentials $NOTARY_PROFILE --apple-id <Apple ID> --team-id <Team ID> --password <App 专用密码>"
   fi
   if grep -qi "keychainLocked\|User interaction is not allowed" <<<"$out"; then
+    [[ "$MODE" == "check" ]] || die "当前会话访问不到公证钥匙串；请在签名机的图形终端执行正式发布。"
     echo "⚠️  当前会话访问不到钥匙串，跳过公证凭据预检；请在图形会话的终端里执行正式发布。"
     return 0
   fi
@@ -57,7 +58,7 @@ require_notary_credentials() {
 }
 
 ssh_retry() { # port target description command
-  local port="$1" target="$2" description="$3" command="$4" attempt
+  local port="$1" target="$2" description="$3" command="$4" attempt status
   for attempt in 1 2 3; do
     ssh_note "$target:$port" "$description (attempt $attempt/3)"
     if ssh -o BatchMode=yes -o ConnectTimeout=8 -p "$port" "$target" "$command"; then
@@ -94,6 +95,19 @@ command -v scp >/dev/null || die "未找到 scp。"
 [[ "$("$TAILSCALE_BIN" ip -4 2>/dev/null | head -n1)" == "$FLEET_RELEASE_BUILDER_IP" ]] \
   || die "当前机器不是签名构建机 ${FLEET_RELEASE_BUILDER_IP}。"
 
+# 发布前先确认全 Fleet 空闲，避免签名和网关分发源更新后才在某台 Mac 上停住。
+check_script_b64="$(base64 < "$ROOT/mac/check-codex-idle.sh" | tr -d '\n')"
+check_target_idle() {
+  local target="$1"
+  ssh_retry 22 "$target" "发布前 Codex 空闲检查" \
+    "set -e
+     work=\$(mktemp /tmp/macfleet-idle-check.XXXXXX)
+     trap 'rm -f \"\$work\"' EXIT
+     printf '%s' '$check_script_b64' | base64 -D > \"\$work\"
+     codex_home=\$(/usr/bin/plutil -extract EnvironmentVariables.FLEET_CODEX_HOME raw -o - \"\$HOME/Library/LaunchAgents/com.macfleet.fleet-agent.plist\" 2>/dev/null || printf '%s' \"\$HOME/.codex\")
+     FLEET_CODEX_HOME=\"\$codex_home\" bash \"\$work\""
+}
+
 if [[ "$MODE" == "check" ]]; then
   step "检查签名构建机与 Developer ID"
   security find-identity -v -p codesigning | grep 'Developer ID Application:' \
@@ -109,7 +123,9 @@ if [[ "$MODE" == "check" ]]; then
     ssh_retry 22 "$target" "hostname + PID + mesh health" \
       'set -e; ip=$(/opt/homebrew/bin/tailscale ip -4 | head -n1); hostname; launchctl print gui/$(id -u)/com.macfleet.fleet-agent | awk "/pid =/{print \"pid=\" \$3; exit}"; printf "health="; curl -fsS --max-time 3 http://$ip:7682/api/health; echo'
   done
-  echo "✅ 发布环境检查通过"
+  step "检查所有 Mac 是否空闲"
+  for target in $FLEET_RELEASE_MAC_TARGETS; do check_target_idle "$target"; done
+  echo "✅ 发布环境及空闲检查通过"
   exit 0
 fi
 
@@ -122,9 +138,13 @@ echo ">>> git pull --ff-only origin $EXPECTED_BRANCH"
 GIT_SSH_COMMAND="ssh -o BatchMode=yes" git pull --ff-only origin "$EXPECTED_BRANCH"
 [[ "$(git rev-parse HEAD)" == "$(git rev-parse origin/$EXPECTED_BRANCH)" ]] \
   || die "pull 后本地 HEAD 仍与 origin/$EXPECTED_BRANCH 不一致。"
+check_script_b64="$(base64 < "$ROOT/mac/check-codex-idle.sh" | tr -d '\n')"
 
 step "运行项目验证"
 bash "$ROOT/scripts/verify.sh"
+
+step "发布前确认所有 Mac 空闲"
+for target in $FLEET_RELEASE_MAC_TARGETS; do check_target_idle "$target"; done
 
 step "预检公证凭据（失败时不产生任何产物）"
 require_notary_credentials
@@ -154,7 +174,6 @@ cleanup_release_tmp() { [[ -n "${release_tmp:-}" && -d "$release_tmp" ]] && rm -
 trap cleanup_release_tmp EXIT
 git show "$release_commit:mac/check-codex-idle.sh" > "$release_tmp/check-codex-idle.sh"
 git show "$release_commit:server/enroll/bootstrap.sh" > "$release_tmp/bootstrap.sh"
-check_script_b64="$(base64 < "$release_tmp/check-codex-idle.sh" | tr -d '\n')"
 bootstrap_sha="$(shasum -a 256 "$release_tmp/bootstrap.sh" | awk '{print $1}')"
 
 remote_prefix="fleet-agent-release-$release_short"
