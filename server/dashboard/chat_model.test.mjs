@@ -960,6 +960,8 @@ test('read on Desktop or another Fleet browser clears the session dot', () => {
     assert.equal(nodesWithClass(sessionRow(session), 'session-state-dot')[0]?.attributes['aria-label'], '未读');
     assert.equal(nodesWithClass(sessionRow({ ...session, desktopUnread: false }), 'session-state-dot')[0]?.attributes['aria-label'], '已读');
     assert.equal(nodesWithClass(sessionRow({ ...session, desktopUnread: true }), 'session-state-dot')[0]?.attributes['aria-label'], '未读');
+    appState.sessionReadAt.set('m1\ncodex\ncross-device-read', activity); // Earlier browser baseline is not an explicit read.
+    assert.equal(nodesWithClass(sessionRow({ ...session, desktopUnread: true }), 'session-state-dot')[0]?.attributes['aria-label'], '未读');
     assert.equal(nodesWithClass(sessionRow({ ...session, desktopUnread: true, readAt: activity }), 'session-state-dot')[0]?.attributes['aria-label'], '已读');
     assert.equal(nodesWithClass(sessionRow({ ...session, desktopUnread: true, readAt: activity - 1, outputEndedAt: activity + 1 }), 'session-state-dot')[0]?.attributes['aria-label'], '未读');
   } finally {

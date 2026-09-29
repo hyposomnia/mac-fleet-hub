@@ -1340,12 +1340,15 @@ function sessionIsUnread(session) {
   if (session.sessionId === state.selectedSid && session.macId === state.selectedSessionMacId &&
       (session.assistant || state.assistant) === (state.selectedSessionAssistant || state.assistant)) return false;
   const activity = sessionActivityAt(session);
-  const readAt = Math.max(Number(session.readAt) || 0, state.sessionReadAt.get(sessionKey(session)) || 0);
-  if (readAt >= activity && readAt > 0) return false;
-  // Desktop's explicit read state clears old Fleet-only unread markers.
+  const sharedReadAt = Number(session.readAt) || 0;
+  if (sharedReadAt >= activity && sharedReadAt > 0) return false;
+  // Desktop's explicit status takes precedence over a browser's legacy baseline.
   if (session.desktopUnread === false) return false;
+  if (session.desktopUnread === true) return true;
+  const readAt = Math.max(sharedReadAt, state.sessionReadAt.get(sessionKey(session)) || 0);
+  if (readAt >= activity && readAt > 0) return false;
   const chat = state.chatCache.get(chatCacheKey(session.macId, session.sessionId));
-  if (chat?.unread || session.desktopUnread === true) return true;
+  if (chat?.unread) return true;
   return readAt > 0 && activity > readAt;
 }
 
