@@ -344,7 +344,7 @@ func (b *codexChatBackend) Control(ctx context.Context, assistant, sessionID str
 	if err := ctx.Err(); err != nil {
 		return ChatRuntimeState{}, err
 	}
-	rolloutState, rolloutKnown := codexActiveRolloutTaskState(sessionID)
+	rolloutState, rolloutKnown := b.runtimeRolloutTaskState(ctx, sessionID)
 	approvalMode := b.currentApprovalMode(sessionID)
 	if codexUsesSharedDaemon() {
 		b.mu.Lock()
@@ -643,7 +643,7 @@ func (b *codexChatBackend) reconcileSharedRuntimeLocked(sessionID string, state 
 
 func (b *codexChatBackend) refreshActiveTurnOwnership(sessionID string) {
 	if codexUsesSharedDaemon() {
-		state, rolloutKnown := codexActiveRolloutTaskState(sessionID)
+		state, rolloutKnown := b.runtimeRolloutTaskState(context.Background(), sessionID)
 		b.mu.Lock()
 		b.reconcileSharedRuntimeLocked(sessionID, state, rolloutKnown)
 		b.mu.Unlock()
@@ -1016,7 +1016,7 @@ func (b *codexChatBackend) Resume(ctx context.Context, assistant, sessionID, mod
 		b.writerOwners[sessionID] = "desktop"
 		b.mu.Unlock()
 	}
-	if rolloutState, ok := codexCurrentRolloutTaskState(sessionID); ok && rolloutState.turnID != "" && !rolloutState.terminal {
+	if rolloutState, ok := b.currentLiveRolloutTaskState(ctx, sessionID); ok && rolloutState.turnID != "" && !rolloutState.terminal {
 		physicalOwner := ""
 		if codexUsesIsolatedSidecar() {
 			physicalOwner = codexThreadWriterProcessOwner(sessionID)
@@ -1604,6 +1604,7 @@ func (b *codexChatBackend) publishSyncEvent(event ChatEvent) {
 }
 
 func (b *codexChatBackend) reconcileConnectedSession(ctx context.Context, rpc codexRPCConn, sessionID string, state codexRolloutTaskState) (bool, error) {
+	state = b.reconcileSharedRolloutState(ctx, sessionID, state)
 	if state.turnID != "" && !state.terminal {
 		if codexUsesSharedDaemon() {
 			b.mu.Lock()
@@ -2452,7 +2453,7 @@ func (b *codexChatBackend) Input(ctx context.Context, assistant, sessionID, text
 	}
 	b.writerLeaseMu.Lock()
 	defer b.writerLeaseMu.Unlock()
-	if rolloutState, ok := codexCurrentRolloutTaskState(sessionID); !opts.ForceTakeover && ok && rolloutState.turnID != "" && !rolloutState.terminal {
+	if rolloutState, ok := b.currentLiveRolloutTaskState(ctx, sessionID); !opts.ForceTakeover && ok && rolloutState.turnID != "" && !rolloutState.terminal {
 		physicalOwner := ""
 		if codexUsesIsolatedSidecar() {
 			physicalOwner = codexThreadWriterProcessOwner(sessionID)

@@ -1438,19 +1438,27 @@ func markSessionRuntime(assistant string, all []Session, ptySet map[string]bool,
 	actionableCodexRequests := map[string]bool{}
 	var codexBackend *codexChatBackend
 	if assistant == "codex" {
-		if backend, ok := agentChatBackend.(*codexChatBackend); ok {
+		switch backend := agentChatBackend.(type) {
+		case *codexChatBackend:
 			codexBackend = backend
-			backend.mu.Lock()
-			for _, request := range backend.pending {
+		case *routingChatBackend:
+			codexBackend = backend.codexBackend()
+		}
+		if codexBackend != nil {
+			codexBackend.mu.Lock()
+			for _, request := range codexBackend.pending {
 				actionableCodexRequests[request.sessionID] = true
 			}
-			backend.mu.Unlock()
+			codexBackend.mu.Unlock()
 		}
 	}
 	for i := range all {
 		all[i].Pty = ptySet[shortSidFor(assistant, all[i].SessionID)]
 		if assistant == "codex" {
 			if runtime, ok := codexRolloutRuntimeState(paths[all[i].SessionID]); ok && runtime.turnID != "" {
+				if codexBackend != nil {
+					runtime = codexBackend.reconcileSharedRolloutState(context.Background(), all[i].SessionID, runtime)
+				}
 				if runtime.terminal {
 					all[i].Status = "idle"
 					all[i].Live = false
