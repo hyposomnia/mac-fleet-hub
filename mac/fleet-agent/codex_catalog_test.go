@@ -101,6 +101,40 @@ func TestCodexListThreadsUsesDesktopProjectsAndFiltersInternalThreads(t *testing
 	}
 }
 
+func TestCodexProjectsIncludeSavedProjectsWithoutThreads(t *testing.T) {
+	previousCfg := cfg
+	cfg.CodexHome = t.TempDir()
+	t.Cleanup(func() { cfg = previousCfg })
+	state := `{"local-projects":{
+		"pitapat":{"name":"pitapat-video-platform","rootPaths":["/repos/pitpat_code/pitapat-video-platform"]},
+		"unnamed":{"rootPaths":["/repos/unnamed"]}
+	},"thread-project-assignments":{}}`
+	if err := os.WriteFile(filepath.Join(cfg.CodexHome, ".codex-global-state.json"), []byte(state), 0600); err != nil {
+		t.Fatal(err)
+	}
+	recorder := httptest.NewRecorder()
+	handleProjects(recorder, httptest.NewRequest(http.MethodGet, "/api/projects?assistant=codex", nil))
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("projects status = %d: %s", recorder.Code, recorder.Body.String())
+	}
+	var response struct {
+		Projects []struct {
+			Cwd       string `json:"cwd"`
+			Name      string `json:"name"`
+			ProjectID string `json:"projectId"`
+		} `json:"projects"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatal(err)
+	}
+	if len(response.Projects) != 2 || response.Projects[0].ProjectID != "pitapat" ||
+		response.Projects[0].Name != "pitapat-video-platform" ||
+		response.Projects[0].Cwd != "/repos/pitpat_code/pitapat-video-platform" ||
+		response.Projects[1].Name != "unnamed" {
+		t.Fatalf("saved Desktop projects missing: %+v", response.Projects)
+	}
+}
+
 func TestCodexSessionFromThreadMapsDesktopRuntimeStatus(t *testing.T) {
 	name := "Active thread"
 	active, ok := codexSessionFromThread(codexThreadWire{

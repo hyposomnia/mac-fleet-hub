@@ -806,6 +806,25 @@ test('session project grouping follows Desktop assignments and merges projectles
   assert.equal(sessionProjectInfo(sessions[1]).cwd, '/repos/get_job_done');
 });
 
+test('saved Desktop projects without threads remain visible and searchable', () => {
+  const projects = [
+    { projectId: 'pitapat', name: 'pitapat-video-platform', cwd: '/repos/pitpat_code/pitapat-video-platform', macId: 'm2' },
+    { projectId: 'jobs', name: 'get_job_done', cwd: '/repos/get_job_done', macId: 'm2' },
+  ];
+  const groups = groupSessionsByProject([
+    { sessionId: 'main', cwd: '/repos/get_job_done' },
+  ], projects);
+  assert.equal(groups.length, 2);
+  assert.equal(groups[0].name, 'get_job_done');
+  assert.equal(groups[1].name, 'pitapat-video-platform');
+  assert.equal(groups[1].macId, 'm2');
+  assert.equal(groups[1].arr.length, 0);
+  const searched = groupSessionsByProject([], projects, 'pitpat');
+  assert.equal(searched.length, 1);
+  assert.equal(searched[0].cwd, projects[0].cwd);
+  assert.match(appSrc, /api\(macId, 'projects\?assistant=codex'\)/);
+});
+
 test('session rows remove redundant device, assistant, and idle labels', () => {
   const previousMac = appState.sessionMacId;
   const previousScope = appState.scope;

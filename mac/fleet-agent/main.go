@@ -1584,15 +1584,17 @@ func handleSessionAction(w http.ResponseWriter, r *http.Request) {
 
 func handleProjects(w http.ResponseWriter, r *http.Request) {
 	assistant := normAssistant(r.URL.Query().Get("assistant"))
-	sessions := scanSessionsFor(assistant)
 	if assistant == "codex" {
-		var err error
-		sessions, err = codexAllThreads(r.Context(), false)
-		if err != nil {
-			writeChatErr(w, err)
-			return
+		projects := make([]map[string]interface{}, 0)
+		for _, project := range codexDesktopProjects() {
+			projects = append(projects, map[string]interface{}{
+				"cwd": project.ProjectCwd, "name": project.ProjectName, "projectId": project.ProjectID,
+			})
 		}
+		writeJSON(w, map[string]interface{}{"projects": projects})
+		return
 	}
+	sessions := scanSessionsFor(assistant)
 	seen := map[string]*struct {
 		Cwd   string `json:"cwd"`
 		Count int    `json:"count"`

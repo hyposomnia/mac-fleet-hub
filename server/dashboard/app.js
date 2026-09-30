@@ -156,6 +156,7 @@ const state = {
   chatCache: new Map(),  // key(macId/sessionId) -> 自绘 Codex 会话状态；保持 SSE 连接，切回秒开
   sessionSearch: '',
   sessionResults: [],
+  sessionProjects: [],
   sessionReadAt: loadSessionReadState(), // key -> 最后已读的会话活动时间（毫秒）
   sessionCursors: {},    // macId -> Codex nextCursor
   sessionErrors: {},
@@ -236,7 +237,7 @@ function sessionProjectInfo(session) {
     projectless,
   };
 }
-function groupSessionsByProject(sessions) {
+function groupSessionsByProject(sessions, projects = [], search = '') {
   const groups = new Map();
   for (const session of sessions || []) {
     const project = sessionProjectInfo(session);
@@ -246,6 +247,17 @@ function groupSessionsByProject(sessions) {
       groups.set(project.key, group);
     }
     group.arr.push(session);
+  }
+  const needle = search.toLocaleLowerCase();
+  for (const project of projects || []) {
+    if (!project.cwd || (needle && !`${project.name || ''}\n${project.cwd}`.toLocaleLowerCase().includes(needle))) continue;
+    const key = `cwd:${project.cwd}`;
+    if (groups.has(key)) {
+      groups.get(key).name = project.name || groups.get(key).name;
+    } else {
+      groups.set(key, { key, name: project.name || projName(project.cwd), cwd: project.cwd,
+        macId: project.macId, projectless: false, arr: [] });
+    }
   }
   return [...groups.values()];
 }
@@ -1437,16 +1449,17 @@ function renderSessionResults(opts = {}) {
   const sessions = [...(state.sessionResults || [])].sort((a, b) =>
     (Number(b.pinned) - Number(a.pinned)) || (Number(b.mtime) - Number(a.mtime)));
   clear(wrap);
-  if (!sessions.length) {
+  if (!sessions.length && !(state.sessionView === 'project' && state.sessionProjects.length &&
+      groupSessionsByProject([], state.sessionProjects, state.sessionSearch).length)) {
     let message = state.sessionSearch ? '没有匹配的会话' : (state.scope === 'all' ? '没有已归档会话' : '没有未归档会话');
     if (state.sessionMacId === 'all' && MACS.length && !MACS.some((m) => state.nodes[m.id])) message = '设备均处于离线状态';
     wrap.append(h('div', { class: 'empty', text: message }));
   } else if (state.sessionView === 'recent') {
     wrap.append(h('div', { class: 'recent-session-list' }, ...sessions.map(sessionRow)));
   } else {
-    const ordered = groupSessionsByProject(sessions).map((group) => {
+    const ordered = groupSessionsByProject(sessions, state.sessionProjects, state.sessionSearch).map((group) => {
       group.arr.sort((a, b) => (Number(b.pinned) - Number(a.pinned)) || (b.live - a.live) || (b.mtime - a.mtime));
-      return { ...group, pinned: group.arr.some((session) => session.pinned), last: Math.max(...group.arr.map((s) => s.mtime)) };
+      return { ...group, pinned: group.arr.some((session) => session.pinned), last: Math.max(0, ...group.arr.map((s) => s.mtime)) };
     }).sort((a, b) => (Number(b.pinned) - Number(a.pinned)) || (b.last - a.last));
 
     for (const g of ordered) {
@@ -1455,7 +1468,7 @@ function renderSessionResults(opts = {}) {
         svgIcon('chev', 'M6 9l6 6 6-6'),
         h('span', { class: 'gn', text: g.name }),
       );
-      const projectMacId = state.sessionMacId === 'all' ? (g.arr[0]?.macId || state.macId) : state.sessionMacId;
+      const projectMacId = state.sessionMacId === 'all' ? (g.arr[0]?.macId || g.macId || state.macId) : state.sessionMacId;
       const create = !g.projectless && g.cwd ? h('button', {
         type: 'button', class: 'gpath badge project-new-session', dataset: { path: projFull(g.cwd) },
         title: `在 ${g.name} 中新建会话`, 'aria-label': `在 ${g.name} 中新建会话`,
@@ -1466,7 +1479,8 @@ function renderSessionResults(opts = {}) {
         },
       }, svgIcon('ic', 'M12 5v14M5 12h14')) : null;
       const head = h('div', { class: 'grp-h' }, toggle, create);
-      const items = h('div', { class: 'grp-items' }, ...g.arr.map(sessionRow));
+      const items = h('div', { class: 'grp-items' }, ...(g.arr.length ? g.arr.map(sessionRow) :
+        [h('div', { class: 'project-empty', text: '暂无会话' })]));
       const grp = h('div', { class: 'grp' + (collapsed ? ' collapsed' : '') }, head, items);
       toggle.onclick = () => {
         grp.classList.toggle('collapsed');
@@ -1548,8 +1562,13 @@ async function loadSessions(opts = {}) {
 
   const results = await Promise.all(targets.map(async (macId) => {
     try {
-      const data = await sessionQuery(macId, { cursor: append ? previousCursors[macId] : '' });
-      return { macId, data };
+      const [data, projects] = await Promise.all([
+        sessionQuery(macId, { cursor: append ? previousCursors[macId] : '' }),
+        !append && assistant === 'codex'
+          ? api(macId, 'projects?assistant=codex').then((value) => value.projects || []).catch(() => [])
+          : Promise.resolve([]),
+      ]);
+      return { macId, data, projects };
     } catch (error) {
       return { macId, error };
     }
@@ -1579,6 +1598,9 @@ async function loadSessions(opts = {}) {
   if (!targets.length && sessionMacId !== 'all') errors[sessionMacId] = '设备不可用';
   state.sessionErrors = errors;
   state.sessionCursors = nextCursors;
+  if (!append) state.sessionProjects = results.flatMap((result) => (result.projects || []).map((project) => ({
+    ...project, macId: result.macId,
+  })));
   const seen = new Set((append ? state.sessionResults : []).map(sessionKey));
   const sessions = append
     ? [...state.sessionResults, ...incoming.filter((session) => {
@@ -1610,7 +1632,7 @@ async function refreshSessionsSoft() {
   const search = state.sessionSearch;
   const rows = $$('#session-groups .ses');
   if (!rows.length) {
-    if ($('#session-groups .empty')) loadSessions();
+    loadSessions();
     return;
   }
   const targets = sessionTargetMacs();

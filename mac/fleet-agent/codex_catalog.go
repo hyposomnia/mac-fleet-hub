@@ -87,16 +87,41 @@ type codexDesktopProjectState struct {
 	ProjectlessThreadIDs []string `json:"projectless-thread-ids"`
 }
 
-func codexProjectContexts() map[string]codexProjectContext {
-	contexts := map[string]codexProjectContext{}
+func readCodexDesktopProjectState() codexDesktopProjectState {
 	data, err := os.ReadFile(filepath.Join(cfg.CodexHome, ".codex-global-state.json"))
 	if err != nil {
-		return contexts
+		return codexDesktopProjectState{}
 	}
 	var state codexDesktopProjectState
 	if json.Unmarshal(data, &state) != nil {
-		return contexts
+		return codexDesktopProjectState{}
 	}
+	return state
+}
+
+func codexDesktopProjects() []codexProjectContext {
+	state := readCodexDesktopProjectState()
+	projects := make([]codexProjectContext, 0, len(state.LocalProjects))
+	for id, project := range state.LocalProjects {
+		for _, root := range project.RootPaths {
+			if root = strings.TrimSpace(root); root != "" {
+				cwd := filepath.Clean(root)
+				name := strings.TrimSpace(project.Name)
+				if name == "" {
+					name = filepath.Base(cwd)
+				}
+				projects = append(projects, codexProjectContext{ProjectID: id, ProjectName: name, ProjectCwd: cwd})
+				break
+			}
+		}
+	}
+	sort.Slice(projects, func(i, j int) bool { return projects[i].ProjectName < projects[j].ProjectName })
+	return projects
+}
+
+func codexProjectContexts() map[string]codexProjectContext {
+	contexts := map[string]codexProjectContext{}
+	state := readCodexDesktopProjectState()
 	for threadID, assignment := range state.ThreadProjectAssignments {
 		if assignment.ProjectKind != "local" || strings.TrimSpace(assignment.ProjectID) == "" {
 			continue
