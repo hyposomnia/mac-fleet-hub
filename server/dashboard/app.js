@@ -520,7 +520,7 @@ function renderHosts() {
   const selected = state.mode === 'files' ? state.fileMacId : state.sessionMacId;
   if (state.mode === 'sessions') {
     const onlineCount = MACS.filter((m) => state.nodes[m.id]).length;
-    const all = h('button', { class: 'host host-all', dataset: { mac: 'all' }, 'aria-current': String(selected === 'all') },
+    const all = h('button', { class: 'host host-all', title: '全部设备', 'aria-label': '全部设备', dataset: { mac: 'all' }, 'aria-current': String(selected === 'all') },
       h('span', { class: 'host-stack' }, svgIcon('ic', 'm12 3-8 4 8 4 8-4-8-4ZM4 12l8 4 8-4M4 17l8 4 8-4')),
       h('span', { class: 'nm', text: '全部设备' }),
       h('span', { class: 'ct', text: `${onlineCount}/${MACS.length} 在线` }),
@@ -533,7 +533,7 @@ function renderHosts() {
     // 桌面行
     const info = h('span', { class: 'i', title: '设置 / 代理', text: 'ⓘ' });
     info.onclick = (e) => { e.stopPropagation(); openHostModal(m.id); };
-    const row = h('button', { class: 'host', dataset: { mac: m.id }, 'aria-current': String(m.id === selected) },
+    const row = h('button', { class: 'host', title: macName(m.id), 'aria-label': macName(m.id), dataset: { mac: m.id }, 'aria-current': String(m.id === selected) },
       deviceStatusIcon(m.id),
       h('span', { class: 'nm', text: macName(m.id) }),
       // 在线状态独立于用户选择的设备图标颜色。
@@ -1196,6 +1196,7 @@ function setMode(mode) {
   state.mode = mode === 'files' ? 'files' : 'sessions';
   mode = state.mode;
   $('#app').dataset.mode = mode;
+  window.FleetSidebarLayout?.sync();
   updateSettingsMenus();
   if (mode !== 'sessions') backToList(); // 离开会话模式收起终端 push
   if (mode !== 'files') resetFileBackGesture();
@@ -1853,6 +1854,7 @@ function deleteSession(session) {
 }
 
 function selectSes(sid, macId = state.macId, assistant = state.assistant) {
+  window.FleetSidebarLayout?.close();
   state.macId = macId;
   state.selectedSid = sid;
   state.selectedSessionMacId = macId;
@@ -4569,6 +4571,7 @@ function renderChatError(msg) {
 async function openChatSession(s) {
   const macId = s.macId || state.macId;
   if (!macId || !canSelfDrawChat(state.assistant, macId)) return;
+  window.FleetSidebarLayout?.close();
   state.macId = macId;
   state.selectedSid = s.sessionId;
   state.selectedSessionMacId = macId;
@@ -7413,6 +7416,7 @@ function init() {
     registerServiceWorker();
     return;
   }
+  window.FleetSidebarLayout?.init();
   mountDeviceScopeButtons();
   initUIState();
   initSessionListPreferences();

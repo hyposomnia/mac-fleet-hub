@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content" />
   <!-- theme-color 与共享 Titanium 主题控制器同步。 -->
   <meta name="theme-color" content="#EDF1F4" />
-  <script src="/theme.js?v=159"></script>
+  <script src="/theme.js?v=161"></script>
   <title>mac fleet hub</title>
   <link rel="manifest" href="manifest.webmanifest" />
   <link rel="icon" href="icons/favicon.svg" type="image/svg+xml" />
@@ -16,7 +16,7 @@
   <meta name="apple-mobile-web-app-title" content="fleet hub" />
   <!-- theme.js 在样式加载前同步应用已保存的外观，默认浅色。 -->
   <link rel="stylesheet" href="vendor/codemirror/lib/codemirror.css?v=5.65.20" />
-  <link rel="stylesheet" href="style.css?v=159" />
+  <link rel="stylesheet" href="style.css?v=161" />
 </head>
 <body>
   <!-- DeepSeek 官方 whale mark，来源与 MIT 许可见 icons/deepseek/LICENSE.md。 -->
@@ -67,17 +67,17 @@
 
     <!-- ───────── 主机栏（桌面左栏） ───────── -->
     <aside id="rail" class="pane">
-      <div class="brand"><span class="logo"><svg aria-hidden="true" focusable="false" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96" role="img"><title>Fleet Hub · 精密钛银</title><g fill="currentColor"><path transform="rotate(0 48 48)" d="M20.72 27.75L46.5 12.87Q48 12 49.5 12.87L75.28 27.75Q76.58 28.5 75.28 29.25L69.22 32.75Q67.92 33.5 66.62 32.75L49.5 22.87Q48 22 46.5 22.87L29.38 32.75Q28.08 33.5 26.78 32.75L20.72 29.25Q19.42 28.5 20.72 27.75Z"/><path transform="rotate(120 48 48)" d="M20.72 27.75L46.5 12.87Q48 12 49.5 12.87L75.28 27.75Q76.58 28.5 75.28 29.25L69.22 32.75Q67.92 33.5 66.62 32.75L49.5 22.87Q48 22 46.5 22.87L29.38 32.75Q28.08 33.5 26.78 32.75L20.72 29.25Q19.42 28.5 20.72 27.75Z"/><path transform="rotate(240 48 48)" d="M20.72 27.75L46.5 12.87Q48 12 49.5 12.87L75.28 27.75Q76.58 28.5 75.28 29.25L69.22 32.75Q67.92 33.5 66.62 32.75L49.5 22.87Q48 22 46.5 22.87L29.38 32.75Q28.08 33.5 26.78 32.75L20.72 29.25Q19.42 28.5 20.72 27.75Z"/></g></svg></span><span>fleet hub</span></div>
+      <div class="rail-heading"><div class="brand"><span class="logo"><svg aria-hidden="true" focusable="false" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96" role="img"><title>Fleet Hub · 精密钛银</title><g fill="currentColor"><path transform="rotate(0 48 48)" d="M20.72 27.75L46.5 12.87Q48 12 49.5 12.87L75.28 27.75Q76.58 28.5 75.28 29.25L69.22 32.75Q67.92 33.5 66.62 32.75L49.5 22.87Q48 22 46.5 22.87L29.38 32.75Q28.08 33.5 26.78 32.75L20.72 29.25Q19.42 28.5 20.72 27.75Z"/><path transform="rotate(120 48 48)" d="M20.72 27.75L46.5 12.87Q48 12 49.5 12.87L75.28 27.75Q76.58 28.5 75.28 29.25L69.22 32.75Q67.92 33.5 66.62 32.75L49.5 22.87Q48 22 46.5 22.87L29.38 32.75Q28.08 33.5 26.78 32.75L20.72 29.25Q19.42 28.5 20.72 27.75Z"/><path transform="rotate(240 48 48)" d="M20.72 27.75L46.5 12.87Q48 12 49.5 12.87L75.28 27.75Q76.58 28.5 75.28 29.25L69.22 32.75Q67.92 33.5 66.62 32.75L49.5 22.87Q48 22 46.5 22.87L29.38 32.75Q28.08 33.5 26.78 32.75L20.72 29.25Q19.42 28.5 20.72 27.75Z"/></g></svg></span><span class="brand-name">fleet hub</span></div><button id="rail-collapse" class="iconbtn bare sidebar-collapse" type="button" aria-label="收起设备栏" title="收起设备栏" aria-expanded="true" aria-controls="host-list"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="m14 6-6 6 6 6"/></svg></button></div>
 
       <div class="modeseg" role="tablist">
-        <button data-mode="sessions" role="tab" aria-selected="true"><svg class="ic" viewBox="0 0 24 24"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>会话</button>
-        <button data-mode="files" role="tab" aria-selected="false"><svg class="ic" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>文件</button>
+        <button data-mode="sessions" role="tab" aria-selected="true" aria-label="会话" title="会话"><svg class="ic" viewBox="0 0 24 24"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg><span class="mode-label">会话</span></button>
+        <button data-mode="files" role="tab" aria-selected="false" aria-label="文件" title="文件"><svg class="ic" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg><span class="mode-label">文件</span></button>
       </div>
 
       <nav id="host-list" class="hostlist"><div class="hd eyebrow">主机</div></nav>
 
       <div class="railfoot">
-        <button id="user-btn" aria-expanded="false" aria-controls="usermenu" class="userrow" aria-haspopup="true">
+        <button id="user-btn" aria-label="设置" title="设置" aria-expanded="false" aria-controls="usermenu" class="userrow" aria-haspopup="true">
           <span class="avatar"><svg class="ic" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09A1.65 1.65 0 0 0 19.4 15z"/></svg></span><span class="un" id="user-name">设置</span><span class="cv"><svg class="ic" viewBox="0 0 24 24"><polyline points="6 9 12 15 18 9"/></svg></span>
         </button>
         <div id="usermenu" class="menu" hidden>
@@ -135,9 +135,8 @@
             </div>
           </div>
           <span data-device-scope-slot="sessions"></span>
-          <div class="sc-head-actions">
+          <div class="sc-head-actions"><button id="sessions-collapse" class="iconbtn bare sidebar-pin" type="button" aria-label="取消固定会话列表" title="取消固定会话列表" aria-pressed="true" data-pinned="true" aria-expanded="true" aria-controls="sescol"><svg class="ic sessions-pinned" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 17v5"/><path d="M5 3h14l-3 6v4l2 2H6l2-2V9Z" fill="currentColor"/></svg><svg class="ic sessions-unpinned" viewBox="0 0 24 24" aria-hidden="true"><path d="m3 3 18 18M12 17v5M8 8v5l-2 2h9M9 3h10l-3 6v4l2 2h-1"/></svg></button>
             <button class="iconbtn bare mobile-menu-trigger" title="菜单" aria-label="菜单" aria-haspopup="true"><svg class="ic" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.87l.04.04-2.87 2.87-.04-.04A1.7 1.7 0 0 0 15 19.4a1.7 1.7 0 0 0-1 1.55V21h-4v-.05A1.7 1.7 0 0 0 9 19.4a1.7 1.7 0 0 0-1.87.34l-.04.04-2.87-2.87.04-.04A1.7 1.7 0 0 0 4.6 15a1.7 1.7 0 0 0-1.55-1H3v-4h.05A1.7 1.7 0 0 0 4.6 9a1.7 1.7 0 0 0-.34-1.87l-.04-.04 2.87-2.87.04.04A1.7 1.7 0 0 0 9 4.6a1.7 1.7 0 0 0 1-1.55V3h4v.05A1.7 1.7 0 0 0 15 4.6a1.7 1.7 0 0 0 1.87-.34l.04-.04 2.87 2.87-.04.04A1.7 1.7 0 0 0 19.4 9a1.7 1.7 0 0 0 1.55 1H21v4h-.05a1.7 1.7 0 0 0-1.55 1Z"/></svg></button>
-            <button id="new-session" class="iconbtn primary-action" title="新建无项目会话" aria-label="新建无项目会话"><svg class="ic" viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg></button>
           </div>
         </div>
         <div class="seg mobile-assistant-seg" role="tablist">
@@ -154,11 +153,15 @@
             <svg class="ic" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><line x1="16.5" y1="16.5" x2="21" y2="21"/></svg>
             <input id="session-search" type="search" placeholder="搜索全部未归档会话" autocomplete="off" aria-label="搜索会话">
           </div>
+          <button id="new-session" class="iconbtn primary-action" title="新建无项目会话" aria-label="新建无项目会话"><svg class="ic" viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg></button>
           <button id="new-session-mobile" class="iconbtn primary-action mobile-new-session" title="新建无项目会话" aria-label="新建无项目会话"><svg class="ic" viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg></button>
         </div>
       </header>
       <div id="session-groups" class="sc-body"></div>
     </section>
+
+    <button id="sessions-backdrop" class="sessions-backdrop" type="button" aria-label="关闭会话列表" tabindex="-1" hidden></button>
+    <button id="sessions-launcher" class="iconbtn sessions-launcher" type="button" aria-label="呼出会话列表" title="呼出会话列表" aria-expanded="false" aria-controls="sescol" hidden><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6h12M9 12h12M9 18h12M3 6h.01M3 12h.01M3 18h.01"/></svg></button>
 
     <!-- ───────── 窗口（终端 / 文件） ───────── -->
     <section id="win" class="pane">
@@ -574,11 +577,12 @@
   <script src="vendor/codemirror/mode/yaml/yaml.js?v=5.65.20"></script>
   <script src="vendor/codemirror/mode/toml/toml.js?v=5.65.20"></script>
   <script src="vendor/codemirror/mode/properties/properties.js?v=5.65.20"></script>
-  <script src="markdown.js?v=159"></script>
-  <script src="preview.js?v=159"></script>
-  <script src="chat_model.js?v=159"></script>
-  <script src="upload_model.js?v=159"></script>
-  <script src="device_appearance.js?v=159"></script>
-  <script src="app.js?v=159"></script>
+  <script src="markdown.js?v=161"></script>
+  <script src="preview.js?v=161"></script>
+  <script src="chat_model.js?v=161"></script>
+  <script src="upload_model.js?v=161"></script>
+  <script src="device_appearance.js?v=161"></script>
+  <script src="sidebar_layout.js?v=161"></script>
+  <script src="app.js?v=161"></script>
 </body>
 </html>

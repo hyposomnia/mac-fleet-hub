@@ -537,7 +537,8 @@ test('Sub Agent activity keeps identity in the model but remains internal to the
 test('settings menu owns archive browsing and session settings', () => {
   const header = indexHTML.match(/<header class="sc-head">[\s\S]*?<\/header>/)?.[0] || '';
   assert.ok(header);
-  assert.match(header, /class="sc-head-actions"[\s\S]*id="new-session"/);
+  assert.match(header, /class="session-search-row"[\s\S]*id="session-search"[\s\S]*id="new-session"/);
+  assert.doesNotMatch(header.match(/<div class="sc-head-actions">[\s\S]*?<\/div>/)?.[0] || '', /id="new-session"/);
   assert.match(header, /data-device-scope-slot="sessions"/);
   assert.match(header, /id="session-view-toggle"[\s\S]*id="session-search"[\s\S]*id="new-session-mobile"/);
   assert.doesNotMatch(header, /session-summary|session-count|session-view-label|个未归档|按项目分组/);
