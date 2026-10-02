@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content" />
   <!-- theme-color 与共享 Titanium 主题控制器同步。 -->
   <meta name="theme-color" content="#EDF1F4" />
-  <script src="/theme.js?v=161"></script>
+  <script src="/theme.js?v=162"></script>
   <title>mac fleet hub</title>
   <link rel="manifest" href="manifest.webmanifest" />
   <link rel="icon" href="icons/favicon.svg" type="image/svg+xml" />
@@ -16,7 +16,7 @@
   <meta name="apple-mobile-web-app-title" content="fleet hub" />
   <!-- theme.js 在样式加载前同步应用已保存的外观，默认浅色。 -->
   <link rel="stylesheet" href="vendor/codemirror/lib/codemirror.css?v=5.65.20" />
-  <link rel="stylesheet" href="style.css?v=161" />
+  <link rel="stylesheet" href="style.css?v=162" />
 </head>
 <body>
   <!-- DeepSeek 官方 whale mark，来源与 MIT 许可见 icons/deepseek/LICENSE.md。 -->
@@ -259,9 +259,10 @@
       <header class="win-head">
         <button id="win-back" class="iconbtn bare win-back" title="返回（不结束进程）"><svg class="ic" viewBox="0 0 24 24"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg></button>
         <div class="info">
-          <span id="win-title" class="tt"><span class="ttl">选择一个会话</span></span>
+          <span id="win-title" class="tt" tabindex="-1"><span class="ttl">选择一个会话</span></span>
           <span id="win-meta" class="mt">选择会话开始聊天</span>
         </div>
+        <div id="workspace-tabs" role="tablist" aria-label="会话与文件预览" hidden></div>
         <button id="reconnect-btn" class="iconbtn" title="重连" hidden><svg class="ic" viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg></button>
         <button id="fullscreen-btn" class="iconbtn" title="全屏" hidden><svg class="ic" viewBox="0 0 24 24"><path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"/></svg></button>
       </header>
@@ -273,6 +274,7 @@
       </div>
 
       <div class="win-body">
+        <section id="workspace-preview" aria-label="文件预览" hidden></section>
         <!-- #frame：仅「文件」模式用；#frames：终端 iframe 池（每会话一个，JS 动态建，靠 .show 显隐切换） -->
         <iframe id="frame" title="window" allow="clipboard-read; clipboard-write"></iframe>
         <div id="frames"></div>
@@ -577,12 +579,13 @@
   <script src="vendor/codemirror/mode/yaml/yaml.js?v=5.65.20"></script>
   <script src="vendor/codemirror/mode/toml/toml.js?v=5.65.20"></script>
   <script src="vendor/codemirror/mode/properties/properties.js?v=5.65.20"></script>
-  <script src="markdown.js?v=161"></script>
-  <script src="preview.js?v=161"></script>
-  <script src="chat_model.js?v=161"></script>
-  <script src="upload_model.js?v=161"></script>
-  <script src="device_appearance.js?v=161"></script>
-  <script src="sidebar_layout.js?v=161"></script>
-  <script src="app.js?v=161"></script>
+  <script src="markdown.js?v=162"></script>
+  <script src="preview.js?v=162"></script>
+  <script src="chat_model.js?v=162"></script>
+  <script src="upload_model.js?v=162"></script>
+  <script src="device_appearance.js?v=162"></script>
+  <script src="sidebar_layout.js?v=162"></script>
+  <script src="workspace_tabs.js?v=162"></script>
+  <script src="app.js?v=162"></script>
 </body>
 </html>

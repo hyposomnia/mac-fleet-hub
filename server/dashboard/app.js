@@ -1215,6 +1215,7 @@ function setMode(mode) {
 }
 
 function setAssistant(assistant) {
+  window.FleetWorkspaceTabs?.showChat();
   state.assistant = normalizeAssistant(assistant);
   state.selectedSid = null;
   state.selectedSessionMacId = null;
@@ -1854,6 +1855,7 @@ function deleteSession(session) {
 }
 
 function selectSes(sid, macId = state.macId, assistant = state.assistant) {
+  window.FleetWorkspaceTabs?.showChat();
   window.FleetSidebarLayout?.close();
   state.macId = macId;
   state.selectedSid = sid;
@@ -4569,6 +4571,7 @@ function renderChatError(msg) {
 }
 
 async function openChatSession(s) {
+  window.FleetWorkspaceTabs?.showChat();
   const macId = s.macId || state.macId;
   if (!macId || !canSelfDrawChat(state.assistant, macId)) return;
   window.FleetSidebarLayout?.close();
@@ -5496,6 +5499,7 @@ function restorePoolSnapshot() {
 
 // 移动端从终端「返回」：仅收起 push，不结束进程（tmux 持久）。
 function backToList() {
+  window.FleetWorkspaceTabs?.showChat();
   closeChatImageViewer({ restoreFocus: false });
   releaseVisualKeyboard();
   $('#app').classList.remove('term-open');
@@ -7416,6 +7420,14 @@ function init() {
     registerServiceWorker();
     return;
   }
+  window.FleetWorkspaceTabs?.init({onOpen: () => {
+    if (state.mode !== 'sessions') setMode('sessions');
+    window.FleetSidebarLayout?.close();
+    if (isMobile() && !$('#app').classList.contains('term-open')) {
+      pushFleetHistory({ mode: 'sessions', term: true });
+      $('#app').classList.add('term-open');
+    }
+  }});
   window.FleetSidebarLayout?.init();
   mountDeviceScopeButtons();
   initUIState();
