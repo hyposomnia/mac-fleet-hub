@@ -1,0 +1,7 @@
+HTTP/2 302 
+server: nginx/1.28.0
+date: Fri, 02 Oct 2026 03:29:09 GMT
+content-type: text/html
+content-length: 145
+location: https://fleet.hyposomnia.top:20443/auth/?rd=https://fleet.hyposomnia.top:20443/
+
