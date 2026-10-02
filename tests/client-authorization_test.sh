@@ -14,7 +14,7 @@ cat > "$WORK/bin/tailscale" <<'SH'
 #!/usr/bin/env bash
 if [[ "$1" == status ]]; then printf '{"BackendState":"Running","Self":{"HostName":"mac1"}}';
 elif [[ "$1" == ip ]]; then printf '100.64.0.9';
-elif [[ "$1" == debug ]]; then printf '  "ControlURL": "https://old.example.com"\n';
+elif [[ "$1" == debug ]]; then printf '  "ControlURL": "%s"\n' "${CONTROL_URL:-https://old.example.com}";
 else printf '%s\n' "$*" >> "$CALLS"; fi
 SH
 cat > "$WORK/bin/sudo" <<'SH'
@@ -27,8 +27,12 @@ export PATH="$WORK/bin:$PATH" CALLS="$WORK/calls" LOGIN_SERVER=https://new.examp
 if bash "$ROOT/mac/join-device.sh" > "$WORK/output" 2>&1; then fail 'changed tailnet without consent'; fi
 [[ ! -e "$CALLS" ]] || fail 'unsafe network mutation before consent'
 FLEET_REPLACE_TAILNET=true bash "$ROOT/mac/join-device.sh" > "$WORK/output" 2>&1 || { cat "$WORK/output"; fail 'join failed'; }
-grep -Fq -- '--force-reauth' "$CALLS" || fail 'new binding reused existing node'
+grep -Eq '^login ' "$CALLS" || fail 'cross-server join must create a new profile'
+if grep -Eq '^logout' "$CALLS"; then fail 'old profile was destroyed instead of retained for rollback'; fi
 grep -Fq -- '--hostname=mac101' "$CALLS" || fail 'lost server assigned index'
 grep -Fq -- "--auth-key=file:$WORK/key" "$CALLS" || fail 'key must be passed by private file'
 if grep -Fq 'private-key' "$CALLS" "$WORK/output"; then fail 'key leaked'; fi
+rm "$CALLS"
+CONTROL_URL="$LOGIN_SERVER" bash "$ROOT/mac/join-device.sh" > "$WORK/output" 2>&1 || { cat "$WORK/output"; fail 'same-server join failed'; }
+grep -Eq '^up .*--force-reauth' "$CALLS" || fail 'same-server binding reused existing authorization'
 echo 'client-authorization tests passed'

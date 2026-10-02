@@ -24,4 +24,6 @@
 
 ## 验收证据
 
+跨控制面切换使用 tailscale login 新建配置，不 logout 销毁旧配置。安装前记录旧 profile ID，回滚时停止新 Fleet 服务并用 tailscale switch 恢复旧网络；同控制面仍 force-reauth 确保使用本次密钥。
+
 分别记录：全量测试、不可变源码/产物 SHA、公证 Accepted、实际 HTTPS 三个下载 200 与字节一致、独立 Headscale/gateway 节点、readyz 200、真实设备 claim/complete、owner/跨用户代理结果、logout 撤销。本机或签名授权未给出时只完成独立准备，不能冒充已安装/真实设备验收。
