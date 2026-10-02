@@ -1,4 +1,12 @@
-# 会话窗口文件标签 v163
+# 会话窗口文件标签
+
+## v166 更新与生产验收（2026-10-02）
+
+静态源码提交 `f0726da`，缓存 `fleet-shell-v166`。单会话常驻同一个图标 Tab 组件，打开/关闭文件不再切换旧标题栏；聊天初次打开与隐藏通过实际 pane 状态同步，终端及空态保留原有入口。
+
+发布前 `bash scripts/verify.sh` 全部通过：Go agent/enroll 通过，Dashboard 252/252，全部 Shell 检查通过。生产 105/105 静态文件 SHA256 匹配；设备运行时数据非空，nginx、fleet-enroll、headscale、fleet-nodes.timer 均 active；公网入口 HTTP/2 302。备份：`/var/backups/mac-fleet-hub/dashboard-before-v166-20261002T075007Z.tgz`。没有重启服务、发布后端/客户端或修改认证与网络。
+
+真实 Chrome 强制刷新后打开同一会话，对比单 Tab、打开 README.md 后的多 Tab、回到聊天、关闭最后一个文件四种状态，标题栏及聊天正文起始位置一致；文件下仍保留输入框，关闭后会话与输入框保留。未发送真实消息。
 
 ## v165 更新与生产验收（2026-10-02）
 
