@@ -6,22 +6,31 @@ const source = await readFile(new URL('./workspace_tabs.js', import.meta.url), '
 const preview = await readFile(new URL('./preview.js', import.meta.url), 'utf8');
 function setup() {
   class Node {
-    constructor() { this.dataset = {}; this.attrs = {}; this.children = []; this.events = {}; this.hidden = false; }
+    constructor() { this.dataset = {}; this.attrs = {}; this.children = []; this.events = {}; this.hidden = false; this.inert = false; this.style = {}; }
     setAttribute(key, value) { this.attrs[key] = value; }
-    append(node) { node.parent = this; this.children.push(node); }
+    removeAttribute(key) { delete this.attrs[key]; }
+    getBoundingClientRect() { return {left: 20, bottom: 48, top: 20, height: 120, width: 320}; }
+    querySelectorAll() { return []; }
+    matches() { return true; }
+    append(...nodes) { for (const node of nodes) { node.parent = this; this.children.push(node); } }
     replaceChildren() { this.children = []; }
     remove() { this.parent.children = this.parent.children.filter(node => node !== this); }
     focus() { this.focused = true; }
     addEventListener(type, listener) { this.events[type] = listener; }
   }
-  const elements = Object.fromEntries(['win', 'workspace-tabs', 'workspace-preview', 'chat-pane', 'chat-scroll', 'file-preview-open', 'win-title', 'frames', 'frame'].map(id => [id, new Node()]));
-  const context = {URL, URLSearchParams, location: {origin: 'https://fleet.test'}, document: {
-    querySelector(selector) { return elements[selector.slice(1)] || null; }, createElement() { return new Node(); },
+  const elements = Object.fromEntries(['win', 'workspace-tabs', 'workspace-preview', 'chat-pane', 'chat-scroll', 'file-preview-open', 'win-title', 'frames', 'frame', 'chat-composer', 'chat-input', 'chat-turn-pin'].map(id => [id, new Node()]));
+  const timers = new Map(); let timerId = 0;
+  elements['workspace-preview'].style = {setProperty() {}};
+  elements['win-title'].textContent = '规划并创建 emotion-service 角色';
+  const context = {URL, URLSearchParams, innerWidth: 900, innerHeight: 700,
+    setTimeout(fn) { timers.set(++timerId, fn); return timerId; }, clearTimeout(id) { timers.delete(id); },
+    addEventListener() {}, location: {origin: 'https://fleet.test'}, document: {
+    body: new Node(), querySelector(selector) { return elements[selector.slice(1)] || null; }, createElement() { return new Node(); },
   }};
   vm.createContext(context); vm.runInContext(preview, context); vm.runInContext(source, context);
   let opened = 0;
   context.FleetWorkspaceTabs.init({onOpen() { opened++; }});
-  return {api: context.FleetWorkspaceTabs, elements, get opened() { return opened; }};
+  return {api: context.FleetWorkspaceTabs, elements, body: context.document.body, flush() { const pending = [...timers.values()]; timers.clear(); pending.forEach(fn => fn()); }, get opened() { return opened; }};
 }
 const url = (path, mac = 'm1', cwd = '/repo') => `/view?${new URLSearchParams({mac, path, cwd})}`;
 function clickLink(href, extras = {}) {
@@ -38,7 +47,7 @@ test('file identity scopes device/cwd, normalizes relative paths and line locati
   assert.equal(api.previewTarget('https://other.test/view?mac=m1&path=x.py'), null);
   assert.equal(api.previewTarget('/view?mac=invalid&path=x.py'), null);
   assert.equal(api.previewTarget('/account'), null);
-  assert.equal(api.previewTarget(url('/repo/a.py')).detail, 'M1 · /repo/a.py');
+  assert.equal(api.previewTarget(url('/repo/a.py')).detail, '/repo/a.py');
 });
 
 test('multiple files are retained, repeat links reuse a frame, selecting chat preserves the conversation DOM', () => {
@@ -52,7 +61,8 @@ test('multiple files are retained, repeat links reuse a frame, selecting chat pr
   assert.equal(first.hidden, false);
   assert.equal(e['workspace-preview'].children[1].hidden, true);
   assert.equal(e.win.dataset.workspacePreview, 'true');
-  assert.equal(chat.inert, true);
+  assert.notEqual(chat.inert, true);
+  assert.equal(e['chat-scroll'].inert, true);
   api.showChat();
   assert.equal(e['workspace-preview'].hidden, true);
   assert.equal(e['chat-pane'], chat);
@@ -118,5 +128,46 @@ test('integration loads workspace before app, restores chat on navigation and is
   assert.match(app, /function selectSes\([^]*?FleetWorkspaceTabs\?\.showChat\(\)/);
   assert.match(app, /async function openChatSession\([^]*?FleetWorkspaceTabs\?\.showChat\(\)/);
   assert.match(css, /\.workspace-preview-frame\[hidden\] \{ display: none; \}/);
-  assert.match(css, /#win\[data-workspace-preview="true"\] \.win-body > :not\(#workspace-preview\)/);
+  assert.match(css, /#win\[data-workspace-preview="true"\] \.win-body > :not\(#workspace-preview\):not\(#chat-pane\)/);
+});
+
+test('workspace tabs use compact icon labels and a single integrated header', async () => {
+  const css = await readFile(new URL('./style.css', import.meta.url), 'utf8');
+  assert.match(css, /\.workspace-tab-select \{[^}]*height: 28px;[^}]*padding: 0 9px;/);
+  assert.doesNotMatch(css, /\.workspace-tab[^,{]*:hover/);
+  assert.match(css, /#win\[data-workspace-tabs="true"\] > \.win-head \.info \{ display: none;/);
+  const {api, elements: e} = setup(); api.open(url('a.md'));
+  assert.equal(e['workspace-tabs'].children[0].children[0].children[1].textContent, '规划并创建 emotion-service 角色');
+  assert.equal(e['workspace-tabs'].children[1].children[0].title, undefined);
+  assert.equal(e['workspace-tabs'].children[1].children[1].attrs['aria-label'], '关闭 a.md');
+});
+
+test('hover cards reveal full titles and paths, cancel on leave, and clear on selection/reset', () => {
+  const state = setup(), {api, elements: e, body} = state;
+  api.open(url('a.md'));
+  const button = e['workspace-tabs'].children[1].children[0];
+  button.onpointerenter({pointerType: 'mouse'}); button.onpointerleave(); state.flush();
+  assert.equal(body.children[0].hidden, true);
+  button.onpointerenter({pointerType: 'mouse'}); state.flush();
+  const card = body.children[0]; assert.equal(card.hidden, false);
+  assert.equal(card.children[0].textContent, 'a.md');
+  assert.equal(card.children[2].textContent, '/repo/a.md');
+  assert.equal(button.attrs['aria-describedby'], card.id);
+  button.onclick(); assert.equal(card.hidden, true);
+  e['workspace-tabs'].children[0].children[0].onfocus(); state.flush();
+  assert.equal(card.children[0].textContent, '规划并创建 emotion-service 角色');
+  api.reset(); assert.equal(card.hidden, true);
+  assert.ok(card.children.every(node => node.textContent === ''));
+});
+
+test('file tabs retain the original composer, draft, and submit handler while transcript is inert', () => {
+  const {api, elements: e} = setup();
+  const composer = e['chat-composer'], input = e['chat-input'];
+  input.value = '继续检查这份文件'; let sent = 0; composer.onsubmit = () => {sent++;};
+  api.open(url('a.md')); api.open(url('b.py'));
+  assert.notEqual(e['chat-pane'].inert, true);
+  assert.notEqual(composer.inert, true); assert.notEqual(input.inert, true);
+  composer.onsubmit(); assert.equal(sent, 1);
+  api.showChat(); assert.equal(e['chat-input'], input); assert.equal(input.value, '继续检查这份文件');
+  assert.equal(e['chat-scroll'].inert, false);
 });

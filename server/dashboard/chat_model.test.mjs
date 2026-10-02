@@ -132,7 +132,7 @@ const previewSandbox = {
 };
 vm.createContext(previewSandbox);
 vm.runInContext(previewSrc, previewSandbox);
-const { resolveLocalLink, resourceURL, fileEndpoint, isPreviewRoute, previewRequest, isTextPreviewPath, textPreviewMode, canReturnFromPreview } = previewSandbox.globalThis.FleetPreview;
+const { resolveLocalLink, resourceURL, fileEndpoint, isPreviewRoute, previewRequest, isTextPreviewPath, textPreviewMode } = previewSandbox.globalThis.FleetPreview;
 
 test('chat model and app use the same versioned shell URLs', () => {
   const styleURL = indexHTML.match(/style\.css\?v=([a-zA-Z0-9_-]+)/);
@@ -201,14 +201,12 @@ test('preview helpers build protected media URLs and parse only /view routes', (
   assert.equal(previewRequest('?mac=m2&path=%2Ftmp%2Fnote.txt&embed=1').embed, true);
 });
 
-test('standalone file preview returns to its originating session when browser history allows it', () => {
-  assert.equal(canReturnFromPreview('https://fleet.example.test/', 2), true);
-  assert.equal(canReturnFromPreview('https://fleet.example.test/?mode=sessions', 3), true);
-  assert.equal(canReturnFromPreview('https://other.example.test/', 2), false);
-  assert.equal(canReturnFromPreview('', 2), false);
-  assert.equal(canReturnFromPreview('https://fleet.example.test/', 1), false);
-  assert.match(indexHTML, /class="iconbtn bare preview-close"[^>]*href="\/"/);
-  assert.match(previewSrc, /wirePreviewBack\(\)[\s\S]*?event\.preventDefault\(\);[\s\S]*?root\.history\.back\(\)/);
+test('file preview omits browser back actions and redundant device/type/size badges', () => {
+  const header = indexHTML.match(/<header class="preview-head">[\s\S]*?<\/header>/)?.[0] || '';
+  assert.ok(header);
+  assert.doesNotMatch(header, /preview-close|preview-host|preview-kind|preview-size|preview-meta/);
+  assert.match(header, /preview-title[\s\S]*preview-path[\s\S]*preview-download/);
+  assert.doesNotMatch(previewSrc, /root\.history\.back\(\)/);
 });
 
 test('preview page keeps HTML in a scriptless sandbox and media in native controls', () => {

@@ -195,16 +195,14 @@ body {
 /* 独立文件预览：/view 与 dashboard 共用外壳资源，但不启动主机/会话布局。 */
 #preview-page { width: 100%; height: 100dvh; min-height: 0; display: flex; flex-direction: column; background: var(--bg); }
 .preview-head {
-  min-height: 64px; flex: none; display: grid; grid-template-columns: 36px minmax(0, 1fr) auto auto;
+  min-height: 64px; flex: none; display: grid; grid-template-columns: minmax(0, 1fr) auto;
   align-items: center; gap: 12px; padding: 10px 16px; border: 0;
   background: var(--surface); color: var(--text);
 }
 .preview-file-info { min-width: 0; }
 .preview-title { overflow: hidden; color: var(--text); font-size: var(--t-title); font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
 .preview-path { margin-top: 2px; overflow: hidden; color: var(--text-2); font-size: var(--t-caption); text-overflow: ellipsis; white-space: nowrap; }
-.preview-meta { display: flex; align-items: center; justify-content: flex-end; gap: 7px; min-width: 0; }
 .preview-actions { display: flex; align-items: center; gap: 8px; }
-.preview-size { color: var(--text-2); font-size: var(--t-secondary); white-space: nowrap; }
 .preview-stage { position: relative; flex: 1; min-height: 0; overflow: hidden; background: var(--surface-1); }
 .preview-state { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; gap: 9px; padding: 24px; color: var(--text-2); text-align: center; }
 .preview-spinner { width: 14px; height: 14px; border: 2px solid var(--text-3); border-right-color: var(--accent); border-radius: 50%; animation: spin .8s linear infinite; }
@@ -1287,35 +1285,56 @@ textarea.chat-request-input { resize: vertical; }
 /* ============================================================
    响应式：≤860px 切移动端布局（头部 + 主机条 + 分段 + push 终端）
    ============================================================ */
-/* Conversation workspace tabs use the existing borderless Titanium controls. */
-#workspace-tabs { display: flex; gap: 6px; flex: 1 1 auto; min-width: 0; overflow-x: auto; padding: 3px 0; scrollbar-width: thin; }
+html[data-workspace-tab="true"] .preview-head { min-height: 34px; padding: 4px 16px; gap: 8px; }
+html[data-workspace-tab="true"] .preview-title { display: none; }
+html[data-workspace-tab="true"] .preview-path { margin-top: 0; }
+html[data-workspace-tab="true"] .preview-actions .iconbtn { width: 26px; height: 26px; }
+
+/* A single compact tab row replaces the repeated conversation title. */
+#workspace-tabs { display: flex; align-items: center; gap: 4px; flex: 1 1 auto; min-width: 0; overflow-x: auto; padding: 0; scrollbar-width: none; }
+#workspace-tabs::-webkit-scrollbar { display: none; }
 #workspace-tabs[hidden], #workspace-preview[hidden] { display: none; }
-#win[data-workspace-tabs="true"] > .win-head .info { flex: 0 1 30%; min-width: 90px; }
-.workspace-tab { display: flex; align-items: center; flex: none; max-width: 220px; border: 0; border-radius: var(--radius-control); background: var(--surface-2); color: var(--text-2); }
-.workspace-tab[data-selected="true"] { background: var(--accent-soft); color: var(--accent-text); }
-.workspace-tab-select { min-width: 0; min-height: 36px; padding: 8px 12px; border: 0; border-radius: var(--radius-control); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--t-secondary); }
-.workspace-tab-close { flex: none; display: grid; place-items: center; width: 32px; height: 32px; margin-right: 2px; border: 0; border-radius: var(--radius-compact); font-size: var(--t-display); }
-.workspace-tab-select:hover, .workspace-tab-close:hover { background: var(--surface-hover); }
-#workspace-preview { position: absolute; z-index: 12; inset: 0; background: var(--surface-1); }
+#win[data-workspace-tabs="true"] > .win-head { min-height: 42px; padding-block: 6px; gap: 8px; background: var(--surface); }
+#win[data-workspace-tabs="true"] > .win-head .info { display: none; }
+#win[data-workspace-tabs="true"] > .win-head > .iconbtn { width: 28px; height: 28px; }
+.workspace-tab { display: flex; align-items: center; flex: 0 1 220px; min-width: 90px; max-width: 220px; border: 0; border-radius: var(--radius-compact); background: var(--surface-2); color: var(--text-2); }
+.workspace-tab[data-selected="true"] { background: var(--surface-1); color: var(--text); box-shadow: var(--e1); }
+.workspace-tab-select { display: flex; align-items: center; gap: 7px; flex: 1; min-width: 0; height: 28px; min-height: 28px; padding: 0 9px; border: 0; border-radius: var(--radius-compact); font-size: var(--t-secondary); line-height: 1; }
+.workspace-tab-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.workspace-tab-icon { display: flex; flex: none; }
+.workspace-tab-icon svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 1.65; stroke-linecap: round; stroke-linejoin: round; }
+.workspace-tab-close { flex: none; display: grid; place-items: center; width: 24px; height: 24px; margin-right: 2px; border: 0; border-radius: var(--radius-compact); color: var(--text-3); font-size: var(--t-body); line-height: 1; }
+.workspace-tab-preview { position: fixed; z-index: 250; width: min(340px, calc(100vw - 16px)); padding: 14px 16px; border: 0; border-radius: var(--radius-card); background: var(--surface-1); color: var(--text); box-shadow: var(--e3); }
+.workspace-tab-preview[hidden] { display: none; }
+.workspace-tab-preview-title { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; font-size: var(--t-body); font-weight: 600; line-height: 1.4; overflow-wrap: anywhere; }
+.workspace-tab-preview-text { display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden; margin-top: 8px; color: var(--text-1); font-size: var(--t-secondary); line-height: 1.6; white-space: pre-line; overflow-wrap: anywhere; }
+.workspace-tab-preview-path { margin-top: 8px; color: var(--text-3); font-size: var(--t-caption); line-height: 1.5; overflow-wrap: anywhere; }
+.workspace-tab-preview-text[hidden], .workspace-tab-preview-path[hidden] { display: none; }
+#workspace-preview { position: absolute; z-index: 12; inset: 0 0 var(--workspace-composer-height, 0px); background: var(--surface-1); }
 .workspace-preview-frame { width: 100%; height: 100%; border: 0; display: block; }
 .workspace-preview-frame[hidden] { display: none; }
-#win[data-workspace-preview="true"] .win-body > :not(#workspace-preview) { visibility: hidden; pointer-events: none; }
-#win[data-workspace-preview="true"] > #reload-banner,
-#win[data-workspace-preview="true"] > #mobile-input { display: none; }
+#win[data-workspace-preview="true"] .win-body > :not(#workspace-preview):not(#chat-pane) { visibility: hidden; pointer-events: none; }
+#win[data-workspace-preview="true"] #chat-pane { background: transparent; z-index: 13; pointer-events: none; }
+#win[data-workspace-preview="true"] #chat-scroll,
+#win[data-workspace-preview="true"] #chat-turn-pin,
+#win[data-workspace-preview="true"] .chat-composer-float { visibility: hidden; pointer-events: none; }
+#win[data-workspace-preview="true"] #chat-composer { pointer-events: auto; background: var(--chat-bg); }
+#win[data-workspace-preview="true"] #chat-composer::before { content: none; }
+#win[data-workspace-preview="true"] > #reload-banner { display: none; }
 
 @media (max-width: 860px) {
-  #win[data-workspace-tabs="true"] > .win-head { flex-wrap: wrap; gap: 6px; }
-  #win[data-workspace-tabs="true"] > .win-head .info { flex: 1; }
-  #workspace-tabs { order: 10; flex-basis: 100%; }
+  #win[data-workspace-tabs="true"] > .win-head { flex-wrap: nowrap; padding-block: 0; gap: 6px; min-height: 44px; }
+  #win[data-workspace-tabs="true"] > .win-head > .iconbtn { width: 44px; height: 44px; }
+  #workspace-tabs { gap: 4px; }
   .workspace-tab-select, .workspace-tab-close { min-height: 44px; }
   .workspace-tab-close { width: 44px; height: 44px; }
+  html[data-workspace-tab="true"] .preview-actions .iconbtn { width: 44px; height: 44px; }
 
   #rail-collapse, #sessions-collapse, #sessions-launcher, #sessions-backdrop { display: none !important; }
   .preview-head {
-    min-height: 58px; grid-template-columns: 34px minmax(0, 1fr) auto auto; gap: 8px;
+    min-height: 58px; grid-template-columns: minmax(0, 1fr) auto; gap: 8px;
     padding: max(8px, env(safe-area-inset-top, 0px)) 10px 8px;
   }
-  .preview-meta .preview-size, #preview-host { display: none; }
   .preview-markdown > .chat-markdown { padding: 24px 18px 52px; }
   .preview-text .CodeMirror-lines { padding: 24px 0 52px; }
   .preview-text .CodeMirror pre.CodeMirror-line,
