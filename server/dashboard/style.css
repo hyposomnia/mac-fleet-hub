@@ -586,6 +586,9 @@ html.automation-doc-root, html.automation-doc-root body { height: auto; min-heig
 .device-icon.is-offline { opacity: .6; }
 .device-status-mark { position: absolute; right: -2px; bottom: 0; width: 5px; height: 5px; border: 0; border-radius: var(--r-pill); background: var(--offline); box-shadow: 0 0 0 2px var(--surface); }
 .is-online .device-status-mark { background: var(--online); }
+#host-modal .modal { display: flex; flex-direction: column; overflow: hidden; }
+#host-modal .modal-head, #host-modal .modal-foot { flex: none; }
+#host-modal .modal-body { min-height: 0; overflow-y: auto; }
 .hm-device-icon { display: inline-flex; flex: none; }
 .device-appearance-editor { padding-bottom: 16px; margin-bottom: 12px; }
 .device-appearance-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
