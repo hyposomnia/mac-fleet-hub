@@ -38,6 +38,7 @@ test('file identity scopes device/cwd, normalizes relative paths and line locati
   assert.equal(api.previewTarget('https://other.test/view?mac=m1&path=x.py'), null);
   assert.equal(api.previewTarget('/view?mac=invalid&path=x.py'), null);
   assert.equal(api.previewTarget('/account'), null);
+  assert.equal(api.previewTarget(url('/repo/a.py')).detail, 'M1 · /repo/a.py');
 });
 
 test('multiple files are retained, repeat links reuse a frame, selecting chat preserves the conversation DOM', () => {

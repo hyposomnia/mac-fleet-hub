@@ -18,7 +18,7 @@
       const key = JSON.stringify([request.macId, !path.startsWith('/') && !request.cwd ? 'relative' : '', path.startsWith('~') ? request.cwd : '', parts]);
       url.searchParams.delete('embed');
       return {key, url: url.pathname + url.search, name: path.split('/').filter(Boolean).pop() || '文件',
-        detail: `${request.macId.toUpperCase()} · ${request.cwd ? request.cwd + '/' : ''}${path}`};
+        detail: `${request.macId.toUpperCase()} · ${absolute}`};
     } catch (_) { return null; }
   }
 
