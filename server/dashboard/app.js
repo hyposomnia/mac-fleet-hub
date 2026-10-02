@@ -421,42 +421,33 @@ function isIMEComposing(e, composingFlag) {
 }
 
 // ============================================================
-//  主题（默认跟随系统，手动选择时才写 localStorage）
+//  主题（共享 Titanium 控制器，默认浅色）
 // ============================================================
-const THEME_COLORS = { dark: '#090c12', light: '#f6f7f9' };
-let themePreference = 'system';
-let themeMediaQuery;
-
-function applyTheme(t) {
-  document.documentElement.setAttribute('data-theme', t);
-  const themeColor = document.querySelector('meta[name="theme-color"]');
-  if (themeColor) themeColor.content = THEME_COLORS[t] || THEME_COLORS.dark;
-  applyTermTheme(); // 终端(iframe 内 xterm)跟随切换
-}
+function applyTheme(t) { FleetTheme.apply(t); applyTermTheme(); }
 
 // ttyd 把 xterm 实例挂在 iframe 的 window.term 上。这里按 data-theme 给它换肤，
 // 配色取自 style.css 的设计 token，让网页终端与 dashboard 深/浅色统一。
 const XTERM_THEME = {
   dark: {
-    background: '#090c12', foreground: '#e9eef5',
-    cursor: '#6e8bff', cursorAccent: '#090c12', selectionBackground: 'rgba(110,139,255,.28)',
+    background: '#10141B', foreground: '#F2F5F9',
+    cursor: '#B8D9FF', cursorAccent: '#10141B', selectionBackground: 'rgba(110,139,255,.28)',
     black: '#2b3240', brightBlack: '#6b7585',
     red: '#ff6b6b', brightRed: '#ff8f8f',
     green: '#46d39a', brightGreen: '#6ee3b4',
     yellow: '#d08a45', brightYellow: '#e8a868',
-    blue: '#6e8bff', brightBlue: '#93a9ff',
+    blue: '#B8D9FF', brightBlue: '#93a9ff',
     magenta: '#b18bff', brightMagenta: '#c9adff',
     cyan: '#5cc8d8', brightCyan: '#82dbe8',
-    white: '#aab4c4', brightWhite: '#e9eef5',
+    white: '#BBC9DB', brightWhite: '#F2F5F9',
   },
   light: {
-    background: '#f6f7f9', foreground: '#141821',
-    cursor: '#3f5cff', cursorAccent: '#f6f7f9', selectionBackground: 'rgba(63,92,255,.16)',
-    black: '#2c333f', brightBlack: '#828c9d',
-    red: '#dc3b3b', brightRed: '#b32d2d',
-    green: '#12a567', brightGreen: '#0c8a55',
-    yellow: '#9c6321', brightYellow: '#b5762b',
-    blue: '#3f5cff', brightBlue: '#2f49e6',
+    background: '#F7F9FB', foreground: '#253446',
+    cursor: '#2C5D87', cursorAccent: '#F7F9FB', selectionBackground: 'rgba(63,92,255,.16)',
+    black: '#2c333f', brightBlack: '#516476',
+    red: '#A23B40', brightRed: '#b32d2d',
+    green: '#386046', brightGreen: '#0c8a55',
+    yellow: '#785319', brightYellow: '#b5762b',
+    blue: '#2C5D87', brightBlue: '#244D70',
     magenta: '#7c4ddb', brightMagenta: '#6a3fc9',
     cyan: '#1f8fa6', brightCyan: '#157e94',
     white: '#e2e6ec', brightWhite: '#ffffff',
@@ -472,34 +463,14 @@ function applyTermTheme() {
     } catch (_) {}
   }
 }
+let themeSubscription;
 function initTheme() {
-  try { themePreference = localStorage.getItem('fleet-theme'); } catch (_) {}
-  if (themePreference !== 'light' && themePreference !== 'dark') themePreference = 'system';
-  themeMediaQuery = matchMedia('(prefers-color-scheme: light)');
-  themeMediaQuery.addEventListener('change', () => {
-    if (themePreference === 'system') applyTheme(resolvedTheme());
-  });
-  applyTheme(resolvedTheme());
-  syncThemeControls();
+  if (!themeSubscription) themeSubscription = FleetTheme.subscribe(() => applyTermTheme());
+  FleetTheme.refresh();
 }
-function resolvedTheme() {
-  return themePreference === 'system' ? (themeMediaQuery.matches ? 'light' : 'dark') : themePreference;
-}
-function syncThemeControls() {
-  $$('[data-theme-choice]').forEach((button) => {
-    button.setAttribute('aria-pressed', String(button.dataset.themeChoice === themePreference));
-  });
-}
-function setThemePreference(preference) {
-  if (preference !== 'system' && preference !== 'light' && preference !== 'dark') return;
-  themePreference = preference;
-  try {
-    if (preference === 'system') localStorage.removeItem('fleet-theme');
-    else localStorage.setItem('fleet-theme', preference);
-  } catch (_) {}
-  applyTheme(resolvedTheme());
-  syncThemeControls();
-}
+function resolvedTheme() { return FleetTheme.resolvedTheme(); }
+function syncThemeControls() { FleetTheme.syncControls(); }
+function setThemePreference(preference) { FleetTheme.setPreference(preference); }
 
 // ============================================================
 //  toast（状态反馈，取代 alert）
@@ -7145,19 +7116,47 @@ function doLogout() {
 // ============================================================
 function openOverlay(id) { $('#' + id).hidden = false; }
 function closeOverlay(id) { $('#' + id).hidden = true; }
-function closeMenus() {
+let globalMenu = null;
+function closeMenus({ restoreFocus = false } = {}) {
+  const trigger = globalMenu?.trigger;
   $('#usermenu').hidden = true;
   $('#m-menu').hidden = true;
+  trigger?.setAttribute('aria-expanded', 'false');
+  globalMenu = null;
   $$('.ses-menu').forEach((menu) => { menu.hidden = true; });
   closeFileSettings();
+  if (restoreFocus) trigger?.focus();
 }
+function globalMenuItems(menu) { return [...menu.querySelectorAll('button:not(:disabled):not([hidden])')]; }
 function toggleMenu(id, e) {
   if (e) e.stopPropagation();
-  const m = $('#' + id);
-  const willOpen = m.hidden;
+  const menu = $('#' + id);
+  const willOpen = menu.hidden;
+  const trigger = e?.currentTarget || $('#' + (id === 'usermenu' ? 'user-btn' : 'm-menu-btn'));
   closeMenus();
   updateSettingsMenus();
-  m.hidden = !willOpen;
+  menu.hidden = !willOpen;
+  if (willOpen) {
+    globalMenu = { id, trigger };
+    trigger?.setAttribute('aria-expanded', 'true');
+    if (e?.detail === 0 || e?.key) globalMenuItems(menu)[0]?.focus();
+  }
+}
+function handleGlobalMenuKeydown(e) {
+  if (!globalMenu) return false;
+  if (e.key === 'Escape') {
+    e.preventDefault();
+    closeMenus({ restoreFocus: true });
+    return true;
+  }
+  const items = globalMenuItems($('#' + globalMenu.id));
+  const index = items.indexOf(document.activeElement);
+  if (index < 0 || !['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(e.key)) return false;
+  e.preventDefault();
+  const next = e.key === 'Home' ? 0 : e.key === 'End' ? items.length - 1 :
+    (index + (e.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length;
+  items[next]?.focus();
+  return true;
 }
 
 // ============================================================
@@ -7585,10 +7584,23 @@ function init() {
       toggleMenu('m-menu', event);
     };
   });
+  $$('#user-btn, #m-menu-btn, .mobile-menu-trigger').forEach((button) => {
+    button.setAttribute('aria-haspopup', 'true');
+    button.setAttribute('aria-controls', button.id === 'user-btn' ? 'usermenu' : 'm-menu');
+    button.setAttribute('aria-expanded', 'false');
+    button.addEventListener('keydown', (event) => {
+      if (!['ArrowDown', 'ArrowUp'].includes(event.key)) return;
+      event.preventDefault();
+      const id = button.id === 'user-btn' ? 'usermenu' : 'm-menu';
+      if ($('#' + id).hidden) toggleMenu(id, event);
+      const items = globalMenuItems($('#' + id));
+      (event.key === 'ArrowUp' ? items.at(-1) : items[0])?.focus();
+    });
+  });
   $$('#usermenu button, #m-menu button').forEach((b) => {
     if (!b.dataset.act && !b.dataset.themeChoice) return;
     b.onclick = () => {
-      closeMenus();
+      closeMenus({ restoreFocus: Boolean(b.dataset.themeChoice) });
       if (b.dataset.themeChoice) setThemePreference(b.dataset.themeChoice);
       else if (b.dataset.act === 'archive') toggleArchivedSessions();
       else if (b.dataset.act === 'automation') openAutomation();
@@ -7651,6 +7663,7 @@ function init() {
   });
   document.addEventListener('keydown', (e) => {
     if (handleChatImageViewerKeydown(e)) return;
+    if (handleGlobalMenuKeydown(e)) return;
     if (e.key !== 'Escape') return;
     if (state.chat?.subagentPanelMode && state.chat.subagentPanelMode !== 'closed') {
       setChatSubagentPanel(state.chat, 'closed');

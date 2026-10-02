@@ -5,6 +5,7 @@ import vm from 'node:vm';
 
 const src = await readFile(new URL('./chat_model.js', import.meta.url), 'utf8');
 const uploadModelSrc = await readFile(new URL('./upload_model.js', import.meta.url), 'utf8');
+const themeSrc = await readFile(new URL('./theme.js', import.meta.url), 'utf8');
 const appSrc = await readFile(new URL('./app.js', import.meta.url), 'utf8');
 const markdownSrc = await readFile(new URL('./markdown.js', import.meta.url), 'utf8');
 const previewSrc = await readFile(new URL('./preview.js', import.meta.url), 'utf8');
@@ -93,6 +94,7 @@ const appSandbox = {
   clearTimeout,
 };
 vm.createContext(appSandbox);
+vm.runInContext(themeSrc, appSandbox);
 vm.runInContext(`${appSrc}\n;globalThis.__chatCacheTest = { chatCacheVictim, isChatConnectionKept, isSessionRunning, updateChatUpdatedAt, formatChatDate, chatAssistantMetaText, chatUserMetaText, chatMessageMetaVisibility, applyChatMetadataDefaults, normalizeChatDraft, isNoActiveTurnError, createDeviceScopeButton, chatSkillTriggerAt, parseChatSkillInput, chatSkillTokenNames, mergeChatComposerText, mergeChatAttachments, chatComposerAction: typeof chatComposerAction === 'function' ? chatComposerAction : null, isNewerChatControlSnapshot: typeof isNewerChatControlSnapshot === 'function' ? isNewerChatControlSnapshot : null, isCompleteChatControlSnapshot: typeof isCompleteChatControlSnapshot === 'function' ? isCompleteChatControlSnapshot : null, applyChatControlSnapshot: typeof applyChatControlSnapshot === 'function' ? applyChatControlSnapshot : null, isChatControlFresh: typeof isChatControlFresh === 'function' ? isChatControlFresh : null, markChatControlSyncFailure: typeof markChatControlSyncFailure === 'function' ? markChatControlSyncFailure : null, chatOwnershipPresentation: typeof chatOwnershipPresentation === 'function' ? chatOwnershipPresentation : null, chatImageSrc, chatImageDownloadName: typeof chatImageDownloadName === 'function' ? chatImageDownloadName : null, clampChatImageViewerZoom: typeof clampChatImageViewerZoom === 'function' ? clampChatImageViewerZoom : null, chatImageViewerFitScale: typeof chatImageViewerFitScale === 'function' ? chatImageViewerFitScale : null, chatImageViewerWheelZoom: typeof chatImageViewerWheelZoom === 'function' ? chatImageViewerWheelZoom : null, chatImageViewerPinchZoom: typeof chatImageViewerPinchZoom === 'function' ? chatImageViewerPinchZoom : null, chatImageViewerViewportAnchor: typeof chatImageViewerViewportAnchor === 'function' ? chatImageViewerViewportAnchor : null, chatImageViewerViewportCenter: typeof chatImageViewerViewportCenter === 'function' ? chatImageViewerViewportCenter : null, openChatImageViewer: typeof openChatImageViewer === 'function' ? openChatImageViewer : null, closeChatImageViewer: typeof closeChatImageViewer === 'function' ? closeChatImageViewer : null, setChatImageViewerZoom: typeof setChatImageViewerZoom === 'function' ? setChatImageViewerZoom : null, handleChatImageViewerKeydown: typeof handleChatImageViewerKeydown === 'function' ? handleChatImageViewerKeydown : null, chatToolStatus, chatToolDuration, chatToolActivityLabel, chatToolHasExpandableBody, isChatActivityItem, isChatTraceItem: typeof isChatTraceItem === 'function' ? isChatTraceItem : null, chatRenderUnits: typeof chatRenderUnits === 'function' ? chatRenderUnits : null, renderChatTurnProgress: typeof renderChatTurnProgress === 'function' ? renderChatTurnProgress : null, chatActivityGroupSummaryText, chatActivityActiveSummarySegments, chatActivityGroupIconKind, renderChatActivityGroup, renderChatActivityRun: typeof renderChatActivityRun === 'function' ? renderChatActivityRun : null, renderChatItem: typeof renderChatItem === 'function' ? renderChatItem : null, sessionProjectInfo: typeof sessionProjectInfo === 'function' ? sessionProjectInfo : null, groupSessionsByProject: typeof groupSessionsByProject === 'function' ? groupSessionsByProject : null, sessionRow, sessionStatus, observeSessionActivity, filterFileEntries, sortFileEntries: typeof sortFileEntries === 'function' ? sortFileEntries : null, normalizeFileView: typeof normalizeFileView === 'function' ? normalizeFileView : null, truncateFileColumns: typeof truncateFileColumns === 'function' ? truncateFileColumns : null, fileColumnRequestCurrent: typeof fileColumnRequestCurrent === 'function' ? fileColumnRequestCurrent : null, fileIconName: typeof fileIconName === 'function' ? fileIconName : null, activeFileLocationID: typeof activeFileLocationID === 'function' ? activeFileLocationID : null, applyTheme: typeof applyTheme === 'function' ? applyTheme : null, visualKeyboardInset: typeof visualKeyboardInset === 'function' ? visualKeyboardInset : null, sessionBackDragOffset: typeof sessionBackDragOffset === 'function' ? sessionBackDragOffset : null, isSessionBackSwipe: typeof isSessionBackSwipe === 'function' ? isSessionBackSwipe : null, ensurePendingChatStarted: typeof ensurePendingChatStarted === 'function' ? ensurePendingChatStarted : null, filePreviewTypeLabel, filePreviewLocation, chatTurnPinText: typeof chatTurnPinText === 'function' ? chatTurnPinText : () => '', isInternalChatTool: typeof isInternalChatTool === 'function' ? isInternalChatTool : () => false, chatSubagentStatus: typeof chatSubagentStatus === 'function' ? chatSubagentStatus : null, chatSubagentMeta: typeof chatSubagentMeta === 'function' ? chatSubagentMeta : null, chatSubagentShouldShow: typeof chatSubagentShouldShow === 'function' ? chatSubagentShouldShow : null, chatSubagentShouldRefreshDetail: typeof chatSubagentShouldRefreshDetail === 'function' ? chatSubagentShouldRefreshDetail : null, ensureChatSubagentState: typeof ensureChatSubagentState === 'function' ? ensureChatSubagentState : null, state };`, appSandbox);
 const { chatCacheVictim, isChatConnectionKept, isSessionRunning, updateChatUpdatedAt, formatChatDate, chatAssistantMetaText, chatUserMetaText, chatMessageMetaVisibility, applyChatMetadataDefaults, normalizeChatDraft, isNoActiveTurnError, createDeviceScopeButton, chatSkillTriggerAt, parseChatSkillInput, chatSkillTokenNames, mergeChatComposerText, mergeChatAttachments, chatComposerAction, isNewerChatControlSnapshot, isCompleteChatControlSnapshot, applyChatControlSnapshot, isChatControlFresh, markChatControlSyncFailure, chatOwnershipPresentation, chatImageSrc, chatImageDownloadName, clampChatImageViewerZoom, chatImageViewerFitScale, chatImageViewerWheelZoom, chatImageViewerPinchZoom, chatImageViewerViewportAnchor, chatImageViewerViewportCenter, openChatImageViewer, closeChatImageViewer, setChatImageViewerZoom, handleChatImageViewerKeydown, chatToolStatus, chatToolDuration, chatToolActivityLabel, chatToolHasExpandableBody, isChatActivityItem, isChatTraceItem, chatRenderUnits, renderChatTurnProgress, chatActivityGroupSummaryText, chatActivityActiveSummarySegments, chatActivityGroupIconKind, renderChatActivityGroup, renderChatActivityRun, renderChatItem, sessionProjectInfo, groupSessionsByProject, sessionRow, sessionStatus, observeSessionActivity, filterFileEntries, sortFileEntries, normalizeFileView, truncateFileColumns, fileColumnRequestCurrent, fileIconName, activeFileLocationID, applyTheme, visualKeyboardInset, sessionBackDragOffset, isSessionBackSwipe, ensurePendingChatStarted, filePreviewTypeLabel, filePreviewLocation, chatTurnPinText, isInternalChatTool, chatSubagentStatus, chatSubagentMeta, chatSubagentShouldShow, chatSubagentShouldRefreshDetail, ensureChatSubagentState, state: appState } = appSandbox.__chatCacheTest;
 vm.runInContext('globalThis.__updateChatSkillMenuTest = updateChatSkillMenu;', appSandbox);
@@ -1290,7 +1292,7 @@ test('file preview presents native-style type and home-relative location details
   assert.equal(filePreviewLocation('/Users/demo/Downloads/design.png', '/Users/demo'), '~/Downloads');
   assert.equal(filePreviewLocation('/Users/demo/design.png', '/Users/demo'), '~');
   assert.match(styleCSS, /\.file-preview-stage\s*\{[^}]*flex:\s*1 1 auto/);
-  assert.match(styleCSS, /\.file-preview-info\s*\{[^}]*border-top:/);
+  assert.match(styleCSS, /\.file-preview-info\s*\{[^}]*border:\s*0;/);
   assert.match(styleCSS, /\.file-preview-head \.iconbtn\s*\{\s*width:\s*44px;\s*height:\s*44px/);
 });
 
@@ -1859,7 +1861,8 @@ test('self-drawn composer contains native stop control and follow-up queue', () 
   assert.match(indexHTML, /data-action="send"/);
   assert.match(styleCSS, /\.chat-send \.chat-stop-icon\s*\{\s*display:\s*none/);
   assert.match(styleCSS, /chat-send\[data-action="interrupt"\]/);
-  assert.equal((styleCSS.match(/\.chat-send\s*\{\s*width:\s*36px;\s*height:\s*36px;/g) || []).length, 2);
+  assert.equal((styleCSS.match(/\.chat-send\s*\{\s*width:\s*36px;\s*height:\s*36px;/g) || []).length, 1);
+  assert.match(styleCSS, /\.chat-send\s*\{\s*width:\s*44px;\s*height:\s*44px;/);
   assert.match(styleCSS, /#chat-composer\s*\{\s*padding:\s*8px 10px max\(12px,\s*env\(safe-area-inset-bottom,\s*0px\)\);\s*\}/);
   assert.match(styleCSS, /#chat-composer::before\s*\{\s*content:\s*none;\s*\}/);
   assert.match(styleCSS, /html\.visual-keyboard-open #chat-composer\s*\{\s*padding-bottom:\s*4px;/);
@@ -2067,8 +2070,8 @@ test('self-drawn approval menu mirrors Codex three presets', () => {
   assert.match(appSrc, /if\s*\(chat\.approvalMode && assistantCapabilities\(\)\.approvalModes\)\s*turnOptions\.approvalMode\s*=\s*chat\.approvalMode/);
   assert.match(appSrc, /已开启完全访问，当前任务后续审批将自动允许。/);
   assert.match(appSrc, /https:\/\/developers\.openai\.com\/codex\/concepts\/sandboxing#how-you-control-it/);
-  assert.match(styleCSS, /\.chat-approval-choice\.full-access\s*\{\s*color:\s*#f04b14/);
-  assert.match(styleCSS, /\.chat-approval-trigger\[data-value="full-access"\][^{]*\{[^}]*color:\s*#f04b14/s);
+  assert.match(styleCSS, /\.chat-approval-choice\.full-access\s*\{\s*color:\s*var\(--wait\)/);
+  assert.match(styleCSS, /\.chat-approval-trigger\[data-value="full-access"\][^{]*\{[^}]*color:\s*var\(--wait\)/s);
   assert.match(styleCSS, /\.chat-approval-popover\s*\{[^}]*width:\s*min\(380px,/s);
   assert.match(styleCSS, /\.chat-approval-title\s*\{[^}]*font-size:\s*var\(--t-body\)/s);
   assert.match(styleCSS, /\.chat-approval-desc\s*\{[^}]*font-size:\s*var\(--t-secondary\)/s);
@@ -2152,8 +2155,8 @@ test('mobile session rows center single-line content vertically', () => {
 });
 
 test('mobile title switch emphasizes only the selected mode', () => {
-  assert.match(styleCSS, /\.mobile-title-switch button\s*\{[^}]*border-bottom:\s*3px solid transparent;[^}]*color:\s*var\(--text\);[^}]*font-weight:\s*500;/s);
-  assert.match(styleCSS, /\.mobile-title-switch button\[aria-selected="true"\]\s*\{[^}]*border-bottom-color:\s*var\(--accent\);[^}]*color:\s*var\(--accent\);[^}]*font-weight:\s*700;/s);
+  assert.match(styleCSS, /\.mobile-title-switch button\s*\{[^}]*border:\s*0;[^}]*color:\s*var\(--text\);[^}]*font-weight:\s*500;/s);
+  assert.match(styleCSS, /\.mobile-title-switch button\[aria-selected="true"\]\s*\{[^}]*[^}]*color:\s*var\(--accent\);[^}]*font-weight:\s*700;/s);
 });
 
 test('mobile device picker sits compactly in each title row', () => {
@@ -2247,9 +2250,9 @@ test('manual theme selection updates the browser chrome color', () => {
   themeMeta.content = '';
   appSandbox.document.querySelector = (selector) => selector === 'meta[name="theme-color"]' ? themeMeta : null;
   applyTheme('light');
-  assert.equal(themeMeta.content, '#f6f7f9');
+  assert.equal(themeMeta.content, '#EDF1F4');
   applyTheme('dark');
-  assert.equal(themeMeta.content, '#090c12');
+  assert.equal(themeMeta.content, '#10141B');
   assert.equal((indexHTML.match(/<meta name="theme-color"/g) || []).length, 1);
 });
 
@@ -2289,13 +2292,16 @@ test('system theme follows OS changes until a manual choice and can be selected 
     const { initTheme, setThemePreference } = vm.runInContext('({ initTheme, setThemePreference })', appSandbox);
     initTheme();
     assert.equal(stored, null);
+    assert.equal(appSandbox.document.documentElement.getAttribute('data-theme'), 'light');
+    setThemePreference('system');
+    assert.equal(stored, 'system');
     assert.equal(appSandbox.document.documentElement.getAttribute('data-theme'), 'dark');
     assert.deepEqual(controls.map((button) => button.getAttribute('aria-pressed')), ['true', 'false', 'false', 'true', 'false', 'false']);
 
     prefersLight = true;
     onSystemChange();
     assert.equal(appSandbox.document.documentElement.getAttribute('data-theme'), 'light');
-    assert.equal(themeMeta.content, '#f6f7f9');
+    assert.equal(themeMeta.content, '#EDF1F4');
 
     setThemePreference('dark');
     assert.equal(stored, 'dark');
@@ -2312,7 +2318,7 @@ test('system theme follows OS changes until a manual choice and can be selected 
     assert.deepEqual(controls.map((button) => button.getAttribute('aria-pressed')), ['false', 'true', 'false', 'false', 'true', 'false']);
 
     setThemePreference('system');
-    assert.equal(stored, null);
+    assert.equal(stored, 'system');
     assert.equal(appSandbox.document.documentElement.getAttribute('data-theme'), 'light');
     assert.deepEqual(controls.map((button) => button.getAttribute('aria-pressed')), ['true', 'false', 'false', 'true', 'false', 'false']);
   } finally {
@@ -3187,5 +3193,32 @@ test('DeepSeek capability discovery refreshes existing rows only when capabiliti
   } finally {
     vm.runInContext('({api, syncAssistantTabs, renderSessionResults} = __capOriginals); MACS.splice(0, MACS.length, ...__capOriginals.macs);', appSandbox);
     Object.assign(appState, {assistant:previous.assistant, assistantInfo:previous.info, nodes:previous.nodes});
+  }
+});
+
+test('global menu keyboard navigation skips disabled actions and Escape restores its trigger', () => {
+  const previousQuery = appSandbox.document.querySelector;
+  const previousQueryAll = appSandbox.document.querySelectorAll;
+  vm.runInContext('globalThis.__titaniumMenuOriginals = { closeFileSettings, updateSettingsMenus }; closeFileSettings = () => {}; updateSettingsMenus = () => {};', appSandbox);
+  const trigger = testElement('button'), first = testElement('button'), second = testElement('button'), disabled = testElement('button');
+  disabled.disabled = true;
+  const menu = testElement('div'); menu.hidden = true; menu.querySelectorAll = selector => {
+    assert.equal(selector, 'button:not(:disabled):not([hidden])');
+    return [first, disabled, second].filter(button => !button.disabled && !button.hidden);
+  };
+  const mobileMenu = testElement('div'); mobileMenu.hidden = true;
+  appSandbox.document.querySelector = selector => ({'#usermenu':menu,'#m-menu':mobileMenu,'#user-btn':trigger})[selector] || null;
+  appSandbox.document.querySelectorAll = () => [];
+  try {
+    const {toggleMenu, handleGlobalMenuKeydown} = vm.runInContext('({toggleMenu, handleGlobalMenuKeydown})', appSandbox);
+    toggleMenu('usermenu', {currentTarget: trigger, detail:0, stopPropagation(){}});
+    assert.equal(menu.hidden,false); assert.equal(trigger.getAttribute('aria-expanded'),'true'); assert.equal(first.focused,true);
+    appSandbox.document.activeElement=first;
+    handleGlobalMenuKeydown({key:'ArrowDown', preventDefault(){}}); assert.equal(second.focused,true); assert.equal(disabled.focused,undefined);
+    handleGlobalMenuKeydown({key:'Escape', preventDefault(){}});
+    assert.equal(menu.hidden,true); assert.equal(trigger.getAttribute('aria-expanded'),'false'); assert.equal(trigger.focused,true);
+  } finally {
+    appSandbox.document.querySelector=previousQuery; appSandbox.document.querySelectorAll=previousQueryAll;
+    vm.runInContext('({closeFileSettings, updateSettingsMenus} = __titaniumMenuOriginals);', appSandbox);
   }
 });
