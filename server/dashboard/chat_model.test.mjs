@@ -3105,7 +3105,7 @@ test('chat send keeps textarea focus through pointerdown on mobile keyboards', (
   assert.match(appSrc, /\$\('#chat-send'\)\.addEventListener\('pointerdown',[\s\S]*?document\.activeElement === \$\('#chat-input'\)[\s\S]*?e\.preventDefault\(\)/);
 });
 
-test('DeepSeek shares the session menu and only offers native archive on current sessions', () => {
+test('session archive is a first-level action beside the shared menu and respects native capabilities', () => {
   const previousInfo = appState.assistantInfo, previousScope = appState.scope;
   try {
     appState.assistantInfo = {m1: {dsh: {enabled: true, degraded: false,
@@ -3114,12 +3114,18 @@ test('DeepSeek shares the session menu and only offers native archive on current
     appState.scope = 'active';
     let menu = nodesWithClass(sessionRow(session), 'ses-menu')[0];
     assert.ok(menu, 'DeepSeek row must have the shared … menu');
-    assert.deepEqual(menu.children.map(nodeText), ['置顶', '重命名', '归档', '删除']);
+    assert.deepEqual(menu.children.map(nodeText), ['置顶', '重命名', '删除']);
+    const row = sessionRow(session);
+    const controls = nodesWithClass(row, 'ses-actions')[0];
+    assert.equal(controls.children[0].attributes['aria-label'], '归档会话');
+    assert.equal(controls.children[1].className, 'ses-menu-wrap');
     appState.scope = 'all';
     menu = nodesWithClass(sessionRow(session), 'ses-menu')[0];
     assert.deepEqual(menu.children.map(nodeText), ['置顶', '重命名', '删除']);
     const codexMenu = nodesWithClass(sessionRow({...session, assistant: 'codex'}), 'ses-menu')[0];
-    assert.deepEqual(codexMenu.children.map(nodeText), ['置顶', '重命名', '移回当前', '删除']);
+    assert.deepEqual(codexMenu.children.map(nodeText), ['置顶', '重命名', '删除']);
+    assert.equal(nodesWithClass(sessionRow(session), 'ses-archive-trigger').length, 0, 'DeepSeek does not support unarchive');
+    assert.equal(nodesWithClass(sessionRow({...session, assistant: 'codex'}), 'ses-archive-trigger')[0].attributes['aria-label'], '移回当前会话');
     appState.assistantInfo = {m1: {dsh: {enabled: true, degraded: false}}};
     assert.equal(nodesWithClass(sessionRow(session), 'ses-menu').length, 0, 'old agent must not expose unsupported actions');
   } finally { appState.assistantInfo = previousInfo; appState.scope = previousScope; }
@@ -3137,8 +3143,14 @@ test('DeepSeek menu clicks keep the row assistant and source Mac', async () => {
     const row = sessionRow({assistant: 'dsh', macId: 'm2', sessionId: 'session-menu', title: 'Menu', mtime: fixedAppNowMs});
     const menu = nodesWithClass(row, 'ses-menu')[0];
     assert.ok(menu);
-    await menu.children.find(button => nodeText(button) === '归档').onclick({stopPropagation() {}});
+    let stopped = false;
+    await nodesWithClass(row, 'ses-archive-trigger')[0].onclick({stopPropagation() { stopped = true; }});
+    assert.equal(stopped, true, 'archive must not activate the row');
     assert.deepEqual(JSON.parse(JSON.stringify(appSandbox.__menuCalls)), [{macId:'m2', path:'sessions/action', body:{assistant:'dsh',sessionId:'session-menu',action:'archive',value:''}}]);
+    appState.scope = 'all';
+    const archived = sessionRow({assistant: 'codex', macId: 'm3', sessionId: 'archived-session', title: 'Archived'});
+    await nodesWithClass(archived, 'ses-archive-trigger')[0].onclick({stopPropagation() {}});
+    assert.deepEqual(JSON.parse(JSON.stringify(appSandbox.__menuCalls[1])), {macId:'m3', path:'sessions/action', body:{assistant:'codex',sessionId:'archived-session',action:'unarchive',value:''}});
   } finally {
     vm.runInContext('({api, loadSessions, toast, renderSessionResults} = __menuOriginals);', appSandbox);
     appState.assistantInfo = previousInfo; appState.scope = previousScope;
@@ -3221,4 +3233,11 @@ test('global menu keyboard navigation skips disabled actions and Escape restores
     appSandbox.document.querySelector=previousQuery; appSandbox.document.querySelectorAll=previousQueryAll;
     vm.runInContext('({closeFileSettings, updateSettingsMenus} = __titaniumMenuOriginals);', appSandbox);
   }
+});
+
+
+test('session hover reveals actions without drawing an outline', () => {
+  const hoverRules = [...styleCSS.matchAll(/([^{}]*\.ses:hover[^{}]*)\{([^}]*)\}/g)];
+  assert.ok(hoverRules.length);
+  for (const [, , declarations] of hoverRules) assert.doesNotMatch(declarations, /outline\s*:\s*[1-9]/);
 });

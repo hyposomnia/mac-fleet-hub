@@ -660,10 +660,12 @@ html.automation-doc-root, html.automation-doc-root body { height: auto; min-heig
 .ses.chat-connected .ses-top .t { font-weight: 600; }
 .ses-pin { display: grid; place-items: center; width: 22px; height: 25px; flex: none; color: var(--text-2); }
 .ses-pin .ic { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.ses-actions { display: flex; align-items: center; gap: 2px; flex: none; }
 .ses-menu-wrap { position: relative; flex: none; }
-.ses-menu-trigger { width: 25px; height: 25px; border: 0; background: transparent; opacity: 0; }
-.ses:hover .ses-menu-trigger, .ses-menu-trigger:focus-visible, .ses-menu-wrap:has(.ses-menu:not([hidden])) .ses-menu-trigger { opacity: 1;  outline: 2px solid var(--accent); outline-offset: 3px;}
-.ses-menu-trigger .ic { width: 15px; height: 15px; }
+.ses-menu-trigger, .ses-archive-trigger { width: 25px; height: 25px; border: 0; border-radius: var(--radius-compact); background: transparent; opacity: 0; }
+.ses:hover .ses-actions .iconbtn, .ses:focus-within .ses-actions .iconbtn,
+.ses-actions:has(.ses-menu:not([hidden])) .iconbtn { opacity: 1; }
+.ses-menu-trigger .ic, .ses-archive-trigger .ic { width: 15px; height: 15px; }
 .ses-menu { position: absolute; top: calc(100% + 3px); right: 0; z-index: 20; min-width: 132px; padding: 5px; border: 0; border-radius: var(--radius-card); background: var(--surface); box-shadow: var(--e2); }
 .ses-menu button { display: block; width: 100%; padding: 7px 9px; border-radius: var(--radius-compact); color: var(--text); font-size: var(--t-secondary); text-align: left; }
 .ses-menu button:hover { background: var(--surface-hover); }
@@ -1524,7 +1526,7 @@ textarea.chat-request-input { resize: vertical; }
 .file-row-menu-wrap { position: relative; }
 .file-row-menu-trigger { width: 30px; height: 30px; opacity: 0; }
 .file-row:hover .file-row-menu-trigger, .file-row-menu-trigger:focus-visible,
-.file-row-menu-wrap:has(.file-row-menu:not([hidden])) .file-row-menu-trigger { opacity: 1;  outline: 2px solid var(--accent); outline-offset: 3px;}
+.file-row-menu-wrap:has(.file-row-menu:not([hidden])) .file-row-menu-trigger { opacity: 1; }
 .file-row:focus-visible, .file-icon-item:focus-visible, .file-column-row:focus-visible {
   outline: 2px solid var(--accent); outline-offset: 3px; box-shadow: none;
 }
@@ -1564,7 +1566,7 @@ textarea.chat-request-input { resize: vertical; }
 .file-icon-item .file-row-menu-trigger { opacity: 0; }
 .file-icon-item:hover .file-row-menu-trigger,
 .file-icon-item .file-row-menu-trigger:focus-visible,
-.file-icon-item .file-row-menu-wrap:has(.file-row-menu:not([hidden])) .file-row-menu-trigger { opacity: 1;  outline: 2px solid var(--accent); outline-offset: 3px;}
+.file-icon-item .file-row-menu-wrap:has(.file-row-menu:not([hidden])) .file-row-menu-trigger { opacity: 1; }
 .file-icon-item.is-hidden > strong,
 .file-icon-item.is-hidden .file-icon-meta { color: var(--text-3); }
 .file-icon-item.is-hidden > .file-glyph { background: var(--surface-2); color: var(--text-3); }
@@ -1601,11 +1603,11 @@ textarea.chat-request-input { resize: vertical; }
 .file-column-chevron { width: 15px; height: 15px; color: var(--text-2); fill: none; stroke: currentColor; stroke-width: 2; }
 .file-column-row .file-row-menu-trigger { opacity: 0; }
 .file-column-row:hover .file-column-chevron,
-.file-column-row:focus-within .file-column-chevron { opacity: 0;  outline: 2px solid var(--accent); outline-offset: 3px;}
+.file-column-row:focus-within .file-column-chevron { opacity: 0; }
 .file-column-row:hover .file-row-menu-trigger,
 .file-column-row:focus-within .file-row-menu-trigger,
 .file-column-row .file-row-menu-trigger:focus-visible,
-.file-column-row .file-row-menu-wrap:has(.file-row-menu:not([hidden])) .file-row-menu-trigger { opacity: 1;  outline: 2px solid var(--accent); outline-offset: 3px;}
+.file-column-row .file-row-menu-wrap:has(.file-row-menu:not([hidden])) .file-row-menu-trigger { opacity: 1; }
 .file-column-row.is-hidden > strong { color: var(--text-3); }
 .file-column-row.is-hidden > .file-glyph { background: var(--surface-2); color: var(--text-3); }
 .file-column-row.is-hidden .file-column-chevron { color: var(--text-3); }
@@ -1813,6 +1815,7 @@ textarea.chat-request-input { resize: vertical; }
   .grp-h .gpath { width: 34px; height: 34px; }
   .ses { min-height: 40px; padding: 2px 8px; justify-content: center; }
   .ses-top .t { font-size: var(--t-title); line-height: 1.25; }
+  .ses-menu-trigger, .ses-archive-trigger { width: 44px; height: 44px; border-radius: var(--radius-control); opacity: 1; }
   .ses-meta { margin-top: 1px; font-size: var(--t-secondary); }
   #app[data-mode="files"] #win { display: flex; flex: 1; min-height: 0; }
   #file-browser { width: 100%; }

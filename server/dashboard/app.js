@@ -1728,12 +1728,13 @@ function sessionRow(s) {
     ? h('span', { class: 'ses-pin', title: '已置顶' }, svgIcon('ic', 'M12 17v5M5 3h14l-3 6v4l2 2H6l2-2V9Z'))
     : null;
   const menu = renderSessionMenu(s);
+  const archive = renderSessionArchiveAction(s);
   const running = sessionRunning || live || FleetChatModel.chatPhase(s.status) === 'running';
   const top = h('div', { class: 'ses-top' },
     renderSessionStateDot(s, running),
     h('span', { class: 't', text: s.title || '(无标题)' }),
     pin,
-    menu,
+    (archive || menu) && h('div', { class: 'ses-actions' }, archive, menu),
   );
   const meta = h('div', { class: 'ses-meta' },
     state.sessionMacId === 'all' ? h('span', { class: 'session-device-name', text: macName(macId) }) : null,
@@ -1764,11 +1765,24 @@ function sessionMenuActions(session) {
   return [];
 }
 
+function renderSessionArchiveAction(session) {
+  const archived = state.scope === 'all';
+  const action = archived ? 'unarchive' : 'archive';
+  if (!sessionMenuActions(session).includes(action)) return null;
+  return h('button', {
+    type: 'button', class: 'iconbtn bare ses-archive-trigger',
+    title: archived ? '移回当前会话' : '归档会话',
+    'aria-label': archived ? '移回当前会话' : '归档会话',
+    onclick: (event) => { event.stopPropagation(); return mutateSession(session, action); },
+  }, svgIcon('ic', archived
+    ? 'M5 8v11h14V8M3 3h18v5H3ZM12 17v-6M9 14l3-3 3 3'
+    : 'M5 8v11h14V8M3 3h18v5H3ZM10 12h4'));
+}
+
 function renderSessionMenu(session) {
   const actions = sessionMenuActions(session);
   if (!actions.length) return null;
   const pinAction = session.pinned ? 'unpin' : 'pin';
-  const archived = state.scope === 'all';
   const menu = h('div', { class: 'ses-menu-wrap' },
     h('button', { type: 'button', class: 'iconbtn bare ses-menu-trigger', title: '会话操作', 'aria-label': '会话操作',
       onclick: (event) => {
@@ -1787,8 +1801,6 @@ function renderSessionMenu(session) {
       actions.includes(pinAction) && h('button', { type: 'button', onclick: (event) => { event.stopPropagation(); return mutateSession(session, pinAction); } },
         session.pinned ? '取消置顶' : '置顶'),
       actions.includes('rename') && h('button', { type: 'button', onclick: (event) => { event.stopPropagation(); return renameSession(session); } }, '重命名'),
-      actions.includes(archived ? 'unarchive' : 'archive') && h('button', { type: 'button', onclick: (event) => { event.stopPropagation(); return mutateSession(session, archived ? 'unarchive' : 'archive'); } },
-        archived ? '移回当前' : '归档'),
       actions.includes('delete') && h('button', { type: 'button', class: 'danger', onclick: (event) => { event.stopPropagation(); return deleteSession(session); } }, '删除')));
   return menu;
 }
