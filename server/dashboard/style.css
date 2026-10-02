@@ -697,6 +697,7 @@ html.automation-doc-root, html.automation-doc-root body { height: auto; min-heig
 .empty-down .ed-t { color: var(--danger); font-weight: 600; }
 .empty-down .ed-s { color: var(--text-3); font-size: var(--t-secondary); line-height: 1.5; }
 .empty-retry { margin-top: 8px; }
+.empty-add-device { margin-top: 16px; text-decoration: none; }
 
 /* 骨架占位行（加载会话时） */
 .skel-ses { padding: 11px; margin-bottom: 8px; }

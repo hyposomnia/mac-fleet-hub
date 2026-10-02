@@ -8,7 +8,7 @@ import path from "node:path";
 
 const appPath = process.env.FLEET_CODEX_DESKTOP_APP_PATH || "/Applications/ChatGPT.app";
 const resourcesPath = path.join(appPath, "Contents", "Resources");
-const codexBin = process.env.FLEET_CODEX_BIN;
+const resolverPath = (process.env.FLEET_CODEX_RESOLVER || "").trim();
 const listenURL = process.env.FLEET_CODEX_APPSERVER_LISTEN;
 const proxySocket = process.env.FLEET_CODEX_APPSERVER_PROXY_SOCK;
 const codexHome = process.env.CODEX_HOME || path.join(os.homedir(), ".codex");
@@ -17,8 +17,59 @@ const stablePipe = path.join(stateDir, "codex-app-tools.sock");
 const desktopCommand = path.join(appPath, "Contents", "MacOS", "ChatGPT");
 
 function fail(message) {
-  process.stderr.write(`mac-fleet shared app-server: ${message}\n`);
+  process.stderr.write(`${new Date().toISOString()} mac-fleet shared app-server: ${message}\n`);
   process.exit(1);
+}
+
+function note(message) {
+  process.stderr.write(`${new Date().toISOString()} mac-fleet shared app-server: ${message}\n`);
+}
+
+// 可执行性校验：存在 + 是普通文件（跟随软链后）+ 有执行位。
+// 只判断 existsSync 会把「指向已删除 /tmp 的断链软链」当成可用路径（事故里踩过）。
+function isUsableBinary(candidate) {
+  if (!candidate) return false;
+  try {
+    const real = fs.realpathSync(candidate);
+    fs.accessSync(real, fs.constants.X_OK);
+    return fs.statSync(real).isFile();
+  } catch {
+    return false;
+  }
+}
+
+// 解析 Codex 可执行文件（风险点 R2）：优先 env（由监督包装器给出，已是解析结果），
+// 否则调用唯一解析器 mac/codex-bin-resolve.sh，让 App 更新后无需重装即可自愈。
+function resolveCodexBin() {
+  const configured = (process.env.FLEET_CODEX_BIN || "").trim();
+  if (isUsableBinary(configured)) return { bin: fs.realpathSync(configured), source: "env" };
+  if (resolverPath && fs.existsSync(resolverPath)) {
+    try {
+      const out = execFileSync("/bin/bash", [resolverPath], {
+        encoding: "utf8",
+        timeout: 15000,
+        stdio: ["ignore", "pipe", "pipe"],
+      }).trim();
+      const candidate = out.split("\t")[0];
+      if (isUsableBinary(candidate)) return { bin: fs.realpathSync(candidate), source: "resolver" };
+    } catch {
+      // 解析器失败时走下面的统一报错路径。
+    }
+  }
+  return { bin: "", source: "" };
+}
+
+function resolverExplanation() {
+  if (!resolverPath || !fs.existsSync(resolverPath)) return "";
+  try {
+    return execFileSync("/bin/bash", [resolverPath, "--explain"], {
+      encoding: "utf8",
+      timeout: 15000,
+      stdio: ["ignore", "pipe", "pipe"],
+    }).trim();
+  } catch (error) {
+    return String(error?.stdout || "").trim();
+  }
 }
 
 function assertSharedListenURL(value) {
@@ -258,7 +309,15 @@ function startUnixProxy() {
   return server;
 }
 
-if (!codexBin || !fs.existsSync(codexBin)) fail(`Codex binary is unavailable: ${codexBin || "(empty)"}`);
+const resolvedCodex = resolveCodexBin();
+const codexBin = resolvedCodex.bin;
+if (!codexBin) {
+  const detail = resolverExplanation();
+  fail(`Codex binary is unavailable: ${process.env.FLEET_CODEX_BIN || "(empty)"}${detail ? `\n${detail}` : ""}`);
+}
+if (resolvedCodex.source === "resolver") {
+  note(`codex 路径已重新解析（App 更新后自愈）：${codexBin}`);
+}
 assertSharedListenURL(listenURL);
 try {
   refreshStablePipe();

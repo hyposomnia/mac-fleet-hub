@@ -11,7 +11,7 @@
     <array>
         <string>__FB_BIN__</string>
         <string>-a</string>
-        <string>__TS_IP__</string>
+        <string>127.0.0.1</string>
         <string>-p</string>
         <string>__PORT__</string>
         <string>-r</string>
@@ -26,8 +26,8 @@
     <key>KeepAlive</key>
     <true/>
     <key>StandardOutPath</key>
-    <string>/tmp/macfleet-filebrowser.log</string>
+    <string>__FLEET_LOG_DIR__/filebrowser.log</string>
     <key>StandardErrorPath</key>
-    <string>/tmp/macfleet-filebrowser.err</string>
+    <string>__FLEET_LOG_DIR__/filebrowser.err</string>
 </dict>
 </plist>

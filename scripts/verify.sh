@@ -18,7 +18,10 @@ step "Go 测试：server/enroll (go test ./...)"
 (cd "$ROOT/server/enroll" && go test ./...)
 
 step "Dashboard JS 测试：server/dashboard (node --test)"
-node --test "$ROOT/server/dashboard/chat_model.test.mjs" "$ROOT/server/dashboard/upload_model.test.mjs" "$ROOT/server/dashboard/assistant_gate.test.mjs" "$ROOT/server/dashboard/gateway_down.test.mjs"
+node --test "$ROOT/server/dashboard/chat_model.test.mjs" "$ROOT/server/dashboard/upload_model.test.mjs" "$ROOT/server/dashboard/assistant_gate.test.mjs" "$ROOT/server/dashboard/gateway_down.test.mjs" "$ROOT/server/dashboard/auth.test.mjs" "$ROOT/server/dashboard/auth_integration.test.mjs" "$ROOT/server/dashboard/account_pages.test.mjs" "$ROOT/server/dashboard/theme.test.mjs"
+
+step "候选安装包与独立网关配置测试"
+node --test "$ROOT/scripts/client-release-manifest.test.mjs" "$ROOT/scripts/acceptance-network-templates.test.mjs"
 
 step "Shell 工具测试：tests/tailscale-utils_test.sh"
 bash "$ROOT/tests/tailscale-utils_test.sh"
@@ -26,6 +29,18 @@ echo "tailscale-utils tests passed"
 
 step "Mac shared 安装测试：tests/setup-mac-shared_test.sh"
 bash "$ROOT/tests/setup-mac-shared_test.sh"
+
+step "逐用户客户端授权：tests/client-authorization_test.sh"
+bash "$ROOT/tests/client-authorization_test.sh"
+
+step "Codex 路径解析回归（R2）：tests/codex-bin-resolve_test.sh"
+bash "$ROOT/tests/codex-bin-resolve_test.sh"
+
+step "app-server 熔断/退避回归（R4）：tests/codex-keeper-launch_test.sh"
+bash "$ROOT/tests/codex-keeper-launch_test.sh"
+
+step "卸载还原 GUI 域环境变量回归（R1/R3）：tests/uninstall-restore_test.sh"
+bash "$ROOT/tests/uninstall-restore_test.sh"
 
 step "Codex 空闲迁移守卫测试：tests/check-codex-idle_test.sh"
 bash "$ROOT/tests/check-codex-idle_test.sh"
@@ -36,6 +51,9 @@ bash "$ROOT/tests/check-fleet-update-safe_test.sh"
 
 step "nginx 站点配置测试：tests/nginx-config_test.sh"
 bash "$ROOT/tests/nginx-config_test.sh"
+
+step "统一多用户部署测试：tests/multiuser-server_test.sh"
+bash "$ROOT/tests/multiuser-server_test.sh"
 
 step "shell 变量花括号守卫：tests/bash-var-brace_test.sh"
 bash "$ROOT/tests/bash-var-brace_test.sh"

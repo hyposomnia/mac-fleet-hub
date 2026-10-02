@@ -93,6 +93,7 @@ type messageJob struct {
 	DeviceID           string        `json:"device_id"`
 	DeviceName         string        `json:"device_name"`
 	DeviceIP           string        `json:"device_ip"`
+	DeviceNodeID       string        `json:"device_node_id,omitempty"`
 	AIClient           string        `json:"ai_client"`
 	Assistant          string        `json:"assistant"`
 	ProjectName        string        `json:"project_name"`
@@ -143,15 +144,16 @@ type targetSession struct {
 }
 
 type resolvedTarget struct {
-	DeviceID    string
-	DeviceName  string
-	DeviceIP    string
-	AIClient    string
-	Assistant   string
-	ProjectName string
-	ProjectPath string
-	SessionID   string
-	SessionName string
+	DeviceID     string
+	DeviceName   string
+	DeviceIP     string
+	DeviceNodeID string
+	AIClient     string
+	Assistant    string
+	ProjectName  string
+	ProjectPath  string
+	SessionID    string
+	SessionName  string
 }
 
 type apiProblem struct {
@@ -164,39 +166,60 @@ type apiProblem struct {
 func (p *apiProblem) Error() string { return p.Code + ": " + p.Message }
 
 type messageAPI struct {
-	mu             sync.Mutex
-	keys           []accessKeyState
-	rateLimits     map[string][]time.Time
-	jobs           map[string]*messageJob
-	keyFile        string
-	jobsFile       string
-	macIPs         []string
-	agentPort      int
-	client         *http.Client
-	wake           chan struct{}
-	activeExec     map[string]bool
-	activeCallback map[string]bool
-	maxConcurrent  int
-	resolveTarget  func(context.Context, submitMessageRequest) (resolvedTarget, *apiProblem)
+	mu                sync.Mutex
+	keys              []accessKeyState
+	rateLimits        map[string][]time.Time
+	jobs              map[string]*messageJob
+	keyFile           string
+	jobsFile          string
+	macIPs            []string
+	agentPort         int
+	client            *http.Client
+	wake              chan struct{}
+	activeExec        map[string]bool
+	activeCallback    map[string]bool
+	maxConcurrent     int
+	resolveTarget     func(context.Context, submitMessageRequest) (resolvedTarget, *apiProblem)
+	resolveDeviceFunc func(string) (resolvedDevice, *apiProblem)
+	scopeJob          func(context.Context, *messageJob) (context.Context, context.CancelFunc, error)
+	scopeCallback     func(context.Context) (context.Context, context.CancelFunc, error)
+	baseContext       context.Context
+	workers           sync.WaitGroup
 }
 
 func newMessageAPIFromEnv() (*messageAPI, error) {
 	macIPs := strings.Fields(strings.ReplaceAll(envOr("ENROLL_MAC_IPS", ""), ",", " "))
+	api, err := newMessageAPI(
+		envOr("ENROLL_ACCESS_KEY_FILE", "/var/lib/fleet-enroll/access-key.json"),
+		envOr("ENROLL_MESSAGE_JOBS_FILE", "/var/lib/fleet-enroll/message-jobs.json"), macIPs)
+	if err != nil {
+		return nil, err
+	}
+	api.agentPort = envInt("ENROLL_AGENT_PORT", 7682)
+	api.maxConcurrent = envInt("ENROLL_MESSAGE_CONCURRENCY", 4)
+	if api.maxConcurrent < 1 {
+		api.maxConcurrent = 1
+	}
+	return api, nil
+}
+
+func newMessageAPIAt(stateDir string) (*messageAPI, error) {
+	return newMessageAPI(filepath.Join(stateDir, "access-key.json"), filepath.Join(stateDir, "message-jobs.json"), nil)
+}
+
+func newMessageAPI(keyFile, jobsFile string, macIPs []string) (*messageAPI, error) {
 	api := &messageAPI{
-		keyFile:        envOr("ENROLL_ACCESS_KEY_FILE", "/var/lib/fleet-enroll/access-key.json"),
-		jobsFile:       envOr("ENROLL_MESSAGE_JOBS_FILE", "/var/lib/fleet-enroll/message-jobs.json"),
+		keyFile:        keyFile,
+		jobsFile:       jobsFile,
 		macIPs:         macIPs,
-		agentPort:      envInt("ENROLL_AGENT_PORT", 7682),
+		agentPort:      7682,
 		client:         &http.Client{Timeout: 20 * time.Second},
 		wake:           make(chan struct{}, 1),
 		jobs:           map[string]*messageJob{},
 		rateLimits:     map[string][]time.Time{},
 		activeExec:     map[string]bool{},
 		activeCallback: map[string]bool{},
-		maxConcurrent:  envInt("ENROLL_MESSAGE_CONCURRENCY", 4),
-	}
-	if api.maxConcurrent < 1 {
-		api.maxConcurrent = 1
+		maxConcurrent:  4,
 	}
 	api.resolveTarget = api.resolveMessageTarget
 	if err := api.load(); err != nil {
@@ -844,6 +867,14 @@ func (a *messageAPI) handleMessages(w http.ResponseWriter, r *http.Request) {
 		writeAPIProblem(w, &apiProblem{Status: 404, Code: "message_not_found", Message: "message_id 不存在或已过保留期"})
 		return
 	}
+	if a.scopeJob != nil {
+		_, cancel, err := a.scopeJob(r.Context(), job)
+		if err != nil {
+			writeAPIProblem(w, &apiProblem{Status: 404, Code: "message_not_found", Message: "message_id 不存在或设备已撤销"})
+			return
+		}
+		defer cancel()
+	}
 	writeJSON(w, http.StatusOK, publicMessage(job, false))
 }
 
@@ -960,7 +991,16 @@ func (a *messageAPI) submitMessage(w http.ResponseWriter, r *http.Request, key a
 				return
 			}
 			id := existing.ID
+			job := cloneMessageJob(existing)
 			a.mu.Unlock()
+			if a.scopeJob != nil {
+				_, cancel, err := a.scopeJob(r.Context(), job)
+				if err != nil {
+					writeAPIProblem(w, &apiProblem{Status: 404, Code: "device_not_found", Message: "找不到指定设备"})
+					return
+				}
+				cancel()
+			}
 			w.Header().Set("Location", "/api/v1/messages/"+id)
 			writeJSON(w, http.StatusAccepted, map[string]string{"message_id": id})
 			return
@@ -989,7 +1029,7 @@ func (a *messageAPI) submitMessage(w http.ResponseWriter, r *http.Request, key a
 	now := time.Now().UTC()
 	job := &messageJob{
 		ID: id, Status: messageQueued,
-		DeviceID: target.DeviceID, DeviceName: target.DeviceName, DeviceIP: target.DeviceIP,
+		DeviceID: target.DeviceID, DeviceName: target.DeviceName, DeviceIP: target.DeviceIP, DeviceNodeID: target.DeviceNodeID,
 		AIClient: target.AIClient, Assistant: target.Assistant,
 		ProjectName: target.ProjectName, ProjectPath: target.ProjectPath,
 		SessionID: target.SessionID, SessionName: target.SessionName,
@@ -1057,6 +1097,18 @@ func (a *messageAPI) handleMessageRecords(w http.ResponseWriter, r *http.Request
 	recordKeyNames := map[string]string{}
 	hasLegacy := false
 	for _, job := range a.jobs {
+		jobs = append(jobs, cloneMessageJob(job))
+	}
+	a.mu.Unlock()
+	visible := jobs[:0]
+	for _, job := range jobs {
+		if a.scopeJob != nil {
+			_, cancel, err := a.scopeJob(r.Context(), job)
+			if err != nil {
+				continue
+			}
+			cancel()
+		}
 		if job.AccessKeyID == "" {
 			hasLegacy = true
 		} else {
@@ -1068,9 +1120,9 @@ func (a *messageAPI) handleMessageRecords(w http.ResponseWriter, r *http.Request
 		if accessKeyID != "" && accessKeyID != "__legacy__" && job.AccessKeyID != accessKeyID {
 			continue
 		}
-		jobs = append(jobs, cloneMessageJob(job))
+		visible = append(visible, job)
 	}
-	a.mu.Unlock()
+	jobs = visible
 	sort.Slice(jobs, func(i, j int) bool { return jobs[i].CreatedAt.After(jobs[j].CreatedAt) })
 	if len(jobs) > limit {
 		jobs = jobs[:limit]
@@ -1179,15 +1231,18 @@ func (a *messageAPI) resolveMessageTarget(ctx context.Context, req submitMessage
 		}
 	}
 	return resolvedTarget{
-		DeviceID: device.ID, DeviceName: device.Name, DeviceIP: device.IP,
+		DeviceID: device.ID, DeviceName: device.Name, DeviceIP: device.IP, DeviceNodeID: device.NodeID,
 		AIClient: req.AIClient, Assistant: assistant,
 		ProjectName: projectName, ProjectPath: projectPath, SessionID: sessionID, SessionName: sessionName,
 	}, nil
 }
 
-type resolvedDevice struct{ ID, Name, IP string }
+type resolvedDevice struct{ ID, Name, IP, NodeID string }
 
 func (a *messageAPI) resolveDevice(input string) (resolvedDevice, *apiProblem) {
+	if a.resolveDeviceFunc != nil {
+		return a.resolveDeviceFunc(input)
+	}
 	names := loadNames()
 	devices := make([]resolvedDevice, 0, len(a.macIPs))
 	for i, ip := range a.macIPs {
@@ -1312,6 +1367,14 @@ func resolveSession(input, projectPath string, sessions []targetSession) (string
 }
 
 func (a *messageAPI) fetchSessions(ctx context.Context, device resolvedDevice, assistant string) ([]targetSession, *apiProblem) {
+	if a.scopeJob != nil {
+		scoped, cancel, err := a.scopeJob(ctx, &messageJob{DeviceID: device.ID, DeviceIP: device.IP, DeviceNodeID: device.NodeID})
+		if err != nil {
+			return nil, &apiProblem{Status: 404, Code: "device_not_found", Message: "找不到指定设备"}
+		}
+		defer cancel()
+		ctx = scoped
+	}
 	var all []targetSession
 	cursor := ""
 	for page := 0; page < 100; page++ {

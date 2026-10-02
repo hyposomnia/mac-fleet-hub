@@ -12,6 +12,7 @@ let sessionLoadSeq = 0; // 会话列表请求序号：切主机/切筛选时丢�
 let fileLoadSeq = 0;    // 文件目录请求序号：切设备/目录时丢弃旧响应
 let fileColumnLoadSeq = 0; // 分栏子目录请求序号：切列/视图时丢弃旧响应
 let sessionSearchTimer = null;
+let authenticatedPollTimers = [];
 
 // ============================================================
 const $ = (s, r = document) => r.querySelector(s);
@@ -111,7 +112,7 @@ function svgStop() {
   return svg;
 }
 
-const SESSION_READ_KEY = 'fleet-session-read-v2';
+let SESSION_READ_KEY = 'fleet-session-read-v2';
 
 function loadSessionReadState() {
   try {
@@ -157,7 +158,7 @@ const state = {
   sessionSearch: '',
   sessionResults: [],
   sessionProjects: [],
-  sessionReadAt: loadSessionReadState(), // key -> 最后已读的会话活动时间（毫秒）
+  sessionReadAt: new Map(),
   sessionCursors: {},    // macId -> Codex nextCursor
   sessionErrors: {},
   sessionsLoadingMore: false,
@@ -295,8 +296,8 @@ async function api(id, path, opts) {
   return r.json();
 }
 
-const SESSION_ARCHIVE_KEY = 'fleet-show-archived-sessions';
-const UI_STATE_KEY = 'fleet-ui-state-v1';
+let SESSION_ARCHIVE_KEY = 'fleet-show-archived-sessions';
+let UI_STATE_KEY = 'fleet-ui-state-v1';
 let chatIMEComposing = false;
 let mobileIMEComposing = false;
 
@@ -333,6 +334,7 @@ function initUIState() {
 }
 
 function persistUIState() {
+  if (globalThis.FleetAuth && !FleetAuth.user) return;
   try {
     localStorage.setItem(UI_STATE_KEY, JSON.stringify({
       mode: state.mode,
@@ -528,18 +530,21 @@ function renderHosts() {
       nav.append(h('div', { class: 'empty empty-down' },
         h('div', { class: 'ed-t', text: '⚠ 无法连接服务器' }),
         h('div', { class: 'ed-s', text: '网关暂时不可用，设备列表取不到。' }),
-        h('div', { class: 'ed-s', text: '这不代表没有 Mac 入网。' }),
+        h('div', { class: 'ed-s', text: '这不代表没有设备入网。' }),
         retry,
       ));
     } else {
-      nav.append(h('div', { class: 'empty', text: '暂无已入网的 Mac' }));
+      nav.append(h('div', { class: 'empty' },
+        h('div', { text: '暂无已入网的设备' }),
+        h('a', { class: 'btn empty-add-device', href: '/account#add-device', text: '添加设备' }),
+      ));
     }
     return;
   }
   const selected = state.mode === 'files' ? state.fileMacId : state.sessionMacId;
   if (state.mode === 'sessions') {
     const onlineCount = MACS.filter((m) => state.nodes[m.id]).length;
-    const all = h('button', { class: 'host host-all', dataset: { mac: 'all' }, 'aria-current': String(selected === 'all') },
+    const all = h('button', { class: 'host host-all', title: '全部设备', 'aria-label': '全部设备', dataset: { mac: 'all' }, 'aria-current': String(selected === 'all') },
       h('span', { class: 'host-stack' }, svgIcon('ic', 'm12 3-8 4 8 4 8-4-8-4ZM4 12l8 4 8-4M4 17l8 4 8-4')),
       h('span', { class: 'nm', text: '全部设备' }),
       h('span', { class: 'ct', text: `${onlineCount}/${MACS.length} 在线` }),
@@ -623,24 +628,19 @@ function setFileDevice(id) {
 // ============================================================
 async function refreshNodes() {
   try {
-    const r = await fetch(`${BASE}/api/nodes.json`, { cache: 'no-store' });
-    // 拉不到节点清单 = 网关这一层有问题，**不等于**「一台 Mac 都没入网」。
-    // 两者都会让 MACS 为空、左栏都显示空态，所以必须分开记状态：
-    // 不然后端挂了却被读成「车队是空的」，用户会去查终端/设备，白跑一趟。
-    // （/api/nodes.json 由网关的 fleet-nodes.timer 每 30s 调 headscale 写出；网关一死它必然拿不到。）
+    const r = await fetch(`${BASE}/api/devices`, { cache: 'no-store' });
     if (!r.ok) { markGatewayUnreachable(`HTTP ${r.status}`); return; }
     const list = await r.json();
     // 解析成功即证明网关这一层是活的（后面若因数据形状抛错，不该被误判成「连不上」）。
     markGatewayReachable();
     const online = {};
     const ids = [];
-    for (const n of (Array.isArray(list) ? list : (list.nodes || []))) {
-      // 入网节点名固定为 mac<N>（setup-mac.sh --hostname=mac$MAC_INDEX）；gateway 等非 Mac 节点跳过。
-      const mm = String(n.givenName || n.name || '').toLowerCase().match(/^mac(\d+)$/);
-      if (!mm) continue;
-      const id = 'm' + mm[1];
+    for (const device of (list.devices || [])) {
+      const id = String(device.id || '');
+      if (!/^m\d+$/.test(id)) continue;
       if (!ids.includes(id)) ids.push(id);
-      online[id] = n.online === true || n.online === 'true';
+      online[id] = device.online === true;
+      if (device.name) macNames[id] = device.name;
     }
     ids.sort((a, b) => (+a.slice(1)) - (+b.slice(1)));
     const previousIDs = MACS.map((m) => m.id).join(',');
@@ -1285,6 +1285,7 @@ function updateSettingsMenus() {
 }
 
 function toggleArchivedSessions() {
+  if (globalThis.FleetAuth && !FleetAuth.user) return;
   if (state.mode === 'files') return;
   state.scope = state.scope === 'all' ? 'active' : 'all';
   try { localStorage.setItem(SESSION_ARCHIVE_KEY, state.scope === 'all' ? '1' : '0'); } catch (_) {}
@@ -1304,6 +1305,7 @@ function sessionActivityAt(session) {
 }
 
 function persistSessionReadState() {
+  if (globalThis.FleetAuth && !FleetAuth.user) return;
   try {
     if (typeof localStorage === 'undefined') return;
     const newest = [...state.sessionReadAt.entries()].sort((left, right) => right[1] - left[1]).slice(0, 1000);
@@ -1887,11 +1889,12 @@ function poolFind(macId, sessionId, assistant = state.assistant) {
   return state.pool.find((e) => e.macId === macId && e.assistant === assistant && e.sessionId === sessionId) || null;
 }
 
-const POOL_SNAP_KEY = 'fleet-pool';
+let POOL_SNAP_KEY = 'fleet-pool';
 // 把当前池序列化成最小重建标识存 sessionStorage（刷新/崩溃恢复用，关标签即清）。
 // 只存重建所需：macId/assistant/sessionId/permMode/title/cwd——sid/url 是 attach 时新生成的，不存。
 // 池条目按 (macId,assistant,sessionId) 唯一，故 assistant 必带；cur 同样带 assistant 以精确定位焦点窗口。
 function savePoolSnapshot() {
+  if (globalThis.FleetAuth && !FleetAuth.user) return;
   try {
     const snap = {
       macId: state.macId,
@@ -6917,12 +6920,17 @@ function sendFileUpload(item) {
     body.append('file', item.file, item.name);
     const xhr = new XMLHttpRequest();
     xhr.open('POST', `${apiBase(item.macId)}/api/file/upload?path=${encodeURIComponent(item.path)}`);
+    if (globalThis.FleetAuth) {
+      if (!FleetAuth.user || !FleetAuth.csrfToken) { resolve({ ok: false, message: '请重新登录。' }); return; }
+      xhr.setRequestHeader('X-CSRF-Token', FleetAuth.csrfToken);
+    }
     if (xhr.upload) {
       xhr.upload.onprogress = (event) => {
         if (FleetUploadModel.setProgress(state.fileUploads, item.id, event.loaded, event.total)) requestFileUploadRender();
       };
     }
     xhr.onload = () => {
+      if (xhr.status === 401 && globalThis.FleetAuth) FleetAuth.invalidate();
       if (xhr.status >= 200 && xhr.status < 300) resolve({ ok: true });
       else resolve({ ok: false, message: uploadFailureMessage(xhr) });
     };
@@ -7135,9 +7143,10 @@ async function saveHost() {
 // ============================================================
 //  退出登录（F4：跳 Authelia 退出端点，登出后回登录页）
 // ============================================================
-function doLogout() {
+async function doLogout() {
   closeMenus();
-  location.href = `${BASE}/auth/logout?rd=${encodeURIComponent(location.origin + BASE + '/')}`;
+  try { await FleetAuth.logout(); }
+  catch (error) { if (error.status !== 401) toast(error.message, 'err'); }
 }
 
 // ============================================================
@@ -7371,8 +7380,8 @@ function init() {
   renderHosts();
   refreshNames();
   refreshSettings();
-  refreshNodes(); setInterval(refreshNodes, 30000);
-  setInterval(refreshSessionsSoft, 5000); // 轻量轮询 waiting / Codex 进行中状态（函数自带 mode/macId guard）
+  refreshNodes();
+  authenticatedPollTimers = [setInterval(refreshNodes, 30000), setInterval(refreshSessionsSoft, 5000)];
   wireMobileInput();
 
   // 模式 / 助手 / 搜索 / 新建
@@ -7585,14 +7594,30 @@ function init() {
       toggleMenu('m-menu', event);
     };
   });
+  $$('#user-btn, #m-menu-btn, .mobile-menu-trigger').forEach((button) => {
+    button.setAttribute('aria-haspopup', 'true');
+    button.setAttribute('aria-controls', button.id === 'user-btn' ? 'usermenu' : 'm-menu');
+    button.setAttribute('aria-expanded', 'false');
+    button.addEventListener('keydown', (event) => {
+      if (!['ArrowDown', 'ArrowUp'].includes(event.key)) return;
+      event.preventDefault();
+      const id = button.id === 'user-btn' ? 'usermenu' : 'm-menu';
+      if ($('#' + id).hidden) toggleMenu(id, event);
+      const items = globalMenuItems($('#' + id));
+      (event.key === 'ArrowUp' ? items.at(-1) : items[0])?.focus();
+    });
+  });
   $$('#usermenu button, #m-menu button').forEach((b) => {
     if (!b.dataset.act && !b.dataset.themeChoice) return;
     b.onclick = () => {
-      closeMenus();
+      closeMenus({ restoreFocus: Boolean(b.dataset.themeChoice) });
       if (b.dataset.themeChoice) setThemePreference(b.dataset.themeChoice);
       else if (b.dataset.act === 'archive') toggleArchivedSessions();
       else if (b.dataset.act === 'automation') openAutomation();
       else if (b.dataset.act === 'settings') openSettings();
+      else if (b.dataset.act === 'account') location.href = '/account';
+      else if (b.dataset.act === 'admin') location.href = '/admin';
+      else if (b.dataset.act === 'add-device') location.href = '/account#add-device';
       else if (b.dataset.act === 'logout') doLogout();
     };
   });
@@ -7734,4 +7759,51 @@ function init() {
   initPWAExperience();
   registerServiceWorker();
 }
-document.addEventListener('DOMContentLoaded', init);
+async function initAuthenticatedDashboard() {
+  try {
+    await FleetAuth.me();
+    SESSION_READ_KEY = FleetAuth.storageKey('fleet-session-read-v2');
+    SESSION_ARCHIVE_KEY = FleetAuth.storageKey('fleet-show-archived-sessions');
+    UI_STATE_KEY = FleetAuth.storageKey('fleet-ui-state-v1');
+    POOL_SNAP_KEY = FleetAuth.storageKey('fleet-pool');
+    state.sessionReadAt = loadSessionReadState();
+    $('#user-name').textContent = FleetAuth.user.email;
+    $$('[data-act="admin"]').forEach((button) => { button.hidden = FleetAuth.user.role !== 'admin'; });
+    document.documentElement.dataset.auth = 'ready';
+    $('#auth-status').hidden = true;
+    document.addEventListener('fleet:auth-lost', stopAuthenticatedDashboard);
+    init();
+  } catch (error) {
+    if (error.status === 401) return;
+    $('#auth-status-message').textContent = error.message;
+  }
+}
+function stopAuthenticatedDashboard() {
+  window.FleetWorkspaceTabs?.reset();
+  authenticatedPollTimers.forEach(clearInterval);
+  authenticatedPollTimers = [];
+  clearTimeout(sessionSearchTimer);
+  for (const chat of new Set([state.chat, ...state.chatCache.values()])) if (chat) disposeChat(chat);
+  state.chat = null;
+  state.chatCache.clear();
+  state.sessionReadAt.clear();
+  state.sessionResults = [];
+  state.fileEntries = [];
+  state.fileColumns = [];
+  state.filePaths = {};
+  state.pool = [];
+  state.current = null;
+  state.nodes = {};
+  state.counts = {};
+  state.assistantInfo = {};
+  state.fileUploads.items = [];
+  MACS = [];
+  macNames = {};
+  automationAccessKeys = [];
+  automationRecordKeys = [];
+  automationEditingKey = null;
+  automationBindingSessions = [];
+  $$('#session-groups, #chat-messages, #file-list, #preview-markdown').forEach((element) => element.replaceChildren());
+  $$('#app iframe, #preview-page iframe, #preview-page video, #preview-page audio').forEach((element) => element.removeAttribute('src'));
+}
+document.addEventListener('DOMContentLoaded', initAuthenticatedDashboard);

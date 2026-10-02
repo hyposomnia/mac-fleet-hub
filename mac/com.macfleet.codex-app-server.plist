@@ -26,13 +26,17 @@
     </dict>
     <key>RunAtLoad</key>
     <true/>
+    <!-- 只在异常退出时重启：避免配置性错误演变成无限崩溃循环（风险点 R4）。 -->
     <key>KeepAlive</key>
-    <true/>
+    <dict>
+        <key>SuccessfulExit</key>
+        <false/>
+    </dict>
     <key>ThrottleInterval</key>
-    <integer>2</integer>
+    <integer>10</integer>
     <key>StandardOutPath</key>
-    <string>/tmp/macfleet-codex-app-server.log</string>
+    <string>__FLEET_LOG_DIR__/codex-app-server-isolated.log</string>
     <key>StandardErrorPath</key>
-    <string>/tmp/macfleet-codex-app-server.err</string>
+    <string>__FLEET_LOG_DIR__/codex-app-server-isolated.err</string>
 </dict>
 </plist>

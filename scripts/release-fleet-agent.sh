@@ -13,11 +13,15 @@ MODE="release"
 case "${1:-}" in
   "") ;;
   --check) MODE="check" ;;
+  --candidate) MODE="candidate" ;;
+  --candidate-check) MODE="candidate-check" ;;
   -h|--help)
     cat <<'EOF'
 用法：
   bash scripts/release-fleet-agent.sh --check  # 只检查签名机、配置、SSH 与当前服务
   bash scripts/release-fleet-agent.sh          # 发布签名二进制并逐台自更新
+  bash scripts/release-fleet-agent.sh --candidate-check # 独立验收发布预检
+  bash scripts/release-fleet-agent.sh --candidate       # 仅向专属验收实例发布，不更新现有 Mac
 
 正式发布：pull --ff-only → verify → build/sign/notarize → commit/push → gateway dist → Macs update。
 EOF
@@ -75,6 +79,13 @@ ssh_retry() { # port target description command
 [[ -r "$CONFIG_FILE" ]] || die "缺少私有配置：${CONFIG_FILE}（参考 scripts/release-fleet-agent.env.example）。"
 # shellcheck disable=SC1090
 source "$CONFIG_FILE"
+NOTARY_PROFILE="${FLEET_NOTARY_PROFILE:-mac-fleet-hub-notary}"
+
+if [[ "$MODE" == candidate || "$MODE" == candidate-check ]]; then
+  source "$ROOT/scripts/lib/candidate-release.sh"
+  run_candidate_release
+  exit 0
+fi
 
 : "${FLEET_RELEASE_BUILDER_IP:?配置 FLEET_RELEASE_BUILDER_IP}"
 : "${FLEET_RELEASE_WEB_BASE:?配置 FLEET_RELEASE_WEB_BASE}"

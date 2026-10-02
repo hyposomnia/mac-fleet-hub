@@ -55,12 +55,11 @@ dns:
       - 1.1.1.1
       - 223.5.5.5
 
-# ACL 策略文件（见 acl.hujson）。
 policy:
-  mode: file
-  path: /etc/headscale/acl.hujson
+  mode: database
+
+unix_socket: /var/run/headscale/headscale.sock
+unix_socket_permission: "0600"
 
 log:
   level: info
-
-# 预授权 key、用户由 setup-server.sh 用 `headscale users create` / `headscale preauthkeys create` 生成。

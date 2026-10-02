@@ -56,5 +56,10 @@ cp dist/fleet-agent-darwin-amd64 dist/fleet-agent-darwin-arm64 "$NOTARY_TMP/payl
 /usr/bin/ditto -c -k --keepParent "$NOTARY_TMP/payload" "$NOTARY_TMP/fleet-agent-notary.zip"
 echo "submitting signed fleet-agent binaries for Apple notarization (profile=$NOTARY_PROFILE)"
 xcrun notarytool submit "$NOTARY_TMP/fleet-agent-notary.zip" \
-  --keychain-profile "$NOTARY_PROFILE" --wait --timeout 60m
+  --keychain-profile "$NOTARY_PROFILE" --wait --timeout 60m --output-format json \
+  | tee "$NOTARY_TMP/result.json"
+node -e 'const result = JSON.parse(require("fs").readFileSync(process.argv[1])); if (result.status !== "Accepted") process.exit(1);' "$NOTARY_TMP/result.json"
+if [[ -n "${FLEET_NOTARY_RESULT_FILE:-}" ]]; then
+  install -m 0600 "$NOTARY_TMP/result.json" "$FLEET_NOTARY_RESULT_FILE"
+fi
 echo "built + signed + notarized fleet-agent darwin binaries"

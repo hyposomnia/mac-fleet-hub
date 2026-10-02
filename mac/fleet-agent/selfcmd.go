@@ -6,6 +6,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"crypto/sha256"
 	"fmt"
 	"io"
@@ -39,6 +40,11 @@ const usage = `fleet-agent —— 每台 Mac 的会话管理服务
   fleet-agent stop      停止并卸载 launchd 服务
   fleet-agent restart   重启服务（kickstart -k）
   fleet-agent status    查看运行状态（PID / 监听 / 健康 / 版本）
+  fleet-agent login [--no-open] [--replace-tailnet] [https://服务网页地址]
+                       不填地址时在终端输入；浏览器授权后回终端确认
+  fleet-agent logout    锁定本机并撤销设备授权
+  fleet-agent capabilities  打印支持的授权协议
+  fleet-agent doctor    本机 Codex / shared app-server 体检（--fix 自动解劫持并重启）
   fleet-agent update    下载最新二进制、原子替换并重启服务
   fleet-agent version   打印版本
   fleet-agent help      显示本帮助
@@ -61,14 +67,24 @@ const (
 	actStop
 	actRestart
 	actStatus
+	actDoctor
 	actUpdate
 	actVersion
 	actHelp
+	actLogin
+	actLogout
+	actCapabilities
 )
 
 // parseCommand：命令名 → 动作。纯函数，便于单测；执行(含 launchctl/网络)留在 runSelfCommand。
 func parseCommand(name string) svcAction {
 	switch name {
+	case "login":
+		return actLogin
+	case "logout":
+		return actLogout
+	case "capabilities":
+		return actCapabilities
 	case "start":
 		return actStart
 	case "stop":
@@ -77,6 +93,8 @@ func parseCommand(name string) svcAction {
 		return actRestart
 	case "status":
 		return actStatus
+	case "doctor":
+		return actDoctor
 	case "update":
 		return actUpdate
 	case "version", "-v", "--version":
@@ -91,6 +109,13 @@ func parseCommand(name string) svcAction {
 // runSelfCommand：执行子命令，返回进程退出码。
 func runSelfCommand(args []string) int {
 	switch parseCommand(args[0]) {
+	case actLogin:
+		return runDeviceLogin(args[1:])
+	case actLogout:
+		return done(logoutDevice(context.Background(), bindingPath()))
+	case actCapabilities:
+		fmt.Println(`{"device_authorization":1,"browser_pairing":1,"agent_proxy":1}`)
+		return 0
 	case actStart:
 		return done(svcStart())
 	case actStop:
@@ -99,7 +124,10 @@ func runSelfCommand(args []string) int {
 		return done(svcRestart())
 	case actStatus:
 		fmt.Println(svcStatus())
+		fmt.Println(deviceIdentityStatus())
 		return 0
+	case actDoctor:
+		return runDoctor(args[1:])
 	case actUpdate:
 		return done(cmdUpdate())
 	case actVersion:
@@ -306,6 +334,9 @@ func cmdUpdate() error {
 	if cur, err := os.ReadFile(self); err == nil && bytes.Equal(sha(cur), sha(data)) {
 		fmt.Println("已是最新版本，无需更新")
 		return nil
+	}
+	if err := validateAgentUpdate(self, data); err != nil {
+		return err
 	}
 
 	if err := replaceBinary(self, data); err != nil {

@@ -11,7 +11,6 @@
 package main
 
 import (
-	"context"
 	"crypto/hmac"
 	"crypto/sha1"
 	"crypto/subtle"
@@ -514,36 +513,7 @@ func handleAgentConfig(w http.ResponseWriter, r *http.Request) {
 }
 
 func main() {
-	// 子命令：-show-uri 打印 otpauth URI（供 setup 显示二维码）；secret 不存在则报错提示先生成。
-	if len(os.Args) > 1 && os.Args[1] == "-show-uri" {
-		s, err := loadSecret()
-		if err != nil || s == "" {
-			fmt.Fprintln(os.Stderr, "未找到入网密钥，请先在 setup 中生成 "+secretFile)
-			os.Exit(1)
-		}
-		fmt.Println(otpauthURI(s))
-		return
+	if err := runUnifiedServer(); err != nil {
+		log.Fatal(err)
 	}
-	mux := http.NewServeMux()
-	messageAPI, err := newMessageAPIFromEnv()
-	if err != nil {
-		log.Fatalf("初始化公网消息 API 失败: %v", err)
-	}
-	go messageAPI.run(context.Background())
-	mux.HandleFunc("/join", handleJoin)
-	mux.HandleFunc("/names", handleNames)
-	mux.HandleFunc("/settings", handleSettings)
-	mux.HandleFunc("/settings/access-key", messageAPI.handleAccessKey)
-	mux.HandleFunc("/settings/access-key/rotate", messageAPI.handleAccessKey)
-	mux.HandleFunc("/message-records", messageAPI.handleMessageRecords)
-	mux.HandleFunc("/automation/access-keys", messageAPI.handleAccessKeys)
-	mux.HandleFunc("/automation/access-keys/", messageAPI.handleAccessKeys)
-	mux.HandleFunc("/automation/message-records", messageAPI.handleMessageRecords)
-	mux.HandleFunc("/v1/messages", messageAPI.handleMessages)
-	mux.HandleFunc("/v1/messages/", messageAPI.handleMessages)
-	mux.HandleFunc("/agent-config", handleAgentConfig)
-	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) { w.Write([]byte("ok")) })
-	log.Printf("fleet-enroll 监听 %s（login=%s, hsUser=%s）", listen, loginServer, hsUser)
-	srv := &http.Server{Addr: listen, Handler: mux, ReadTimeout: 10 * time.Second, WriteTimeout: 15 * time.Second}
-	log.Fatal(srv.ListenAndServe())
 }

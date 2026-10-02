@@ -756,3 +756,9 @@ mac-fleet-hub 变更记录（日期为本地时间）。
 - **dashboard 重构 + F1–F4**：连接 / Bypass连接（`--dangerously-skip-permissions`）、终止进程（`POST /api/close`，会话保留）、登录有效期 30 天（Authelia）、退出登录（`/auth/logout`）。
 - **fleet-agent 自管理子命令**：`update / start / stop / restart / status`；pty 耗尽精确提示（503 + 可读 message）。
 - Web 域名迁移到独立子域（`fleet.example.com`）；mesh 控制面与 web 子域解耦。
+# 2026-10-02 · 多用户验收客户端发行
+
+- 增加公开源码的逐用户注册、Authenticator、30 天会话、设备配对和管理员元信息管理。
+- 客户端浏览器确认账户后回终端核对，再领取设备凭据、按真实 Headscale 节点完成登记；旧共享入网方式拒绝使用。
+- 独立候选发行由唯一签名机生成双架构 Developer ID 客户端，等待 Apple Accepted，原子发布完整安装包并验证真实 HTTPS 下载。
+- 下载页面使用当前 origin 与变量；未发布真实清单时不显示下载链接。候选实例可使用独立 loopback mesh 代理，不更改原生产网络。

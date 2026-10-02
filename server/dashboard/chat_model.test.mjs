@@ -542,7 +542,8 @@ test('settings menu owns archive browsing and session settings', () => {
   assert.match(indexHTML, /id="user-name">设置</);
   assert.deepEqual(
     [...indexHTML.matchAll(/<button data-act="([^"]+)"/g)].map((match) => match[1]),
-    ['archive', 'automation', 'settings', 'logout', 'archive', 'automation', 'settings', 'logout'],
+    ['account', 'admin', 'add-device', 'archive', 'automation', 'settings', 'logout',
+      'account', 'admin', 'add-device', 'archive', 'automation', 'settings', 'logout'],
   );
   assert.deepEqual(
     [...indexHTML.matchAll(/data-theme-choice="([^"]+)"/g)].map((match) => match[1]),

@@ -11,7 +11,7 @@
     <array>
         <string>__BREW_PREFIX__/bin/ttyd</string>
         <string>-i</string>
-        <string>__TS_IP__</string>
+        <string>127.0.0.1</string>
         <string>-p</string>
         <string>__PORT__</string>
         <string>-b</string>
@@ -27,9 +27,9 @@
     <key>KeepAlive</key>
     <true/>
     <key>StandardOutPath</key>
-    <string>/tmp/macfleet-ttyd.log</string>
+    <string>__FLEET_LOG_DIR__/ttyd.log</string>
     <key>StandardErrorPath</key>
-    <string>/tmp/macfleet-ttyd.err</string>
+    <string>__FLEET_LOG_DIR__/ttyd.err</string>
     <key>EnvironmentVariables</key>
     <dict>
         <!-- UTF-8 locale：launchd 不继承用户 locale，缺省下 tmux attach 客户端按非 UTF-8
