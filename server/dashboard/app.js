@@ -485,6 +485,16 @@ function toast(msg, kind = 'info') {
 // ============================================================
 //  设备范围（桌面侧栏 / 移动端选择器）
 // ============================================================
+function deviceStatusIcon(id) {
+  const online = Boolean(state.nodes[id]);
+  const icon = FleetDeviceAppearance.createIcon(FleetDeviceAppearance.get(id));
+  icon.className += online ? ' is-online' : ' is-offline';
+  icon.setAttribute('role', 'img');
+  icon.setAttribute('aria-label', `${macName(id)}，${online ? '在线' : '离线'}`);
+  icon.appendChild(h('span', { class: 'device-status-mark', 'aria-hidden': 'true' }));
+  return icon;
+}
+
 function renderHosts() {
   const nav = $('#host-list'); clear(nav);
   nav.append(h('div', { class: 'hd eyebrow', text: state.mode === 'files' ? '文件所在设备' : '会话设备' }));
@@ -524,9 +534,9 @@ function renderHosts() {
     const info = h('span', { class: 'i', title: '设置 / 代理', text: 'ⓘ' });
     info.onclick = (e) => { e.stopPropagation(); openHostModal(m.id); };
     const row = h('button', { class: 'host', dataset: { mac: m.id }, 'aria-current': String(m.id === selected) },
-      h('span', { class: 'dot ' + (online ? 'on' : 'off') }),
+      deviceStatusIcon(m.id),
       h('span', { class: 'nm', text: macName(m.id) }),
-      // 会话数不再显示；仅离线时标「离线」（在线/离线 dot 已在前面）
+      // 在线状态独立于用户选择的设备图标颜色。
       h('span', { class: 'ct', text: online ? '' : '离线' }),
       info,
     );
@@ -5735,7 +5745,7 @@ function renderDeviceOptions() {
       }
     };
     const main = h('button', { type: 'button', class: 'device-option-main', onclick: choose },
-      h('span', { class: 'device-option-avatar', text: all ? 'ALL' : id.toUpperCase() }),
+      all ? h('span', { class: 'device-option-avatar', text: 'ALL' }) : deviceStatusIcon(id),
       h('span', { class: 'device-option-copy' },
         h('strong', { text: name }),
         h('small', { text: detail }),
@@ -7057,28 +7067,57 @@ async function pingHost(id) {
     setPingChip('超时', 'bad');
   }
 }
+function hostProxyForm() {
+  return {enabled: $('#hm-proxy-on').checked, http: $('#hm-http').value.trim(), https: $('#hm-https').value.trim()};
+}
+function renderHostAppearanceChoices() {
+  const draft = state.hostAppearanceDraft;
+  $('#hm-device-icon').replaceChildren(FleetDeviceAppearance.createIcon(draft));
+  const icons = $('#hm-icon-choices'), colors = $('#hm-color-choices');
+  clear(icons); clear(colors);
+  FleetDeviceAppearance.icons.forEach(choice => {
+    icons.append(h('button', {type: 'button', class: 'device-icon-choice', title: choice.label,
+      'aria-label': choice.label, 'aria-pressed': String(draft.icon === choice.id),
+      onclick: () => {state.hostAppearanceDraft = {...draft, icon: choice.id}; renderHostAppearanceChoices();}},
+      FleetDeviceAppearance.createIcon({...draft, icon: choice.id}), h('span', {text: choice.label})));
+  });
+  FleetDeviceAppearance.colors.forEach(choice => {
+    colors.append(h('button', {type: 'button', class: 'device-color-choice', title: choice.label,
+      'aria-label': choice.label, 'aria-pressed': String(draft.color === choice.id),
+      onclick: () => {state.hostAppearanceDraft = {...draft, color: choice.id}; renderHostAppearanceChoices();}},
+      h('span', {class: 'device-color-swatch', dataset: {deviceColor: choice.id}},
+        draft.color === choice.id ? svgIcon('ic', 'M5 12l4 4L19 6') : null)));
+  });
+  $('#hm-appearance-reset').onclick = () => {state.hostAppearanceDraft = FleetDeviceAppearance.normalize(null); renderHostAppearanceChoices();};
+}
+
 async function openHostModal(id) {
   state.killTarget = null;
   state.hostModalMac = id;
   $('#hm-title').textContent = macName(id);
   $('#hm-name').value = macNames[id] || '';
   $('#hm-name').placeholder = 'Mac ' + id.slice(1);
+  state.hostOriginalName = $('#hm-name').value;
+  state.hostAppearanceDraft = FleetDeviceAppearance.get(id);
+  renderHostAppearanceChoices();
   const online = state.nodes[id];
-  $('#hm-dot').className = 'dot ' + (online ? 'on' : 'off');
   const st = $('#hm-state'); st.textContent = online ? '在线' : '离线'; st.className = 'badge ' + (online ? 'ok' : '');
   $('#hm-ip').textContent = '加载中…';
   setPingChip('...', 'pending');
   $('#hm-http').value = ''; $('#hm-https').value = ''; $('#hm-proxy-on').checked = false;
+  state.hostOriginalProxy = hostProxyForm();
   closeMenus();
   openOverlay('host-modal');
   try {
     const info = await api(id, 'info');
+    if (state.hostModalMac !== id) return;
     $('#hm-ip').textContent = info.meshIP || '—';
     pingHost(id);
     const p = info.proxy || {};
     $('#hm-http').value = p.http || DEFAULT_PROXY;
     $('#hm-https').value = p.https || DEFAULT_PROXY;
     $('#hm-proxy-on').checked = !!p.enabled;
+    state.hostOriginalProxy = hostProxyForm();
   } catch (e) { $('#hm-ip').textContent = '连不上（' + e.message + '）'; setPingChip('失败', 'bad'); }
 }
 
@@ -7087,8 +7126,10 @@ async function saveHost() {
   if (!id) return;
   const btn = $('#hm-save'); btn.disabled = true; btn.textContent = '保存中…';
 
-  // 1) 显示名 → gateway（/api/names）。离线也能改名。
-  try {
+  const appearanceSaved = FleetDeviceAppearance.set(id, state.hostAppearanceDraft);
+  renderHosts();
+  // 只写入用户实际修改的显示名与代理；改外观无需设备在线。
+  if ($('#hm-name').value.trim() !== state.hostOriginalName) try {
     const r = await fetch(`${BASE}/api/names`, {
       method: 'POST', headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ id, name: $('#hm-name').value.trim() }),
@@ -7096,23 +7137,19 @@ async function saveHost() {
     if (r.ok) { macNames = (await r.json()) || {}; renderHosts(); $('#hm-title').textContent = macName(id); }
   } catch (_) {}
 
-  // 2) 代理 → 该 Mac（/m{n}/api/proxy）。离线则失败，仅提示，不回滚已存的名字。
+  const proxy = hostProxyForm();
   let proxyErr = '';
-  try {
+  if (JSON.stringify(proxy) !== JSON.stringify(state.hostOriginalProxy)) try {
     await api(id, 'proxy', {
       method: 'POST', headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({
-        enabled: $('#hm-proxy-on').checked,
-        http: $('#hm-http').value.trim(),
-        https: $('#hm-https').value.trim(),
-      }),
+      body: JSON.stringify(proxy),
     });
   } catch (e) { proxyErr = e.message; }
 
   btn.disabled = false; btn.textContent = '保存';
-  if (proxyErr) { toast('显示名已保存；代理未保存（' + macName(id) + ' 可能离线）：' + proxyErr, 'err'); return; }
+  if (proxyErr) { toast('外观已应用；代理未保存（' + macName(id) + ' 可能离线）：' + proxyErr, 'err'); return; }
   closeOverlay('host-modal');
-  toast('已保存', 'ok');
+  toast(appearanceSaved ? '已保存' : '外观已应用；浏览器未允许记住设置，刷新后会恢复默认', appearanceSaved ? 'ok' : 'err');
 }
 
 // ============================================================

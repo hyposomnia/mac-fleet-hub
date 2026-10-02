@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content" />
   <!-- theme-color 与共享 Titanium 主题控制器同步。 -->
   <meta name="theme-color" content="#EDF1F4" />
-  <script src="/theme.js?v=157"></script>
+  <script src="/theme.js?v=158"></script>
   <title>mac fleet hub</title>
   <link rel="manifest" href="manifest.webmanifest" />
   <link rel="icon" href="icons/favicon.svg" type="image/svg+xml" />
@@ -16,7 +16,7 @@
   <meta name="apple-mobile-web-app-title" content="fleet hub" />
   <!-- theme.js 在样式加载前同步应用已保存的外观，默认浅色。 -->
   <link rel="stylesheet" href="vendor/codemirror/lib/codemirror.css?v=5.65.20" />
-  <link rel="stylesheet" href="style.css?v=157" />
+  <link rel="stylesheet" href="style.css?v=158" />
 </head>
 <body>
   <!-- DeepSeek 官方 whale mark，来源与 MIT 许可见 icons/deepseek/LICENSE.md。 -->
@@ -401,11 +401,17 @@
     <div id="host-modal" class="overlay" hidden>
       <div class="modal">
         <div class="modal-head">
-          <span id="hm-dot" class="dot"></span><span id="hm-title">Mac</span>
+          <span id="hm-device-icon" class="hm-device-icon"></span><span id="hm-title">Mac</span>
           <span id="hm-state" class="badge">—</span>
           <button class="iconbtn bare x" data-close="host-modal"><svg class="ic" viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
         </div>
         <div class="modal-body">
+          <section class="device-appearance-editor" aria-label="设备外观">
+            <div class="device-appearance-heading"><strong>设备外观</strong><button id="hm-appearance-reset" class="btn sm" type="button">恢复默认</button></div>
+            <div class="field"><span class="device-choice-label">图标</span><div id="hm-icon-choices" class="device-icon-choices" role="group" aria-label="设备图标"></div></div>
+            <div class="field"><span class="device-choice-label">颜色</span><div id="hm-color-choices" class="device-color-choices" role="group" aria-label="设备颜色"></div></div>
+            <p class="hint">图标与颜色保存在当前浏览器，在线状态单独显示。</p>
+          </section>
           <div class="kv"><span class="k">Mesh IP</span>
             <span class="v"><span id="hm-ip" class="mono">—</span>
               <button id="hm-ping" class="ping-chip" title="重新探测延时">...</button>
@@ -568,10 +574,11 @@
   <script src="vendor/codemirror/mode/yaml/yaml.js?v=5.65.20"></script>
   <script src="vendor/codemirror/mode/toml/toml.js?v=5.65.20"></script>
   <script src="vendor/codemirror/mode/properties/properties.js?v=5.65.20"></script>
-  <script src="markdown.js?v=157"></script>
-  <script src="preview.js?v=157"></script>
-  <script src="chat_model.js?v=157"></script>
-  <script src="upload_model.js?v=157"></script>
-  <script src="app.js?v=157"></script>
+  <script src="markdown.js?v=158"></script>
+  <script src="preview.js?v=158"></script>
+  <script src="chat_model.js?v=158"></script>
+  <script src="upload_model.js?v=158"></script>
+  <script src="device_appearance.js?v=158"></script>
+  <script src="app.js?v=158"></script>
 </body>
 </html>
