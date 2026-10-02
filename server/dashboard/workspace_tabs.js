@@ -102,6 +102,15 @@
     }
     const composer = doc.querySelector('#chat-composer');
     if (composer && root.ResizeObserver) new root.ResizeObserver(syncComposerHeight).observe(composer);
+    function syncHeader() {
+      const pane = doc.querySelector('#chat-pane');
+      const visible = !!(pane && !pane.hidden) || model.tabs.length > 0;
+      win.dataset.workspaceTabs = String(visible);
+      strip.hidden = !visible;
+    }
+    const pane = doc.querySelector('#chat-pane');
+    if (pane && root.MutationObserver) new root.MutationObserver(syncHeader)
+      .observe(pane, {attributes: true, attributeFilter: ['hidden']});
     const title = doc.querySelector('#win-title');
     if (title && root.MutationObserver) new root.MutationObserver(() => {
       const label = controls.get('chat')?.querySelector('.workspace-tab-label');
@@ -122,8 +131,7 @@
       const showing = model.active !== 'chat';
       syncComposerHeight();
       win.dataset.workspacePreview = String(showing);
-      win.dataset.workspaceTabs = String(model.tabs.length > 0);
-      strip.hidden = !model.tabs.length; stage.hidden = !showing;
+      syncHeader(); stage.hidden = !showing;
       for (const selector of ['#chat-scroll', '#chat-turn-pin', '#frames', '#frame']) {
         const content = doc.querySelector(selector);
         if (content) content.inert = showing;
@@ -181,7 +189,6 @@
     function close(key) {
       pause(frames.get(key)); frames.get(key)?.remove(); frames.delete(key);
       model.close(key); render({focus: true});
-      if (!model.tabs.length) doc.querySelector('#win-title')?.focus({preventScroll: true});
     }
     function open(href) {
       const target = previewTarget(href);

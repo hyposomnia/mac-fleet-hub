@@ -78,9 +78,24 @@ test('closing a background tab preserves active file, last close restores chat a
   assert.equal(frame.hidden, false);
   e['workspace-tabs'].children[1].children[1].onclick();
   assert.equal(e['workspace-preview'].children.length, 0);
-  assert.equal(e['workspace-tabs'].hidden, true);
+  assert.equal(e['workspace-tabs'].hidden, false);
   assert.equal(e['workspace-preview'].hidden, true);
   assert.equal(e['chat-pane'].inert, false);
+});
+
+test('a lone conversation uses the same tab header before opening files and after reset', () => {
+  const {api, elements: e} = setup();
+  const checkSingle = () => {
+    assert.equal(e.win.dataset.workspaceTabs, 'true');
+    assert.equal(e['workspace-tabs'].hidden, false);
+    assert.equal(e['workspace-tabs'].children.length, 1);
+    assert.equal(e['workspace-tabs'].children[0].children[0].attrs['aria-selected'], 'true');
+    assert.equal(e['workspace-tabs'].children[0].children[0].children[1].textContent, '规划并创建 emotion-service 角色');
+  };
+  checkSingle();
+  api.open(url('a.md'));
+  assert.equal(e['workspace-tabs'].children.length, 2);
+  api.reset(); checkSingle();
 });
 
 test('ordinary file links are intercepted but external links, downloads and modifier clicks keep native behavior', () => {
@@ -105,7 +120,7 @@ test('tabs support keyboard selection and delete while closing never removes the
   e['workspace-tabs'].children[0].children[0].onkeydown({key: 'End', preventDefault() {}});
   assert.equal(e.win.dataset.workspacePreview, 'true');
   e['workspace-tabs'].children[1].children[0].onkeydown({key: 'Delete', preventDefault() {}});
-  assert.equal(e['workspace-tabs'].hidden, true);
+  assert.equal(e['workspace-tabs'].hidden, false);
   assert.equal(e.win.dataset.workspacePreview, 'false');
 });
 
