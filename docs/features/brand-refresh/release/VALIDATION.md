@@ -3,7 +3,7 @@
 - 发布来源：`codex/titanium-web-release`，基于生产 `origin/main`。
 - 仅移植已批准的 Titanium 样式、图标、主题控制器和菜单键盘交互；保留 Authelia 退出、`/api/nodes.json` 和既有设备路由。
 - 不包含多用户服务器、账号页、客户端、dist 或系统配置变更。
-- `bash scripts/verify.sh` exit 0；Go 两层通过，Dashboard 226/226，Shell 所有检查通过。完整输出见 verify.log。
+- `bash scripts/verify.sh` exit 0；Go 两层通过，Dashboard 226/226，Shell 所有检查通过。完整输出见 verify.txt。
 - PWA 缓存及 HTML 资源引用统一为 v156，新 theme.js 在 CSS 前同步加载。
 
 ## 发布与回滚
