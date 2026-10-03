@@ -1451,7 +1451,7 @@ test('PWA shell supports install, offline navigation, updates, and native shortc
   assert.ok(manifest.icons.some((icon) => icon.sizes === '192x192' && icon.type === 'image/png'));
   assert.ok(manifest.icons.some((icon) => icon.sizes === '512x512' && icon.purpose === 'maskable'));
   assert.deepEqual(manifest.shortcuts.map((shortcut) => shortcut.url), ['/?mode=sessions', '/?mode=files']);
-  assert.match(indexHTML, /rel="apple-touch-icon" href="icons\/icon-180\.png"/);
+  assert.match(indexHTML, /rel="apple-touch-icon" href="icons\/icon-180\.png(?:\?v=\d+)?"/);
   assert.match(indexHTML, /id="network-status"/);
   assert.match(indexHTML, /id="pwa-install"[^>]*class="pwa-install"/);
   assert.match(indexHTML, /id="pwa-install-now"/);
