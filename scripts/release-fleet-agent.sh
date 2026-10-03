@@ -15,6 +15,8 @@ case "${1:-}" in
   --check) MODE="check" ;;
   --candidate) MODE="candidate" ;;
   --candidate-check) MODE="candidate-check" ;;
+  --native-candidate) MODE="candidate"; FLEET_NATIVE_CANDIDATE=1 ;;
+  --native-candidate-check) MODE="candidate-check"; FLEET_NATIVE_CANDIDATE=1 ;;
   -h|--help)
     cat <<'EOF'
 用法：
@@ -22,6 +24,8 @@ case "${1:-}" in
   bash scripts/release-fleet-agent.sh          # 发布签名二进制并逐台自更新
   bash scripts/release-fleet-agent.sh --candidate-check # 独立验收发布预检
   bash scripts/release-fleet-agent.sh --candidate       # 仅向专属验收实例发布，不更新现有 Mac
+  bash scripts/release-fleet-agent.sh --native-candidate-check # 原生应用签名发布预检
+  bash scripts/release-fleet-agent.sh --native-candidate       # 原生应用签名、公证、DMG 与整包升级分发
 
 正式发布：pull --ff-only → verify → build/sign/notarize → commit/push → gateway dist → Macs update。
 EOF

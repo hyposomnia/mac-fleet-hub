@@ -1,5 +1,39 @@
 # Changelog
 
+## Unreleased
+
+- 原生 Fleet Hub 设置应用：Universal 应用、拖入 Applications 的 DMG、独立常驻后台、服务器设置与浏览器逐用户关联、完全磁盘访问引导、登录启动、重启与卸载、从配置服务升级完整应用；Web 安装说明同步图形化流程。候选发布新增应用/DMG 双公证、更新包签名、真实下载验证与失败回滚，配置使用变量。
+- 真实客户端下载准备：账户页面仅在签名公证发行清单完整时提供下载，安装命令使用当前 origin 与 FLEET_ORIGIN 变量；完整包优先使用包内正式 agent。唯一签名发布入口新增专属候选发布，支持 Accepted 记录、完整包及双架构下载 SHA 核验，不 rollout 旧服务或其他 Mac。独立验收网关通过 loopback 用户空间 mesh 代理接入，原有 Tailscale 网络不变。
+- Web 文件标签 v165：桌面标签采用 28px 图标标签，替代重复会话标题并统一紧凑圆角；选中项白底，悬停卡片显示完整标题、内容摘要和路径，不做额外 hover 变色。所有文件标签保留同一会话输入框、草稿和发送能力。文档预览移除返回按钮、设备编号、格式及大小标签；仅保留文件名、路径、换行和下载操作。 本次仅源码与隔离本地验证。
+
+- Web 文件预览 v163：会话内文件链接在顶部多标签预览，支持切换、去重、关闭和返回会话；文件管理器完整预览进入同一工作区，聊天连接与草稿保留。仅生产兼容静态资源发布，不包含多用户或客户端开发。
+
+- 账户“添加设备”区新增 fleet-agent 安装包、Apple Silicon 与 Intel 下载入口，说明终端填服务地址、浏览器登录授权、返回终端核对归属的流程；`fleet-agent login` 支持交互输入地址，并在接入网络及安装服务前要求本机明确确认。页面已更新 abj 独立验收实例；客户端仍仅源码与隔离验证，不替换现有客户端或绕过签名公证。
+- 设备列表空态统一使用“设备”文案，提示下方新增“添加设备”入口，直达账户设备添加区；网关故障仍只提示重试，不误报为空列表。
+- 注册流程界面精简：移除顶部与内容容器底色，品牌居中，右上角外观选择缩小；注册、Authenticator 设置和验证码步骤不再展示登录/注册切换；恢复码确认框置于文字左侧。仅更新独立验收实例的前端，不修改账号状态或旧服务。
+- 会话列表精修：新建会话移至搜索框右侧，固定控件改为 pinned/unpinned 双态图钉，分别以实心图钉与取消固定图标区分。仅本地验证。
+
+- 设备栏与会话列表独立收起：设备栏缩为竖向图标列，会话列表通过悬浮入口呼出，支持固定回侧栏、Esc/外部点击/选择会话关闭，并保存当前浏览器的收起偏好；保留移动端既有导航。仅本地验证。
+
+- Titanium 页面精修：沿用浅钛银/瓷白/钢蓝、系统字体及无边框令牌，统一登录、账户、管理与设备确认页的卡片、导航选中、错误反馈、44px 控件与移动端安全区；保留主面板三栏和移动搜索行三个入口，外壳缓存升级到 v155。仅独立本地验证，不发布生产。
+- Web 采用已确认的 Titanium 视觉规范：精修折面标识及安装图标、浅色默认与深色/系统选项、共享色彩系统、8/12/16/20px 语义圆角、无装饰边框的卡片和控件。菜单支持方向键、Escape 关闭与焦点恢复；登录/账号/管理/配对页面同步外观，PWA 外壳升级至 v155。本次仅独立本地验证，未部署生产或迁移现有 Mac。
+
+- 统一多用户服务器阶段（`codex/multi-user-server`）：同一开源系统仅包含用户、设备和管理员；邮箱/密码/确认密码注册，强制每用户 Authenticator TOTP、一次性恢复码与绝对 30 天会话，管理员权限限于账号和设备元信息。
+- `server/enroll` 沿用 `fleet-enroll` 二进制名，统一账号鉴权、设备归属及动态代理；SQLite 与独立 `0600` 加密密钥、Headscale API key 文件及显式 owner 迁移替代旧版 Authelia / 全局入网 TOTP / 静态 `MAC_IPS` 路由。文档补充独立 loopback 本地运行与网络未配置时 `/readyz` 返回 503 的契约。
+- 逐用户客户端：网页地址 → 自动打开浏览器 → 登录确认关联 → 自动入网登记；新增 login/logout/capabilities 与私有绑定文件、中断续装、一次性入网 key 文件传递及控制面切换保护。
+- 设备双向凭据隔离，网关注入指定设备 secret，agent 统一授权守卫与 45 秒 lease；终端/文件服务改为 loopback 并经 agent 访问，撤销切断长连接，自更新拒绝签名团队变化和授权协议降级。
+- 安装器先验证正式签名及协议，再操作 mesh；旧二进制明确失败。本次未迁移现有 Mac、未发布生产或替换正式 Mac dist，验证证据见客户端验证报告。
+
+## 2026-09-30
+
+- **修复「ChatGPT failed to start. connect ECONNREFUSED 127.0.0.1:47682」**：根因不是卸载残留，而是 ChatGPT.app 自动更新把内部 codex 路径由 `Contents/Resources/codex` 换成 `Contents/Resources/codex-cli/bin/codex`，而 plist 里的 `FLEET_CODEX_BIN` 写死了旧路径 → shared app-server 每次启动即退出、launchd 每 2 秒重启一次、47682 永不监听；GUI 域里指向该端口的 `CODEX_APP_SERVER_WS_URL` 又把桌面端拖成启动失败。
+- 新增 `mac/codex-bin-resolve.sh`：codex 可执行文件的唯一解析器。优先读 App 自带的 `codex-cli/codex-package.json` 的 `entrypoint`（布局自述），再退回「新版固定位置 → 旧版固定位置 → Fleet 托管版本 → PATH」，每一项都校验「存在 + 可执行 + 软链不悬空」。`setup-mac.sh`、`codex-shared-app-server.mjs` 与 fleet-agent 共用同一套解析，App 更新后自愈；显式指定但已失效的路径会被跳过而不是继续写死。
+- 新增 `mac/codex-keeper-launch.sh` 监督包装（R4）：启动后做 `/readyz` 就绪探针；失败按 2/10/30 秒退避；连续失败达上限即熔断——写失败态、摘除 GUI 域变量，然后以 0 退出，配合 plist 的 `KeepAlive.SuccessfulExit=false` 彻底终止无限崩溃重启。日志带时间戳且滚动，路径由 `/tmp` 迁到 `~/Library/Logs/macfleet/`，状态写 `~/Library/Application Support/macfleet/state/app-server.json`。
+- GUI 域注入改为「就绪后才注入」（R5）：`setup-mac.sh` 先起服务并通过就绪检查，再写 `CODEX_APP_SERVER_WS_URL`；`codex-desktop-env.sh` 登录时探活失败即 fail-open（不注入并清除残留），不再把桌面端指向死端口。
+- 安装写入安装清单 `~/Library/Application Support/macfleet/manifest.json`（fleet 创建的文件/目录、备份 glob、GUI 域变量快照）；`mac/uninstall.sh` 重写为按清单精确清理 + 按快照还原域变量 + 自检（期望清空时 `launchctl print gui/$UID | grep -c` 必须为 0），未通过以非 0 退出；新增 `--purge` / `--keep-tailscale` / `--down-tailscale` 非交互参数。
+- 备份保留策略（R3）：`~/.local/bin/fleet-agent*` 历史备份、`~/.macfleet/migration-backups/`、plist 备份默认各保留 3 份（`FLEET_BACKUP_KEEP` 可调）。
+- 回归测试接入 `scripts/verify.sh`：`tests/codex-bin-resolve_test.sh`（四种 App 布局 + 断链软链 + 写死路径自愈）、`tests/codex-keeper-launch_test.sh`（就绪 / 熔断 / fail-open / 日志有界）、`tests/uninstall-restore_test.sh`（域变量清除与按快照还原、幂等）。
+
 ## 2026-09-28
 
 - 外观菜单新增“系统 / 浅色 / 深色”三档；默认跟随系统并实时响应系统变化，手动选择保存在当前浏览器，可随时切回系统。桌面与移动端菜单共用同一偏好，PWA 外壳缓存升级到 v150。

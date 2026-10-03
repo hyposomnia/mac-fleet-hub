@@ -18,10 +18,16 @@ step "Go 测试：server/enroll (go test ./...)"
 (cd "$ROOT/server/enroll" && go test ./...)
 
 step "Dashboard JS 测试：server/dashboard (node --test)"
-node --test "$ROOT/server/dashboard/chat_model.test.mjs" "$ROOT/server/dashboard/upload_model.test.mjs" "$ROOT/server/dashboard/assistant_gate.test.mjs" "$ROOT/server/dashboard/gateway_down.test.mjs" "$ROOT/server/dashboard/auth.test.mjs" "$ROOT/server/dashboard/auth_integration.test.mjs" "$ROOT/server/dashboard/account_pages.test.mjs" "$ROOT/server/dashboard/theme.test.mjs"
+node --test "$ROOT/server/dashboard/chat_model.test.mjs" "$ROOT/server/dashboard/upload_model.test.mjs" "$ROOT/server/dashboard/assistant_gate.test.mjs" "$ROOT/server/dashboard/gateway_down.test.mjs" "$ROOT/server/dashboard/auth.test.mjs" "$ROOT/server/dashboard/auth_integration.test.mjs" "$ROOT/server/dashboard/account_pages.test.mjs" "$ROOT/server/dashboard/theme.test.mjs" "$ROOT/server/dashboard/device_appearance.test.mjs" "$ROOT/server/dashboard/sidebar_layout.test.mjs" "$ROOT/server/dashboard/workspace_tabs.test.mjs"
 
 step "候选安装包与独立网关配置测试"
-node --test "$ROOT/scripts/client-release-manifest.test.mjs" "$ROOT/scripts/acceptance-network-templates.test.mjs"
+node --test "$ROOT/scripts/client-release-manifest.test.mjs" "$ROOT/scripts/acceptance-network-templates.test.mjs" "$ROOT/scripts/settings-app-package.test.mjs" "$ROOT/scripts/native-client-release.test.mjs"
+
+if [[ "$(uname -s)" == Darwin ]]; then
+  step "原生设置应用：校验 Sparkle SDK 与 Swift 测试"
+  bash "$ROOT/scripts/prepare-settings-sdk.sh"
+  (cd "$ROOT/mac/settings-app" && swift test)
+fi
 
 step "Shell 工具测试：tests/tailscale-utils_test.sh"
 bash "$ROOT/tests/tailscale-utils_test.sh"

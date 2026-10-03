@@ -108,6 +108,16 @@ func parseCommand(name string) svcAction {
 
 // runSelfCommand：执行子命令，返回进程退出码。
 func runSelfCommand(args []string) int {
+	if args[0] == "desktop" {
+		return runDesktopCommand(args[1:])
+	}
+	executable, err := os.Executable()
+	if err != nil {
+		return done(err)
+	}
+	if !desktopLegacyCommandAllowed(executable, parseCommand(args[0])) {
+		return done(fmt.Errorf("请在 Fleet Hub 应用中管理后台和升级完整应用，不能单独修改内置 agent"))
+	}
 	switch parseCommand(args[0]) {
 	case actLogin:
 		return runDeviceLogin(args[1:])

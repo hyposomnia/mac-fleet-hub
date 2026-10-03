@@ -29,6 +29,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"os/exec"
@@ -1988,10 +1989,20 @@ func main() {
 	if len(os.Args) > 1 {
 		os.Exit(runSelfCommand(os.Args[1:]))
 	}
+	if os.Getenv("FLEET_DESKTOP_MANAGED") == "1" {
+		if err := runDesktopDaemon(); err != nil {
+			log.Fatal(err)
+		}
+		return
+	}
 	runServer()
 }
 
 func runServer() {
+	log.Fatal(serveAgent(nil, nil))
+}
+
+func serveAgent(listener net.Listener, ready func()) error {
 	cfg = loadConfig()
 	access := newDeviceAccess(bindingPath())
 	access.refresh(context.Background())
@@ -2025,13 +2036,15 @@ func runServer() {
 	// R5：shared 模式下看门狗兜底——shared app-server 挂了就摘掉 GUI 域注入的
 	// CODEX_APP_SERVER_WS_URL，避免 Desktop 被指向死端口后启动即 ECONNREFUSED；
 	// 恢复后只补回一次。
-	if normalizeCodexAppServerMode(cfg.CodexMode) == codexAppServerModeShared && cfg.CodexDesktopShare {
+	if desktopMayConfigureEnvironment() && normalizeCodexAppServerMode(cfg.CodexMode) == codexAppServerModeShared && cfg.CodexDesktopShare {
 		watchdog := newDesktopEnvWatchdog(cfg.CodexDesktopURL, appServerStatePath())
 		go watchdog.Run(context.Background())
 	}
 
-	if err := configureCodexDesktopSharedDaemon(cfg, home, runtime.GOOS); err != nil {
-		log.Printf("配置 Codex.app app-server 连接策略失败；重启 App 后连接模式可能未更新：%v", err)
+	if desktopMayConfigureEnvironment() {
+		if err := configureCodexDesktopSharedDaemon(cfg, home, runtime.GOOS); err != nil {
+			log.Printf("配置 Codex.app app-server 连接策略失败；重启 App 后连接模式可能未更新：%v", err)
+		}
 	}
 	agentChatBackend = newAgentChatBackend()
 	var err error
@@ -2092,5 +2105,12 @@ func runServer() {
 	go configSync()
 	go reaper()
 	log.Printf("fleet-agent listening on %s (mac index %s, idle %ds)", cfg.Listen, cfg.MacIndex, cfg.IdleSec)
-	log.Fatal(http.ListenAndServe(cfg.Listen, access.handler(mux)))
+	if ready != nil {
+		ready()
+	}
+	handler := access.handler(desktopMaintenance.Handler(mux))
+	if listener != nil {
+		return http.Serve(listener, handler)
+	}
+	return http.ListenAndServe(cfg.Listen, handler)
 }

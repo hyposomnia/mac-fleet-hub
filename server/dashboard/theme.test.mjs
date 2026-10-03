@@ -13,7 +13,7 @@ function fixture(stored = null, light = false, blocked = false) {
   return {host, attrs, meta, media, listeners, controls, stored: () => stored};
 }
 test('new users start light even when their OS is dark', () => {
-  const f=fixture(); assert.equal(f.attrs['data-theme'],'light'); assert.equal(f.meta.content,'#EDF1F4');
+  const f=fixture(); assert.equal(f.attrs['data-theme'],'light'); assert.equal(f.meta.content,'#FFFFFF');
   f.media.matches=false; f.listeners.media(); assert.equal(f.attrs['data-theme'],'light');
 });
 test('saved dark survives reload and system is an explicit persistent choice', () => {

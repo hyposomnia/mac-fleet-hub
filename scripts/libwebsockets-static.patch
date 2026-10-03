@@ -1,0 +1,5 @@
+--- a/cmake/libwebsockets-config.cmake.in
++++ b/cmake/libwebsockets-config.cmake.in
+@@ -18,1 +18,1 @@
+-set(LIBWEBSOCKETS_LIBRARIES websockets websockets_shared)
++set(LIBWEBSOCKETS_LIBRARIES websockets)

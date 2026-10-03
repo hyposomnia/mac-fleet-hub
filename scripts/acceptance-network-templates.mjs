@@ -2,6 +2,28 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import { isIP } from 'node:net';
 import { pathToFileURL } from 'node:url';
 
+export function addNativeDownloadLocations(nginx, root) {
+  if (!/^\/opt\/[a-zA-Z0-9_-]+$/.test(root) || !nginx.includes('        location / {') || !nginx.includes('127.0.0.1:7098')) throw new Error('Invalid independent download deployment');
+  if (nginx.includes('/client-native-current/')) {
+    if (!nginx.includes(`alias ${root}/client-native-current/$1;`) || !nginx.includes(`alias ${root}/client-native-releases/$1/$2;`)) throw new Error('Existing native download deployment does not match');
+    return nginx;
+  }
+  const locations = `        location ~ ^/enroll/(client-release\\.json|appcast\\.xml)$ {
+            alias ${root}/client-native-current/$1;
+            add_header Cache-Control "no-cache" always;
+            add_header X-Content-Type-Options "nosniff" always;
+            types { application/json json; application/xml xml; }
+        }
+        location ~ ^/enroll/clients/([1-9][0-9]*)/(Fleet-Hub\\.dmg|Fleet-Hub-update\\.zip)$ {
+            alias ${root}/client-native-releases/$1/$2;
+            default_type application/octet-stream;
+            add_header Cache-Control "public, max-age=31536000, immutable";
+            add_header X-Content-Type-Options "nosniff" always;
+        }
+`;
+  return nginx.replace('        location / {', locations + '\n        location / {');
+}
+
 export function acceptanceNetworkTemplates(origin, nginx) {
   const service = new URL(origin);
   if (service.protocol !== 'https:' || service.origin !== origin || isIP(service.hostname) !== 4) throw new Error('Acceptance entry must be a configured HTTPS IPv4 origin');
@@ -64,10 +86,15 @@ unix_socket_permission: "0600"
             proxy_read_timeout 3600s;
         }
 `;
-  return { headscale, nginx: nginx.replace('        location / {', downloadLocation + routes + '\n        location / {') };
+  return { headscale, nginx: addNativeDownloadLocations(nginx.replace('        location / {', downloadLocation + routes + '\n        location / {'), '/opt/macfleet-saas-uat') };
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  if (process.argv[2] === '--native-downloads') {
+    const [, original, output, root] = process.argv.slice(2);
+    writeFileSync(output, addNativeDownloadLocations(readFileSync(original, 'utf8'), root));
+    process.exit(0);
+  }
   const [origin, original, output] = process.argv.slice(2);
   const templates = acceptanceNetworkTemplates(origin, readFileSync(original, 'utf8'));
   writeFileSync(output + '/config.yaml', templates.headscale);

@@ -46,6 +46,7 @@ type loginOptions struct {
 	Join           func(context.Context, pairingGrant, bool) error
 	Setup          func(context.Context, deviceBinding) error
 	Confirm        func(pairingGrant) error
+	Browser        func(string, string)
 }
 
 func enrollmentCall(ctx context.Context, client *http.Client, origin, path string, input, output any) (int, error) {
@@ -142,6 +143,9 @@ func pairDevice(ctx context.Context, origin string, options loginOptions) error 
 		return errors.New("服务器返回的确认链接不安全")
 	}
 	claim := map[string]string{"request_id": pending.ID, "claim_token": pending.Token}
+	if options.Browser != nil {
+		options.Browser(pending.URL, pending.Code)
+	}
 	if pending.Grant == nil {
 		fmt.Fprintf(options.Output, "请在浏览器登录并确认关联：%s\n配对码：%s\n", pending.URL, pending.Code)
 		if !options.NoOpen && options.Open != nil {

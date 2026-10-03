@@ -21,11 +21,16 @@ run_candidate_release() {
   require_notary_credentials
   ssh_retry "$port" "$target" '验证专属候选实例标记' "test -f '$candidate_root/.candidate-instance' && test -d '$candidate_root/current/dashboard'"
   curl "${curl_args[@]}" "$FLEET_CANDIDATE_WEB_BASE/healthz"
+  if [[ "${FLEET_NATIVE_CANDIDATE:-0}" == 1 ]]; then
+    source "$ROOT/scripts/lib/native-candidate-release.sh"
+    native_candidate_preflight
+  fi
   if [[ "$MODE" == candidate-check ]]; then echo '候选发布预检通过；未修改任何服务。'; return; fi
   step "拉取候选分支 $branch 并验证"
   GIT_SSH_COMMAND='ssh -o BatchMode=yes' git pull --ff-only origin "$branch"
   [[ "$(git rev-parse HEAD)" == "$(git rev-parse "origin/$branch")" ]] || die '候选源码不等于远端分支。'
   bash "$ROOT/scripts/verify.sh"
+  if [[ "${FLEET_NATIVE_CANDIDATE:-0}" == 1 ]]; then run_native_candidate_release; return; fi
   local work
   work="$(mktemp -d /private/tmp/macfleet-candidate-release.XXXXXX)"
   chmod 0700 "$work"

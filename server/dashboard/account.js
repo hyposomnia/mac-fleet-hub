@@ -1,6 +1,19 @@
 'use strict';
 
 (function (root) {
+  function nativeClientRelease(release) {
+    if (release?.schema !== 1 || release.notarization !== 'Accepted' || release.bundle_id !== 'com.macfleet.fleet-hub' ||
+        !Number.isSafeInteger(release.build) || release.build < 1 || !/^\d+\.\d+\.\d+$/.test(release.version || '') ||
+        !/^\d+\.\d+(?:\.\d+)?$/.test(release.minimum_macos || '') || !Array.isArray(release.architectures) ||
+        !release.architectures.length || release.architectures.some((arch) => !['arm64', 'x86_64'].includes(arch))) return null;
+    for (const [name, filename] of [['dmg', 'Fleet-Hub.dmg'], ['update', 'Fleet-Hub-update.zip']]) {
+      const asset = release.assets?.[name];
+      if (asset?.path !== `/enroll/clients/${release.build}/${filename}` || !/^[a-f0-9]{64}$/.test(asset.sha256 || '') ||
+          !Number.isSafeInteger(asset.size) || asset.size < 1) return null;
+    }
+    if (!/^[A-Za-z0-9+/]{85}[AQgw]==$/.test(release.assets.update.ed_signature || '')) return null;
+    return release;
+  }
   function createPages({ document, auth, location, history, confirm }) {
     const content = document.querySelector('#page-content');
     const status = document.querySelector('#page-status');
@@ -190,12 +203,9 @@
     async function showAccount() {
       const [deviceData, sessionData] = await Promise.all([auth.json('/api/devices'), auth.json('/api/auth/sessions')]);
       const serviceOrigin = location.origin;
-      const clientAssets = ['mac-bundle.tar.gz', 'dist/fleet-agent-darwin-arm64', 'dist/fleet-agent-darwin-amd64'];
-      let clientPublished = false;
+      let release = null;
       try {
-        const release = await auth.json('/enroll/release.json');
-        clientPublished = release.schema === 1 && release.notarization === 'Accepted' && release.device_authorization === 1 &&
-          clientAssets.every((asset) => /^[a-f0-9]{64}$/.test(release.assets?.[asset]?.sha256 || ''));
+        release = nativeClientRelease(await auth.json('/enroll/client-release.json'));
       } catch (_) {}
       heading('账户', `${auth.user.email} · ${auth.user.role} · ${auth.user.status}`);
       const deviceSection = section('我的设备');
@@ -205,29 +215,29 @@
       add.id = 'add-device';
       add.append(node('p', '下载并在要添加的 Mac 上运行客户端，授权请求由 fleet-agent 发起。邮箱、密码和 Authenticator 验证码只在浏览器输入。'));
       const downloads = node('div', '', { className: 'account-downloads' });
-      for (const [label, href, filename] of [
-        ['下载 fleet-agent 安装包（推荐）', '/enroll/mac-bundle.tar.gz', 'mac-bundle.tar.gz'],
-        ['Apple Silicon · arm64', '/enroll/dist/fleet-agent-darwin-arm64', 'fleet-agent-darwin-arm64'],
-        ['Intel · amd64', '/enroll/dist/fleet-agent-darwin-amd64', 'fleet-agent-darwin-amd64'],
-      ]) {
-        downloads.append(node('a', label, { href, download: filename, className: 'account-button' }));
-      }
-      if (clientPublished) add.append(downloads);
-      else add.append(node('p', '本服务尚未发布经过签名公证的可用客户端安装包，暂不提供下载。', { className: 'account-error' }));
-      add.append(node('p', '首次安装请使用完整安装包，它会下载并验证正式签名客户端、准备支持文件，再调用 fleet-agent login。裸二进制仅用于已安装支持文件的设备。需要 macOS 和 Homebrew。', { className: 'account-muted' }));
+      if (release) {
+        downloads.append(node('a', '下载 macOS 应用', { href: release.assets.dmg.path, download: 'Fleet-Hub.dmg', className: 'account-button primary' }));
+        add.append(downloads);
+        add.append(node('p', `Fleet Hub ${release.version} · macOS ${release.minimum_macos} 及以上 · ${(release.assets.dmg.size / 1048576).toFixed(1)} MB`, { className: 'account-muted' }));
+      } else add.append(node('p', '本服务尚未发布经过签名公证的 Fleet Hub 应用，暂不提供下载。', { className: 'account-error' }));
       const steps = node('ol', '', { className: 'account-steps' });
       for (const description of [
-        '下载完整安装包，在终端解压并运行安装器；输入本服务网页地址（含 https:// 和实际端口）。已安装的客户端直接运行 fleet-agent login。',
-        'fleet-agent 自动唤起浏览器，登录并完成 Authenticator 验证，核对当前账号、设备名称与配对码后确认关联。',
-        '回到终端，核对服务、归属账号和设备编号，输入 y 确认接入；按终端提示完成本机安装，看到“已关联”后才表示流程完成。',
+        '下载并打开 DMG，将 Fleet Hub 拖入“应用程序”，也可以双击后选择“安装到应用程序”。',
+        '打开 Fleet Hub 应用，填写下方服务网页地址，点击“保存并连接”。',
+        '应用自动打开浏览器；登录并完成 Authenticator 验证，核对账号、设备名称与配对码后确认关联。',
+        '返回 Fleet Hub 应用，核对归属账号与设备编号，点击“确认接入”。需要时按系统提示允许登录后自动运行。',
+        '在应用“磁盘权限”中检查完全磁盘访问。按引导在系统设置添加并开启 Fleet Agent.app，再返回应用重新检查后台权限。',
+        '确认后台及设备服务正常后，可以关闭应用窗口，后台服务仍会持续运行。',
       ]) steps.append(node('li', description));
       add.append(steps);
       add.append(node('p', `本服务网页地址：${serviceOrigin}`));
-      const shellOrigin = "'" + serviceOrigin.replace(/'/g, "'\\''") + "'";
-      if (clientPublished) add.append(node('pre', `FLEET_ORIGIN=${shellOrigin}\ncd "$HOME/Downloads"\ntar -xzf mac-bundle.tar.gz\nFLEET_ORIGIN="$FLEET_ORIGIN" bash mac/install.sh`, { className: 'account-command' }));
-      add.append(node('p', '已安装客户端：运行以下命令，在终端填写上方服务网页地址。'));
-      add.append(node('pre', 'fleet-agent login', { className: 'account-command' }));
-      add.append(node('p', '只使用本服务发布的 Developer ID 签名并经 Apple 公证的客户端。若下载返回 404，或安装器提示不支持设备授权，说明该服务尚未发布可用的新客户端；不要回退旧版或关闭 TLS / 签名校验。', { className: 'account-muted' }));
+      button('复制服务器地址', async () => {
+        if (!root.navigator?.clipboard?.writeText) throw new Error('浏览器无法复制，请手动复制上方服务网页地址。');
+        await root.navigator.clipboard.writeText(serviceOrigin);
+        status.textContent = '服务器地址已复制。';
+      }, add);
+      add.append(node('p', '更新客户端：打开 Fleet Hub → 检查更新，从已设置的服务器下载并升级整个应用。重启、登录后自动运行和卸载也在应用中管理。', { className: 'account-muted' }));
+      add.append(node('p', '客户端经 Developer ID 签名与 Apple 公证。若下载不可用，请联系本服务管理员检查应用发行状态。完全磁盘访问由你在系统设置开启，文件本身的权限仍然生效。', { className: 'account-muted' }));
       add.append(node('p', '浏览器未自动打开时，可在这里输入 fleet-agent 已生成的配对码，手动打开确认页。此处不发起新的设备授权。'));
       form('enrollment-code', [field('enrollment_code', '设备配对码')], '打开设备确认', ({ enrollment_code }) => {
         const code = enrollment_code.trim();
@@ -369,7 +379,7 @@
     return { start };
   }
 
-  root.FleetAccountPages = { createPages };
+  root.FleetAccountPages = { createPages, nativeClientRelease };
   if (root.document?.body?.dataset.fleetPage) {
     const pages = createPages({ document: root.document, auth: root.FleetAuth, location: root.location,
       history: root.history, confirm: root.confirm.bind(root) });

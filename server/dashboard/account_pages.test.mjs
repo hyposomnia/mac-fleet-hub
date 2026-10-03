@@ -13,7 +13,7 @@ class Element {
 }
 function text(node) { return typeof node === 'string' ? node : (node?.textContent || '') + (node?.children || []).map(text).join(' '); }
 function all(node, predicate) { return [node, ...(node.children || []).flatMap((child) => typeof child === 'string' ? [] : all(child, predicate))].filter(predicate); }
-function harness({ page = 'auth', path = '/auth', search = '', role = 'user', respond, confirmed = true, origin = 'https://fleet.test', released = true } = {}) {
+function harness({ page = 'auth', path = '/auth', search = '', role = 'user', respond, confirmed = true, origin = 'https://fleet.test', released = true, transformRelease = value => value } = {}) {
   assert.ok(source, 'shared account page implementation is missing');
   const sandbox = { URL, URLSearchParams };
   vm.runInNewContext(source, sandbox);
@@ -29,10 +29,10 @@ function harness({ page = 'auth', path = '/auth', search = '', role = 'user', re
     safeNext: (target) => target?.startsWith('/') && !target.startsWith('//') ? target : '/',
     json: async (url, options = {}) => {
       calls.push({ url, ...options });
-      if (url === '/enroll/release.json') {
+      if (url === '/enroll/client-release.json') {
         if (!released) throw new Error('not published');
-        return { schema: 1, notarization: 'Accepted', device_authorization: 1,
-          assets: Object.fromEntries(['mac-bundle.tar.gz', 'dist/fleet-agent-darwin-arm64', 'dist/fleet-agent-darwin-amd64'].map((name) => [name, { sha256: 'a'.repeat(64) }])) };
+        return transformRelease({ schema: 1, notarization: 'Accepted', bundle_id: 'com.macfleet.fleet-hub', version: '1.0.0', build: 1, minimum_macos: '13.0', architectures: ['arm64','x86_64'],
+          assets: { dmg: { path: '/enroll/clients/1/Fleet-Hub.dmg', sha256: 'a'.repeat(64), size: 12345678 }, update: { path: '/enroll/clients/1/Fleet-Hub-update.zip', sha256: 'b'.repeat(64), size: 12345678, ed_signature: Buffer.alloc(64, 1).toString('base64') } } });
       }
       return respond ? respond(url, options) : { sessions: [], devices: [], users: [], total: 0, page: 1 };
     }, logout: async () => { calls.push({ url: '/api/auth/logout', method: 'POST' }); } };
@@ -267,21 +267,24 @@ test('security changes that revoke the current session preserve recovery codes u
   assert.equal(current.redirects[0], '/auth?next=%2Faccount');
 });
 
-test('add device offers client downloads and explains agent-initiated terminal and browser authorization', async () => {
+test('add device offers a native DMG and explains browser pairing and background disk authorization', async () => {
   const current = harness({ page: 'account' });
   await current.start();
   assert.doesNotMatch(text(current.content), /bootstrap\.sh|curl -fsSL/);
   const add = current.find((node) => node.id === 'add-device');
   const downloads = all(add, (node) => node.tagName === 'a' && node.download);
-  assert.deepEqual(downloads.map((node) => node.href), ['/enroll/mac-bundle.tar.gz', '/enroll/dist/fleet-agent-darwin-arm64', '/enroll/dist/fleet-agent-darwin-amd64']);
-  assert.match(text(add), /fleet-agent login/);
+  assert.deepEqual(downloads.map((node) => node.href), ['/enroll/clients/1/Fleet-Hub.dmg']);
+  assert.doesNotMatch(text(add), /fleet-agent login|Homebrew|tar -|回到终端|输入 y/);
   assert.match(text(add), /https:\/\/fleet.test/);
-  assert.match(text(add), /终端.*服务网页地址/);
+  assert.match(text(add), /应用.*服务网页地址/);
   assert.match(text(add), /浏览器.*登录.*Authenticator/);
-  assert.match(text(add), /回到终端.*确认/);
+  assert.match(text(add), /返回.*应用.*确认接入/);
   assert.match(text(add), /fleet-agent 发起/);
   assert.match(text(add), /签名.*公证/);
-  assert.match(text(add), /尚未发布/);
+  assert.match(text(add), /完全磁盘访问/);
+  assert.match(text(add), /Fleet Agent.app/);
+  assert.match(text(add), /关闭.*后台.*运行/);
+  assert.match(text(add), /检查更新/);
   assert.ok(!current.calls.some((call) => call.url === '/api/enrollment/start'), 'web page must not initiate a client grant');
   await current.submit('enrollment-code', { enrollment_code: 'ABC-123' });
   assert.equal(current.redirects[0], '/enroll/confirm?code=ABC-123');
@@ -296,14 +299,29 @@ test('unpublished clients do not produce fake download links', async () => {
   assert.ok(current.form('enrollment-code'));
 });
 
-test('installation commands use the current service origin rather than deployment-specific addresses', async () => {
+test('invalid or cross-origin native releases never expose download links', async () => {
+  for (const mutate of [
+    release => { release.assets.dmg.path = 'https://other.test/Fleet-Hub.dmg'; },
+    release => { release.notarization = 'In Progress'; },
+    release => { release.assets.update.ed_signature = 'fake'; },
+    release => { release.assets.dmg.sha256 = ''; },
+    release => { release.bundle_id = 'other.application'; },
+  ]) {
+    const current = harness({ page: 'account', transformRelease: release => { mutate(release); return release; } });
+    await current.start();
+    const add = current.find(node => node.id === 'add-device');
+    assert.equal(all(add, node => node.tagName === 'a' && node.download).length, 0);
+  }
+});
+
+test('native installation instructions use the current service origin', async () => {
   for (const origin of ['https://other.example.com:8443', 'https://192.0.2.10:9443']) {
     const current = harness({ page: 'account', origin });
     await current.start();
     const add = current.find((node) => node.id === 'add-device');
-    const commands = all(add, (node) => node.tagName === 'pre').map(text).join('\n');
-    assert.ok(commands.includes(`FLEET_ORIGIN='${origin}'`));
-    assert.match(commands, /FLEET_ORIGIN="\$FLEET_ORIGIN" bash mac\/install.sh/);
+    assert.ok(text(add).includes(origin));
+    assert.equal(all(add, (node) => node.tagName === 'pre').length, 0);
+    assert.ok(all(add, (node) => node.tagName === 'button' && node.textContent === '复制服务器地址').length);
     assert.doesNotMatch(source, /10\.17\.74\.92|7443/);
   }
 });
