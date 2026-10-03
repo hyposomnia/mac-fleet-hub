@@ -1,0 +1,9 @@
+release_commit=8e4809246deec0d81812e244fd99a91e2f57dac8
+SHA256: 99/99 matched
+true
+active
+active
+active
+active
+600 root:root /var/backups/mac-fleet-hub/dashboard-before-v157-20261002T012630Z.tgz
+const CACHE = 'fleet-shell-v157';
