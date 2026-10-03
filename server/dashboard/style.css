@@ -557,9 +557,6 @@ html.automation-doc-root, html.automation-doc-root body { height: auto; min-heig
   #win { grid-column: 3; grid-row: 1; }
   #app[data-mode="files"] #win { grid-column: 2; }
   #app[data-rail-collapsed="true"] { --layout-rail-w: 72px; }
-  #app[data-rail-collapsed="true"] #rail { padding: 16px 10px; gap: 18px; }
-  #app[data-rail-collapsed="true"] .rail-heading { flex-direction: column; gap: 8px; }
-  #app[data-rail-collapsed="true"] #rail .brand { padding: 0; }
   #app[data-rail-collapsed="true"] #rail .brand-name,
   #app[data-rail-collapsed="true"] #rail .mode-label,
   #app[data-rail-collapsed="true"] #rail .hostlist .hd,
@@ -569,11 +566,7 @@ html.automation-doc-root, html.automation-doc-root body { height: auto; min-heig
   #app[data-rail-collapsed="true"] #rail .userrow .un,
   #app[data-rail-collapsed="true"] #rail .userrow .cv { display: none; }
   #app[data-rail-collapsed="true"] .modeseg { grid-template-columns: 1fr; }
-  #app[data-rail-collapsed="true"] .modeseg button { height: 44px; }
-  #app[data-rail-collapsed="true"] .host { justify-content: center; min-height: 48px; padding: 10px; }
-  #app[data-rail-collapsed="true"] .userrow { justify-content: center; padding: 8px; }
   #app[data-rail-collapsed="true"] #usermenu { left: 58px; right: auto; min-width: 240px; bottom: 0; }
-  #app[data-rail-collapsed="true"] #rail-collapse .ic { transform: rotate(180deg); }
   #app[data-sessions-collapsed="true"][data-mode="sessions"] { --layout-sess-w: 0px; }
   #app[data-sessions-collapsed="true"] #sescol { visibility: hidden; overflow: hidden; }
   #app[data-sessions-collapsed="true"][data-mode="sessions"] > #win > .win-head { padding-left: 70px; }
@@ -594,27 +587,31 @@ html.automation-doc-root, html.automation-doc-root body { height: auto; min-heig
   }
 }
 
-
 /* 仅移动端出现的外壳元素，桌面隐藏 */
 #mtopbar, #mobctl { display: none; }
 
 /* ============================================================
    主机栏（桌面左栏）
    ============================================================ */
-#rail { background: var(--surface); border: 0; display: flex; flex-direction: column; gap: var(--s4); padding: var(--s4) var(--s3); }
+#rail { --rail-mode-height: 36px; --rail-mode-gap: 4px; --rail-host-gap: 5px; background: var(--surface); border: 0; display: flex; flex-direction: column; gap: var(--s4); padding: var(--s4) var(--s3); }
+.rail-heading { flex: none; height: 42px; }
 .brand > span:last-child { font-family: var(--mono); font-weight: 600; text-transform: uppercase; letter-spacing: .8px; font-size: var(--t-body); }
 .logo svg { display: block; width: 28px; height: 28px; fill: currentColor; }
 .brand { display: flex; align-items: center; gap: 10px; padding: 6px; font-weight: 600; font-size: var(--t-title); }
 .brand .logo { width: 30px; height: 30px; border-radius: var(--radius-compact); display: grid; place-items: center; background: transparent; color: var(--accent); font-size: var(--t-title); box-shadow: none; flex: none; }
+.brand .logo:disabled { opacity: 1; cursor: default; }
+.brand .logo:not(:disabled):hover { background: var(--surface-hover); }
 
-.modeseg { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; background: var(--surface-2); border: 0; border-radius: var(--radius-control); padding: 4px; }
-.modeseg button { display: flex; align-items: center; justify-content: center; gap: 7px; padding: 8px 0; border-radius: var(--radius-compact); color: var(--text-1); font-weight: 500; font-size: var(--t-body); transition: all var(--dur-1) var(--ease); }
+.modeseg { display: grid; flex: none; grid-template-columns: 1fr 1fr; grid-auto-rows: var(--rail-mode-height); gap: var(--rail-mode-gap); background: var(--surface-2); border: 0; border-radius: var(--radius-control); padding: 4px; }
+.modeseg button { display: flex; align-items: center; justify-content: flex-start; gap: 7px; padding: 8px 10px; border-radius: var(--radius-compact); color: var(--text-1); font-weight: 500; font-size: var(--t-body); transition: background var(--dur-1) var(--ease), color var(--dur-1) var(--ease); }
+.modeseg button .ic { flex: none; }
 .modeseg button .gi { font-size: var(--t-body); opacity: .85; }
 .modeseg button[aria-selected="true"] { background: var(--accent); color: var(--accent-contrast); box-shadow: var(--e1); }
 
-.hostlist { display: flex; flex-direction: column; gap: 5px; overflow-y: auto; flex: 1; }
-.hostlist .hd { padding: 8px 8px 4px; }
-.host { display: flex; align-items: center; gap: 10px; padding: 9px 11px; border-radius: var(--radius-control); border: 0; transition: all var(--dur-1) var(--ease); width: 100%; text-align: left; }
+.hostlist { display: flex; flex-direction: column; gap: var(--rail-host-gap); overflow-y: auto; flex: 1; }
+/* The collapsed file row takes exactly the space of this heading plus its gap. */
+.hostlist .hd { flex: none; height: calc(var(--rail-mode-height) + var(--rail-mode-gap) - var(--rail-host-gap)); padding: 8px 8px 4px; }
+.host { display: flex; flex: none; align-items: center; gap: 10px; height: 42px; padding: 9px 11px; border-radius: var(--radius-control); border: 0; transition: background var(--dur-1) var(--ease); width: 100%; text-align: left; }
 .host:hover { background: var(--surface-hover); }
 .host[aria-current="true"] { background: var(--accent-soft);  }
 .host[aria-current="true"] .nm { color: var(--accent-text); }
@@ -635,6 +632,7 @@ html.automation-doc-root, html.automation-doc-root body { height: auto; min-heig
 [data-theme="dark"] [data-device-color] { --device-ink: var(--device-dark); }
 .device-icon { position: relative; display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; flex: none; color: var(--device-ink); }
 .device-icon svg { width: 100%; height: 100%; }
+.device-icon-all { color: var(--accent-text); }
 .device-icon.is-offline { opacity: .6; }
 .device-status-mark { position: absolute; right: -2px; bottom: 0; width: 5px; height: 5px; border: 0; border-radius: var(--r-pill); background: var(--offline); box-shadow: 0 0 0 2px var(--surface); }
 .is-online .device-status-mark { background: var(--online); }
@@ -1534,7 +1532,7 @@ html[data-workspace-tab="true"] .preview-actions .iconbtn { width: 26px; height:
 .scope-button .scope-chevron { width: 15px; height: 15px; color: var(--text-2); }
 .device-scope-avatar {
   display: grid; place-items: center; width: 32px; height: 32px; flex: none;
-  border: 0; border-radius: var(--radius-compact); background: var(--surface-2); color: var(--accent-text); font-weight: 600;
+  border: 0; border-radius: var(--radius-compact); background: transparent; color: var(--accent-text);
 }
 
 .session-search-row { display: grid; grid-template-columns: 36px minmax(0, 1fr) 36px; gap: 7px; margin-top: 9px; }
@@ -1553,8 +1551,6 @@ html[data-workspace-tab="true"] .preview-actions .iconbtn { width: 26px; height:
 .ses-meta .session-device-name { flex: none; max-width: 48%; color: var(--text-1); }
 .ses-meta .session-project-name { flex: 1; }
 .session-partial-note { margin: 8px; padding: 9px 10px; border-radius: var(--radius-compact); background: var(--danger-soft); color: var(--danger); font-size: var(--t-caption); }
-.host-stack { display: grid; place-items: center; width: 10px; height: 10px; flex: none; color: var(--accent-text); }
-.host-stack .ic { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 2; }
 
 #file-browser { flex: 1; min-width: 0; min-height: 0; overflow: hidden; background: var(--bg); }
 #app[data-mode="files"] #file-browser { display: flex; flex-direction: column; }

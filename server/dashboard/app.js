@@ -69,9 +69,19 @@ function svgIconParts(cls, parts) {
 }
 
 const DEVICE_SCOPE_COMPONENTS = Object.freeze({
-  sessions: { id: 'session-device-button', label: '全部设备', meta: '正在连接', avatar: 'ALL', ariaLabel: '选择会话设备' },
-  files: { id: 'file-device-button', label: '选择设备', meta: '文件仅浏览单台设备', avatar: 'M', ariaLabel: '选择文件设备' },
+  sessions: { id: 'session-device-button', label: '全部设备', meta: '正在连接', ariaLabel: '选择会话设备' },
+  files: { id: 'file-device-button', label: '选择设备', meta: '文件仅浏览单台设备', ariaLabel: '选择文件设备' },
 });
+
+function allDevicesIcon() {
+  const svg = svgIconParts('', [[3, 3], [14, 3], [3, 14], [14, 14]].map(([x, y]) => ({
+    tag: 'rect', attrs: { x, y, width: 7, height: 7, rx: 1.5 },
+  })));
+  svg.setAttribute('stroke-width', '1.8');
+  svg.setAttribute('aria-hidden', 'true');
+  svg.setAttribute('focusable', 'false');
+  return h('span', { class: 'device-icon device-icon-all' }, svg);
+}
 
 function createDeviceScopeButton(context) {
   const config = DEVICE_SCOPE_COMPONENTS[context];
@@ -86,7 +96,8 @@ function createDeviceScopeButton(context) {
     'aria-controls': 'device-modal',
     onclick: () => openDevicePicker(context),
   },
-  h('span', { class: 'device-scope-avatar', text: config.avatar, 'aria-hidden': 'true' }),
+  h('span', { class: 'device-scope-avatar', 'aria-hidden': 'true' },
+    context === 'sessions' ? allDevicesIcon() : FleetDeviceAppearance.createIcon()),
   h('strong', { class: 'device-scope-label', text: config.label }),
   h('span', { class: 'device-scope-meta', text: config.meta }),
   svgIcon('ic scope-chevron', 'M6 9l6 6 6-6'));
@@ -521,7 +532,7 @@ function renderHosts() {
   if (state.mode === 'sessions') {
     const onlineCount = MACS.filter((m) => state.nodes[m.id]).length;
     const all = h('button', { class: 'host host-all', title: '全部设备', 'aria-label': '全部设备', dataset: { mac: 'all' }, 'aria-current': String(selected === 'all') },
-      h('span', { class: 'host-stack' }, svgIcon('ic', 'm12 3-8 4 8 4 8-4-8-4ZM4 12l8 4 8-4M4 17l8 4 8-4')),
+      allDevicesIcon(),
       h('span', { class: 'nm', text: '全部设备' }),
       h('span', { class: 'ct', text: `${onlineCount}/${MACS.length} 在线` }),
     );
@@ -5714,10 +5725,10 @@ function updateDeviceScopeUI() {
       : (selectedId
         ? (state.nodes[selectedId] ? (context === 'files' ? '在线 · 文件仅限当前设备' : '在线') : '离线')
         : '文件仅浏览单台设备');
-    const avatar = allDevices ? 'ALL' : (selectedId ? selectedId.toUpperCase() : 'M');
     $('.device-scope-label', button).textContent = label;
     $('.device-scope-meta', button).textContent = meta;
-    $('.device-scope-avatar', button).textContent = avatar;
+    $('.device-scope-avatar', button).replaceChildren(allDevices ? allDevicesIcon()
+      : (selectedId ? deviceStatusIcon(selectedId) : FleetDeviceAppearance.createIcon()));
   });
   const statusDevice = $('#file-status-device');
   if (statusDevice) statusDevice.textContent = state.fileMacId ? macName(state.fileMacId) : '';
@@ -5752,7 +5763,7 @@ function renderDeviceOptions() {
       }
     };
     const main = h('button', { type: 'button', class: 'device-option-main', onclick: choose },
-      all ? h('span', { class: 'device-option-avatar', text: 'ALL' }) : deviceStatusIcon(id),
+      all ? allDevicesIcon() : deviceStatusIcon(id),
       h('span', { class: 'device-option-copy' },
         h('strong', { text: name }),
         h('small', { text: detail }),

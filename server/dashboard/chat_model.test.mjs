@@ -2180,8 +2180,10 @@ test('session and file views reuse one device scope component', () => {
   assert.equal(sessionButton.dataset.deviceContext, 'sessions');
   assert.equal(fileButton.dataset.deviceContext, 'files');
   assert.deepEqual(childClasses(sessionButton), childClasses(fileButton));
-  assert.equal(nodesWithClass(sessionButton, 'device-scope-avatar')[0]?.textContent, 'ALL');
-  assert.equal(nodesWithClass(fileButton, 'device-scope-avatar')[0]?.textContent, 'M');
+  assert.equal(nodeText(nodesWithClass(sessionButton, 'device-scope-avatar')[0]), '');
+  assert.equal(nodeText(nodesWithClass(fileButton, 'device-scope-avatar')[0]), '');
+  assert.equal(nodesWithClass(sessionButton, 'device-icon-all').length, 1);
+  assert.equal(nodesWithClass(fileButton, 'device-icon')[0].children[0].tagName, 'svg');
   assert.equal(typeof sessionButton.onclick, 'function');
   assert.equal(typeof fileButton.onclick, 'function');
   assert.match(appSrc, /mountDeviceScopeButtons\(\);/);

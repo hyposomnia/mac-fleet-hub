@@ -7,6 +7,7 @@
     if (!app || app.dataset.sidebarReady) return;
     app.dataset.sidebarReady = 'true';
     const railButton = doc.querySelector('#rail-collapse');
+    const logoButton = doc.querySelector('#rail-expand');
     const sessionButton = doc.querySelector('#sessions-collapse');
     const trigger = doc.querySelector('#sessions-launcher');
     const backdrop = doc.querySelector('#sessions-backdrop');
@@ -26,8 +27,11 @@
       app.dataset.sessionsCollapsed = String(sessionsCollapsed);
       app.dataset.sessionsOpen = String(open && desktop && sessions);
       railButton.setAttribute('aria-expanded', String(!railCollapsed));
-      railButton.setAttribute('aria-label', railCollapsed ? '展开设备栏' : '收起设备栏');
-      railButton.title = railCollapsed ? '展开设备栏' : '收起设备栏';
+      railButton.hidden = railCollapsed;
+      logoButton.disabled = !railCollapsed;
+      logoButton.setAttribute('aria-expanded', String(!railCollapsed));
+      logoButton.setAttribute('aria-label', railCollapsed ? '展开设备栏' : 'Fleet Hub');
+      logoButton.title = railCollapsed ? '展开设备栏' : 'Fleet Hub';
       sessionButton.setAttribute('aria-expanded', String(!sessionsCollapsed));
       sessionButton.setAttribute('aria-pressed', String(!sessionsCollapsed));
       sessionButton.dataset.pinned = String(!sessionsCollapsed);
@@ -44,7 +48,8 @@
       if (restoreFocus) trigger.focus();
       return true;
     }
-    railButton.onclick = () => { railCollapsed = !railCollapsed; persist(); render(); };
+    railButton.onclick = () => { railCollapsed = true; persist(); render(); logoButton.focus(); };
+    logoButton.onclick = () => { railCollapsed = false; persist(); render(); railButton.focus(); };
     sessionButton.onclick = () => {
       sessionsCollapsed = !sessionsCollapsed; open = false; persist(); render();
       if (sessionsCollapsed) trigger.focus();

@@ -6,7 +6,7 @@ import vm from 'node:vm';
 const source = await readFile(new URL('./sidebar_layout.js', import.meta.url), 'utf8');
 function setup({saved = {}, desktop = true, blocked = false} = {}) {
   const events = {}, elements = {};
-  for (const id of ['app', 'rail-collapse', 'sessions-collapse', 'sessions-launcher', 'sessions-backdrop', 'sescol']) {
+  for (const id of ['app', 'rail-collapse', 'rail-expand', 'sessions-collapse', 'sessions-launcher', 'sessions-backdrop', 'sescol']) {
     elements[id] = {dataset: {}, attributes: {}, hidden: false, inert: false,
       setAttribute(name, value) { this.attributes[name] = value; },
       focus() { this.focused = true; }, contains(target) { return target === this; }};
@@ -24,8 +24,12 @@ function setup({saved = {}, desktop = true, blocked = false} = {}) {
 
 test('设备和会话列表独立收起并分别保存，刷新不恢复临时浮层', () => {
   const {elements: e, store} = setup();
+  assert.equal(e['rail-expand'].disabled, true);
   e['rail-collapse'].onclick();
   assert.equal(e.app.dataset.railCollapsed, 'true');
+  assert.equal(e['rail-collapse'].hidden, true);
+  assert.equal(e['rail-expand'].disabled, false);
+  assert.equal(e['rail-expand'].focused, true);
   assert.equal(e.app.dataset.sessionsCollapsed, 'false');
   assert.equal(e['sessions-collapse'].attributes['aria-pressed'], 'true');
   e['sessions-collapse'].onclick();
@@ -40,6 +44,11 @@ test('设备和会话列表独立收起并分别保存，刷新不恢复临时�
   assert.equal(reloaded.elements.app.dataset.railCollapsed, 'true');
   assert.equal(reloaded.elements.app.dataset.sessionsCollapsed, 'true');
   assert.equal(reloaded.elements.app.dataset.sessionsOpen, 'false');
+  reloaded.elements['rail-expand'].onclick();
+  assert.equal(reloaded.elements.app.dataset.railCollapsed, 'false');
+  assert.equal(reloaded.elements['rail-collapse'].hidden, false);
+  assert.equal(reloaded.elements['rail-collapse'].focused, true);
+  assert.equal(reloaded.elements['rail-expand'].disabled, true);
 });
 
 test('呼出后按 Escape 或外部点击收回，点击列表内部不收回', () => {

@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content" />
   <!-- theme-color 与共享 Titanium 主题控制器同步。 -->
   <meta name="theme-color" content="#EDF1F4" />
-  <script src="/theme.js?v=166"></script>
+  <script src="/theme.js?v=167"></script>
   <title>mac fleet hub</title>
   <link rel="manifest" href="manifest.webmanifest" />
   <link rel="icon" href="icons/favicon.svg" type="image/svg+xml" />
@@ -16,7 +16,7 @@
   <meta name="apple-mobile-web-app-title" content="fleet hub" />
   <!-- theme.js 在样式加载前同步应用已保存的外观，默认浅色。 -->
   <link rel="stylesheet" href="vendor/codemirror/lib/codemirror.css?v=5.65.20" />
-  <link rel="stylesheet" href="style.css?v=166" />
+  <link rel="stylesheet" href="style.css?v=167" />
 </head>
 <body>
   <!-- DeepSeek 官方 whale mark，来源与 MIT 许可见 icons/deepseek/LICENSE.md。 -->
@@ -61,7 +61,7 @@
 
     <!-- ───────── 主机栏（桌面左栏） ───────── -->
     <aside id="rail" class="pane">
-      <div class="rail-heading"><div class="brand"><span class="logo"><svg aria-hidden="true" focusable="false" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96" role="img"><title>Fleet Hub · 精密钛银</title><g fill="currentColor"><path transform="rotate(0 48 48)" d="M20.72 27.75L46.5 12.87Q48 12 49.5 12.87L75.28 27.75Q76.58 28.5 75.28 29.25L69.22 32.75Q67.92 33.5 66.62 32.75L49.5 22.87Q48 22 46.5 22.87L29.38 32.75Q28.08 33.5 26.78 32.75L20.72 29.25Q19.42 28.5 20.72 27.75Z"/><path transform="rotate(120 48 48)" d="M20.72 27.75L46.5 12.87Q48 12 49.5 12.87L75.28 27.75Q76.58 28.5 75.28 29.25L69.22 32.75Q67.92 33.5 66.62 32.75L49.5 22.87Q48 22 46.5 22.87L29.38 32.75Q28.08 33.5 26.78 32.75L20.72 29.25Q19.42 28.5 20.72 27.75Z"/><path transform="rotate(240 48 48)" d="M20.72 27.75L46.5 12.87Q48 12 49.5 12.87L75.28 27.75Q76.58 28.5 75.28 29.25L69.22 32.75Q67.92 33.5 66.62 32.75L49.5 22.87Q48 22 46.5 22.87L29.38 32.75Q28.08 33.5 26.78 32.75L20.72 29.25Q19.42 28.5 20.72 27.75Z"/></g></svg></span><span class="brand-name">fleet hub</span></div><button id="rail-collapse" class="iconbtn bare sidebar-collapse" type="button" aria-label="收起设备栏" title="收起设备栏" aria-expanded="true" aria-controls="host-list"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="m14 6-6 6 6 6"/></svg></button></div>
+      <div class="rail-heading"><div class="brand"><button id="rail-expand" class="logo" type="button" aria-label="Fleet Hub" aria-expanded="true" aria-controls="host-list" disabled><svg aria-hidden="true" focusable="false" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96" role="img"><title>Fleet Hub · 精密钛银</title><g fill="currentColor"><path transform="rotate(0 48 48)" d="M20.72 27.75L46.5 12.87Q48 12 49.5 12.87L75.28 27.75Q76.58 28.5 75.28 29.25L69.22 32.75Q67.92 33.5 66.62 32.75L49.5 22.87Q48 22 46.5 22.87L29.38 32.75Q28.08 33.5 26.78 32.75L20.72 29.25Q19.42 28.5 20.72 27.75Z"/><path transform="rotate(120 48 48)" d="M20.72 27.75L46.5 12.87Q48 12 49.5 12.87L75.28 27.75Q76.58 28.5 75.28 29.25L69.22 32.75Q67.92 33.5 66.62 32.75L49.5 22.87Q48 22 46.5 22.87L29.38 32.75Q28.08 33.5 26.78 32.75L20.72 29.25Q19.42 28.5 20.72 27.75Z"/><path transform="rotate(240 48 48)" d="M20.72 27.75L46.5 12.87Q48 12 49.5 12.87L75.28 27.75Q76.58 28.5 75.28 29.25L69.22 32.75Q67.92 33.5 66.62 32.75L49.5 22.87Q48 22 46.5 22.87L29.38 32.75Q28.08 33.5 26.78 32.75L20.72 29.25Q19.42 28.5 20.72 27.75Z"/></g></svg></button><span class="brand-name">fleet hub</span></div><button id="rail-collapse" class="iconbtn bare sidebar-collapse" type="button" aria-label="收起设备栏" title="收起设备栏" aria-expanded="true" aria-controls="host-list"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="m14 6-6 6 6 6"/></svg></button></div>
 
       <div class="modeseg" role="tablist">
         <button data-mode="sessions" role="tab" aria-selected="true" aria-label="会话" title="会话"><svg class="ic" viewBox="0 0 24 24"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg><span class="mode-label">会话</span></button>
@@ -573,13 +573,13 @@
   <script src="vendor/codemirror/mode/yaml/yaml.js?v=5.65.20"></script>
   <script src="vendor/codemirror/mode/toml/toml.js?v=5.65.20"></script>
   <script src="vendor/codemirror/mode/properties/properties.js?v=5.65.20"></script>
-  <script src="markdown.js?v=166"></script>
-  <script src="preview.js?v=166"></script>
-  <script src="chat_model.js?v=166"></script>
-  <script src="upload_model.js?v=166"></script>
-  <script src="device_appearance.js?v=166"></script>
-  <script src="sidebar_layout.js?v=166"></script>
-  <script src="workspace_tabs.js?v=166"></script>
-  <script src="app.js?v=166"></script>
+  <script src="markdown.js?v=167"></script>
+  <script src="preview.js?v=167"></script>
+  <script src="chat_model.js?v=167"></script>
+  <script src="upload_model.js?v=167"></script>
+  <script src="device_appearance.js?v=167"></script>
+  <script src="sidebar_layout.js?v=167"></script>
+  <script src="workspace_tabs.js?v=167"></script>
+  <script src="app.js?v=167"></script>
 </body>
 </html>
