@@ -267,7 +267,7 @@ button { cursor: pointer; border: 0; background: none; }
 :focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; box-shadow: none; }
 
 @media (prefers-reduced-motion: reduce) {
-  * { animation-duration: .001ms !important; transition-duration: .001ms !important; }
+  * { animation-duration: .001ms !important; transition-duration: .001ms !important; transition-delay: 0s !important; }
 }
 
 /* ============================================================
@@ -550,7 +550,7 @@ html.automation-doc-root, html.automation-doc-root body { height: auto; min-heig
 #sessions-collapse[data-pinned="true"] { color: var(--accent-text); }
 .sessions-launcher, .sessions-backdrop { display: none; }
 @media (min-width: 861px) {
-  #app { position: relative; --layout-rail-w: var(--rail-w); --layout-sess-w: var(--sess-w); grid-template-columns: var(--layout-rail-w) var(--layout-sess-w) minmax(0, 1fr); }
+  #app { position: relative; --layout-rail-w: var(--rail-w); --layout-sess-w: var(--sess-w); grid-template-columns: var(--layout-rail-w) var(--layout-sess-w) minmax(0, 1fr); transition: grid-template-columns var(--dur-2) var(--ease); }
   #app[data-mode="files"] { grid-template-columns: var(--layout-rail-w) minmax(0, 1fr); }
   #rail { grid-column: 1; grid-row: 1; }
   #sescol { grid-column: 2; grid-row: 1; }
@@ -559,13 +559,31 @@ html.automation-doc-root, html.automation-doc-root body { height: auto; min-heig
   #app[data-rail-collapsed="true"] { --layout-rail-w: 72px; }
   #app[data-rail-collapsed="true"] #rail .brand-name,
   #app[data-rail-collapsed="true"] #rail .mode-label,
-  #app[data-rail-collapsed="true"] #rail .hostlist .hd,
   #app[data-rail-collapsed="true"] #rail .host .nm,
   #app[data-rail-collapsed="true"] #rail .host .ct,
   #app[data-rail-collapsed="true"] #rail .host .i,
   #app[data-rail-collapsed="true"] #rail .userrow .un,
-  #app[data-rail-collapsed="true"] #rail .userrow .cv { display: none; }
-  #app[data-rail-collapsed="true"] .modeseg { grid-template-columns: 1fr; }
+  #app[data-rail-collapsed="true"] #rail .userrow .cv { opacity: 0; visibility: hidden; pointer-events: none; }
+  #rail .brand { overflow: hidden; }
+  #rail .brand-name, #rail .mode-label, #rail .host .ct, #rail .userrow .cv { white-space: nowrap; flex-shrink: 0; }
+  #rail .brand-name, #rail .mode-label, #rail .host .nm, #rail .host .ct, #rail .host .i, #rail .userrow .un, #rail .userrow .cv {
+    transition: opacity var(--dur-2) var(--ease), visibility var(--dur-2);
+  }
+  #rail .host, #rail .userrow { overflow: hidden; }
+  #rail .host .nm, #rail .userrow .un { min-width: 0; }
+  /* Move the file control continuously; the session icon stays anchored. */
+  #rail .modeseg { position: relative; display: block; height: calc(var(--rail-mode-height) + 8px); transition: height var(--dur-2) var(--ease); }
+  #rail .modeseg button {
+    position: absolute; top: 4px; left: 4px; width: calc(50% - 6px); height: var(--rail-mode-height); overflow: hidden;
+    transition: left var(--dur-2) var(--ease), top var(--dur-2) var(--ease), width var(--dur-2) var(--ease), background var(--dur-1) var(--ease), color var(--dur-1) var(--ease);
+  }
+  #rail .modeseg button[data-mode="files"] { left: calc(50% + 2px); }
+  #app[data-rail-collapsed="true"] #rail .modeseg { height: calc(2 * var(--rail-mode-height) + var(--rail-mode-gap) + 8px); }
+  #app[data-rail-collapsed="true"] #rail .modeseg button { width: calc(100% - 8px); }
+  #app[data-rail-collapsed="true"] #rail .modeseg button[data-mode="files"] { left: 4px; top: calc(var(--rail-mode-height) + var(--rail-mode-gap) + 4px); }
+  /* Compensate for the extra mode row throughout the animation, keeping devices fixed. */
+  #rail .hostlist .hd { overflow: hidden; transition: height var(--dur-2) var(--ease), padding var(--dur-2) var(--ease), margin-bottom var(--dur-2) var(--ease), opacity var(--dur-2) var(--ease), visibility var(--dur-2); }
+  #app[data-rail-collapsed="true"] #rail .hostlist .hd { height: 0; padding-top: 0; padding-bottom: 0; margin-bottom: calc(-1 * var(--rail-host-gap)); opacity: 0; visibility: hidden; }
   #app[data-rail-collapsed="true"] #usermenu { left: 58px; right: auto; min-width: 240px; bottom: 0; }
   #app[data-sessions-collapsed="true"][data-mode="sessions"] { --layout-sess-w: 0px; }
   #app[data-sessions-collapsed="true"] #sescol { visibility: hidden; overflow: hidden; }
@@ -573,17 +591,17 @@ html.automation-doc-root, html.automation-doc-root body { height: auto; min-heig
   #app .sessions-launcher:not([hidden]) {
     display: grid; position: absolute; z-index: 32; top: 12px; left: calc(var(--layout-rail-w) + 14px);
     width: 42px; height: 42px; border: 0; border-radius: var(--radius-control);
-    background: var(--surface-2); box-shadow: var(--e1); color: var(--text-1);
+    background: var(--surface-2); box-shadow: var(--e1); color: var(--text-1); transition: left var(--dur-2) var(--ease);
   }
   #app .sessions-launcher:hover { background: var(--surface-hover); }
   #app .sessions-backdrop:not([hidden]) {
     display: block; position: absolute; z-index: 30; inset: 0 0 0 var(--layout-rail-w);
-    border: 0; border-radius: 0; background: rgba(20, 30, 40, .08); cursor: default;
+    border: 0; border-radius: 0; background: rgba(20, 30, 40, .08); cursor: default; transition: inset var(--dur-2) var(--ease);
   }
   #app[data-sessions-collapsed="true"][data-sessions-open="true"][data-mode="sessions"] #sescol {
     visibility: visible; position: absolute; grid-area: auto; z-index: 31; top: 12px; bottom: 12px;
     left: calc(var(--layout-rail-w) + 12px); width: min(var(--sess-w), calc(100% - var(--layout-rail-w) - 24px));
-    border: 0; border-radius: var(--radius-panel); box-shadow: var(--e3);
+    border: 0; border-radius: var(--radius-panel); box-shadow: var(--e3); transition: left var(--dur-2) var(--ease), width var(--dur-2) var(--ease);
   }
 }
 

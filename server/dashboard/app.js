@@ -529,16 +529,6 @@ function renderHosts() {
     return;
   }
   const selected = state.mode === 'files' ? state.fileMacId : state.sessionMacId;
-  if (state.mode === 'sessions') {
-    const onlineCount = MACS.filter((m) => state.nodes[m.id]).length;
-    const all = h('button', { class: 'host host-all', title: '全部设备', 'aria-label': '全部设备', dataset: { mac: 'all' }, 'aria-current': String(selected === 'all') },
-      allDevicesIcon(),
-      h('span', { class: 'nm', text: '全部设备' }),
-      h('span', { class: 'ct', text: `${onlineCount}/${MACS.length} 在线` }),
-    );
-    all.onclick = () => setSessionDevice('all');
-    nav.append(all);
-  }
   for (const m of MACS) {
     const online = state.nodes[m.id];
     // 桌面行
@@ -553,6 +543,16 @@ function renderHosts() {
     );
     row.onclick = () => selectMac(m.id);
     nav.append(row);
+  }
+  if (state.mode === 'sessions') {
+    const onlineCount = MACS.filter((m) => state.nodes[m.id]).length;
+    const all = h('button', { class: 'host host-all', title: '全部设备', 'aria-label': '全部设备', dataset: { mac: 'all' }, 'aria-current': String(selected === 'all') },
+      allDevicesIcon(),
+      h('span', { class: 'nm', text: '全部设备' }),
+      h('span', { class: 'ct', text: `${onlineCount}/${MACS.length} 在线` }),
+    );
+    all.onclick = () => setSessionDevice('all');
+    nav.append(all);
   }
   updateDeviceScopeUI();
 }
