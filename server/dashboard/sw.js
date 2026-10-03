@@ -1,5 +1,5 @@
 // PWA 外壳缓存。终端、API 与用户文件必须实时，明确不进入 Cache Storage。
-const CACHE = 'fleet-shell-v169';
+const CACHE = 'fleet-shell-v170';
 const FILE_TYPE_ICONS = [
   'audio', 'c', 'console', 'cpp', 'csharp', 'css', 'dart', 'database', 'docker',
   'document', 'exe', 'font', 'git', 'go', 'html', 'image', 'java', 'javascript',
@@ -14,11 +14,11 @@ const CODEMIRROR_ASSETS = [
   'javascript', 'xml', 'jsx', 'css', 'go', 'python', 'ruby', 'shell', 'yaml', 'toml', 'properties',
 ].map((name, index) => index < 2 ? name : `/vendor/codemirror/mode/${name}/${name}.js?v=5.65.20`);
 const SHELL = [
-  '/', '/index.html', '/theme.js?v=169', '/device_appearance.js?v=169', '/icons/favicon.svg', '/automation-guide.html', '/style.css?v=169',
+  '/', '/index.html', '/theme.js?v=170', '/device_appearance.js?v=170', '/icons/favicon.svg', '/automation-guide.html', '/style.css?v=170',
   '/vendor/purify.min.js?v=3.2.6', '/vendor/marked.min.js?v=15.0.12',
   ...CODEMIRROR_ASSETS,
-  '/markdown.js?v=169', '/preview.js?v=169', '/chat_model.js?v=169',
-  '/upload_model.js?v=169', '/sidebar_layout.js?v=169', '/workspace_tabs.js?v=169', '/app.js?v=169',
+  '/markdown.js?v=170', '/preview.js?v=170', '/chat_model.js?v=170',
+  '/upload_model.js?v=170', '/sidebar_layout.js?v=170', '/workspace_tabs.js?v=170', '/app.js?v=170',
   '/manifest.webmanifest', '/icons/icon.svg', '/icons/icon-180.png', '/icons/icon-192.png',
   '/icons/icon-512.png', '/icons/icon-maskable-512.png',
   ...FILE_TYPE_ICONS,

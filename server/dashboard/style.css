@@ -720,10 +720,10 @@ html.automation-doc-root, html.automation-doc-root body { height: auto; min-heig
 /* 项目内新建：独立方形加号按钮；hover 展示完整路径。 */
 .grp-h .gpath {
   position: relative; display: grid; place-items: center; width: 30px; height: 30px; flex: none; padding: 0;
-  border-radius: var(--radius-compact); cursor: pointer;
+  border-radius: var(--radius-compact); background: transparent; cursor: pointer;
 }
 .grp-h .gpath .ic { width: 16px; height: 16px; }
-.grp-h .gpath:hover {  background: var(--accent-soft); color: var(--accent-text); }
+.grp-h .gpath:hover { color: var(--accent-text); }
 .grp-h .gpath::after {
   content: attr(data-path); position: absolute; top: calc(100% + 6px); right: 0; z-index: 50;
   width: max-content; max-width: 280px;
