@@ -6,7 +6,7 @@
 
 正式交付形态为 Universal `Fleet Hub.app` 和 DMG，最低部署目标 macOS 13。设置窗口与独立的 `Fleet Agent.app` 后台分离。应用包内含 ttyd、tmux、filebrowser 和用户态 mesh，不要求使用者安装 Homebrew，也不切换系统现有 Tailscale 网络。
 
-本阶段只做源码及隔离验证。开发包不得作为官网下载或正式安装包；尚未完成 Developer ID 签名、Apple 公证及完整真实设备验收。
+源码及隔离验证已完成；2026-10-03 已按用户授权更新 abj 独立验收服务，并在唯一签名机执行正式候选发布。应用已完成 Developer ID 签名和 Apple 公证；安装容器、可信下载、本机安装及完整真实设备验收尚未完成。开发包不得作为官网下载或正式安装包。
 
 ## 本机状态
 
@@ -43,7 +43,7 @@ macOS 新 SDK 可能在 configure 阶段误检测旧系统不支持的 `pipe2`�
 
 ## 发布与升级
 
-唯一入口仍是签名机的 `scripts/release-fleet-agent.sh`。新增 `--native-candidate-check` 与 `--native-candidate`，复用签名机、干净分支、私有配置、专属实例标记及全量验证守卫。当前任务没有执行这些发布命令。
+唯一入口仍是签名机的 `scripts/release-fleet-agent.sh`。新增 `--native-candidate-check` 与 `--native-candidate`，复用签名机、干净分支、私有配置、专属实例标记及全量验证守卫。当前任务已执行 `--native-candidate`；只有流程完整成功才算下载源发布完成。
 
 私有配置新增 `FLEET_SETTINGS_VERSION`、递增的 `FLEET_SETTINGS_BUILD`、`FLEET_CMAKE`、明确的 `FLEET_CODESIGN_IDENTITY`、`FLEET_SPARKLE_ACCOUNT`。Sparkle 更新密钥由签名机管理员一次性建立并保管在 Keychain；发布脚本只读取已有公钥并签署包，不自动生成、导出或轮换私钥。
 
@@ -70,6 +70,10 @@ SDK 准备每次从校验通过的固定归档重新提取并替换自有 Vendor
 
 同日合回主工作区后的复验：`bash scripts/verify.sh` 输出“全部验证通过 ✓”，包含 295 项 Dashboard JS、10 项发行/打包测试、26 项 Swift 测试及 Go/Shell 层；原生 Go race 测试通过。最终 Universal 开发应用的两架构最低版本声明均为 13.0，内置服务隔离运行的四项检查全部 PASS，涵盖配置保存、维护锁、正常退出与重启恢复。未留存测试后台进程，也未替换正式应用。
 
-尚需：停止/卸载及断电失败路径的进一步集成覆盖、全新机器的 Codex shared 配置、正式签名/公证、可信下载、复制到 Applications、真实浏览器 owner 确认与 Headscale 入网、关闭窗口后常驻、登录自动启动、FDA 真后台授权、两个发行版本升级/回滚、卸载残留核验。以上均不可由单元测试或开发预览替代。
+正式候选进度：源码 `78840d060c52212f240e0ca4c55d3cd00f36ec5c` 已合并最新 main 并推送特性分支。abj 的 server release 已切换到该 revision；`/healthz`、`/readyz`、`/auth` 均为 200，未登录 `/api/devices` 为 401，服务、Web、Headscale、mesh 四个 systemd 单元均 active。停写一致性备份后保留数据库与原加密密钥，注册用户 1、设备 0。该证据不表示其他现有部署或 Mac 已迁移。
 
-发布前仍须补齐：新 UI 完全无法启动时的独立恢复机制、升级下载重定向的同源约束，以及候选源并发发布/构建号递增/发布后下载验证失败时的指针回滚。当前恢复入口依赖新应用能够启动；不能据此承诺任何崩溃都自动回滚。
+应用公证记录 `3b65a0d7-60ad-4a5c-91e0-dbc7385e0b11` 为 Accepted；staple、严格深层验签通过，`spctl --assess --type execute` 输出 `accepted`、`source=Notarized Developer ID`。发布目前等待 Sparkle `sign_update` 读取升级签名钥匙串的系统授权；Mac 锁屏导致无法完成人机授权及窗口检查。DMG 尚未完成公证或发布，`/enroll/client-release.json` 返回 404，不将未上线链接当成真实下载。
+
+尚需：停止/卸载及断电失败路径的进一步集成覆盖、全新机器的 Codex shared 配置、DMG 正式签名/公证、可信下载、复制到 Applications、真实浏览器 owner 确认与 Headscale 入网、关闭窗口后常驻、登录自动启动、FDA 真后台授权、两个发行版本升级/回滚、卸载残留核验。以上均不可由单元测试或开发预览替代。
+
+候选发布已加入发布锁、不可变构建目录、晋级前的真实包下载比对、并发指针检查和清单下载失败回滚；这些保护的源码测试通过，首次真实发布尚未走完。仍须补齐新 UI 完全无法启动时的独立恢复机制、升级下载重定向的同源约束。当前恢复入口依赖新应用能够启动；不能据此承诺任何崩溃都自动回滚。
