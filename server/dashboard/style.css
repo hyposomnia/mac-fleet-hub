@@ -39,11 +39,11 @@
   --file-preview-w: 370px;
 }
 
-/* Titanium refinement: flat surfaces, shared radii, no decorative borders. */
+/* Titanium refinement: one canvas, shared radii, no decorative borders. */
 :root, [data-theme="light"] {
- --bg:#EDF1F4;
-  --surface:#F7F9FB;
-  --surface-1:#FFFFFF;
+ --bg:#FFFFFF;
+  --surface:var(--bg);
+  --surface-1:var(--bg);
   --surface-2:#E3E9EF;
   --surface-hover:#D8E2EA;
   --text:#253446;
@@ -107,8 +107,8 @@
 
 [data-theme="dark"] {
  --bg:#10141B;
-  --surface:#181E28;
-  --surface-1:#202836;
+  --surface:var(--bg);
+  --surface-1:var(--bg);
   --surface-2:#273143;
   --surface-hover:#2D394B;
   --text:#F2F5F9;
@@ -696,7 +696,7 @@ html.automation-doc-root, html.automation-doc-root body { height: auto; min-heig
 .sc-head .seg { flex: 1 1 128px; min-width: 0; }
 .sc-head .seg button { flex: 1; text-align: center; }
 .sc-head-actions { display: flex; align-items: center; gap: 7px; margin-left: auto; }
-.session-searchbar { display: flex; align-items: center; gap: 7px; margin: 9px 10px 0; padding: 0 9px; min-height: 36px; border: 0; border-radius: var(--radius-compact); background: var(--surface-1); color: var(--text-2); }
+.session-searchbar { display: flex; align-items: center; gap: 7px; margin: 9px 10px 0; padding: 0 9px; min-height: 36px; border: 0; border-radius: var(--radius-compact); background: var(--surface-2); color: var(--text-2); }
 .session-searchbar:focus-within {  box-shadow: none; color: var(--text-1);  outline: 2px solid var(--accent); outline-offset: 3px;}
 .session-searchbar .ic { width: 15px; height: 15px; flex: none; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; }
 .session-searchbar input { width: 100%; min-width: 0; border: 0; border-radius: 0; outline: 0; background: transparent; box-shadow: none; color: var(--text); font-size: var(--t-secondary); }
@@ -709,7 +709,7 @@ html.automation-doc-root, html.automation-doc-root body { height: auto; min-heig
 
 .grp { margin-bottom: var(--s2); }
 .grp-h { display: flex; align-items: center; gap: 2px; width: 100%; padding: 0 6px 0 0; border-radius: var(--radius-compact); transition: background var(--dur-1) var(--ease); }
-.grp-h:hover { background: var(--surface-1); }
+.grp-h:hover { background: var(--surface-hover); }
 .grp-toggle { display: flex; align-items: center; gap: 9px; flex: 1; min-width: 0; padding: 10px; text-align: left; }
 /* 折叠箭头：内联 SVG chevron（替代过淡的 Unicode ▾）。stroke=currentColor，靠 color 上色 */
 .grp-h .chev { width: 16px; height: 16px; color: var(--text-1); flex: none; transition: transform var(--dur-1) var(--ease); }
@@ -739,8 +739,8 @@ html.automation-doc-root, html.automation-doc-root body { height: auto; min-heig
 .project-empty { padding: 8px 10px 12px; color: var(--text-2); font-size: var(--t-caption); }
 
 .ses { position: relative; display: flex; flex-direction: column; padding: 4px 7px 4px 11px; border-radius: var(--radius-control); border: 0; transition: background var(--dur-1) var(--ease), border-color var(--dur-1) var(--ease); cursor: pointer; width: 100%; text-align: left; }
-.ses:hover { background: var(--surface-1);  }
-.ses.sel { background: var(--surface-1);  }
+.ses:hover { background: var(--surface-hover);  }
+.ses.sel { background: var(--accent-soft);  }
 .ses-top { display: flex; align-items: center; gap: 9px; }
 .session-state-dot { width: 8px; height: 8px; border-radius: 50%; flex: none; background: var(--offline); }
 .session-state-dot.read { display: none; }
@@ -1623,7 +1623,7 @@ html[data-workspace-tab="true"] .preview-actions .iconbtn { width: 26px; height:
 .file-crumb-separator { color: var(--text-3); }
 .file-searchbar {
   display: flex; align-items: center; gap: 8px; min-height: 36px; padding: 0 10px;
-  border: 0; border-radius: var(--radius-compact); background: var(--surface-1); color: var(--text-2);
+  border: 0; border-radius: var(--radius-compact); background: var(--surface-2); color: var(--text-2);
 }
 .file-searchbar { margin-top: 12px; }
 .file-searchbar:focus-within {  box-shadow: none; color: var(--text-1);  outline: 2px solid var(--accent); outline-offset: 3px;}

@@ -452,8 +452,8 @@ const XTERM_THEME = {
     white: '#BBC9DB', brightWhite: '#F2F5F9',
   },
   light: {
-    background: '#F7F9FB', foreground: '#253446',
-    cursor: '#2C5D87', cursorAccent: '#F7F9FB', selectionBackground: 'rgba(63,92,255,.16)',
+    background: '#FFFFFF', foreground: '#253446',
+    cursor: '#2C5D87', cursorAccent: '#FFFFFF', selectionBackground: 'rgba(63,92,255,.16)',
     black: '#2c333f', brightBlack: '#516476',
     red: '#A23B40', brightRed: '#b32d2d',
     green: '#386046', brightGreen: '#0c8a55',

@@ -2253,7 +2253,7 @@ test('manual theme selection updates the browser chrome color', () => {
   themeMeta.content = '';
   appSandbox.document.querySelector = (selector) => selector === 'meta[name="theme-color"]' ? themeMeta : null;
   applyTheme('light');
-  assert.equal(themeMeta.content, '#EDF1F4');
+  assert.equal(themeMeta.content, '#FFFFFF');
   applyTheme('dark');
   assert.equal(themeMeta.content, '#10141B');
   assert.equal((indexHTML.match(/<meta name="theme-color"/g) || []).length, 1);
@@ -2304,7 +2304,7 @@ test('system theme follows OS changes until a manual choice and can be selected 
     prefersLight = true;
     onSystemChange();
     assert.equal(appSandbox.document.documentElement.getAttribute('data-theme'), 'light');
-    assert.equal(themeMeta.content, '#EDF1F4');
+    assert.equal(themeMeta.content, '#FFFFFF');
 
     setThemePreference('dark');
     assert.equal(stored, 'dark');

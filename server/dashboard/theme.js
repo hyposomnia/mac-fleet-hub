@@ -1,7 +1,7 @@
 /* Shared synchronous bootstrap: light by default, explicit system preference. */
 (function (host) {
   'use strict';
-  const COLORS = { light: '#EDF1F4', dark: '#10141B' };
+  const COLORS = { light: '#FFFFFF', dark: '#10141B' };
   const valid = value => ['light', 'dark', 'system'].includes(value);
   function createController(target) {
     let preference = 'light';
