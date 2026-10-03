@@ -6,7 +6,7 @@
 
 正式交付形态为 Universal `Fleet Hub.app` 和 DMG，最低部署目标 macOS 13。设置窗口与独立的 `Fleet Agent.app` 后台分离。应用包内含 ttyd、tmux、filebrowser 和用户态 mesh，不要求使用者安装 Homebrew，也不切换系统现有 Tailscale 网络。
 
-源码及隔离验证已完成；2026-10-03 已按用户授权更新 abj 独立验收服务，并在唯一签名机执行正式候选发布。应用已完成 Developer ID 签名和 Apple 公证；安装容器、可信下载、本机安装及完整真实设备验收尚未完成。开发包不得作为官网下载或正式安装包。
+源码及隔离验证已完成；2026-10-03 已按用户授权更新 abj 独立验收服务。2026-10-04 唯一签名机的正式候选流程成功，应用和 DMG 均已签名公证，可信下载与本机图形安装通过。真实用户归属确认、设备入网和完全磁盘访问仍需用户验收。开发包不得作为官网下载或正式安装包。
 
 ## 本机状态
 
@@ -70,10 +70,12 @@ SDK 准备每次从校验通过的固定归档重新提取并替换自有 Vendor
 
 同日合回主工作区后的复验：`bash scripts/verify.sh` 输出“全部验证通过 ✓”，包含 295 项 Dashboard JS、10 项发行/打包测试、26 项 Swift 测试及 Go/Shell 层；原生 Go race 测试通过。最终 Universal 开发应用的两架构最低版本声明均为 13.0，内置服务隔离运行的四项检查全部 PASS，涵盖配置保存、维护锁、正常退出与重启恢复。未留存测试后台进程，也未替换正式应用。
 
-正式候选进度：源码 `78840d060c52212f240e0ca4c55d3cd00f36ec5c` 已合并最新 main 并推送特性分支。abj 的 server release 已切换到该 revision；`/healthz`、`/readyz`、`/auth` 均为 200，未登录 `/api/devices` 为 401，服务、Web、Headscale、mesh 四个 systemd 单元均 active。停写一致性备份后保留数据库与原加密密钥，注册用户 1、设备 0。该证据不表示其他现有部署或 Mac 已迁移。
+服务端部署：源码 `78840d060c52212f240e0ca4c55d3cd00f36ec5c` 已合并最新 main 并推送特性分支。abj 的 server release 已切换到该 revision；`/healthz`、`/readyz`、`/auth` 均为 200，未登录 `/api/devices` 为 401，服务、Web、Headscale、mesh 四个 systemd 单元均 active。停写一致性备份后保留数据库与原加密密钥，部署时注册用户 1、设备 0。该证据不表示其他现有部署或 Mac 已迁移。
 
-应用公证记录 `3b65a0d7-60ad-4a5c-91e0-dbc7385e0b11` 为 Accepted；staple、严格深层验签通过，`spctl --assess --type execute` 输出 `accepted`、`source=Notarized Developer ID`。发布目前等待 Sparkle `sign_update` 读取升级签名钥匙串的系统授权；Mac 锁屏导致无法完成人机授权及窗口检查。DMG 尚未完成公证或发布，`/enroll/client-release.json` 返回 404，不将未上线链接当成真实下载。
+客户端发行：用户解锁并允许钥匙串授权后，重新执行完整唯一发布入口，源 revision 为文档更新后的 `be163f2a3d861d72eab3c017c2ce6bdd6d743f02`，版本 `0.1.0`、构建号 `1`。应用公证 `a9df96eb-9a89-4405-b943-e75a9996a36b`、DMG 公证 `1d730fc1-2300-4826-ac4b-5edf738f9d71` 均为 Accepted；staple、严格深层验签和 Gatekeeper 评估通过。服务器正式候选清单、appcast、DMG、升级 ZIP 已上线且真实下载逐字节比对通过。
 
-尚需：停止/卸载及断电失败路径的进一步集成覆盖、全新机器的 Codex shared 配置、DMG 正式签名/公证、可信下载、复制到 Applications、真实浏览器 owner 确认与 Headscale 入网、关闭窗口后常驻、登录自动启动、FDA 真后台授权、两个发行版本升级/回滚、卸载残留核验。以上均不可由单元测试或开发预览替代。
+本机安装：真实下载的 DMG 根目录仅有 `Fleet Hub.app` 和 `Applications` 链接；通过应用内“安装到应用程序”成功复制并自动打开 `/Applications/Fleet Hub.app`。安装后的 Gatekeeper 输出 `accepted`、`source=Notarized Developer ID`。自有后台 `com.macfleet.desktop-agent` 实际启动，首次观察 PID `73133`、版本 `0.1.0+1`，私有目录 0700、控制 socket 0600。登录启动项注册成功，其实际任务退出码为 0；尚未实际注销/登录验收。保存本服务 origin 后由后台发起配对，浏览器自动打开真实确认页，等待用户确认；FDA 实际后台探测为 restricted，不显示虚假授权。
 
-候选发布已加入发布锁、不可变构建目录、晋级前的真实包下载比对、并发指针检查和清单下载失败回滚；这些保护的源码测试通过，首次真实发布尚未走完。仍须补齐新 UI 完全无法启动时的独立恢复机制、升级下载重定向的同源约束。当前恢复入口依赖新应用能够启动；不能据此承诺任何崩溃都自动回滚。
+尚需：停止/卸载及断电失败路径的进一步集成覆盖、全新机器的 Codex shared 配置、真实浏览器 owner 确认与 Headscale 入网、关闭窗口后常驻、实际注销/登录后的自动启动、FDA 真后台授权、两个发行版本升级/回滚、卸载残留核验。以上均不可由单元测试或安装成功替代。
+
+候选发布已加入发布锁、不可变构建目录、晋级前的真实包下载比对、并发指针检查和清单下载失败回滚；这些保护的源码测试通过，首次真实发布完整成功，失败回滚分支未在真实服务器主动注入故障。仍须补齐新 UI 完全无法启动时的独立恢复机制、升级下载重定向的同源约束。当前恢复入口依赖新应用能够启动；不能据此承诺任何崩溃都自动回滚。
