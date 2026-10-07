@@ -191,9 +191,10 @@ test('file tabs retain the original composer, draft, and submit handler while tr
 test('conversation and file tabs always expose close controls in selected and background states', () => {
   const state = setup(), e = state.elements;
   state.api.open(url('a.md'));
+  assert.equal(e['workspace-tabs'].children[0].children[1].attrs['aria-label'], '关闭会话');
   for (const tab of e['workspace-tabs'].children) {
     assert.equal(tab.children.length, 2);
-    assert.match(tab.children[1].attrs['aria-label'], /^关闭 /);
+    assert.match(tab.children[1].attrs['aria-label'], /^关闭(?: |会话)/);
   }
   e['workspace-tabs'].children[0].children[1].onclick();
   assert.equal(state.closed, 1);
