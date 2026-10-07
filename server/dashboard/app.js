@@ -534,7 +534,7 @@ function renderHosts() {
     // 桌面行
     const info = h('span', { class: 'i', title: '设置 / 代理', text: 'ⓘ' });
     info.onclick = (e) => { e.stopPropagation(); openHostModal(m.id); };
-    const row = h('button', { class: 'host', title: macName(m.id), 'aria-label': macName(m.id), dataset: { mac: m.id }, 'aria-current': String(m.id === selected) },
+    const row = h('button', { class: 'host', 'aria-label': macName(m.id), dataset: { mac: m.id }, 'aria-current': String(m.id === selected) },
       deviceStatusIcon(m.id),
       h('span', { class: 'nm', text: macName(m.id) }),
       // 在线状态独立于用户选择的设备图标颜色。
@@ -7470,6 +7470,7 @@ function init() {
     }
   }});
   window.FleetSidebarLayout?.init();
+  window.FleetDeviceHover?.init({onSelect: selectMac, onSettings: openHostModal});
   mountDeviceScopeButtons();
   initUIState();
   initSessionListPreferences();

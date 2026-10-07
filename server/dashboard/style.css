@@ -2158,3 +2158,27 @@ html[data-workspace-tab="true"] .preview-actions .iconbtn { width: 26px; height:
   #app .sessions-launcher:not([hidden]) { top: 7px; left: calc(var(--layout-rail-w) + 10px); }
   #app[data-sessions-collapsed="true"][data-mode="sessions"] > #win > .win-head { padding-left: 48px; }
 }
+
+/* Reuse the expanded host row; only its clipped width and label opacity animate. */
+.device-hover-card {
+  position: fixed; z-index: 60; height: 42px; width: var(--device-hover-collapsed-width);
+  overflow: hidden; border: 0; border-radius: var(--radius-control);
+  background: var(--workspace-header-bg, var(--surface-2));
+  transition: width var(--dur-2) var(--ease); pointer-events: auto;
+}
+.device-hover-card[data-open="true"] { width: var(--device-hover-width); }
+.device-hover-card .device-hover-row { width: var(--device-hover-width); height: 42px; padding-left: 13px; padding-right: 45px; }
+.device-hover-card .host .nm, .device-hover-card .host .ct, .device-hover-settings {
+  opacity: 0; visibility: hidden; transition: opacity var(--dur-2) var(--ease), visibility var(--dur-2);
+}
+.device-hover-card[data-open="true"] .host .nm,
+.device-hover-card[data-open="true"] .host .ct,
+.device-hover-card[data-open="true"] .device-hover-settings { opacity: 1; visibility: visible; }
+.device-hover-settings {
+  position: absolute; right: 11px; top: 9px; width: 24px; height: 24px; min-height: 24px;
+  display: grid; place-items: center; padding: 0; border: 0; border-radius: var(--radius-compact); color: var(--text-2);
+}
+.device-hover-settings:hover { background: var(--surface-2); color: var(--text); }
+@media (prefers-reduced-motion: reduce) { .device-hover-card, .device-hover-card .host .nm, .device-hover-card .host .ct, .device-hover-settings { transition: none; } }
+
+.device-hover-card:hover .host:not([aria-current="true"]) { background: var(--surface-hover); }
