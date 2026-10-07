@@ -1,18 +1,25 @@
 (function (host) {
   'use strict';
   const labels = { account: '账号设置', 'add-device': '添加设备', automation: '自动化', sessions: '会话设置' };
-  function create({ document, overlay, panels, buttons, title, status, confirm, load }) {
+  function create({ document, overlay, panels, buttons, title, status, confirm, load, discardPrompt }) {
     let page = null;
     let generation = 0;
     let flow = null;
     let trigger = null;
     let baseline = new Map();
     let inertSiblings = [];
+    let pendingLeave = null;
+    let previousFocus = null;
     const panelFor = selected => panels.find(panel => panel.dataset.settingsPanel === selected);
     const controls = () => [...(panelFor(page)?.querySelectorAll('input, textarea, select') || [])]
       .filter(control => !control.readOnly && !control.disabled && !control.closest?.('[hidden]'));
     const snapshot = () => { baseline = new Map(controls().map(control => [control, [control.value, control.checked]])); };
-    function canLeave() {
+    function hideDiscard() {
+      if (discardPrompt) discardPrompt.container.hidden = true;
+      pendingLeave = null;
+      previousFocus?.focus();
+    }
+    function canLeave(action, discard = false) {
       if (flow?.canLeave && !flow.canLeave()) {
         status.textContent = '请先完成验证并保存恢复码，再离开此页。';
         return false;
@@ -21,7 +28,13 @@
         const original = baseline.get(control) || [control.defaultValue || '', control.defaultChecked || false];
         return control.value !== original[0] || Boolean(control.checked) !== Boolean(original[1]);
       });
-      return !dirty || confirm('离开此页并放弃未提交的设置？');
+      if (!dirty || discard) return true;
+      if (!discardPrompt) return confirm('离开此页并放弃未提交的设置？');
+      pendingLeave = action;
+      previousFocus = document.activeElement;
+      discardPrompt.container.hidden = false;
+      discardPrompt.cancel.focus();
+      return false;
     }
     function clearPrivate() {
       for (const panel of panels) {
@@ -37,20 +50,21 @@
       baseline.clear();
       status.textContent = '';
       page = null;
+      hideDiscard();
       for (const [element, previous] of inertSiblings) element.inert = previous;
       inertSiblings = [];
     }
-    function close() {
+    function close(discard = false) {
       if (overlay.hidden) return true;
-      if (!canLeave()) return false;
+      if (!canLeave(() => close(true), discard)) return false;
       reset();
       trigger?.focus();
       return true;
     }
-    async function open(selected, source) {
+    async function open(selected, source, discard = false) {
       if (!Object.hasOwn(labels, selected)) return false;
       if (!overlay.hidden && page === selected) return true;
-      if (!overlay.hidden && !canLeave()) return false;
+      if (!overlay.hidden && !canLeave(() => open(selected, source, true), discard)) return false;
       if (overlay.hidden) {
         trigger = source || document.activeElement;
         inertSiblings = [...(overlay.parentElement?.children || [])].filter(element => element !== overlay).map(element => [element, element.inert]);
@@ -88,9 +102,11 @@
       if (event.key === 'Escape') {
         event.preventDefault();
         event.stopImmediatePropagation();
-        close();
+        if (pendingLeave) hideDiscard();
+        else close();
       } else if (event.key === 'Tab') {
-        const focusable = [...overlay.querySelectorAll('button, a[href], input, select, textarea, [tabindex="0"]')]
+        const focusRoot = pendingLeave ? discardPrompt.container : overlay;
+        const focusable = [...focusRoot.querySelectorAll('button, a[href], input, select, textarea, [tabindex="0"]')]
           .filter(element => !element.disabled && !element.closest?.('[hidden]') && element.getClientRects?.().length);
         const first = focusable[0];
         const last = focusable[focusable.length - 1];
@@ -108,6 +124,14 @@
       }
     }
     document.addEventListener('keydown', keydown, true);
+    if (discardPrompt) {
+      discardPrompt.cancel.onclick = hideDiscard;
+      discardPrompt.discard.onclick = () => {
+        const action = pendingLeave;
+        hideDiscard();
+        return action?.();
+      };
+    }
     buttons.forEach(button => { button.onclick = () => open(button.dataset.settingsPage); });
     return { open, close, reset, markSaved: snapshot, keydown, get page() { return page; } };
   }

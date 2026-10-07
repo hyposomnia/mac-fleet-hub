@@ -5,11 +5,11 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content" />
   <!-- theme-color 与共享主题控制器、Titanium 页面底色同步。 -->
   <meta name="theme-color" content="#FFFFFF" />
-  <script src="/theme.js?v=184"></script>
+  <script src="/theme.js?v=185"></script>
   <title>mac fleet hub</title>
   <link rel="manifest" href="manifest.webmanifest" />
-  <link rel="icon" href="icons/favicon.svg?v=184" type="image/svg+xml" />
-  <link rel="apple-touch-icon" href="icons/icon-180.png?v=184" sizes="180x180" />
+  <link rel="icon" href="icons/favicon.svg?v=185" type="image/svg+xml" />
+  <link rel="apple-touch-icon" href="icons/icon-180.png?v=185" sizes="180x180" />
   <meta name="mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
@@ -17,8 +17,8 @@
   <!-- theme.js 在样式加载前同步应用已保存的外观，默认浅色。 -->
 
   <link rel="stylesheet" href="vendor/codemirror/lib/codemirror.css?v=5.65.20" />
-  <link rel="stylesheet" href="style.css?v=184" />
-  <link rel="stylesheet" href="account.css?v=184" />
+  <link rel="stylesheet" href="style.css?v=185" />
+  <link rel="stylesheet" href="account.css?v=185" />
 </head>
 <body>
   <div id="auth-status" role="status"><span id="auth-status-message">正在验证登录…</span><a href="">重新加载</a></div>
@@ -457,6 +457,12 @@
     <!-- ───────── 会话设置（移动端呈现为底部抽屉） ───────── -->
     <div id="fleet-settings-modal" class="overlay" hidden>
       <div class="modal fleet-settings-dialog" role="dialog" aria-modal="true" aria-labelledby="fleet-settings-title">
+        <div id="settings-discard-prompt" class="settings-discard-prompt" role="alertdialog" aria-modal="true" aria-labelledby="settings-discard-title" hidden>
+          <div class="settings-discard-card">
+            <h2 id="settings-discard-title">放弃未提交的设置？</h2>
+            <div class="settings-discard-actions"><button id="settings-keep-editing" class="btn" type="button">继续编辑</button><button id="settings-discard" class="btn danger" type="button">放弃并离开</button></div>
+          </div>
+        </div>
         <div class="modal-head"><span id="fleet-settings-title">设置</span><button class="iconbtn bare x" data-close="fleet-settings-modal" aria-label="关闭设置"><svg class="ic" viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button></div>
         <div class="fleet-settings-layout">
           <nav class="fleet-settings-nav" role="tablist" aria-label="设置页面">
@@ -614,18 +620,18 @@
   <script src="vendor/codemirror/mode/yaml/yaml.js?v=5.65.20"></script>
   <script src="vendor/codemirror/mode/toml/toml.js?v=5.65.20"></script>
   <script src="vendor/codemirror/mode/properties/properties.js?v=5.65.20"></script>
-  <script src="auth-client.js?v=184"></script>
-  <script src="account.js?v=184"></script>
-  <script src="settings_dialog.js?v=184"></script>
-  <script src="markdown.js?v=184"></script>
-  <script src="preview.js?v=184"></script>
-  <script src="chat_model.js?v=184"></script>
-  <script src="upload_model.js?v=184"></script>
-  <script src="device_appearance.js?v=184"></script>
-  <script src="sidebar_layout.js?v=184"></script>
-  <script src="device_hover.js?v=184"></script>
-  <script src="workspace_tabs.js?v=184"></script>
-  <script src="compact_composer.js?v=184"></script>
-  <script src="app.js?v=184"></script>
+  <script src="auth-client.js?v=185"></script>
+  <script src="account.js?v=185"></script>
+  <script src="settings_dialog.js?v=185"></script>
+  <script src="markdown.js?v=185"></script>
+  <script src="preview.js?v=185"></script>
+  <script src="chat_model.js?v=185"></script>
+  <script src="upload_model.js?v=185"></script>
+  <script src="device_appearance.js?v=185"></script>
+  <script src="sidebar_layout.js?v=185"></script>
+  <script src="device_hover.js?v=185"></script>
+  <script src="workspace_tabs.js?v=185"></script>
+  <script src="compact_composer.js?v=185"></script>
+  <script src="app.js?v=185"></script>
 </body>
 </html>

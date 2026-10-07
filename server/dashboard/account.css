@@ -119,6 +119,12 @@ body.account-auth { background: var(--surface); isolation: isolate; }
 .auth-probe span { position: absolute; left: 28px; top: 28px; white-space: nowrap; font: 10px var(--mono); letter-spacing: .5px; }
 .fleet-settings-dialog { max-width: 960px; height: min(760px, 88dvh); display: flex; flex-direction: column; overflow: hidden; background: var(--settings-elevated); }
 .fleet-settings-dialog > .modal-head { flex: none; padding: 20px 24px; }
+.fleet-settings-dialog { position: relative; }
+.settings-discard-prompt { position: absolute; inset: 0; z-index: 2; display: grid; place-items: center; padding: 20px; background: color-mix(in srgb, var(--settings-elevated) 80%, transparent); backdrop-filter: blur(4px); }
+.settings-discard-prompt[hidden] { display: none; }
+.settings-discard-card { padding: 24px; background: var(--settings-surface); border-radius: var(--radius-panel); box-shadow: var(--e2); }
+.settings-discard-card h2 { margin-bottom: 24px; font-size: 18px; }
+.settings-discard-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 12px; }
 .fleet-settings-layout { display: grid; grid-template-columns: 172px minmax(0, 1fr); flex: 1; min-height: 0; }
 .fleet-settings-nav { display: flex; flex-direction: column; gap: 6px; padding: 16px 12px; background: var(--settings-surface); }
 .fleet-settings-nav button { width: 100%; min-height: 44px; padding: 0 16px; text-align: left; border-radius: var(--radius-control); color: var(--text-1); }

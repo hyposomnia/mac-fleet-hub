@@ -392,14 +392,25 @@
     }
 
     async function start(page) {
-      if (flowLocked) throw new Error('请先完成验证并保存恢复码。');
+      if (flowLocked || submittingForms > 0) throw new Error('请先完成验证并保存恢复码。');
       if (page === 'auth') {
         nav.replaceChildren();
         const step = location.pathname.replace(/\/$/, '').split('/')[2] || 'login';
         showAuth(['login', 'register', 'verify', 'setup', 'recovery'].includes(step) ? step : 'login');
       } else {
         await auth.me();
-        nav.replaceChildren(link('Fleet', '/'), link('账号', '/account', page === 'account'), link('添加设备', '/account#add-device', page === 'add-device'));
+        const accountLink = link('账号', '/account', page === 'account');
+        const deviceLink = link('添加设备', '/account#add-device', page === 'add-device');
+        for (const [target, destination] of [[accountLink, 'account'], [deviceLink, 'add-device']]) {
+          target.onclick = async event => {
+            event.preventDefault();
+            try {
+              await start(destination);
+              if (!suppliedContent) history.replaceState(null, '', destination === 'account' ? '/account' : '/account#add-device');
+            } catch (error) { status.textContent = error.message; }
+          };
+        }
+        nav.replaceChildren(link('Fleet', '/'), accountLink, deviceLink);
         if (auth.user.role === 'admin') nav.append(link('管理', '/admin', page === 'admin'));
         if (page === 'account') await showAccount();
         else if (page === 'add-device') await showAddDevice();

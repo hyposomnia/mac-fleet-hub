@@ -381,6 +381,17 @@ test('registration links back to login and preserves next', async () => {
   assert.ok(all(current.content, node => node.tagName === 'a').some(node => node.href === '/auth?next=%2Foauth%2Fauthorize'));
 });
 
+test('standalone account navigation switches the add-device hash without a reload', async () => {
+  const current = harness({ page: 'account', path: '/account' });
+  await current.start();
+  const add = all(current.nav, node => node.href === '/account#add-device')[0];
+  assert.equal(typeof add.onclick, 'function');
+  await add.onclick({ preventDefault() {} });
+  assert.ok(current.find(node => node.id === 'add-device'));
+  assert.equal(current.form('password'), undefined);
+  assert.equal(current.redirects.length, 0);
+});
+
 test('embedded account and add-device pages reuse security logic but stay separate', async () => {
   const current = harness({ page: 'account', embedded: true });
   await current.start();

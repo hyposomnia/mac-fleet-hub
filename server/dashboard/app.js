@@ -806,6 +806,7 @@ function openUnifiedSettings(page, trigger) {
     FleetSettingsDialog.active = FleetSettingsDialog.create({
       document, overlay: $('#fleet-settings-modal'), panels: $$('[data-settings-panel]'), buttons: $$('[data-settings-page]'),
       title: $('#fleet-settings-title'), status: $('#fleet-settings-status'), confirm: message => window.confirm(message),
+      discardPrompt: { container: $('#settings-discard-prompt'), cancel: $('#settings-keep-editing'), discard: $('#settings-discard') },
       load: async (selected, container) => {
         if (selected === 'sessions') { prepareSessionSettings(); return null; }
         if (selected === 'automation') { showAutomationTab('keys'); return null; }
