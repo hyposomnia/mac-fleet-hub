@@ -223,10 +223,10 @@
       const steps = node('ol', '', { className: 'account-steps' });
       for (const description of [
         '下载并打开 DMG，将 Fleet Hub 拖入“应用程序”，也可以双击后选择“安装到应用程序”。',
-        '打开 Fleet Hub 应用，填写下方服务网页地址，点击“保存并连接”。',
-        '应用自动打开浏览器；登录并完成 Authenticator 验证，核对账号、设备名称与配对码后确认关联。',
-        '返回 Fleet Hub 应用，核对归属账号与设备编号，点击“确认接入”。需要时按系统提示允许登录后自动运行。',
-        '在应用“磁盘权限”中检查完全磁盘访问。按引导在系统设置添加并开启 Fleet Agent.app，再返回应用重新检查后台权限。',
+        '打开 Fleet Hub 应用，在“关联账号”填写下方服务网页地址，点击“打开网页授权”。',
+        '浏览器登录并完成 Authenticator 验证，核对账号与设备名称，点击“授权并连接”；应用会自动接入。',
+        '授权过期或取消时，回到应用再次点击“打开网页授权”，每次都会创建新的授权请求。',
+        '在应用“磁盘权限”中选择后台应用，在系统设置开启独立 Fleet Agent.app 的完全磁盘访问，点击“重启并检查”。Fleet Hub 只负责设置，无需磁盘权限；不要选择安装包中的后台副本或旧命令行 fleet-agent。',
         '确认后台及设备服务正常后，可以关闭应用窗口，后台服务仍会持续运行。',
       ]) steps.append(node('li', description));
       add.append(steps);
@@ -238,12 +238,6 @@
       }, add);
       add.append(node('p', '更新客户端：打开 Fleet Hub → 检查更新，从已设置的服务器下载并升级整个应用。重启、登录后自动运行和卸载也在应用中管理。', { className: 'account-muted' }));
       add.append(node('p', '客户端经 Developer ID 签名与 Apple 公证。若下载不可用，请联系本服务管理员检查应用发行状态。完全磁盘访问由你在系统设置开启，文件本身的权限仍然生效。', { className: 'account-muted' }));
-      add.append(node('p', '浏览器未自动打开时，可在这里输入 fleet-agent 已生成的配对码，手动打开确认页。此处不发起新的设备授权。'));
-      form('enrollment-code', [field('enrollment_code', '设备配对码')], '打开设备确认', ({ enrollment_code }) => {
-        const code = enrollment_code.trim();
-        if (!code) throw new Error('请输入设备配对码。');
-        location.replace(`/enroll/confirm?code=${encodeURIComponent(code)}`);
-      }, add);
       const sessions = section('登录设备');
       metadata(sessionData.sessions, [['当前', (session) => session.current ? '此设备' : '其他设备'],
         ['编号', (session) => session.id], ['创建时间', (session) => formatTime(session.created_at)],
@@ -349,6 +343,7 @@
     }
 
     async function showEnrollment() {
+      if (location.pathname === '/oauth/consent') return showOAuthConsent();
       const code = new URLSearchParams(location.search).get('code');
       heading('确认添加设备', `设备将归属于 ${auth.user.email}。只确认你主动发起的服务器配对请求。`);
       if (!code) { content.append(node('p', '确认链接缺少配对码，请重新打开服务器配对流程生成的链接。')); return; }
@@ -359,6 +354,28 @@
         heading('设备已确认', '请回到 Mac 客户端，客户端将自动领取授权、入网并完成安装。');
         content.append(link('返回 Fleet', '/'), link('我的设备', '/account#devices'));
       });
+    }
+
+    async function showOAuthConsent() {
+      const requestID = new URLSearchParams(location.search).get('request');
+      heading('授权 Fleet Hub', `关联账号：${auth.user.email}`);
+      if (!requestID) { content.append(node('p', '请从客户端重新打开网页授权。')); return; }
+      const preview = await auth.json(`/api/oauth/preview?request=${encodeURIComponent(requestID)}`);
+      content.append(node('p', `设备：${preview.name}`));
+      const returnToApp = async (action) => {
+        const result = await post('/api/oauth/authorize', { request_id: requestID, action });
+        const callback = new URL(result.redirect_uri);
+        const expected = new URL(preview.redirect_uri);
+        if (callback.protocol !== 'http:' || callback.hostname !== '127.0.0.1' || !callback.port ||
+            callback.username || callback.password || callback.hash || callback.pathname !== '/oauth/callback' ||
+            callback.origin !== expected.origin || callback.pathname !== expected.pathname ||
+            !callback.searchParams.get('state') || (action === 'approve' ? !callback.searchParams.get('code') : callback.searchParams.get('error') !== 'access_denied')) {
+          throw new Error('本机回调不合法，请重新发起授权。');
+        }
+        location.replace(callback.href);
+      };
+      form('oauth-consent', [], '授权并连接', () => returnToApp('approve'));
+      button('取消授权', () => returnToApp('deny'));
     }
 
     async function start(page) {

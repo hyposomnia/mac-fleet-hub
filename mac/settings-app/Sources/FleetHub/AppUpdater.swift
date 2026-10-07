@@ -29,6 +29,7 @@ final class AppUpdater: NSObject, ObservableObject, SPUUpdaterDelegate {
     private var currentBuild: Int64 { Int64(Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "") ?? 0 }
     private var currentVersion: String { Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "" }
     private var journal: URL { management.layout.state.appendingPathComponent("pending-update.json") }
+    var recoveryPending: Bool { FileManager.default.fileExists(atPath: journal.path) }
     private func backupURL(_ record: Recovery) -> URL {
         management.layout.state.appendingPathComponent("updates/\(record.directory.uuidString)/Fleet Hub.app")
     }
@@ -162,7 +163,7 @@ final class AppUpdater: NSObject, ObservableObject, SPUUpdaterDelegate {
             guard [record.previousBuild, record.expectedBuild].contains(currentBuild), record.expectedBuild > record.previousBuild else {
                 throw FleetError.message("升级恢复记录与当前版本不一致，未修改应用。")
             }
-            if (try? await management.status()) == nil { try? await management.start() }
+            try? await management.start()
             for _ in 0..<150 {
                 if let status = try? await management.status(),
                    status.isHealthyAfterUpdate(version: currentVersion, build: currentBuild,
@@ -178,7 +179,7 @@ final class AppUpdater: NSObject, ObservableObject, SPUUpdaterDelegate {
                 try await Task.sleep(nanoseconds: 200_000_000)
             }
             guard currentBuild == record.expectedBuild else { throw FleetError.message("原版本后台未通过健康检查，已保留恢复记录。") }
-            try await management.stop()
+            if (try? await management.status()) != nil { try await management.stop() }
             let backup = backupURL(record)
             try await verify(backup)
             guard renamex_np(backup.path, management.layout.application.path, UInt32(RENAME_SWAP)) == 0 else { throw FleetError.message("升级健康检查失败，自动回滚未成功；备份与恢复记录已保留。") }

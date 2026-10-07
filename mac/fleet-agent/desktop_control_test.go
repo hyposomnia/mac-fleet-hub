@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 )
 
@@ -83,6 +84,63 @@ func TestDesktopDiskPermissionProbeClassifiesEvidence(t *testing.T) {
 			result := probeDesktopDiskAccess(targets, probe)
 			if result.State != fixture.expected || result.Source != "background" {
 				t.Fatalf("%+v", result)
+			}
+		})
+	}
+}
+
+func TestDesktopFDARequiresStandaloneAgentNotHubNestedPayload(t *testing.T) {
+	for _, fixture := range []struct {
+		path    string
+		allowed bool
+	}{
+		{"/Users/fixture/.macfleet/desktop/runtime/Fleet Agent.app/Contents/MacOS/fleet-agent", true},
+		{"/Applications/Fleet Hub.app/Contents/Library/LoginItems/Fleet Agent.app/Contents/MacOS/fleet-agent", false},
+		{"/tmp/Other.APP/Fleet Agent.app/Contents/MacOS/fleet-agent", false},
+		{"/Users/fixture/.local/bin/fleet-agent", false},
+	} {
+		if result := desktopIndependentAgentPath(fixture.path); result != fixture.allowed {
+			t.Fatalf("path %s: %t, want %t", fixture.path, result, fixture.allowed)
+		}
+	}
+}
+
+func TestDesktopDiskProbeExplainsWhichBackgroundTargetsAreRestricted(t *testing.T) {
+	result := probeDesktopDiskAccess([]string{"Library/Messages/chat.db", "Library/Mail"}, func(path string) error {
+		if path == "Library/Mail" {
+			return os.ErrPermission
+		}
+		return nil
+	})
+	data, _ := json.Marshal(result)
+	if !strings.Contains(string(data), `"denied_targets":["Library/Mail"]`) || result.State != "restricted" || result.VerifiedTargets != 1 {
+		t.Fatalf("missing real evidence: %s", data)
+	}
+}
+
+func TestDesktopFullDiskAccessRequiresProtectedDatabaseNotOtherFilePermissions(t *testing.T) {
+	for _, fixture := range []struct {
+		name, expected string
+		protected      error
+		other          error
+	}{
+		{"FDA granted, other Unix permissions denied", "verified", nil, os.ErrPermission},
+		{"other directory grants do not prove FDA", "unknown", os.ErrNotExist, nil},
+		{"protected database denied by TCC", "restricted", syscall.EPERM, nil},
+		{"Unix permissions do not prove a TCC denial", "unknown", syscall.EACCES, nil},
+	} {
+		t.Run(fixture.name, func(t *testing.T) {
+			result := probeDesktopFullDiskAccess("TCC.db", []string{"Mail"}, func(path string) error {
+				if path == "TCC.db" {
+					return fixture.protected
+				}
+				return fixture.other
+			})
+			if result.State != fixture.expected || result.Source != "background" {
+				t.Fatalf("FDA evidence: %+v", result)
+			}
+			if fixture.other != nil && (len(result.DeniedTargets) == 0 || result.DeniedTargets[len(result.DeniedTargets)-1] != "Mail") {
+				t.Fatal("file diagnostic was lost")
 			}
 		})
 	}

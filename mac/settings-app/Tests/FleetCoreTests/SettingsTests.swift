@@ -3,6 +3,15 @@ import XCTest
 
 @MainActor
 final class SettingsTests: XCTestCase {
+    func testNativeOAuthURLAndExpiryRemainRetryable() {
+        var state = PairingState(phase: "browser", attempt: "new", origin: "https://fleet.example.test", url: "https://fleet.example.test/oauth/authorize?client_id=fleet-hub&response_type=code&scope=device%3Aenroll&state=new&code_challenge_method=S256&code_challenge=challenge&redirect_uri=http%3A%2F%2F127.0.0.1%3A51234%2Foauth%2Fcallback", code: nil, deviceID: nil, ownerEmail: nil, error: nil)
+        XCTAssertNotNil(state.verificationURL)
+        state.phase = "failed"
+        XCTAssertFalse(state.isActive)
+        XCTAssertNil(state.code)
+        state.url = "https://other.example.test/oauth/authorize"
+        XCTAssertNil(state.verificationURL)
+    }
     func testBrowserURLIsSameOriginAndConfirmationStaysExplicit() async throws {
         let client = TestManagement()
         let model = SettingsModel(client: client)

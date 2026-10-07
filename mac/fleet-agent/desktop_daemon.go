@@ -83,7 +83,7 @@ func runDesktopDaemon() error {
 			return errors.New("设备服务启动超时")
 		}
 	}
-	pairing := newDesktopPairing(loginOptions{Path: bindingPath(), Join: network.Join, Setup: setup})
+	pairing := newDesktopPairing(loginOptions{Path: bindingPath(), Join: network.Join, Setup: setup, Authorize: desktopOAuthAuthorization})
 	defer func() {
 		cancel()
 		pairing.Cancel()

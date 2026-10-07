@@ -22,11 +22,12 @@ final class RuntimeTests: XCTestCase {
         let definition = try layout.launchDefinition()
         let plist = try XCTUnwrap(PropertyListSerialization.propertyList(from: definition, format: nil) as? [String: Any])
         XCTAssertEqual(plist["Label"] as? String, "com.macfleet.desktop-agent")
-        XCTAssertEqual(plist["ProgramArguments"] as? [String], ["/Applications/Fleet Hub.app/Contents/Library/LoginItems/Fleet Agent.app/Contents/MacOS/fleet-agent"])
+        XCTAssertEqual(plist["ProgramArguments"] as? [String], ["/Users/fixture/.macfleet/desktop/runtime/Fleet Agent.app/Contents/MacOS/fleet-agent"])
+        XCTAssertFalse(layout.backgroundApplication.path.hasPrefix(layout.application.path + "/"))
         let environment = try XCTUnwrap(plist["EnvironmentVariables"] as? [String: String])
         XCTAssertEqual(environment["FLEET_DESKTOP_MANAGED"], "1")
         XCTAssertEqual(environment["FLEET_BINDING_FILE"], "/Users/fixture/.macfleet/desktop/binding.json")
-        XCTAssertTrue(environment["PATH"]?.hasPrefix("/Applications/Fleet Hub.app/Contents/Library/LoginItems/Fleet Agent.app/Contents/Resources/bin:") == true)
+        XCTAssertTrue(environment["PATH"]?.hasPrefix("/Users/fixture/.macfleet/desktop/runtime/Fleet Agent.app/Contents/Resources/bin:") == true)
         XCTAssertEqual(environment["FLEET_CODEX_DESKTOP_SHARED_DAEMON"], "0")
         XCTAssertNil(environment["CODEX_APP_SERVER_WS_URL"])
         XCTAssertNil(environment["FLEET_DEVICE_TOKEN"])
@@ -39,6 +40,21 @@ final class RuntimeTests: XCTestCase {
             let layout = RuntimeLayout(application: URL(fileURLWithPath: application), home: URL(fileURLWithPath: "/Users/fixture"))
             XCTAssertThrowsError(try layout.launchDefinition())
         }
+    }
+
+    func testRemovingRuntimePreservesSettingsBindingAndUnrelatedFiles() throws {
+        let home = FileManager.default.temporaryDirectory.appendingPathComponent("fleet-removal-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: home) }
+        let layout = RuntimeLayout(application: URL(fileURLWithPath: "/Applications/Fleet Hub.app"), home: home)
+        try PrivateRuntime.ensureDirectory(layout.runtimeDirectory)
+        try PrivateRuntime.write(Data("settings".utf8), to: layout.state.appendingPathComponent("settings.json"))
+        try PrivateRuntime.write(Data("binding".utf8), to: layout.state.appendingPathComponent("binding.json"))
+        try Data("other".utf8).write(to: home.appendingPathComponent("other.txt"))
+        try layout.removeRuntime()
+        XCTAssertFalse(FileManager.default.fileExists(atPath: layout.runtimeDirectory.path))
+        XCTAssertEqual(try PrivateRuntime.read(layout.state.appendingPathComponent("settings.json")), Data("settings".utf8))
+        XCTAssertEqual(try PrivateRuntime.read(layout.state.appendingPathComponent("binding.json")), Data("binding".utf8))
+        XCTAssertEqual(try String(contentsOf: home.appendingPathComponent("other.txt")), "other")
     }
 
     func testProcessRunnerDoesNotTreatCommandFailureOrTimeoutAsSuccess() async throws {

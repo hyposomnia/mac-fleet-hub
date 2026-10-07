@@ -218,6 +218,17 @@ func (server *Server) ServeHTTP(writer http.ResponseWriter, request *http.Reques
 		respond(writer, 200, map[string]int{"idleSec": 1800})
 		return
 	}
+	if path == "/oauth/token" {
+		server.handleOAuthToken(writer, request)
+		return
+	}
+	if path == "/oauth/authorize" {
+		parameters, err := url.ParseQuery(request.URL.RawQuery)
+		if err != nil || !validOAuthParameters(parameters) {
+			oauthError(writer, "invalid_request")
+			return
+		}
+	}
 	if strings.HasPrefix(path, "/api/device/") {
 		server.handleDeviceAuth(writer, request)
 		return
@@ -274,6 +285,14 @@ func (server *Server) ServeHTTP(writer http.ResponseWriter, request *http.Reques
 	if strings.HasPrefix(path, "/m") && server.handleProxy(writer, request, session, user) {
 		return
 	}
+	if path == "/oauth/authorize" {
+		server.oauthStart(writer, request)
+		return
+	}
+	if path == "/api/oauth/preview" || path == "/api/oauth/authorize" {
+		server.handleOAuthConsent(writer, request, user)
+		return
+	}
 	if path == "/api/enrollment/confirm" {
 		if request.Method != "POST" {
 			reject(writer, 405, "仅支持 POST")
@@ -318,7 +337,7 @@ func (server *Server) ServeHTTP(writer http.ResponseWriter, request *http.Reques
 			return
 		}
 		server.serveFile(writer, request, "admin.html")
-	case "/enroll/confirm", "/enroll/confirm/":
+	case "/enroll/confirm", "/enroll/confirm/", "/oauth/consent":
 		server.serveFile(writer, request, "enroll.html")
 	case "/", "/index.html":
 		server.serveFile(writer, request, "index.html")

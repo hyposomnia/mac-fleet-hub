@@ -39,6 +39,14 @@ run_native_candidate_release() {
     codesign --force --options runtime --timestamp --sign "$FLEET_CODESIGN_IDENTITY" --identifier "com.macfleet.runtime.$component" "$agent/Contents/Resources/bin/$component"
   done
   codesign --force --options runtime --timestamp --sign "$FLEET_CODESIGN_IDENTITY" --identifier com.macfleet.fleet-agent "$agent"
+  codesign --verify --deep --strict "$agent"
+  ditto -c -k --keepParent "$agent" "$work/notarize-agent.zip"
+  xcrun notarytool submit "$work/notarize-agent.zip" --keychain-profile "$NOTARY_PROFILE" --wait --timeout 60m --output-format json | tee "$work/agent-notary.json"
+  node -e 'if(JSON.parse(require("fs").readFileSync(process.argv[1])).status!=="Accepted")process.exit(1)' "$work/agent-notary.json"
+  xcrun stapler staple "$agent"
+  xcrun stapler validate "$agent"
+  spctl --assess --type execute "$agent"
+  codesign --force --options runtime --timestamp --sign "$FLEET_CODESIGN_IDENTITY" --identifier com.macfleet.desktop-login "$app/Contents/Library/Helpers/fleet-login-launcher"
   for component in "$framework/Versions/B/XPCServices/Downloader.xpc" "$framework/Versions/B/XPCServices/Installer.xpc" "$framework/Versions/B/Autoupdate" "$framework/Versions/B/Updater.app" "$framework"; do
     codesign --force --preserve-metadata=entitlements --options runtime --timestamp --sign "$FLEET_CODESIGN_IDENTITY" "$component"
   done
@@ -66,6 +74,7 @@ run_native_candidate_release() {
 const fs = require('fs');
 const [directory, origin, version, build, revision, signature] = process.argv.slice(2);
 fs.writeFileSync(directory + '/metadata.json', JSON.stringify({ origin, version, build: Number(build), revision, signature,
+  agentNotary: JSON.parse(fs.readFileSync(directory + '/agent-notary.json')),
   appNotary: JSON.parse(fs.readFileSync(directory + '/app-notary.json')), dmgNotary: JSON.parse(fs.readFileSync(directory + '/dmg-notary.json')) }));
 NODE
   node "$ROOT/scripts/native-client-release.mjs" "$work/distribution" "$work/metadata.json"

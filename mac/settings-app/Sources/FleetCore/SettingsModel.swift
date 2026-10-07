@@ -36,9 +36,9 @@ public enum DiskState: String, Sendable {
     case unknown, restricted, verified
     public var label: String {
         switch self {
-        case .unknown: return "待验证"
+        case .unknown: return "待检查"
         case .restricted: return "访问受限"
-        case .verified: return "受保护路径访问已验证"
+        case .verified: return "访问正常"
         }
     }
 }
@@ -48,10 +48,12 @@ public struct DiskAccess: Codable, Equatable, Sendable {
     public var source: String
     public var checkedAt: Int64
     public var verifiedTargets: Int
+    public var deniedTargets: [String]? = nil
     enum CodingKeys: String, CodingKey {
         case state, source
         case checkedAt = "checked_at"
         case verifiedTargets = "verified_targets"
+        case deniedTargets = "denied_targets"
     }
     public var verifiedState: DiskState {
         guard source == "background", checkedAt > 0 else { return .unknown }
@@ -100,29 +102,31 @@ public struct PairingState: Codable, Equatable, Sendable {
     public var deviceID: String?
     public var ownerEmail: String?
     public var error: String?
+    public var needsCleanup: Bool? = nil
     enum CodingKeys: String, CodingKey {
         case phase, attempt, origin, url, code, error
+        case needsCleanup = "needs_cleanup"
         case deviceID = "device_id"
         case ownerEmail = "owner_email"
     }
     public var verificationURL: URL? {
         guard let value = url, let link = URLComponents(string: value), let server = URLComponents(string: origin),
               link.scheme == server.scheme, link.host == server.host, link.port == server.port,
-              link.user == nil, link.password == nil, link.path == "/enroll/confirm",
+              link.user == nil, link.password == nil, ["/enroll/confirm", "/oauth/authorize"].contains(link.path),
               link.fragment == nil else { return nil }
         return link.url
     }
     public var isActive: Bool { ["starting", "browser", "awaiting_confirmation", "joining"].contains(phase) }
     public var label: String {
         switch phase {
-        case "starting": return "正在发起设备关联…"
-        case "browser": return "请在浏览器登录并确认关联"
-        case "awaiting_confirmation": return "请核对账号与设备，确认接入"
-        case "joining": return "正在接入设备网络…"
-        case "complete": return "设备关联已完成"
-        case "cancelled": return "关联已取消"
-        case "failed": return error ?? "关联失败，请重试"
-        default: return "尚未发起设备关联"
+        case "starting": return "正在打开授权"
+        case "browser": return "等待网页授权"
+        case "awaiting_confirmation": return "等待接入确认"
+        case "joining": return "正在接入"
+        case "complete": return "已关联"
+        case "cancelled": return "已取消"
+        case "failed": return error ?? "授权失败，请重试"
+        default: return "未关联"
         }
     }
 }

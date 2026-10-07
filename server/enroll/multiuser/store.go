@@ -93,6 +93,7 @@ CREATE TABLE IF NOT EXISTS devices(device_index INTEGER PRIMARY KEY AUTOINCREMEN
 CREATE UNIQUE INDEX IF NOT EXISTS devices_node ON devices(node_id) WHERE node_id!='' AND status!='revoked';
 CREATE TABLE IF NOT EXISTS device_credentials(device_index INTEGER PRIMARY KEY REFERENCES devices(device_index),token_hash TEXT NOT NULL UNIQUE,claim_token BLOB,proxy_token BLOB NOT NULL);
 CREATE TABLE IF NOT EXISTS enrollments(id TEXT PRIMARY KEY,code TEXT NOT NULL UNIQUE,claim_hash TEXT NOT NULL,user_id INTEGER REFERENCES users(id),device_index INTEGER REFERENCES devices(device_index),name TEXT NOT NULL,state TEXT NOT NULL,expires_at INTEGER NOT NULL,grant_key BLOB,grant_id TEXT NOT NULL DEFAULT '');
+CREATE TABLE IF NOT EXISTS oauth_requests(id TEXT PRIMARY KEY,challenge TEXT NOT NULL UNIQUE,redirect_uri TEXT NOT NULL,state TEXT NOT NULL,name TEXT NOT NULL,status TEXT NOT NULL,expires_at INTEGER NOT NULL,code_hash TEXT UNIQUE,user_id INTEGER REFERENCES users(id));
 CREATE TABLE IF NOT EXISTS preferences(user_id INTEGER PRIMARY KEY REFERENCES users(id),value TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS audit_events(id INTEGER PRIMARY KEY AUTOINCREMENT,actor_id INTEGER NOT NULL,target_id INTEGER NOT NULL,action TEXT NOT NULL,created_at INTEGER NOT NULL);
 CREATE TABLE IF NOT EXISTS migration_markers(name TEXT PRIMARY KEY,created_at INTEGER NOT NULL);`)

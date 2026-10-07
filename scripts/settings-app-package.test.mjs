@@ -39,11 +39,40 @@ test('development packaging is isolated and cannot publish an installer', () => 
   assert.doesNotMatch(script, /ssh |scp |codesign --sign|hdiutil create|launchctl (bootstrap|kickstart|bootout)/);
 });
 
+test('both native app bundles include the adopted brand icon', () => {
+  const script = read('./build-settings-app.sh');
+  assert.match(script, /render-settings-icon\.swift/);
+  assert.match(script, /iconutil.*-c icns/);
+  assert.equal((script.match(/CFBundleIconFile/g) || []).length, 2);
+  assert.match(script, /\$AGENT\/Contents\/Resources\/AppIcon\.icns/);
+});
+
 test('login helper only starts the independently managed daemon', () => {
   const plist = read('../mac/settings-app/Resources/com.macfleet.desktop-login.plist');
   assert.match(plist, /com\.macfleet\.desktop-login/);
   assert.match(plist, /autostart-start/);
+  assert.match(plist, /Contents\/Library\/Helpers\/fleet-login-launcher/);
+  assert.doesNotMatch(plist, /Fleet Agent\.app|LoginItems/);
   assert.doesNotMatch(plist, /KeepAlive|sudo|bash|device_token|proxy_token/);
+});
+
+test('standalone agent is separately notarized before host signing', () => {
+  const native = read('./lib/native-candidate-release.sh');
+  assert.match(native, /com\.macfleet\.desktop-login/);
+  assert.match(native, /notarize-agent\.zip/);
+  assert.match(native, /agent-notary\.json/);
+  assert.match(native, /stapler validate "\$agent"/);
+  assert.ok(native.indexOf('stapler validate "$agent"') < native.indexOf('--identifier com.macfleet.fleet-hub'));
+});
+
+test('upgrade recovery synchronizes the standalone runtime even when an old daemon responds', () => {
+  const updater = read('../mac/settings-app/Sources/FleetHub/AppUpdater.swift');
+  const recovery = updater.slice(updater.indexOf('func recoverAfterLaunch'));
+  assert.doesNotMatch(recovery, /if \(try\? await management\.status\(\)\) == nil/);
+  assert.match(recovery, /try\? await management\.start\(\)/);
+  const view = read('../mac/settings-app/Sources/FleetHub/SettingsView.swift');
+  assert.match(view, /management\.prepareRuntime\(\)/);
+  assert.match(view, /updater\.recoveryPending/);
 });
 
 test('native packaging requires verified bundled runtime instead of developer Homebrew', () => {
@@ -60,7 +89,10 @@ test('native privacy instructions identify the background bundle and do not prom
   const view = read('../mac/settings-app/Sources/FleetHub/SettingsView.swift');
   assert.match(view, /Privacy_AllFiles/);
   assert.match(view, /Fleet Agent\.app/);
-  assert.match(view, /目标不存在、后台未运行或证据不足/);
+  assert.match(view, /activateFileViewerSelecting\(\[management\.layout\.backgroundApplication\]\)/);
+  assert.doesNotMatch(view, /activateFileViewerSelecting\(\[management\.layout\.application\]\)/);
+  assert.match(view, /accessibilityLabel\("重新检查后台权限"\)/);
+  assert.match(view, /旧版 fleet-agent 的授权不会自动继承/);
   assert.match(view, /ACL/);
   assert.doesNotMatch(view, /tccutil|TCC\.db|sudo|mac-bundle\.tar/);
 });

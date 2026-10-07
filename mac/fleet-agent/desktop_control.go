@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"syscall"
 	"time"
 )
 
@@ -17,10 +18,11 @@ type desktopSettings struct {
 }
 
 type desktopDiskAccess struct {
-	State           string `json:"state"`
-	Source          string `json:"source"`
-	CheckedAt       int64  `json:"checked_at"`
-	VerifiedTargets int    `json:"verified_targets"`
+	State           string   `json:"state"`
+	Source          string   `json:"source"`
+	CheckedAt       int64    `json:"checked_at"`
+	VerifiedTargets int      `json:"verified_targets"`
+	DeniedTargets   []string `json:"denied_targets,omitempty"`
 }
 
 type desktopBindingStatus struct {
@@ -83,6 +85,7 @@ func probeDesktopDiskAccess(targets []string, probe func(string) error) desktopD
 			result.VerifiedTargets++
 		case errors.Is(err, os.ErrPermission):
 			result.State = "restricted"
+			result.DeniedTargets = append(result.DeniedTargets, target)
 		case os.IsNotExist(err):
 		default:
 			unexpected = true
@@ -113,11 +116,42 @@ func desktopDiskProbe(path string) error {
 	return err
 }
 
+func probeDesktopFullDiskAccess(protected string, diagnostics []string, probe func(string) error) desktopDiskAccess {
+	protectedError := probe(protected)
+	result := probeDesktopDiskAccess([]string{protected}, func(string) error { return protectedError })
+	if result.State == "restricted" && !errors.Is(protectedError, syscall.EPERM) {
+		result.State = "unknown"
+	}
+	for _, path := range diagnostics {
+		if errors.Is(probe(path), os.ErrPermission) {
+			result.DeniedTargets = append(result.DeniedTargets, path)
+		}
+	}
+	return result
+}
+
+func desktopIndependentAgentPath(executable string) bool {
+	if !strings.HasSuffix(filepath.Clean(executable), "/Fleet Agent.app/Contents/MacOS/fleet-agent") {
+		return false
+	}
+	application := filepath.Dir(filepath.Dir(filepath.Dir(executable)))
+	for parent := filepath.Dir(application); parent != filepath.Dir(parent); parent = filepath.Dir(parent) {
+		if strings.HasSuffix(strings.ToLower(parent), ".app") {
+			return false
+		}
+	}
+	return true
+}
+
 func desktopDiskStatus() desktopDiskAccess {
 	executable, err := os.Executable()
-	if err != nil || runtime.GOOS != "darwin" || os.Getppid() != 1 || !strings.HasSuffix(executable, "/Fleet Agent.app/Contents/MacOS/fleet-agent") {
+	if err != nil || runtime.GOOS != "darwin" || os.Getppid() != 1 || !desktopIndependentAgentPath(executable) {
 		return desktopDiskAccess{State: "unknown", Source: "unverified-process", CheckedAt: time.Now().Unix()}
 	}
 	home, _ := os.UserHomeDir()
-	return probeDesktopDiskAccess([]string{filepath.Join(home, "Library", "Messages", "chat.db"), filepath.Join(home, "Library", "Safari", "History.db"), filepath.Join(home, "Library", "Mail")}, desktopDiskProbe)
+	result := probeDesktopFullDiskAccess(filepath.Join(home, "Library", "Application Support", "com.apple.TCC", "TCC.db"), []string{filepath.Join(home, "Library", "Messages", "chat.db"), filepath.Join(home, "Library", "Safari", "History.db"), filepath.Join(home, "Library", "Mail")}, desktopDiskProbe)
+	for index, path := range result.DeniedTargets {
+		result.DeniedTargets[index], _ = filepath.Rel(home, path)
+	}
+	return result
 }

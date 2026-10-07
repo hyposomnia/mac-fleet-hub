@@ -232,6 +232,19 @@ test('enrollment reads return query, authenticates, and confirms only after expl
   assert.equal(missing.form('enrollment-confirm'), undefined);
 });
 
+test('native OAuth consent uses the authenticated account, no pairing code, and a loopback callback', async () => {
+  const current = harness({ page: 'enrollment', path: '/oauth/consent', search: '?request=opaque-request', respond: (url) =>
+    url.startsWith('/api/oauth/preview') ? { name: 'My Mac', owner_email: 'one@example.com', redirect_uri: 'http://127.0.0.1:51234/oauth/callback' } :
+      { redirect_uri: 'http://127.0.0.1:51234/oauth/callback?state=state&code=authorization-code' } });
+  await current.start();
+  assert.match(text(current.content), /授权/);
+  assert.doesNotMatch(text(current.content), /配对码/);
+  assert.equal(current.calls[1].url, '/api/oauth/preview?request=opaque-request');
+  await current.submit('oauth-consent');
+  assert.deepEqual(JSON.parse(JSON.stringify(current.calls[2].body)), { request_id: 'opaque-request', action: 'approve' });
+  assert.deepEqual(current.redirects, ['http://127.0.0.1:51234/oauth/callback?state=state&code=authorization-code']);
+});
+
 test('admin pagination disables both boundaries after a click rather than re-enabling them', async () => {
   const current = harness({ page: 'admin', role: 'admin', respond: (url) => {
     if (!url.includes('/users?')) return { devices: [], users: [], total: 0 };
@@ -267,7 +280,7 @@ test('security changes that revoke the current session preserve recovery codes u
   assert.equal(current.redirects[0], '/auth?next=%2Faccount');
 });
 
-test('add device offers a native DMG and explains browser pairing and background disk authorization', async () => {
+test('add device offers a native DMG and explains fresh browser OAuth and background disk authorization', async () => {
   const current = harness({ page: 'account' });
   await current.start();
   assert.doesNotMatch(text(current.content), /bootstrap\.sh|curl -fsSL/);
@@ -278,16 +291,18 @@ test('add device offers a native DMG and explains browser pairing and background
   assert.match(text(add), /https:\/\/fleet.test/);
   assert.match(text(add), /应用.*服务网页地址/);
   assert.match(text(add), /浏览器.*登录.*Authenticator/);
-  assert.match(text(add), /返回.*应用.*确认接入/);
+  assert.match(text(add), /关联账号.*打开网页授权/);
+  assert.match(text(add), /授权.*自动接入/);
+  assert.doesNotMatch(text(add), /配对码|确认接入|保存并连接/);
   assert.match(text(add), /fleet-agent 发起/);
   assert.match(text(add), /签名.*公证/);
   assert.match(text(add), /完全磁盘访问/);
   assert.match(text(add), /Fleet Agent.app/);
+  assert.doesNotMatch(text(add), /开启 Fleet Hub\.app/);
   assert.match(text(add), /关闭.*后台.*运行/);
   assert.match(text(add), /检查更新/);
   assert.ok(!current.calls.some((call) => call.url === '/api/enrollment/start'), 'web page must not initiate a client grant');
-  await current.submit('enrollment-code', { enrollment_code: 'ABC-123' });
-  assert.equal(current.redirects[0], '/enroll/confirm?code=ABC-123');
+  assert.equal(current.form('enrollment-code'), undefined);
 });
 
 test('unpublished clients do not produce fake download links', async () => {
@@ -296,7 +311,7 @@ test('unpublished clients do not produce fake download links', async () => {
   const add = current.find((node) => node.id === 'add-device');
   assert.equal(all(add, (node) => node.tagName === 'a' && node.download).length, 0);
   assert.match(text(add), /尚未发布/);
-  assert.ok(current.form('enrollment-code'));
+  assert.equal(current.form('enrollment-code'), undefined);
 });
 
 test('invalid or cross-origin native releases never expose download links', async () => {

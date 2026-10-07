@@ -26,7 +26,7 @@ const SHELL = [
 const SHELL_KEYS = new Set(SHELL);
 
 function isSensitivePath(pathname) {
-  return /^\/(?:api|auth|account|admin|enroll)(?:\/|$)/.test(pathname) ||
+  return /^\/(?:api|auth|account|admin|enroll|oauth)(?:\/|$)/.test(pathname) ||
     /^\/m\d+(?:\/|$)/.test(pathname) ||
     pathname.startsWith('/files/');
 }

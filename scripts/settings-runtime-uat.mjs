@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawn, execFileSync } from 'node:child_process';
-import { mkdtempSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { cpSync, mkdtempSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { createServer } from 'node:net';
 import { setTimeout as delay } from 'node:timers/promises';
@@ -9,9 +9,14 @@ import { once } from 'node:events';
 const application = resolve(process.argv[2] || '');
 assert.ok(application.startsWith('/private/tmp/') || application.startsWith('/tmp/'), 'Only isolated development bundles may be tested');
 assert.equal(JSON.parse(readFileSync(join(application, 'Contents/Resources/release-status.json'))).release_ready, false);
-const agent = join(application, 'Contents/Library/LoginItems/Fleet Agent.app/Contents/MacOS/fleet-agent');
-const bin = join(application, 'Contents/Library/LoginItems/Fleet Agent.app/Contents/Resources/bin');
 const home = mkdtempSync('/private/tmp/fu-');
+const runtime = join(home, '.macfleet/desktop/runtime');
+mkdirSync(runtime, { recursive: true, mode: 0o700 });
+const background = join(runtime, 'Fleet Agent.app');
+cpSync(join(application, 'Contents/Library/LoginItems/Fleet Agent.app'), background, { recursive: true });
+const agent = join(background, 'Contents/MacOS/fleet-agent');
+const bin = join(background, 'Contents/Resources/bin');
+assert.ok(!background.startsWith(application + '/'));
 const children = [];
 const environment = Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith('FLEET_') && !key.startsWith('CODEX_') && key !== 'TMUX'));
 Object.assign(environment, { HOME: home, PATH: `${bin}:/usr/bin:/bin:/usr/sbin:/sbin`, FLEET_DESKTOP_MANAGED: '1', FLEET_BINDING_FILE: join(home, '.macfleet/desktop/binding.json') });
@@ -39,6 +44,7 @@ async function port() {
   return value;
 }
 try {
+  assert.throws(() => execute(join(application, 'Contents/Library/Helpers/fleet-login-launcher'), ['invalid-action']));
   const daemon = start(agent);
   const status = await waitFor(() => JSON.parse(execute(agent, ['desktop', 'status'])));
   assert.equal(status.pid, daemon.pid);
@@ -71,7 +77,7 @@ try {
   assert.equal(restored.runtime.phase, 'unbound');
   assert.equal(restored.version, status.version);
   assert.throws(() => execute(agent, ['update']));
-  console.log('PASS: actual bundled agent, private control socket, unbound status, no fabricated FDA evidence, legacy update blocked');
+  console.log('PASS: standalone copy of actual bundled agent, private control socket, unbound status, no fabricated FDA evidence, legacy update blocked');
   console.log('PASS: matching app/agent version, maintenance rejects settings, graceful daemon restart preserves isolated configuration');
 
   const root = join(home, 'files');

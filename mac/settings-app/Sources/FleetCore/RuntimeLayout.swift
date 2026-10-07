@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 
 public struct RuntimeLayout: Sendable {
@@ -7,18 +8,37 @@ public struct RuntimeLayout: Sendable {
         self.application = application
         self.home = home
     }
-    public var backgroundApplication: URL {
+    public var bundledBackgroundApplication: URL {
         application.appendingPathComponent("Contents/Library/LoginItems/Fleet Agent.app")
     }
+    public var backgroundApplication: URL { runtimeDirectory.appendingPathComponent("Fleet Agent.app") }
+    public var bundledAgent: URL { bundledBackgroundApplication.appendingPathComponent("Contents/MacOS/fleet-agent") }
     public var agent: URL { backgroundApplication.appendingPathComponent("Contents/MacOS/fleet-agent") }
     public var state: URL { home.appendingPathComponent(".macfleet/desktop") }
+    public var runtimeDirectory: URL { state.appendingPathComponent("runtime") }
     public var runtimePlist: URL { state.appendingPathComponent("agent.plist") }
     public var requiresInstallation: Bool { application.path != "/Applications/Fleet Hub.app" }
+
+    public func removeRuntime() throws {
+        var info = stat()
+        if lstat(runtimeDirectory.path, &info) != 0 {
+            guard errno == ENOENT else { throw FleetError.message("无法检查后台运行目录。") }
+            return
+        }
+        try PrivateRuntime.ensureDirectory(home.appendingPathComponent(".macfleet"))
+        try PrivateRuntime.ensureDirectory(state)
+        try PrivateRuntime.ensureDirectory(runtimeDirectory)
+        try FileManager.default.removeItem(at: runtimeDirectory)
+    }
 
     public func launchDefinition() throws -> Data {
         guard !requiresInstallation else {
             throw FleetError.message("请先将 Fleet Hub 安装到应用程序，再启动后台服务。")
         }
+        return try backgroundLaunchDefinition()
+    }
+
+    func backgroundLaunchDefinition() throws -> Data {
         let definition: [String: Any] = [
             "Label": "com.macfleet.desktop-agent",
             "ProgramArguments": [agent.path],

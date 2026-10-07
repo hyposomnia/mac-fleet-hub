@@ -47,6 +47,7 @@ type loginOptions struct {
 	Setup          func(context.Context, deviceBinding) error
 	Confirm        func(pairingGrant) error
 	Browser        func(string, string)
+	Authorize      func(context.Context, *http.Client, string, func(string, string)) (pairingPending, error)
 }
 
 func enrollmentCall(ctx context.Context, client *http.Client, origin, path string, input, output any) (int, error) {
@@ -96,6 +97,9 @@ func pairDevice(ctx context.Context, origin string, options loginOptions) error 
 		options.Output = io.Discard
 	}
 	if binding, readErr := readDeviceBinding(options.Path); readErr == nil {
+		if options.Authorize != nil {
+			return errors.New("设备已有授权，请先解除关联再重新授权")
+		}
 		if binding.Origin != origin || binding.Locked {
 			return errors.New("设备已绑定或已锁定，请先 logout 再更换账号/服务器")
 		}
@@ -118,7 +122,23 @@ func pairDevice(ctx context.Context, origin string, options loginOptions) error 
 	var pending pairingPending
 	client := deviceHTTPClient()
 	defer client.CloseIdleConnections()
-	if err = readPrivateJSON(pendingPath, &pending); os.IsNotExist(err) {
+	if options.Authorize != nil {
+		var previous pairingPending
+		if previousErr := readPrivateJSON(pendingPath, &previous); previousErr == nil {
+			if previous.Grant != nil {
+				return errors.New("上次入网未完成，请先解除关联再重新授权")
+			}
+		} else if !os.IsNotExist(previousErr) {
+			return previousErr
+		}
+		pending, err = options.Authorize(ctx, client, origin, options.Browser)
+		if err != nil {
+			return err
+		}
+		if err = writePrivateJSON(pendingPath, pending); err != nil {
+			return err
+		}
+	} else if err = readPrivateJSON(pendingPath, &pending); os.IsNotExist(err) {
 		name, _ := os.Hostname()
 		_, err = enrollmentCall(ctx, client, origin, "/api/enrollment/start", map[string]string{"name": name}, &pending)
 		if err != nil {
@@ -139,16 +159,16 @@ func pairDevice(ctx context.Context, origin string, options loginOptions) error 
 	}
 	verification, err := url.Parse(pending.URL)
 	base, _ := url.Parse(origin)
-	if err != nil || verification.Scheme != base.Scheme || verification.Host != base.Host || verification.User != nil || verification.Path != "/enroll/confirm" {
+	if options.Authorize == nil && (err != nil || verification.Scheme != base.Scheme || verification.Host != base.Host || verification.User != nil || verification.Path != "/enroll/confirm") {
 		return errors.New("服务器返回的确认链接不安全")
 	}
 	claim := map[string]string{"request_id": pending.ID, "claim_token": pending.Token}
-	if options.Browser != nil {
+	if options.Browser != nil && options.Authorize == nil {
 		options.Browser(pending.URL, pending.Code)
 	}
 	if pending.Grant == nil {
 		fmt.Fprintf(options.Output, "请在浏览器登录并确认关联：%s\n配对码：%s\n", pending.URL, pending.Code)
-		if !options.NoOpen && options.Open != nil {
+		if options.Authorize == nil && !options.NoOpen && options.Open != nil {
 			if err = options.Open(pending.URL); err != nil {
 				fmt.Fprintln(options.Output, "浏览器未自动打开，请手动打开上方链接。")
 			}

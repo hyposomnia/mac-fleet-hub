@@ -19,10 +19,22 @@ OUTPUT="$(mktemp -d "$PARENT/fleet-settings.XXXXXX")"
 APP="$OUTPUT/Fleet Hub.app"
 AGENT="$APP/Contents/Library/LoginItems/Fleet Agent.app"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources" "$APP/Contents/Library/LaunchAgents" "$AGENT/Contents/MacOS"
+swift "$ROOT/scripts/render-settings-icon.swift" "$ROOT/mac/settings-app/Resources/BrandMark.svg" "$OUTPUT/artwork"
+mkdir -p "$OUTPUT/AppIcon.iconset" "$AGENT/Contents/Resources"
+for size in 16 32 128 256 512; do
+  sips -z "$size" "$size" "$OUTPUT/artwork/AppIcon.png" --out "$OUTPUT/AppIcon.iconset/icon_${size}x${size}.png" >/dev/null
+  retina=$((size * 2))
+  sips -z "$retina" "$retina" "$OUTPUT/artwork/AppIcon.png" --out "$OUTPUT/AppIcon.iconset/icon_${size}x${size}@2x.png" >/dev/null
+done
+iconutil -c icns "$OUTPUT/AppIcon.iconset" -o "$APP/Contents/Resources/AppIcon.icns"
+install -m 0644 "$APP/Contents/Resources/AppIcon.icns" "$AGENT/Contents/Resources/AppIcon.icns"
+install -m 0644 "$OUTPUT/artwork/BrandMark.png" "$APP/Contents/Resources/BrandMark.png"
 bash "$ROOT/scripts/prepare-settings-sdk.sh"
 (cd "$ROOT/mac/settings-app" && MACOSX_DEPLOYMENT_TARGET=13.0 swift build -c release --arch arm64 --arch x86_64)
 SWIFT_BIN="$(cd "$ROOT/mac/settings-app" && swift build -c release --arch arm64 --arch x86_64 --show-bin-path)"
 install -m 0755 "$SWIFT_BIN/FleetHub" "$APP/Contents/MacOS/Fleet Hub"
+mkdir -p "$APP/Contents/Library/Helpers"
+install -m 0755 "$SWIFT_BIN/FleetLogin" "$APP/Contents/Library/Helpers/fleet-login-launcher"
 mkdir -p "$APP/Contents/Frameworks"
 ditto "$ROOT/mac/settings-app/Vendor/Sparkle.xcframework/macos-arm64_x86_64/Sparkle.framework" "$APP/Contents/Frameworks/Sparkle.framework"
 for arch in arm64 amd64; do
@@ -43,6 +55,7 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
 <key>CFBundleName</key><string>Fleet Hub</string>
 <key>CFBundleDisplayName</key><string>Fleet Hub</string>
 <key>CFBundleExecutable</key><string>Fleet Hub</string>
+<key>CFBundleIconFile</key><string>AppIcon</string>
 <key>CFBundlePackageType</key><string>APPL</string>
 <key>CFBundleShortVersionString</key><string>0.1.0</string>
 <key>CFBundleVersion</key><string>1</string>
@@ -57,6 +70,7 @@ cat > "$AGENT/Contents/Info.plist" <<'PLIST'
 <key>CFBundleIdentifier</key><string>com.macfleet.fleet-agent</string>
 <key>CFBundleName</key><string>Fleet Agent</string>
 <key>CFBundleExecutable</key><string>fleet-agent</string>
+<key>CFBundleIconFile</key><string>AppIcon</string>
 <key>CFBundlePackageType</key><string>APPL</string>
 <key>CFBundleShortVersionString</key><string>0.1.0</string>
 <key>CFBundleVersion</key><string>1</string>

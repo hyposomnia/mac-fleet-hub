@@ -18,7 +18,7 @@ function workerHarness(response = { ok: true, redirected: true, clone() { return
 
 test('worker bypasses exact and nested protected pages and APIs without false prefix matches', () => {
   const { sandbox } = workerHarness();
-  for (const path of ['/auth', '/auth/', '/auth/setup', '/account', '/account/sessions', '/admin', '/admin/users', '/enroll', '/enroll/confirm', '/api', '/api/auth/me', '/m1/api/files']) {
+  for (const path of ['/auth', '/auth/', '/auth/setup', '/account', '/account/sessions', '/admin', '/admin/users', '/enroll', '/enroll/confirm', '/oauth', '/oauth/authorize', '/oauth/consent', '/oauth/token', '/api', '/api/auth/me', '/m1/api/files']) {
     assert.equal(vm.runInNewContext(`isSensitivePath(${JSON.stringify(path)})`, sandbox), true, path);
   }
   assert.equal(vm.runInNewContext('isSensitivePath("/account.js")', sandbox), false);

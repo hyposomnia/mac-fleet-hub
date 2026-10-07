@@ -5,27 +5,31 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"errors"
+	"path/filepath"
 	"sync"
 	"time"
 )
 
 type desktopPairingState struct {
-	Phase      string `json:"phase"`
-	Attempt    string `json:"attempt"`
-	Origin     string `json:"origin"`
-	URL        string `json:"url,omitempty"`
-	Code       string `json:"code,omitempty"`
-	DeviceID   string `json:"device_id,omitempty"`
-	OwnerEmail string `json:"owner_email,omitempty"`
-	Error      string `json:"error,omitempty"`
+	Phase        string `json:"phase"`
+	Attempt      string `json:"attempt"`
+	Origin       string `json:"origin"`
+	URL          string `json:"url,omitempty"`
+	Code         string `json:"code,omitempty"`
+	DeviceID     string `json:"device_id,omitempty"`
+	OwnerEmail   string `json:"owner_email,omitempty"`
+	Error        string `json:"error,omitempty"`
+	NeedsCleanup bool   `json:"needs_cleanup,omitempty"`
 }
 
 type desktopPairing struct {
 	mu      sync.Mutex
+	startMu sync.Mutex
 	state   desktopPairingState
 	options loginOptions
 	cancel  context.CancelFunc
 	consent chan struct{}
+	done    chan struct{}
 }
 
 func newDesktopPairing(options loginOptions) *desktopPairing {
@@ -43,7 +47,20 @@ func (pairing *desktopPairing) Start(origin string) error {
 	if err != nil {
 		return err
 	}
+	pairing.startMu.Lock()
+	defer pairing.startMu.Unlock()
 	pairing.mu.Lock()
+	if pairing.cancel != nil && pairing.options.Authorize != nil && (pairing.state.Phase == "starting" || pairing.state.Phase == "browser") {
+		cancel, done := pairing.cancel, pairing.done
+		pairing.mu.Unlock()
+		cancel()
+		select {
+		case <-done:
+		case <-time.After(5 * time.Second):
+			return errors.New("旧授权仍在结束，请稍后重试")
+		}
+		pairing.mu.Lock()
+	}
 	defer pairing.mu.Unlock()
 	if pairing.cancel != nil {
 		return errors.New("设备关联正在进行")
@@ -58,21 +75,31 @@ func (pairing *desktopPairing) Start(origin string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	pairing.cancel = cancel
 	pairing.consent = make(chan struct{}, 1)
+	pairing.done = make(chan struct{})
+	done := pairing.done
 	pairing.state = desktopPairingState{Phase: "starting", Attempt: hex.EncodeToString(nonce[:]), Origin: origin}
 	options := pairing.options
 	options.NoOpen = true
 	options.Browser = func(url, code string) {
 		pairing.mu.Lock()
 		defer pairing.mu.Unlock()
+		if ctx.Err() != nil {
+			return
+		}
 		pairing.state.Phase = "browser"
 		pairing.state.URL = url
 		pairing.state.Code = code
 	}
 	options.Confirm = func(grant pairingGrant) error {
 		pairing.mu.Lock()
-		pairing.state.Phase = "awaiting_confirmation"
 		pairing.state.DeviceID = grant.DeviceID
 		pairing.state.OwnerEmail = grant.OwnerEmail
+		if options.Authorize != nil {
+			pairing.state.Phase = "joining"
+			pairing.mu.Unlock()
+			return ctx.Err()
+		}
+		pairing.state.Phase = "awaiting_confirmation"
 		consent := pairing.consent
 		pairing.mu.Unlock()
 		select {
@@ -83,15 +110,22 @@ func (pairing *desktopPairing) Start(origin string) error {
 		}
 	}
 	go func() {
+		defer close(done)
 		err := pairDevice(ctx, origin, options)
+		var pending pairingPending
+		cleanup := err != nil && readPrivateJSON(filepath.Join(filepath.Dir(options.Path), "pairing.json"), &pending) == nil && pending.Grant != nil
 		pairing.mu.Lock()
 		defer pairing.mu.Unlock()
 		cancel()
 		pairing.cancel = nil
+		pairing.state.NeedsCleanup = cleanup
 		if err == nil {
 			pairing.state.Phase = "complete"
 		} else if errors.Is(err, context.Canceled) {
 			pairing.state.Phase = "cancelled"
+		} else if errors.Is(err, context.DeadlineExceeded) {
+			pairing.state.Phase = "failed"
+			pairing.state.Error = "网页授权已过期，请重新发起"
 		} else {
 			pairing.state.Phase = "failed"
 			pairing.state.Error = err.Error()
