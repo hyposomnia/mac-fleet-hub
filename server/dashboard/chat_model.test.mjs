@@ -390,7 +390,7 @@ test('DeepSeek whale sits inside the assistant tab instead of the header actions
   assert.match(appSrc, /\$\$\('\[data-assistant-entry="dsh"\]'\)\.forEach\(\(entry\) => \{ entry\.hidden = !available; \}\)/);
   // wrapper 自带 inline-flex，必须显式关掉 [hidden]，否则藏不住
   assert.match(styleCSS, /\.seg \.assistant-tab\[hidden\]\s*\{\s*display:\s*none;\s*\}/);
-  assert.match(styleCSS, /\.seg \.assistant-tab:has\(\[aria-selected="true"\]\)\s*\{\s*background:\s*var\(--surface-1\);/);
+  assert.match(styleCSS, /\.seg \.assistant-tab:has\(\[aria-selected="true"\]\)\s*\{\s*background:\s*var\(--accent-soft\);/);
   assert.match(styleCSS, /\.seg \.assistant-tab \.dsh-native-open\s*\{[^}]*flex:\s*none;/s);
   assert.match(styleCSS, /\.seg \.assistant-tab \.dsh-whale\s*\{\s*width:\s*18px;\s*\}/);
 });

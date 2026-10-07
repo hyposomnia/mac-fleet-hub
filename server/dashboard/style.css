@@ -352,8 +352,8 @@ svg.ic.fill { fill: currentColor; stroke: none; }
 
 /* 分段控件 */
 .seg { display: inline-flex; gap: 4px; background: var(--surface-2); border: 0; border-radius: var(--radius-control); padding: 4px; }
-.seg button { padding: 6px 12px; border-radius: var(--radius-compact); color: var(--text-1); font-weight: 500; font-size: var(--t-body); transition: all var(--dur-1) var(--ease); }
-.seg button[aria-selected="true"] { background: var(--surface-1); color: var(--text); box-shadow: var(--e1); }
+.seg button { padding: 6px 12px; border-radius: var(--radius-control); color: var(--text-1); font-weight: 500; font-size: var(--t-body); transition: all var(--dur-1) var(--ease); }
+.seg button[aria-selected="true"] { background: var(--accent-soft); color: var(--accent-text); box-shadow: none; }
 .seg.full { display: flex; width: 100%; }
 .seg.full button { flex: 1; padding: 9px 0; }
 
@@ -624,10 +624,10 @@ html.automation-doc-root, html.automation-doc-root body { height: auto; min-heig
 .brand .logo:not(:disabled):hover { background: var(--surface-hover); }
 
 .modeseg { display: grid; flex: none; grid-template-columns: 1fr 1fr; grid-auto-rows: var(--rail-mode-height); gap: var(--rail-mode-gap); background: var(--surface-2); border: 0; border-radius: var(--radius-control); padding: 4px; }
-.modeseg button { display: flex; align-items: center; justify-content: flex-start; gap: 7px; padding: 8px 10px; border-radius: var(--radius-compact); color: var(--text-1); font-weight: 500; font-size: var(--t-body); transition: background var(--dur-1) var(--ease), color var(--dur-1) var(--ease); }
+.modeseg button { display: flex; align-items: center; justify-content: flex-start; gap: 7px; padding: 8px 10px; border-radius: var(--radius-control); color: var(--text-1); font-weight: 500; font-size: var(--t-body); transition: background var(--dur-1) var(--ease), color var(--dur-1) var(--ease); }
 .modeseg button .ic { flex: none; }
 .modeseg button .gi { font-size: var(--t-body); opacity: .85; }
-.modeseg button[aria-selected="true"] { background: var(--accent); color: var(--accent-contrast); box-shadow: var(--e1); }
+.modeseg button[aria-selected="true"] { background: var(--accent-soft); color: var(--accent-text); box-shadow: none; }
 
 .hostlist { display: flex; flex-direction: column; gap: var(--rail-host-gap); overflow-y: auto; flex: 1; }
 /* The collapsed file row takes exactly the space of this heading plus its gap. */
@@ -1521,15 +1521,15 @@ html[data-workspace-tab="true"] .preview-actions .iconbtn { width: 26px; height:
    选中态挂在 wrapper 上（:has），label 切助手、鲸鱼开原生 UI，互不干扰。
    注意 [hidden] 必须显式关掉 display——wrapper 自己的 inline-flex 会盖过 UA 的隐藏。 */
 .seg .assistant-tab {
-  display: inline-flex; align-items: center; flex: 1; min-width: 0; border-radius: var(--radius-compact);
+  display: inline-flex; align-items: center; flex: 1; min-width: 0; border-radius: var(--radius-control);
   transition: background var(--dur-1) var(--ease), box-shadow var(--dur-1) var(--ease);
 }
 .seg .assistant-tab[hidden] { display: none; }
-.seg .assistant-tab:has([aria-selected="true"]) { background: var(--surface-1); box-shadow: var(--e1); }
+.seg .assistant-tab:has([aria-selected="true"]) { background: var(--accent-soft); color: var(--accent-text); box-shadow: none; }
 .seg .assistant-tab .assistant-tab-label {
   flex: 1; min-width: 0; padding: 6px 0 6px 12px; border-radius: var(--radius-compact); background: none; box-shadow: none;
 }
-.seg .assistant-tab .assistant-tab-label[aria-selected="true"] { background: none; box-shadow: none; color: var(--text); }
+.seg .assistant-tab .assistant-tab-label[aria-selected="true"] { background: none; box-shadow: none; color: var(--accent-text); }
 .seg .assistant-tab .dsh-native-open {
   flex: none; display: grid; place-items: center; width: 26px; height: 26px; min-height: 0;
   margin: 0 3px 0 2px; padding: 0;  border-radius: var(--radius-compact); background: none;
