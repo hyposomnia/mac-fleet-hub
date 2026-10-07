@@ -5,18 +5,18 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content" />
   <!-- theme-color 与共享 Titanium 主题控制器同步。 -->
   <meta name="theme-color" content="#FFFFFF" />
-  <script src="/theme.js?v=171"></script>
+  <script src="/theme.js?v=172"></script>
   <title>mac fleet hub</title>
   <link rel="manifest" href="manifest.webmanifest" />
-  <link rel="icon" href="icons/favicon.svg?v=171" type="image/svg+xml" />
-  <link rel="apple-touch-icon" href="icons/icon-180.png?v=171" sizes="180x180" />
+  <link rel="icon" href="icons/favicon.svg?v=172" type="image/svg+xml" />
+  <link rel="apple-touch-icon" href="icons/icon-180.png?v=172" sizes="180x180" />
   <meta name="mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <meta name="apple-mobile-web-app-title" content="fleet hub" />
   <!-- theme.js 在样式加载前同步应用已保存的外观，默认浅色。 -->
   <link rel="stylesheet" href="vendor/codemirror/lib/codemirror.css?v=5.65.20" />
-  <link rel="stylesheet" href="style.css?v=171" />
+  <link rel="stylesheet" href="style.css?v=172" />
 </head>
 <body>
   <!-- DeepSeek 官方 whale mark，来源与 MIT 许可见 icons/deepseek/LICENSE.md。 -->
@@ -129,7 +129,7 @@
             </div>
           </div>
           <span data-device-scope-slot="sessions"></span>
-          <div class="sc-head-actions"><button id="sessions-collapse" class="iconbtn bare sidebar-pin" type="button" aria-label="取消固定会话列表" title="取消固定会话列表" aria-pressed="true" data-pinned="true" aria-expanded="true" aria-controls="sescol"><svg class="ic sessions-pinned" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 17v5"/><path d="M5 3h14l-3 6v4l2 2H6l2-2V9Z" fill="currentColor"/></svg><svg class="ic sessions-unpinned" viewBox="0 0 24 24" aria-hidden="true"><path d="m3 3 18 18M12 17v5M8 8v5l-2 2h9M9 3h10l-3 6v4l2 2h-1"/></svg></button>
+          <div class="sc-head-actions"><button id="sessions-collapse" class="iconbtn sidebar-collapse" type="button" aria-label="收起会话列表" title="收起会话列表" aria-expanded="true" aria-controls="sescol"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path class="sidebar-icon-pane" d="M5 4h4v16H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2Z"/><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4v16"/></svg></button>
             <button class="iconbtn bare mobile-menu-trigger" title="菜单" aria-label="菜单" aria-haspopup="true"><svg class="ic" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.87l.04.04-2.87 2.87-.04-.04A1.7 1.7 0 0 0 15 19.4a1.7 1.7 0 0 0-1 1.55V21h-4v-.05A1.7 1.7 0 0 0 9 19.4a1.7 1.7 0 0 0-1.87.34l-.04.04-2.87-2.87.04-.04A1.7 1.7 0 0 0 4.6 15a1.7 1.7 0 0 0-1.55-1H3v-4h.05A1.7 1.7 0 0 0 4.6 9a1.7 1.7 0 0 0-.34-1.87l-.04-.04 2.87-2.87.04.04A1.7 1.7 0 0 0 9 4.6a1.7 1.7 0 0 0 1-1.55V3h4v.05A1.7 1.7 0 0 0 15 4.6a1.7 1.7 0 0 0 1.87-.34l.04-.04 2.87 2.87-.04.04A1.7 1.7 0 0 0 19.4 9a1.7 1.7 0 0 0 1.55 1H21v4h-.05a1.7 1.7 0 0 0-1.55 1Z"/></svg></button>
           </div>
         </div>
@@ -154,8 +154,7 @@
       <div id="session-groups" class="sc-body"></div>
     </section>
 
-    <button id="sessions-backdrop" class="sessions-backdrop" type="button" aria-label="关闭会话列表" tabindex="-1" hidden></button>
-    <button id="sessions-launcher" class="iconbtn sessions-launcher" type="button" aria-label="呼出会话列表" title="呼出会话列表" aria-expanded="false" aria-controls="sescol" hidden><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6h12M9 12h12M9 18h12M3 6h.01M3 12h.01M3 18h.01"/></svg></button>
+    <button id="sessions-launcher" class="iconbtn sessions-launcher" type="button" aria-label="展开会话列表" title="展开会话列表" aria-expanded="false" aria-controls="sescol" hidden><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path class="sidebar-icon-pane" d="M5 4h4v16H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2Z"/><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4v16"/></svg></button>
 
     <!-- ───────── 窗口（终端 / 文件） ───────── -->
     <section id="win" class="pane">
@@ -573,13 +572,13 @@
   <script src="vendor/codemirror/mode/yaml/yaml.js?v=5.65.20"></script>
   <script src="vendor/codemirror/mode/toml/toml.js?v=5.65.20"></script>
   <script src="vendor/codemirror/mode/properties/properties.js?v=5.65.20"></script>
-  <script src="markdown.js?v=171"></script>
-  <script src="preview.js?v=171"></script>
-  <script src="chat_model.js?v=171"></script>
-  <script src="upload_model.js?v=171"></script>
-  <script src="device_appearance.js?v=171"></script>
-  <script src="sidebar_layout.js?v=171"></script>
-  <script src="workspace_tabs.js?v=171"></script>
-  <script src="app.js?v=171"></script>
+  <script src="markdown.js?v=172"></script>
+  <script src="preview.js?v=172"></script>
+  <script src="chat_model.js?v=172"></script>
+  <script src="upload_model.js?v=172"></script>
+  <script src="device_appearance.js?v=172"></script>
+  <script src="sidebar_layout.js?v=172"></script>
+  <script src="workspace_tabs.js?v=172"></script>
+  <script src="app.js?v=172"></script>
 </body>
 </html>

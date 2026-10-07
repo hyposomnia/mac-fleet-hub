@@ -543,12 +543,14 @@ html.automation-doc-root, html.automation-doc-root body { height: auto; min-heig
 
 .rail-heading { display: flex; align-items: center; justify-content: space-between; gap: 4px; }
 .rail-heading .brand { min-width: 0; }
-.sidebar-collapse, .sidebar-pin { flex: none; }
-#sessions-collapse .sessions-unpinned { display: none; }
-#sessions-collapse[data-pinned="false"] .sessions-pinned { display: none; }
-#sessions-collapse[data-pinned="false"] .sessions-unpinned { display: block; }
-#sessions-collapse[data-pinned="true"] { color: var(--accent-text); }
-.sessions-launcher, .sessions-backdrop { display: none; }
+.sidebar-collapse { flex: none; }
+#sessions-collapse, #app .sessions-launcher {
+  width: 42px; height: 42px; border: 0; border-radius: var(--radius-control);
+  background: var(--surface-2); box-shadow: none; color: var(--text-1);
+}
+:is(#sessions-collapse, #sessions-launcher) .sidebar-icon-pane { fill: none; stroke: none; }
+:is(#sessions-collapse, #sessions-launcher)[aria-expanded="true"] .sidebar-icon-pane { fill: currentColor; }
+.sessions-launcher { display: none; }
 @media (min-width: 861px) {
   #app { position: relative; --layout-rail-w: var(--rail-w); --layout-sess-w: var(--sess-w); grid-template-columns: var(--layout-rail-w) var(--layout-sess-w) minmax(0, 1fr); transition: grid-template-columns var(--dur-2) var(--ease); }
   #app[data-mode="files"] { grid-template-columns: var(--layout-rail-w) minmax(0, 1fr); }
@@ -590,18 +592,7 @@ html.automation-doc-root, html.automation-doc-root body { height: auto; min-heig
   #app[data-sessions-collapsed="true"][data-mode="sessions"] > #win > .win-head { padding-left: 70px; }
   #app .sessions-launcher:not([hidden]) {
     display: grid; position: absolute; z-index: 32; top: 12px; left: calc(var(--layout-rail-w) + 14px);
-    width: 42px; height: 42px; border: 0; border-radius: var(--radius-control);
-    background: var(--surface-2); box-shadow: var(--e1); color: var(--text-1); transition: left var(--dur-2) var(--ease);
-  }
-  #app .sessions-launcher:hover { background: var(--surface-hover); }
-  #app .sessions-backdrop:not([hidden]) {
-    display: block; position: absolute; z-index: 30; inset: 0 0 0 var(--layout-rail-w);
-    border: 0; border-radius: 0; background: rgba(20, 30, 40, .08); cursor: default; transition: inset var(--dur-2) var(--ease);
-  }
-  #app[data-sessions-collapsed="true"][data-sessions-open="true"][data-mode="sessions"] #sescol {
-    visibility: visible; position: absolute; grid-area: auto; z-index: 31; top: 12px; bottom: 12px;
-    left: calc(var(--layout-rail-w) + 12px); width: min(var(--sess-w), calc(100% - var(--layout-rail-w) - 24px));
-    border: 0; border-radius: var(--radius-panel); box-shadow: var(--e3); transition: left var(--dur-2) var(--ease), width var(--dur-2) var(--ease);
+    transition: left var(--dur-2) var(--ease);
   }
 }
 
@@ -1346,7 +1337,7 @@ html[data-workspace-tab="true"] .preview-actions .iconbtn { width: 26px; height:
   .workspace-tab-close { width: 44px; height: 44px; }
   html[data-workspace-tab="true"] .preview-actions .iconbtn { width: 44px; height: 44px; }
 
-  #rail-collapse, #sessions-collapse, #sessions-launcher, #sessions-backdrop { display: none !important; }
+  #rail-collapse, #sessions-collapse, #sessions-launcher { display: none !important; }
   .preview-head {
     min-height: 58px; grid-template-columns: minmax(0, 1fr) auto; gap: 8px;
     padding: max(8px, env(safe-area-inset-top, 0px)) 10px 8px;

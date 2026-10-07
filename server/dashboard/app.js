@@ -1867,7 +1867,6 @@ function deleteSession(session) {
 
 function selectSes(sid, macId = state.macId, assistant = state.assistant) {
   window.FleetWorkspaceTabs?.showChat();
-  window.FleetSidebarLayout?.close();
   state.macId = macId;
   state.selectedSid = sid;
   state.selectedSessionMacId = macId;
@@ -4585,7 +4584,6 @@ async function openChatSession(s) {
   window.FleetWorkspaceTabs?.showChat();
   const macId = s.macId || state.macId;
   if (!macId || !canSelfDrawChat(state.assistant, macId)) return;
-  window.FleetSidebarLayout?.close();
   state.macId = macId;
   state.selectedSid = s.sessionId;
   state.selectedSessionMacId = macId;
@@ -7433,7 +7431,6 @@ function init() {
   }
   window.FleetWorkspaceTabs?.init({onOpen: () => {
     if (state.mode !== 'sessions') setMode('sessions');
-    window.FleetSidebarLayout?.close();
     if (isMobile() && !$('#app').classList.contains('term-open')) {
       pushFleetHistory({ mode: 'sessions', term: true });
       $('#app').classList.add('term-open');
