@@ -413,10 +413,10 @@
             <div class="device-appearance-heading"><strong>设备外观</strong><button id="hm-appearance-reset" class="btn sm" type="button">恢复默认</button></div>
             <div class="field"><span class="device-choice-label">图标</span><div id="hm-icon-choices" class="device-icon-choices" role="group" aria-label="设备图标"></div></div>
             <div id="hm-letter-field" class="field" hidden>
-              <label for="hm-letter-input">字母图标</label>
-              <input id="hm-letter-input" class="input device-letter-input" type="text" maxlength="2" pattern="[A-Za-z]{1,2}" placeholder="如 M、MB" autocomplete="off" autocapitalize="characters" spellcheck="false" aria-describedby="hm-letter-hint hm-letter-error" />
-              <span id="hm-letter-hint" class="hint">1–2 个英文字母，自动转为大写。</span>
-              <span id="hm-letter-error" class="device-letter-error" role="status" hidden>请输入 1–2 个英文字母。</span>
+              <label for="hm-letter-input">文字图标</label>
+              <input id="hm-letter-input" class="input device-letter-input" type="text" maxlength="2" pattern="[A-Za-z0-9]{1,2}" placeholder="如 M、4、A1" autocomplete="off" autocapitalize="characters" spellcheck="false" aria-describedby="hm-letter-hint hm-letter-error" />
+              <span id="hm-letter-hint" class="hint">1–2 个英文字母或数字，字母自动转为大写。</span>
+              <span id="hm-letter-error" class="device-letter-error" role="status" hidden>请输入 1–2 个英文字母或数字。</span>
             </div>
             <div class="field"><span class="device-choice-label">颜色</span><div id="hm-color-choices" class="device-color-choices" role="group" aria-label="设备颜色"></div></div>
             <p class="hint">图标与颜色保存在当前浏览器，在线状态单独显示。</p>

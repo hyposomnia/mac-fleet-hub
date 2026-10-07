@@ -3287,7 +3287,7 @@ test('saving only device appearance does not rewrite its name or proxy', async (
   }
 });
 
-test('editing device letters preserves the draft when changing color and does not persist before save', () => {
+test('editing device letters or digits preserves the draft when changing color and does not persist before save', () => {
   const previousQuery=appSandbox.document.querySelector, previousDraft=appState.hostAppearanceDraft;
   const ids=['hm-device-icon','hm-icon-choices','hm-color-choices','hm-letter-field','hm-letter-input','hm-letter-error','hm-save','hm-appearance-reset'];
   const fields=Object.fromEntries(ids.map(id=>['#'+id,testElement('div')]));
@@ -3296,12 +3296,17 @@ test('editing device letters preserves the draft when changing color and does no
   try {
     appState.hostAppearanceDraft={icon:'text',text:'A',color:'steel'};
     vm.runInContext('renderHostAppearanceChoices()',appSandbox);
-    const input=fields['#hm-letter-input'];input.value='mb';input.oninput();
-    assert.equal(input.value,'MB');assert.equal(fields['#hm-save'].disabled,false);
-    assert.equal(letterChoice.textContent,'MB');assert.equal(letterChoice.getAttribute('data-length'),'2');
-    fields['#hm-color-choices'].children.find(b=>b.getAttribute('aria-label')==='紫罗兰').onclick();
-    assert.equal(appState.hostAppearanceDraft.text,'MB');assert.equal(appState.hostAppearanceDraft.color,'violet');
-    assert.equal(appSandbox.FleetDeviceAppearance.get('m8').icon,'monitor');
+    const input=fields['#hm-letter-input'];
+    for(const [text,expected] of [['mb','MB'],['4','4'],['04','04'],['a1','A1']]) {
+      input.value=text;input.oninput();
+      assert.equal(input.value,expected);assert.equal(fields['#hm-save'].disabled,false);
+      assert.equal(fields['#hm-letter-error'].hidden,true);
+      assert.equal(letterChoice.textContent,expected);assert.equal(letterChoice.getAttribute('data-length'),String(expected.length));
+      assert.equal(fields['#hm-device-icon'].children[0].textContent,expected);
+      fields['#hm-color-choices'].children.find(b=>b.getAttribute('aria-label')==='紫罗兰').onclick();
+      assert.equal(appState.hostAppearanceDraft.text,expected);assert.equal(appState.hostAppearanceDraft.color,'violet');
+      assert.equal(appSandbox.FleetDeviceAppearance.get('m8').icon,'monitor');
+    }
     input.value='ß';input.oninput();assert.equal(fields['#hm-save'].disabled,true);
   } finally {appSandbox.document.querySelector=previousQuery;appState.hostAppearanceDraft=previousDraft;}
 });
@@ -3311,7 +3316,7 @@ test('invalid device letters block saving and focus the field without changing s
   const fields=Object.fromEntries(['hm-device-icon','hm-letter-input','hm-letter-error','hm-save'].map(id=>['#'+id,testElement('div')]));
   appSandbox.document.querySelector=selector=>fields[selector] || null;
   try {
-    appState.hostModalMac='m8';appState.hostAppearanceDraft={icon:'text',text:'M1',color:'steel'};
+    appState.hostModalMac='m8';appState.hostAppearanceDraft={icon:'text',text:'M?',color:'steel'};
     await vm.runInContext('saveHost()',appSandbox);
     assert.equal(fields['#hm-save'].disabled,true);assert.equal(fields['#hm-letter-error'].hidden,false);
     assert.equal(fields['#hm-letter-input'].focused,true);assert.equal(appSandbox.FleetDeviceAppearance.get('m8').icon,'monitor');
