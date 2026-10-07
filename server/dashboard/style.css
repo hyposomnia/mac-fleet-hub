@@ -2230,6 +2230,7 @@ html[data-workspace-tab="true"] .preview-actions .iconbtn { width: 26px; height:
 
 .device-icon-letters { font-family: var(--font); font-size: var(--t-title); font-weight: 700; line-height: 1; letter-spacing: -.03em; }
 .device-icon-letters[data-length="2"] { font-size: var(--t-secondary); }
+.device-icon-letters[data-length="3"] { font-family: var(--mono); font-size: var(--t-caption); }
 .device-letter-input { width: 100px; text-transform: uppercase; }
 .device-letter-error { color: var(--danger); font-size: var(--t-secondary); }
 #hm-letter-field[hidden], .device-letter-error[hidden] { display: none; }

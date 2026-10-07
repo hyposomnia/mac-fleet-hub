@@ -3306,7 +3306,7 @@ test('editing device letters or digits preserves the draft when changing color a
     appState.hostAppearanceDraft={icon:'text',text:'A',color:'steel'};
     vm.runInContext('renderHostAppearanceChoices()',appSandbox);
     const input=fields['#hm-letter-input'];
-    for(const [text,expected] of [['mb','MB'],['4','4'],['04','04'],['a1','A1']]) {
+    for(const [text,expected] of [['mb','MB'],['4','4'],['04','04'],['a1','A1'],['mbp','MBP'],['009','009'],['a1b','A1B']]) {
       input.value=text;input.oninput();
       assert.equal(input.value,expected);assert.equal(fields['#hm-save'].disabled,false);
       assert.equal(fields['#hm-letter-error'].hidden,true);
