@@ -344,7 +344,7 @@ svg.ic.fill { fill: currentColor; stroke: none; }
 .menu-check { width: 17px; height: 17px; border: 0; border-radius: var(--radius-compact); display: grid; place-items: center; flex: none;  background: var(--surface-2);}
 .menu button[aria-pressed="true"] .menu-check { background: var(--accent);  }
 .menu button[aria-pressed="true"] .menu-check::after { content: ''; width: 7px; height: 4px; border: solid var(--accent-contrast); border-width: 0 0 2px 2px; transform: translateY(-1px) rotate(-45deg); }
-.modeseg button svg.ic { width: 15px; height: 15px; }
+.modeseg button svg.ic { width: 22px; height: 22px; }
 .userrow .cv svg.ic { width: 14px; height: 14px; }
 .send-btn svg.ic { width: 20px; height: 20px; }
 .btn svg.ic { width: 15px; height: 15px; }
@@ -592,9 +592,10 @@ html.automation-doc-root, html.automation-doc-root body { height: auto; min-heig
     transition: left var(--dur-2) var(--ease), top var(--dur-2) var(--ease), width var(--dur-2) var(--ease), background var(--dur-1) var(--ease), color var(--dur-1) var(--ease);
   }
   #rail .modeseg button[data-mode="files"] { left: calc(50% + 2px); }
+  #app[data-rail-collapsed="true"] #rail { --rail-mode-height: 42px; }
   #app[data-rail-collapsed="true"] #rail .modeseg { height: calc(2 * var(--rail-mode-height) + var(--rail-mode-gap) + 8px); }
-  #app[data-rail-collapsed="true"] #rail .modeseg button { width: calc(100% - 8px); }
-  #app[data-rail-collapsed="true"] #rail .modeseg button[data-mode="files"] { left: 4px; top: calc(var(--rail-mode-height) + var(--rail-mode-gap) + 4px); }
+  #app[data-rail-collapsed="true"] #rail .modeseg button { left: 0; width: 100%; }
+  #app[data-rail-collapsed="true"] #rail .modeseg button[data-mode="files"] { left: 0; top: calc(var(--rail-mode-height) + var(--rail-mode-gap) + 4px); }
   /* Compensate for the extra mode row throughout the animation, keeping devices fixed. */
   #rail .hostlist .hd { overflow: hidden; transition: height var(--dur-2) var(--ease), padding var(--dur-2) var(--ease), margin-bottom var(--dur-2) var(--ease), opacity var(--dur-2) var(--ease), visibility var(--dur-2); }
   #app[data-rail-collapsed="true"] #rail .hostlist .hd { height: 0; padding-top: 0; padding-bottom: 0; margin-bottom: calc(-1 * var(--rail-host-gap)); opacity: 0; visibility: hidden; }
