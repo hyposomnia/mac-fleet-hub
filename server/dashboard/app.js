@@ -4380,7 +4380,7 @@ function chatLinkHref(source) {
 function resizeChatInput() {
   const input = $('#chat-input');
   if (!input) return;
-  if ($('#win')?.dataset.workspacePreview === 'true') {
+  if ($('#win')?.dataset.workspacePreview === 'true' && ($('#win').dataset.compactComposerExpanded !== 'true' || !input.value)) {
     input.style.height = '';
     input.style.overflowY = '';
     return;
@@ -4450,7 +4450,8 @@ function updateChatComposerState() {
 
 let compactComposer;
 function syncCompactComposer() {
-  compactComposer?.update({model: state.chat?.model, running: isChatRunning(state.chat), unread: !!state.chat?.unread});
+  compactComposer?.update({sessionKey: state.chat ? `${state.chat.macId}/${state.chat.assistant}/${state.chat.sessionId}` : '',
+    model: state.chat?.model, running: isChatRunning(state.chat), unread: !!state.chat?.unread});
 }
 
 function mergeChatComposerText(failedText, currentText) {
@@ -7473,7 +7474,6 @@ function init() {
     return;
   }
   compactComposer = window.FleetCompactComposer?.init({onResize: resizeChatInput,
-    onReturn: () => window.FleetWorkspaceTabs?.showChat(),
     onRead: () => {
       if (!state.chat) return;
       markSessionRead({macId: state.chat.macId, assistant: state.chat.assistant,

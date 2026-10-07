@@ -5,18 +5,18 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content" />
   <!-- theme-color 与共享 Titanium 主题控制器同步。 -->
   <meta name="theme-color" content="#FFFFFF" />
-  <script src="/theme.js?v=182"></script>
+  <script src="/theme.js?v=183"></script>
   <title>mac fleet hub</title>
   <link rel="manifest" href="manifest.webmanifest" />
-  <link rel="icon" href="icons/favicon.svg?v=182" type="image/svg+xml" />
-  <link rel="apple-touch-icon" href="icons/icon-180.png?v=182" sizes="180x180" />
+  <link rel="icon" href="icons/favicon.svg?v=183" type="image/svg+xml" />
+  <link rel="apple-touch-icon" href="icons/icon-180.png?v=183" sizes="180x180" />
   <meta name="mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <meta name="apple-mobile-web-app-title" content="fleet hub" />
   <!-- theme.js 在样式加载前同步应用已保存的外观，默认浅色。 -->
   <link rel="stylesheet" href="vendor/codemirror/lib/codemirror.css?v=5.65.20" />
-  <link rel="stylesheet" href="style.css?v=182" />
+  <link rel="stylesheet" href="style.css?v=183" />
 </head>
 <body>
   <!-- DeepSeek 官方 whale mark，来源与 MIT 许可见 icons/deepseek/LICENSE.md。 -->
@@ -276,7 +276,11 @@
           <div id="chat-turn-pin" aria-hidden="true" hidden>
             <div class="chat-turn-pin-inner"><div id="chat-turn-pin-text" class="chat-turn-pin-card"></div></div>
           </div>
-          <div id="chat-scroll"></div>
+          <header id="chat-preview-header" hidden>
+            <span>会话</span>
+            <button id="chat-preview-close" class="iconbtn bare" type="button" aria-label="收起会话" title="收起会话"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><polyline points="6 9 12 15 18 9"/></svg></button>
+          </header>
+          <div id="chat-scroll" tabindex="0" aria-label="会话内容"></div>
           <form id="chat-composer">
             <div class="chat-composer-float">
               <button id="chat-jump" type="button" title="跳到底部" aria-label="跳到底部" hidden>
@@ -311,7 +315,7 @@
                 </div>
               </section>
               <div id="chat-pending-interaction" hidden></div>
-              <button id="chat-preview-output" type="button" hidden>
+              <button id="chat-preview-output" type="button" aria-expanded="false" aria-controls="chat-scroll" hidden>
                 <span id="chat-preview-output-icon" class="session-state-dot" aria-hidden="true"></span>
                 <span id="chat-preview-output-text"></span>
               </button>
@@ -583,15 +587,15 @@
   <script src="vendor/codemirror/mode/yaml/yaml.js?v=5.65.20"></script>
   <script src="vendor/codemirror/mode/toml/toml.js?v=5.65.20"></script>
   <script src="vendor/codemirror/mode/properties/properties.js?v=5.65.20"></script>
-  <script src="markdown.js?v=182"></script>
-  <script src="preview.js?v=182"></script>
-  <script src="chat_model.js?v=182"></script>
-  <script src="upload_model.js?v=182"></script>
-  <script src="device_appearance.js?v=182"></script>
-  <script src="sidebar_layout.js?v=182"></script>
-  <script src="device_hover.js?v=182"></script>
-  <script src="workspace_tabs.js?v=182"></script>
-  <script src="compact_composer.js?v=182"></script>
-  <script src="app.js?v=182"></script>
+  <script src="markdown.js?v=183"></script>
+  <script src="preview.js?v=183"></script>
+  <script src="chat_model.js?v=183"></script>
+  <script src="upload_model.js?v=183"></script>
+  <script src="device_appearance.js?v=183"></script>
+  <script src="sidebar_layout.js?v=183"></script>
+  <script src="device_hover.js?v=183"></script>
+  <script src="workspace_tabs.js?v=183"></script>
+  <script src="compact_composer.js?v=183"></script>
+  <script src="app.js?v=183"></script>
 </body>
 </html>
