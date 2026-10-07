@@ -1,0 +1,50 @@
+{
+  "list": [
+    {
+      "assistant": 52,
+      "menuRight": 306,
+      "searchRight": 306,
+      "width": 320
+    },
+    {
+      "assistant": 52,
+      "menuRight": 376,
+      "searchRight": 376,
+      "width": 390
+    },
+    {
+      "assistant": 52,
+      "menuRight": 416,
+      "searchRight": 416,
+      "width": 430
+    },
+    {
+      "assistant": 52,
+      "menuRight": 754,
+      "searchRight": 754,
+      "width": 768
+    }
+  ],
+  "header": [
+    {
+      "header": 56,
+      "tabTop": 6,
+      "width": 320
+    },
+    {
+      "header": 56,
+      "tabTop": 6,
+      "width": 390
+    },
+    {
+      "header": 56,
+      "tabTop": 6,
+      "width": 430
+    },
+    {
+      "header": 56,
+      "tabTop": 6,
+      "width": 768
+    }
+  ]
+}
