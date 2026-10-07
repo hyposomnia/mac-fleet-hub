@@ -45,6 +45,22 @@ func TestDesktopSettingsValidateAndPersist(t *testing.T) {
 	}
 }
 
+func TestDesktopSettingsPersistAutoStartWithoutServer(testContext *testing.T) {
+	directory := testContext.TempDir()
+	if err := os.Chmod(directory, 0700); err != nil {
+		testContext.Fatal(err)
+	}
+	settingsFile := filepath.Join(directory, "settings.json")
+	settings := desktopSettings{Schema: 1, AutoStart: false}
+	if err := saveDesktopSettings(settingsFile, settings); err != nil {
+		testContext.Fatal(err)
+	}
+	loaded, err := loadDesktopSettings(settingsFile)
+	if err != nil || loaded != settings {
+		testContext.Fatalf("%+v %v", loaded, err)
+	}
+}
+
 func TestDesktopSettingsDoNotFollowSymlinks(t *testing.T) {
 	directory := t.TempDir()
 	if err := os.Chmod(directory, 0700); err != nil {

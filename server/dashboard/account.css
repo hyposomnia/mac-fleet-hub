@@ -95,3 +95,69 @@ body.account-page { display: block; height: auto; min-height: 100dvh; overflow: 
 }
 .account-table tbody tr:nth-child(odd) { background: var(--surface-2); }
 .account-table th, .account-table td { padding-left: 12px; }
+
+.account-page, .fleet-settings-dialog { --settings-surface: #F7F9FB; --settings-elevated: #FFFFFF; --settings-input: #E3E9EF; }
+[data-theme="dark"] .account-page, [data-theme="dark"] .fleet-settings-dialog { --settings-surface: #181E28; --settings-elevated: #202836; --settings-input: #273143; }
+.account-form input { background: var(--settings-input); }
+.account-links { gap: 8px; font-size: 13px; color: var(--text-2); }
+.account-links a { padding: 0; background: transparent; color: var(--accent-text); border-radius: 0; }
+.account-links a:hover { background: transparent; text-decoration: underline; }
+.account-links a:last-child:not(:first-child) { margin-left: auto; }
+.account-theme { padding: 0; gap: 4px; background: transparent; }
+.account-theme button { background: transparent; padding: 0 8px; color: var(--text-2); }
+.account-theme button[aria-pressed="true"] { background: transparent; color: var(--accent-text); font-weight: 600; }
+.account-theme button:hover { background: var(--surface-hover); }
+.account-auth .account-theme { padding: 0; gap: 4px; background: transparent; }
+body.account-auth { background: var(--surface); isolation: isolate; }
+.account-auth .account-form input { background: var(--settings-input); }
+.account-auth .account-content { margin-top: clamp(48px, 12dvh, 112px); }
+.auth-grid { position: fixed; inset: 0; z-index: -1; pointer-events: none; overflow: hidden; background-image: linear-gradient(color-mix(in srgb, var(--accent) 6%, transparent) 1px, transparent 1px), linear-gradient(90deg, color-mix(in srgb, var(--accent) 6%, transparent) 1px, transparent 1px); background-size: 56px 56px; mask-image: linear-gradient(transparent 8%, black 70%, transparent); }
+.auth-probe { position: absolute; top: 0; left: 0; width: 32px; height: 32px; margin: -16px; color: var(--accent-text); opacity: .35; will-change: transform; }
+.auth-probe::before, .auth-probe::after { content: ''; position: absolute; background: currentColor; }
+.auth-probe::before { left: 15px; top: 0; width: 1px; height: 32px; }
+.auth-probe::after { top: 15px; left: 0; height: 1px; width: 32px; }
+.auth-probe span { position: absolute; left: 28px; top: 28px; white-space: nowrap; font: 10px var(--mono); letter-spacing: .5px; }
+.fleet-settings-dialog { max-width: 960px; height: min(760px, 88dvh); display: flex; flex-direction: column; overflow: hidden; background: var(--settings-elevated); }
+.fleet-settings-dialog > .modal-head { flex: none; padding: 20px 24px; }
+.fleet-settings-layout { display: grid; grid-template-columns: 172px minmax(0, 1fr); flex: 1; min-height: 0; }
+.fleet-settings-nav { display: flex; flex-direction: column; gap: 6px; padding: 16px 12px; background: var(--settings-surface); }
+.fleet-settings-nav button { width: 100%; min-height: 44px; padding: 0 16px; text-align: left; border-radius: var(--radius-control); color: var(--text-1); }
+.fleet-settings-nav button:hover { background: var(--surface-hover); }
+.fleet-settings-nav button[aria-selected="true"] { background: var(--settings-elevated); color: var(--accent-text); font-weight: 600; }
+.fleet-settings-nav button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.fleet-settings-scroll { padding: 24px; overflow: auto; overscroll-behavior: contain; min-height: 0; scrollbar-gutter: stable; }
+.fleet-settings-panel[hidden] { display: none; }
+.fleet-settings-panel .account-content { margin: 0; max-width: none; }
+.fleet-settings-panel .account-content h1 { font-size: 20px; }
+.fleet-settings-panel .account-content h1.settings-primary-title { display: none; }
+.fleet-settings-panel .account-content > .account-muted { margin-bottom: 20px; }
+.fleet-settings-panel .account-section { background: var(--settings-surface); padding: 20px; margin-top: 16px; }
+.fleet-settings-panel .account-section .account-form { margin: 16px 0 0; max-width: none; }
+.fleet-settings-panel .account-form input { background: var(--settings-input); }
+.fleet-settings-panel .account-table-scroll { background: var(--surface-1); }
+.fleet-settings-panel .account-table tbody tr:nth-child(odd) { background: var(--surface-2); }
+.fleet-settings-panel .account-table { font-size: 12px; }
+.fleet-settings-panel .modal-head { padding: 0 0 16px; background: transparent; }
+.fleet-settings-panel .modal-head > svg, .fleet-settings-panel .modal-head > span, .fleet-settings-panel .modal-head > .x { display: none; }
+.fleet-settings-panel .modal-body { padding: 0; }
+.fleet-settings-panel .modal-foot { padding: 20px 0 0; }
+.fleet-settings-panel .input { background: var(--settings-input); }
+#fleet-settings-status, .settings-account-status { color: var(--text-1); margin-bottom: 16px; line-height: 1.6; }
+#fleet-settings-status:empty, .settings-account-status:empty { display: none; }
+.menu-theme-seg { display: flex; gap: 4px; background: transparent; }
+.menu .menu-theme-seg button[aria-pressed="true"] { background: transparent; color: var(--accent-text); box-shadow: none; font-weight: 600; }
+.menu .menu-theme-seg button:hover { background: var(--surface-hover); }
+body:has(#fleet-settings-modal:not([hidden])) .pwa-install,
+body:has(#fleet-settings-modal:not([hidden])) .pwa-update { visibility: hidden; }
+@media (max-width: 860px) {
+  .fleet-settings-dialog { height: min(850px, 92dvh); max-height: 92dvh; border-radius: var(--radius-panel) var(--radius-panel) 0 0; }
+  .fleet-settings-layout { display: flex; flex-direction: column; }
+  .fleet-settings-nav { flex: none; flex-direction: row; padding: 8px 16px; overflow-x: auto; gap: 4px; }
+  .fleet-settings-nav button { flex: 1 0 auto; width: auto; padding: 0 12px; text-align: center; }
+  .fleet-settings-scroll { flex: 1; padding: 20px 16px max(24px, env(safe-area-inset-bottom)); }
+  .fleet-settings-panel .account-section { padding: 16px; }
+  .account-auth .account-content { margin-top: 32px; }
+}
+@media (prefers-reduced-motion: reduce), (pointer: coarse) {
+  .auth-probe { display: none; }
+}

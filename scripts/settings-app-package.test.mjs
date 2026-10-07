@@ -144,10 +144,23 @@ test('native sidebar and shared buttons hit the whole padded area, with first-ru
   const theme = read('../mac/settings-app/Sources/FleetHub/FleetTheme.swift');
   assert.match(theme, /frame\(minHeight:[\s\S]*?contentShape\(Rectangle\(\)\)/);
   const view = read('../mac/settings-app/Sources/FleetHub/SettingsView.swift');
-  assert.match(view, /Button\(setupAction\.title\)/);
+  assert.match(view, /Button\(setupAction == \.installApplication \? installationTitle : setupAction\.title\)/);
   assert.match(view, /--fleet-install-and-start/);
   assert.match(view, /configuration\.createsNewApplicationInstance = true/);
   assert.doesNotMatch(view, /page = \.about; return/);
+});
+
+test('native account authorization stays actionable with automatic settings and startup on overview', () => {
+  const view = read('../mac/settings-app/Sources/FleetHub/SettingsView.swift');
+  const overview = view.slice(view.indexOf('private var overview:'), view.indexOf('private var connection:'));
+  const connection = view.slice(view.indexOf('private var connection:'), view.indexOf('private var privacy:'));
+  assert.match(overview, /Toggle\("登录后启动后台"/);
+  assert.doesNotMatch(connection, /登录后启动后台|保存设置/);
+  assert.match(connection, /if management\.layout\.requiresInstallation \{ installApplication\(\) \}/);
+  assert.match(connection, /disabled\(!validOrigin \|\| model\.isSaving/);
+  assert.match(view, /onChange\(of: model\.origin\)/);
+  assert.match(view, /600_000_000/);
+  assert.match(view, /guard await model\.save\(\) else \{ return \}/);
 });
 
 test('native candidate publication stays behind the unique signing entry and Accepted receipts', () => {

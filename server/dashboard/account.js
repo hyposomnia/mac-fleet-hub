@@ -14,10 +14,12 @@
     if (!/^[A-Za-z0-9+/]{85}[AQgw]==$/.test(release.assets.update.ed_signature || '')) return null;
     return release;
   }
-  function createPages({ document, auth, location, history, confirm }) {
-    const content = document.querySelector('#page-content');
-    const status = document.querySelector('#page-status');
-    const nav = document.querySelector('#page-nav');
+  function createPages({ document, auth, location, history, confirm, content: suppliedContent, status: suppliedStatus, nav: suppliedNav }) {
+    const content = suppliedContent || document.querySelector('#page-content');
+    const status = suppliedStatus || document.querySelector('#page-status');
+    const nav = suppliedNav || document.querySelector('#page-nav');
+    let flowLocked = false;
+    let submittingForms = 0;
     const next = auth.safeNext(new URLSearchParams(location.search).get('next'));
 
     function node(tag, text = '', props = {}) {
@@ -32,7 +34,7 @@
       return element;
     }
     function heading(title, description) {
-      content.replaceChildren(node('h1', title));
+      content.replaceChildren(node('h1', title, { className: suppliedContent && ['账号设置', '添加设备'].includes(title) ? 'settings-primary-title' : '' }));
       if (description) content.append(node('p', description, { className: 'account-muted' }));
       status.textContent = '';
     }
@@ -89,6 +91,7 @@
         event.preventDefault();
         if (submitting) return;
         submitting = true;
+        submittingForms++;
         submit.disabled = true;
         error.textContent = '';
         const values = Object.fromEntries([...inputs].map(([key, input]) => [key, input.type === 'checkbox' ? input.checked : input.value]));
@@ -96,7 +99,7 @@
           if (values.confirm_password != null && values.password !== values.confirm_password) throw new Error('两次输入的密码不一致。');
           await action(values);
         } catch (failure) { error.textContent = failure.message; }
-        finally { submitting = false; submit.disabled = false; }
+        finally { submittingForms--; submitting = false; submit.disabled = false; }
       };
       parent.append(element);
       return { element, inputs };
@@ -106,19 +109,24 @@
     function authURL(step) { return `/auth${step === 'login' ? '' : `/${step}`}${next === '/' ? '' : `?next=${encodeURIComponent(next)}`}`; }
     function authLinks(step) {
       const links = node('div', '', { className: 'account-links' });
-      links.append(link('登录', authURL('login'), step === 'login'), link('注册', authURL('register'), step === 'register'), link('使用恢复码', authURL('recovery'), step === 'recovery'));
+      if (step === 'register') links.append(node('span', '已有账号？'), link('登录', authURL('login')));
+      else if (step === 'login') links.append(node('span', '还没有账号？'), link('注册', authURL('register')), link('使用恢复码', authURL('recovery')));
+      else links.append(link('返回登录', authURL('login')));
       content.append(links);
     }
     function showCodes(codes, done) {
+      flowLocked = true;
       heading('保存恢复码', '每个恢复码只能使用一次。请离线保存；离开此页后无法再次查看这批恢复码。');
       content.append(node('pre', codes.join('\n'), { className: 'account-codes' }));
       form('recovery-ack', [field('saved', '我已安全保存恢复码', 'checkbox')], '继续', async ({ saved }) => {
         if (!saved) throw new Error('请先保存恢复码并勾选确认。');
+        flowLocked = false;
         content.replaceChildren();
         await done();
       });
     }
     function showTOTP(totp, name, submit) {
+      flowLocked = true;
       content.append(node('p', '使用 Authenticator（如 Apple 密码、Google Authenticator 或 1Password）扫描二维码，再输入六位验证码。'));
       const image = node('img', '', { src: '/api/auth/qr', alt: 'Authenticator 设置二维码', className: 'account-qr' });
       image.onerror = () => { status.textContent = '二维码不可用或设置已过期，请重新开始登录或更换 Authenticator。'; };
@@ -153,10 +161,10 @@
         heading('恢复账户', '使用密码和一个未使用的恢复码，随后重新设置 Authenticator。');
         form('recover', [emailField(), passwordField(), field('recovery_code', '恢复码')], '恢复并重新设置', async (values) => authTransition(await post('/api/auth/recover', values)));
       } else {
-        heading('登录 Fleet', '登录后连接和管理你的 Mac。');
+        heading('登录 Fleet', '连接和管理你的设备。');
         form('login', [emailField(), passwordField()], '继续', async (values) => authTransition(await post('/api/auth/login', values)));
       }
-      if (step === 'login' || step === 'recovery') authLinks(step);
+      if (['login', 'register', 'recovery'].includes(step)) authLinks(step);
     }
 
     function metadata(records, columns, parent, actions) {
@@ -200,18 +208,14 @@
         }, cell, true);
       });
     }
-    async function showAccount() {
-      const [deviceData, sessionData] = await Promise.all([auth.json('/api/devices'), auth.json('/api/auth/sessions')]);
+    async function showAddDevice() {
       const serviceOrigin = location.origin;
       let release = null;
       try {
         release = nativeClientRelease(await auth.json('/enroll/client-release.json'));
       } catch (_) {}
-      heading('账户', `${auth.user.email} · ${auth.user.role} · ${auth.user.status}`);
-      const deviceSection = section('我的设备');
-      deviceSection.id = 'devices';
-      devices(deviceData.devices, deviceSection, false, showAccount);
-      const add = section('添加设备');
+      heading('添加设备', '安装 Fleet Hub，使用当前账号关联这台 Mac。');
+      const add = section('macOS 客户端');
       add.id = 'add-device';
       add.append(node('p', '下载并在要添加的 Mac 上运行客户端，授权请求由 fleet-agent 发起。邮箱、密码和 Authenticator 验证码只在浏览器输入。'));
       const downloads = node('div', '', { className: 'account-downloads' });
@@ -223,7 +227,7 @@
       const steps = node('ol', '', { className: 'account-steps' });
       for (const description of [
         '下载并打开 DMG，将 Fleet Hub 拖入“应用程序”，也可打开后点击“安装并启动”；应用内置 Fleet Agent，无需另行下载。',
-        '打开 Fleet Hub 应用，在“关联账号”填写下方服务网页地址，点击“打开网页授权”。',
+        '打开 Fleet Hub 应用，在“关联账号”填写下方服务网页地址，地址自动保存，点击“打开网页授权”。',
         '浏览器登录并完成 Authenticator 验证，核对账号与设备名称，点击“授权并连接”；应用会自动接入。',
         '授权过期或取消时，回到应用再次点击“打开网页授权”，每次都会创建新的授权请求。',
         '在应用“磁盘权限”中点击“打开系统设置”，将浮动引导窗里的 Fleet Agent.app 图标拖入完全磁盘访问列表并打开开关，返回应用点击“重启并检查”。Fleet Hub 只负责设置，无需磁盘权限。',
@@ -238,6 +242,15 @@
       }, add);
       add.append(node('p', '更新客户端：打开 Fleet Hub → 检查更新，从已设置的服务器下载并升级整个应用。重启、登录后自动运行和卸载也在应用中管理。', { className: 'account-muted' }));
       add.append(node('p', '客户端经 Developer ID 签名与 Apple 公证。若下载不可用，请联系本服务管理员检查应用发行状态。完全磁盘访问由你在系统设置开启，文件本身的权限仍然生效。', { className: 'account-muted' }));
+    }
+
+    async function showAccount() {
+      const [deviceData, sessionData] = await Promise.all([auth.json('/api/devices'), auth.json('/api/auth/sessions')]);
+      flowLocked = false;
+      heading('账号设置', auth.user.email);
+      const deviceSection = section('我的设备');
+      deviceSection.id = 'devices';
+      devices(deviceData.devices, deviceSection, false, showAccount);
       const sessions = section('登录设备');
       metadata(sessionData.sessions, [['当前', (session) => session.current ? '此设备' : '其他设备'],
         ['编号', (session) => session.id], ['创建时间', (session) => formatTime(session.created_at)],
@@ -379,28 +392,31 @@
     }
 
     async function start(page) {
+      if (flowLocked) throw new Error('请先完成验证并保存恢复码。');
       if (page === 'auth') {
         nav.replaceChildren();
         const step = location.pathname.replace(/\/$/, '').split('/')[2] || 'login';
         showAuth(['login', 'register', 'verify', 'setup', 'recovery'].includes(step) ? step : 'login');
       } else {
         await auth.me();
-        nav.replaceChildren(link('Fleet', '/'), link('账户', '/account', page === 'account'), link('添加设备', '/account#add-device'));
+        nav.replaceChildren(link('Fleet', '/'), link('账号', '/account', page === 'account'), link('添加设备', '/account#add-device', page === 'add-device'));
         if (auth.user.role === 'admin') nav.append(link('管理', '/admin', page === 'admin'));
         if (page === 'account') await showAccount();
+        else if (page === 'add-device') await showAddDevice();
         else if (page === 'admin') await showAdmin();
         else if (page === 'enrollment') await showEnrollment();
       }
       document.documentElement.dataset.auth = 'ready';
     }
-    return { start };
+    return { start, canLeave: () => !flowLocked && submittingForms === 0 };
   }
 
   root.FleetAccountPages = { createPages, nativeClientRelease };
   if (root.document?.body?.dataset.fleetPage) {
     const pages = createPages({ document: root.document, auth: root.FleetAuth, location: root.location,
       history: root.history, confirm: root.confirm.bind(root) });
-    pages.start(root.document.body.dataset.fleetPage).catch((error) => {
+    const requestedPage = root.document.body.dataset.fleetPage === 'account' && root.location.hash === '#add-device' ? 'add-device' : root.document.body.dataset.fleetPage;
+    pages.start(requestedPage).catch((error) => {
       if (error.status === 401) return;
       root.document.querySelector('#page-status').textContent = error.message;
       const retry = root.document.createElement('a');

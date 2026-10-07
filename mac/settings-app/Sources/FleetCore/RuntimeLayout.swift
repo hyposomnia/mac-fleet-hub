@@ -17,7 +17,9 @@ public struct RuntimeLayout: Sendable {
     public var state: URL { home.appendingPathComponent(".macfleet/desktop") }
     public var runtimeDirectory: URL { state.appendingPathComponent("runtime") }
     public var runtimePlist: URL { state.appendingPathComponent("agent.plist") }
-    public var requiresInstallation: Bool { application.path != "/Applications/Fleet Hub.app" }
+    public var requiresInstallation: Bool {
+        application.standardizedFileURL.resolvingSymlinksInPath().path != "/Applications/Fleet Hub.app"
+    }
 
     public func removeRuntime() throws {
         var info = stat()

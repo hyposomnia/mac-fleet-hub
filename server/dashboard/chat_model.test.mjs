@@ -390,7 +390,7 @@ test('DeepSeek whale sits inside the assistant tab instead of the header actions
   assert.match(appSrc, /\$\$\('\[data-assistant-entry="dsh"\]'\)\.forEach\(\(entry\) => \{ entry\.hidden = !available; \}\)/);
   // wrapper 自带 inline-flex，必须显式关掉 [hidden]，否则藏不住
   assert.match(styleCSS, /\.seg \.assistant-tab\[hidden\]\s*\{\s*display:\s*none;\s*\}/);
-  assert.match(styleCSS, /\.seg \.assistant-tab:has\(\[aria-selected="true"\]\)\s*\{\s*background:\s*var\(--surface-1\);/);
+  assert.match(styleCSS, /\.seg \.assistant-tab:has\(\[aria-selected="true"\]\)\s*\{\s*background:\s*var\(--accent-soft\);/);
   assert.match(styleCSS, /\.seg \.assistant-tab \.dsh-native-open\s*\{[^}]*flex:\s*none;/s);
   assert.match(styleCSS, /\.seg \.assistant-tab \.dsh-whale\s*\{\s*width:\s*18px;\s*\}/);
 });
@@ -554,7 +554,7 @@ test('settings menu owns archive browsing and session settings', () => {
   );
   assert.equal((indexHTML.match(/role="group" aria-label="外观"/g) || []).length, 2);
   assert.equal((indexHTML.match(/>显示已归档会话</g) || []).length, 2);
-  assert.equal((indexHTML.match(/>会话设置</g) || []).length, 3);
+  assert.equal((indexHTML.match(/>会话设置</g) || []).length, 4);
   assert.doesNotMatch(indexHTML, /data-settings-tab="sessions"|id="st-show-archived"/);
   assert.match(appSrc, /SESSION_ARCHIVE_KEY\s*=\s*'fleet-show-archived-sessions'/);
   assert.match(appSrc, /localStorage\.setItem\(SESSION_ARCHIVE_KEY/);
@@ -566,7 +566,8 @@ test('settings menu owns archive browsing and session settings', () => {
 
 test('session settings expose chat cache without terminal controls', () => {
   assert.match(indexHTML, /id="st-chat-cache-max"/);
-  assert.doesNotMatch(indexHTML, /data-settings-tab|data-settings-panel/);
+  assert.doesNotMatch(indexHTML, /data-settings-tab/);
+  assert.match(indexHTML, /data-settings-panel="sessions"/);
   assert.match(indexHTML, /id="automation-modal"/);
   assert.match(indexHTML, /data-automation-tab="keys"/);
   assert.match(indexHTML, /data-automation-tab="messages"/);
@@ -943,6 +944,23 @@ test('a newer background reply becomes unread until that session is selected', (
     appState.selectedSessionMacId = previousMac;
     appState.selectedSessionAssistant = previousAssistant;
   }
+});
+
+test('a selected session remains unread while its file tab covers the conversation', () => {
+  const oldQuery = appSandbox.document.querySelector;
+  const saved = {sessionReadAt: appState.sessionReadAt, selectedSid: appState.selectedSid,
+    selectedSessionMacId: appState.selectedSessionMacId, selectedSessionAssistant: appState.selectedSessionAssistant};
+  const win = {dataset: {workspacePreview: 'true'}};
+  const session = {sessionId: 'preview-unread', macId: 'm1', assistant: 'codex', status: 'idle', mtime: fixedAppNowMs};
+  try {
+    appSandbox.document.querySelector = selector => selector === '#win' ? win : null;
+    appState.sessionReadAt = new Map([['m1\ncodex\npreview-unread', fixedAppNowMs - 1000]]);
+    appState.selectedSid = session.sessionId; appState.selectedSessionMacId = session.macId;
+    appState.selectedSessionAssistant = session.assistant;
+    assert.equal(sessionStatus(session).className, 'unread');
+    win.dataset.workspacePreview = 'false';
+    assert.equal(sessionStatus(session).className, 'read');
+  } finally { appSandbox.document.querySelector = oldQuery; Object.assign(appState, saved); }
 });
 
 test('a Desktop unread thread is not silently baselined as read on first sight', () => {
@@ -1452,7 +1470,7 @@ test('PWA shell supports install, offline navigation, updates, and native shortc
   assert.ok(manifest.icons.some((icon) => icon.sizes === '192x192' && icon.type === 'image/png'));
   assert.ok(manifest.icons.some((icon) => icon.sizes === '512x512' && icon.purpose === 'maskable'));
   assert.deepEqual(manifest.shortcuts.map((shortcut) => shortcut.url), ['/?mode=sessions', '/?mode=files']);
-  assert.match(indexHTML, /rel="apple-touch-icon" href="icons\/icon-180\.png"/);
+  assert.match(indexHTML, /rel="apple-touch-icon" href="icons\/icon-180\.png(?:\?v=\d+)?"/);
   assert.match(indexHTML, /id="network-status"/);
   assert.match(indexHTML, /id="pwa-install"[^>]*class="pwa-install"/);
   assert.match(indexHTML, /id="pwa-install-now"/);
@@ -1476,6 +1494,15 @@ test('jump-to-bottom control uses an accessible inline SVG icon', () => {
   assert.match(indexHTML, /<button id="chat-jump"[^>]*aria-label="跳到底部"[^>]*>/);
   assert.match(indexHTML, /<svg class="chat-jump-icon"[^>]*aria-hidden="true">/);
   assert.doesNotMatch(indexHTML, />跳到底部<\/button>/);
+});
+
+test('floating summaries and jump control share a translucent surface independently of user bubbles', () => {
+  assert.ok(/--chat-floating-bg:\s*color-mix\(in srgb, var\(--chat-surface-2\) 72%, transparent\)/.test(styleCSS), 'floating surface retains an alpha channel');
+  for (const selector of ['.chat-turn-pin-card', '#chat-jump', '#win[data-workspace-preview="true"] #chat-preview-output:not([hidden])']) {
+    const block = styleCSS.split(selector + ' {')[1]?.split('}')[0] || '';
+    assert.match(block, /background:\s*var\(--chat-floating-bg\)/, selector);
+    assert.match(block, /backdrop-filter:\s*blur\(18px\)/, selector);
+  }
 });
 
 test('jump-to-bottom glass is not trapped inside the composer backdrop root', () => {
@@ -2162,7 +2189,7 @@ test('mobile title switch emphasizes only the selected mode', () => {
 });
 
 test('mobile device picker sits compactly in each title row', () => {
-  const sessionTitle = indexHTML.match(/<div class="sc-title-row">[\s\S]*?<\/div>\s*<div class="session-search-row">/)?.[0] || '';
+  const sessionTitle = indexHTML.match(/<div class="sc-title-row">[\s\S]*?<div class="seg mobile-assistant-seg"/)?.[0] || '';
   const fileTitle = indexHTML.match(/<header class="file-mobile-head">[\s\S]*?<\/header>/)?.[0] || '';
   assert.match(sessionTitle, /class="mobile-title-switch"[\s\S]*data-device-scope-slot="sessions"[\s\S]*class="sc-head-actions"/);
   assert.match(fileTitle, /class="mobile-title-switch"[\s\S]*data-device-scope-slot="files"[\s\S]*class="iconbtn bare mobile-menu-trigger"/);
@@ -3269,4 +3296,40 @@ test('saving only device appearance does not rewrite its name or proxy', async (
     appSandbox.document.querySelector=previousQuery;appSandbox.fetch=previousFetch;appSandbox.localStorage=previousStorage;
     Object.assign(appState,{hostModalMac:previousState.id,hostAppearanceDraft:previousState.draft,hostOriginalName:previousState.name,hostOriginalProxy:previousState.proxy});
   }
+});
+
+test('editing device letters or digits preserves the draft when changing color and does not persist before save', () => {
+  const previousQuery=appSandbox.document.querySelector, previousDraft=appState.hostAppearanceDraft;
+  const ids=['hm-device-icon','hm-icon-choices','hm-color-choices','hm-letter-field','hm-letter-input','hm-letter-error','hm-save','hm-appearance-reset'];
+  const fields=Object.fromEntries(ids.map(id=>['#'+id,testElement('div')]));
+  const letterChoice=testElement('span');fields['#hm-icon-choices .device-icon-letters']=letterChoice;
+  appSandbox.document.querySelector=selector=>fields[selector] || null;
+  try {
+    appState.hostAppearanceDraft={icon:'text',text:'A',color:'steel'};
+    vm.runInContext('renderHostAppearanceChoices()',appSandbox);
+    const input=fields['#hm-letter-input'];
+    for(const [text,expected] of [['mb','MB'],['4','4'],['04','04'],['a1','A1'],['mbp','MBP'],['009','009'],['a1b','A1B']]) {
+      input.value=text;input.oninput();
+      assert.equal(input.value,expected);assert.equal(fields['#hm-save'].disabled,false);
+      assert.equal(fields['#hm-letter-error'].hidden,true);
+      assert.equal(letterChoice.textContent,expected);assert.equal(letterChoice.getAttribute('data-length'),String(expected.length));
+      assert.equal(fields['#hm-device-icon'].children[0].textContent,expected);
+      fields['#hm-color-choices'].children.find(b=>b.getAttribute('aria-label')==='紫罗兰').onclick();
+      assert.equal(appState.hostAppearanceDraft.text,expected);assert.equal(appState.hostAppearanceDraft.color,'violet');
+      assert.equal(appSandbox.FleetDeviceAppearance.get('m8').icon,'monitor');
+    }
+    input.value='ß';input.oninput();assert.equal(fields['#hm-save'].disabled,true);
+  } finally {appSandbox.document.querySelector=previousQuery;appState.hostAppearanceDraft=previousDraft;}
+});
+
+test('invalid device letters block saving and focus the field without changing saved preference', async () => {
+  const previousQuery=appSandbox.document.querySelector, previousDraft=appState.hostAppearanceDraft, previousId=appState.hostModalMac;
+  const fields=Object.fromEntries(['hm-device-icon','hm-letter-input','hm-letter-error','hm-save'].map(id=>['#'+id,testElement('div')]));
+  appSandbox.document.querySelector=selector=>fields[selector] || null;
+  try {
+    appState.hostModalMac='m8';appState.hostAppearanceDraft={icon:'text',text:'M?',color:'steel'};
+    await vm.runInContext('saveHost()',appSandbox);
+    assert.equal(fields['#hm-save'].disabled,true);assert.equal(fields['#hm-letter-error'].hidden,false);
+    assert.equal(fields['#hm-letter-input'].focused,true);assert.equal(appSandbox.FleetDeviceAppearance.get('m8').icon,'monitor');
+  } finally {appSandbox.document.querySelector=previousQuery;appState.hostAppearanceDraft=previousDraft;appState.hostModalMac=previousId;}
 });

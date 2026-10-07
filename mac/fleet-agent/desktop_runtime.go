@@ -171,7 +171,11 @@ func (control *desktopControl) ServeHTTP(writer http.ResponseWriter, request *ht
 			desktopReply(writer, 400, map[string]string{"error": "无效设置"})
 			return
 		}
-		origin, err := validateFleetOrigin(settings.Origin)
+		origin := settings.Origin
+		var err error
+		if origin != "" {
+			origin, err = validateFleetOrigin(origin)
+		}
 		if err != nil {
 			desktopReply(writer, 400, map[string]string{"error": "请输入有效的 HTTPS 服务地址"})
 			return

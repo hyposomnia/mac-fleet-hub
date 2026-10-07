@@ -15,7 +15,8 @@ public struct FleetSettings: Codable, Equatable, Sendable {
     enum CodingKeys: String, CodingKey { case schema, origin; case autoStart = "auto_start" }
 
     public static func validatedOrigin(_ draft: String) throws -> String {
-        let value = draft.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmed = draft.trimmingCharacters(in: .whitespacesAndNewlines)
+        let value = trimmed.contains("://") ? trimmed : "https://" + trimmed
         guard var components = URLComponents(string: value),
               components.scheme == "https", let host = components.host, !host.isEmpty,
               components.user == nil, components.password == nil,
@@ -146,14 +147,16 @@ public final class SettingsModel: ObservableObject {
     @Published public private(set) var status: AgentStatus?
     @Published public private(set) var error = ""
     @Published public private(set) var isBusy = false
+    @Published public private(set) var isSaving = false
     private let client: any LocalManagement
     private var initialized = false
+    private var pendingSave: Task<Bool, Never>?
 
     public init(client: any LocalManagement) { self.client = client }
     public var diskState: DiskState { status?.diskAccess.verifiedState ?? .unknown }
 
     public func refresh() async {
-        guard !isBusy else { return }
+        guard !isBusy, !isSaving else { return }
         do {
             let current = try await client.status()
             guard current.schema == 1, current.settings.schema == 1, current.pid > 0 else {
@@ -172,20 +175,35 @@ public final class SettingsModel: ObservableObject {
         }
     }
 
-    public func save() async {
-        guard !isBusy else { return }
-        isBusy = true
-        defer { isBusy = false }
-        do {
-            let settings = FleetSettings(schema: 1, origin: try FleetSettings.validatedOrigin(origin), autoStart: autoStart)
-            let saved = try await client.save(settings)
-            status?.settings = saved
-            origin = saved.origin
-            autoStart = saved.autoStart
-            error = ""
-        } catch {
-            self.error = error.localizedDescription
+    @discardableResult
+    public func save() async -> Bool {
+        if let pendingSave { return await pendingSave.value }
+        guard !isBusy else { return false }
+        isSaving = true
+        let saving = Task { @MainActor in
+            while true {
+                let draft = self.origin
+                let autoStartDraft = self.autoStart
+                do {
+                    let normalized = draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "" : try FleetSettings.validatedOrigin(draft)
+                    let settings = FleetSettings(schema: 1, origin: normalized, autoStart: autoStartDraft)
+                    let saved = try await self.client.save(settings)
+                    self.status?.settings = saved
+                    self.error = ""
+                    if self.origin == draft, self.autoStart == autoStartDraft {
+                        self.origin = saved.origin
+                        self.autoStart = saved.autoStart
+                        return true
+                    }
+                } catch {
+                    self.error = error.localizedDescription
+                    return false
+                }
+            }
         }
+        pendingSave = saving
+        defer { pendingSave = nil; isSaving = false }
+        return await saving.value
     }
 
     public func recheckDisk() async {

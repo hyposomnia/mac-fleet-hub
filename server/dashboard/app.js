@@ -526,9 +526,11 @@ function renderHosts() {
         retry,
       ));
     } else {
+      const addDevice = h('a', { class: 'btn empty-add-device', href: '/account#add-device', text: '添加设备' });
+      addDevice.onclick = event => { event.preventDefault(); openUnifiedSettings('add-device', addDevice); };
       nav.append(h('div', { class: 'empty' },
         h('div', { text: '暂无已入网的设备' }),
-        h('a', { class: 'btn empty-add-device', href: '/account#add-device', text: '添加设备' }),
+        addDevice,
       ));
     }
     return;
@@ -539,7 +541,7 @@ function renderHosts() {
     // 桌面行
     const info = h('span', { class: 'i', title: '设置 / 代理', text: 'ⓘ' });
     info.onclick = (e) => { e.stopPropagation(); openHostModal(m.id); };
-    const row = h('button', { class: 'host', title: macName(m.id), 'aria-label': macName(m.id), dataset: { mac: m.id }, 'aria-current': String(m.id === selected) },
+    const row = h('button', { class: 'host', 'aria-label': macName(m.id), dataset: { mac: m.id }, 'aria-current': String(m.id === selected) },
       deviceStatusIcon(m.id),
       h('span', { class: 'nm', text: macName(m.id) }),
       // 在线状态独立于用户选择的设备图标颜色。
@@ -752,10 +754,12 @@ async function refreshSettings() {
   if (!state.settings) state.settings = { ...SETTINGS_DEFAULT }; // 拉取失败：用默认，不阻塞
 }
 function openSettings() {
+  return openUnifiedSettings('sessions');
+}
+function prepareSessionSettings() {
   const s = state.settings || SETTINGS_DEFAULT;
   $('#st-chat-cache-max').value = s.chatCacheMaxSessions;
   renderChatCacheStats();
-  openOverlay('settings-modal');
 }
 async function saveSettings() {
   const body = {
@@ -768,6 +772,7 @@ async function saveSettings() {
     });
     if (!r.ok) throw new Error('HTTP ' + r.status);
     state.settings = { ...SETTINGS_DEFAULT, ...(await r.json()) };
+    globalThis.FleetSettingsDialog?.active?.markSaved();
     closeOverlay('settings-modal');
     toast('设置已保存', 'ok');
     evictChatCache();
@@ -794,8 +799,31 @@ async function settingsJSON(url, options) {
 }
 
 function openAutomation() {
-  showAutomationTab('keys');
-  openOverlay('automation-modal');
+  return openUnifiedSettings('automation');
+}
+function openUnifiedSettings(page, trigger) {
+  if (!FleetSettingsDialog.active) {
+    FleetSettingsDialog.active = FleetSettingsDialog.create({
+      document, overlay: $('#fleet-settings-modal'), panels: $$('[data-settings-panel]'), buttons: $$('[data-settings-page]'),
+      title: $('#fleet-settings-title'), status: $('#fleet-settings-status'), confirm: message => window.confirm(message),
+      load: async (selected, container) => {
+        if (selected === 'sessions') { prepareSessionSettings(); return null; }
+        if (selected === 'automation') { showAutomationTab('keys'); return null; }
+        const content = document.createElement('div');
+        content.className = 'account-content';
+        const status = document.createElement('p');
+        status.className = 'settings-account-status';
+        status.setAttribute('role', 'status');
+        const nav = document.createElement('nav');
+        container.append(status, content);
+        const pages = FleetAccountPages.createPages({ document, auth: FleetAuth, location, history,
+          confirm: message => window.confirm(message), content, status, nav });
+        await pages.start(selected);
+        return pages;
+      },
+    });
+  }
+  return FleetSettingsDialog.active.open(page, trigger);
 }
 function showAutomationTab(tab) {
   const key = tab === 'messages' ? 'messages' : 'keys';
@@ -1346,7 +1374,8 @@ function markSessionRead(session) {
 function sessionIsUnread(session) {
   if (!session?.sessionId) return false;
   if (session.sessionId === state.selectedSid && session.macId === state.selectedSessionMacId &&
-      (session.assistant || state.assistant) === (state.selectedSessionAssistant || state.assistant)) return false;
+      (session.assistant || state.assistant) === (state.selectedSessionAssistant || state.assistant) &&
+      $('#win')?.dataset.workspacePreview !== 'true') return false;
   const activity = sessionActivityAt(session);
   const sharedReadAt = Number(session.readAt) || 0;
   if (sharedReadAt >= activity && sharedReadAt > 0) return false;
@@ -1869,7 +1898,6 @@ function deleteSession(session) {
 
 function selectSes(sid, macId = state.macId, assistant = state.assistant) {
   window.FleetWorkspaceTabs?.showChat();
-  window.FleetSidebarLayout?.close();
   state.macId = macId;
   state.selectedSid = sid;
   state.selectedSessionMacId = macId;
@@ -2001,7 +2029,7 @@ function showEmpty() {
   $('#mobile-input').hidden = true;
   stopWatch(); hideBanner();
   const tt = $('#win-title'); clear(tt); tt.append(h('span', { class: 'ttl', text: '选择一个会话' }));
-  $('#win-meta').textContent = '选择会话开始聊天';
+  $('#win-meta').textContent = '';
 }
 
 // 新建一个池条目（新 iframe）并显示，随后按上限 LRU 回收。
@@ -3104,6 +3132,7 @@ function renderChat({ preserveScroll = false, forceBottom = false } = {}) {
   if (progress) stack.append(progress);
   if (model.error) stack.append(renderChatError(model.error));
   clear(sc); sc.append(stack);
+  syncCompactComposer();
   if (preserveScroll) sc.scrollTop = oldTop + (sc.scrollHeight - oldHeight);
   else if (forceBottom || stick) sc.scrollTop = sc.scrollHeight;
   syncChatTurnPin();
@@ -4382,6 +4411,11 @@ function chatLinkHref(source) {
 function resizeChatInput() {
   const input = $('#chat-input');
   if (!input) return;
+  if ($('#win')?.dataset.workspacePreview === 'true' && ($('#win').dataset.compactComposerExpanded !== 'true' || !input.value)) {
+    input.style.height = '';
+    input.style.overflowY = '';
+    return;
+  }
   input.style.height = 'auto';
   input.style.height = Math.min(input.scrollHeight, 180) + 'px';
   input.style.overflowY = input.scrollHeight > 180 ? 'auto' : 'hidden';
@@ -4442,6 +4476,13 @@ function updateChatComposerState() {
     : (action === 'wait-desktop' ? 'ChatGPT 桌面端正在使用此会话' :
       (blocked ? '等待附件上传完成' : (action === 'queue-desktop' ? '提交到服务器队列' : '发送')));
   send.setAttribute('aria-label', send.title);
+  syncCompactComposer();
+}
+
+let compactComposer;
+function syncCompactComposer() {
+  compactComposer?.update({sessionKey: state.chat ? `${state.chat.macId}/${state.chat.assistant}/${state.chat.sessionId}` : '',
+    model: state.chat?.model, running: isChatRunning(state.chat), unread: !!state.chat?.unread});
 }
 
 function mergeChatComposerText(failedText, currentText) {
@@ -4588,7 +4629,6 @@ async function openChatSession(s) {
   window.FleetWorkspaceTabs?.showChat();
   const macId = s.macId || state.macId;
   if (!macId || !canSelfDrawChat(state.assistant, macId)) return;
-  window.FleetSidebarLayout?.close();
   state.macId = macId;
   state.selectedSid = s.sessionId;
   state.selectedSessionMacId = macId;
@@ -5101,7 +5141,7 @@ function startChatEvents(chat = state.chat) {
           item.sessionId === chat.sessionId && (item.assistant || state.assistant) === chat.assistant) || {
           macId: chat.macId, assistant: chat.assistant, sessionId: chat.sessionId, mtime: Date.now(),
         };
-        if (state.chat === chat) markSessionRead(session);
+        if (state.chat === chat && $('#win')?.dataset.workspacePreview !== 'true' && !document.hidden) markSessionRead(session);
         else chat.unread = true;
       }
       // EventSource reconnects replay unresolved requests. Derive this from the
@@ -7096,6 +7136,19 @@ async function pingHost(id) {
 function hostProxyForm() {
   return {enabled: $('#hm-proxy-on').checked, http: $('#hm-http').value.trim(), https: $('#hm-https').value.trim()};
 }
+function syncHostLetterIcon() {
+  const draft = state.hostAppearanceDraft;
+  const invalid = draft.icon === 'text' && !FleetDeviceAppearance.letterText(draft.text);
+  $('#hm-letter-error').hidden = !invalid;
+  $('#hm-letter-input').setAttribute('aria-invalid', String(invalid));
+  $('#hm-save').disabled = invalid;
+  $('#hm-device-icon').replaceChildren(FleetDeviceAppearance.createIcon(draft));
+  const choice = $('#hm-icon-choices .device-icon-letters');
+  if (choice) {
+    const text = FleetDeviceAppearance.letterText(draft.text) || 'A';
+    choice.textContent = text; choice.setAttribute('data-length', String(text.length));
+  }
+}
 function renderHostAppearanceChoices() {
   const draft = state.hostAppearanceDraft;
   $('#hm-device-icon').replaceChildren(FleetDeviceAppearance.createIcon(draft));
@@ -7104,13 +7157,26 @@ function renderHostAppearanceChoices() {
   FleetDeviceAppearance.icons.forEach(choice => {
     icons.append(h('button', {type: 'button', class: 'device-icon-choice', title: choice.label,
       'aria-label': choice.label, 'aria-pressed': String(draft.icon === choice.id),
-      onclick: () => {state.hostAppearanceDraft = {...draft, icon: choice.id}; renderHostAppearanceChoices();}},
+      onclick: () => {state.hostAppearanceDraft = {...state.hostAppearanceDraft, icon: choice.id, text: undefined}; renderHostAppearanceChoices();}},
       FleetDeviceAppearance.createIcon({...draft, icon: choice.id}), h('span', {text: choice.label})));
   });
+  icons.append(h('button', {type: 'button', class: 'device-icon-choice', 'aria-label': '文字图标',
+    'aria-pressed': String(draft.icon === 'text'),
+    onclick: () => {state.hostAppearanceDraft = {...state.hostAppearanceDraft, icon: 'text', text: state.hostAppearanceDraft.text || 'A'}; renderHostAppearanceChoices();}},
+    FleetDeviceAppearance.createIcon({icon: 'text', text: draft.text || 'A', color: draft.color}), h('span', {text: '文字'})));
+  $('#hm-letter-field').hidden = draft.icon !== 'text';
+  const letterInput = $('#hm-letter-input');
+  letterInput.value = draft.icon === 'text' ? draft.text || '' : '';
+  letterInput.oninput = () => {
+    const text = letterInput.value.replace(/[a-z]/g, letter => letter.toUpperCase()); letterInput.value = text;
+    state.hostAppearanceDraft = {...state.hostAppearanceDraft, icon: 'text', text};
+    syncHostLetterIcon();
+  };
+  syncHostLetterIcon();
   FleetDeviceAppearance.colors.forEach(choice => {
     colors.append(h('button', {type: 'button', class: 'device-color-choice', title: choice.label,
       'aria-label': choice.label, 'aria-pressed': String(draft.color === choice.id),
-      onclick: () => {state.hostAppearanceDraft = {...draft, color: choice.id}; renderHostAppearanceChoices();}},
+      onclick: () => {state.hostAppearanceDraft = {...state.hostAppearanceDraft, color: choice.id}; renderHostAppearanceChoices();}},
       h('span', {class: 'device-color-swatch', dataset: {deviceColor: choice.id}},
         draft.color === choice.id ? svgIcon('ic', 'M5 12l4 4L19 6') : null)));
   });
@@ -7150,6 +7216,9 @@ async function openHostModal(id) {
 async function saveHost() {
   const id = state.hostModalMac;
   if (!id) return;
+  if (state.hostAppearanceDraft.icon === 'text' && !FleetDeviceAppearance.letterText(state.hostAppearanceDraft.text)) {
+    syncHostLetterIcon(); $('#hm-letter-input').focus(); return;
+  }
   const btn = $('#hm-save'); btn.disabled = true; btn.textContent = '保存中…';
 
   const appearanceSaved = FleetDeviceAppearance.set(id, state.hostAppearanceDraft);
@@ -7191,7 +7260,10 @@ async function doLogout() {
 //  浮层菜单 / 弹窗
 // ============================================================
 function openOverlay(id) { $('#' + id).hidden = false; }
-function closeOverlay(id) { $('#' + id).hidden = true; }
+function closeOverlay(id) {
+  if (['fleet-settings-modal', 'settings-modal', 'automation-modal'].includes(id)) return globalThis.FleetSettingsDialog?.active?.close();
+  $('#' + id).hidden = true;
+}
 let globalMenu = null;
 function closeMenus({ restoreFocus = false } = {}) {
   const trigger = globalMenu?.trigger;
@@ -7440,15 +7512,33 @@ function init() {
     registerServiceWorker();
     return;
   }
+  compactComposer = window.FleetCompactComposer?.init({onResize: resizeChatInput,
+    onRead: () => {
+      if (!state.chat) return;
+      markSessionRead({macId: state.chat.macId, assistant: state.chat.assistant,
+        sessionId: state.chat.sessionId, mtime: state.chat.updatedAt});
+      syncSessionRuntimeIndicators();
+    },
+  });
   window.FleetWorkspaceTabs?.init({onOpen: () => {
     if (state.mode !== 'sessions') setMode('sessions');
-    window.FleetSidebarLayout?.close();
     if (isMobile() && !$('#app').classList.contains('term-open')) {
       pushFleetHistory({ mode: 'sessions', term: true });
       $('#app').classList.add('term-open');
     }
+  }, onCloseChat: ({hasFiles}) => {
+    state.selectedSid = state.selectedSessionMacId = null;
+    showEmpty();
+    if (hasFiles) $('#fullscreen-btn').hidden = false;
+    $$('.ses.sel').forEach(row => row.classList.remove('sel'));
+    persistUIState();
+    if (!hasFiles) {
+      if (isMobile()) returnToSessionList();
+      else $('#session-search').focus();
+    }
   }});
   window.FleetSidebarLayout?.init();
+  window.FleetDeviceHover?.init({onSelect: selectMac, onSettings: openHostModal});
   mountDeviceScopeButtons();
   initUIState();
   initSessionListPreferences();
@@ -7685,14 +7775,15 @@ function init() {
   $$('#usermenu button, #m-menu button').forEach((b) => {
     if (!b.dataset.act && !b.dataset.themeChoice) return;
     b.onclick = () => {
+      const trigger = globalMenu?.trigger || document.activeElement;
       closeMenus({ restoreFocus: Boolean(b.dataset.themeChoice) });
       if (b.dataset.themeChoice) setThemePreference(b.dataset.themeChoice);
       else if (b.dataset.act === 'archive') toggleArchivedSessions();
-      else if (b.dataset.act === 'automation') openAutomation();
-      else if (b.dataset.act === 'settings') openSettings();
-      else if (b.dataset.act === 'account') location.href = '/account';
+      else if (b.dataset.act === 'automation') openUnifiedSettings('automation', trigger);
+      else if (b.dataset.act === 'settings') openUnifiedSettings('sessions', trigger);
+      else if (b.dataset.act === 'account') openUnifiedSettings('account', trigger);
       else if (b.dataset.act === 'admin') location.href = '/admin';
-      else if (b.dataset.act === 'add-device') location.href = '/account#add-device';
+      else if (b.dataset.act === 'add-device') openUnifiedSettings('add-device', trigger);
       else if (b.dataset.act === 'logout') doLogout();
     };
   });
@@ -7855,6 +7946,7 @@ async function initAuthenticatedDashboard() {
   }
 }
 function stopAuthenticatedDashboard() {
+  globalThis.FleetSettingsDialog?.active?.reset();
   window.FleetWorkspaceTabs?.reset();
   authenticatedPollTimers.forEach(clearInterval);
   authenticatedPollTimers = [];
@@ -7862,6 +7954,7 @@ function stopAuthenticatedDashboard() {
   for (const chat of new Set([state.chat, ...state.chatCache.values()])) if (chat) disposeChat(chat);
   state.chat = null;
   state.chatCache.clear();
+  compactComposer?.update();
   state.sessionReadAt.clear();
   state.sessionResults = [];
   state.fileEntries = [];

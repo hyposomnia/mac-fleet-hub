@@ -63,9 +63,13 @@ func saveDesktopSettings(path string, settings desktopSettings) error {
 	if settings.Schema != 1 {
 		return errors.New("不支持的本机设置版本")
 	}
-	origin, err := validateFleetOrigin(strings.TrimSpace(settings.Origin))
-	if err != nil {
-		return err
+	origin := strings.TrimSpace(settings.Origin)
+	if origin != "" {
+		var err error
+		origin, err = validateFleetOrigin(origin)
+		if err != nil {
+			return err
+		}
 	}
 	settings.Origin = origin
 	return writePrivateJSON(path, settings)

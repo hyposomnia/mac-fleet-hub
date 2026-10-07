@@ -97,7 +97,9 @@ test('session loss stops dashboard polling, closes chat streams and clears priva
   const closed = [];
   const cleared = [];
   let workspaceResets = 0;
+  let composerResets = 0;
   const sandbox = { window: { FleetWorkspaceTabs: { reset: () => { workspaceResets++; } } },
+    compactComposer: { update: () => { composerResets++; } },
     authenticatedPollTimers: [1, 2], clearInterval: (timer) => cleared.push(timer), clearTimeout() {}, sessionSearchTimer: null,
     disposeChat: (chat) => closed.push(chat), state: { chat: { id: 'open' }, chatCache: new Map([['cached', { id: 'cached' }]]),
       pool: [{}], sessionReadAt: new Map([['read', 42]]), sessionResults: [{}], nodes: { m1: true }, counts: {}, filePaths: {},
@@ -107,6 +109,7 @@ test('session loss stops dashboard polling, closes chat streams and clears priva
   vm.runInNewContext(source, sandbox);
   sandbox.stopAuthenticatedDashboard();
   assert.equal(workspaceResets, 1);
+  assert.equal(composerResets, 1);
   assert.deepEqual(cleared, [1, 2]);
   assert.equal(closed.length, 2);
   assert.equal(sandbox.state.chatCache.size, 0);

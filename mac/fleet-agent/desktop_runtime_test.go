@@ -117,6 +117,7 @@ func TestDesktopSocketRejectsUnsafeRequestsAndBindingChanges(t *testing.T) {
 		expected               int
 	}{
 		{"PUT", "/settings", `{"schema":1,"origin":"https://other.example.test","auto_start":true}`, 409},
+		{"PUT", "/settings", `{"schema":1,"origin":"","auto_start":true}`, 409},
 		{"PUT", "/settings", `{"schema":1,"origin":"https://fleet.example.test","owner":"intruder"}`, 400},
 		{"POST", "/status", `{}`, 405},
 		{"POST", "/exec", `{"command":"sh"}`, 404},

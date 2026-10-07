@@ -1,4 +1,4 @@
-/* Browser-local device identity. Only predefined icons and colors are accepted. */
+/* Browser-local device identity. Predefined icons, ASCII alphanumeric marks and colors are accepted. */
 (function (host) {
   'use strict';
   const key = 'fleet-device-appearance-v1';
@@ -16,9 +16,15 @@
     {id:'coral',label:'珊瑚红'}, {id:'violet',label:'紫罗兰'},
     {id:'rose',label:'玫瑰'}, {id:'slate',label:'石墨'},
   ];
+  function letterText(value) {
+    const text = typeof value === 'string' ? value.trim() : '';
+    return /^[A-Za-z0-9]{1,3}$/.test(text) ? text.toUpperCase() : '';
+  }
   function normalize(value) {
-    return {icon:icons.some(i=>i.id===value?.icon) ? value.icon : 'monitor',
-      color:colors.some(c=>c.id===value?.color) ? value.color : 'steel'};
+    const color = colors.some(c=>c.id===value?.color) ? value.color : 'steel';
+    const text = letterText(value?.text);
+    if (value?.icon === 'text' && text) return {icon:'text',text,color};
+    return {icon:icons.some(i=>i.id===value?.icon) ? value.icon : 'monitor',color};
   }
   let preferences = Object.create(null);
   try {
@@ -29,7 +35,7 @@
   } catch (_) {}
   function get(id) { return normalize(preferences[id]); }
   function set(id,value) {
-    if (!/^m[1-9]\d*$/.test(id)) return false;
+    if (!/^m[1-9]\d*$/.test(id) || (value?.icon === 'text' && !letterText(value.text))) return false;
     preferences[id]=normalize(value);
     try { host.localStorage.setItem(key,JSON.stringify(preferences)); return true; } catch (_) { return false; }
   }
@@ -37,6 +43,10 @@
     const preference=normalize(value), ns='http://www.w3.org/2000/svg';
     const wrapper=host.document.createElement('span');
     wrapper.className='device-icon'; wrapper.setAttribute('data-device-color',preference.color);
+    if (preference.icon === 'text') {
+      wrapper.className += ' device-icon-letters'; wrapper.setAttribute('data-length',String(preference.text.length));
+      wrapper.textContent = preference.text; return wrapper;
+    }
     const svg=host.document.createElementNS(ns,'svg');
     for (const [attr,v] of Object.entries({viewBox:'0 0 24 24',fill:'none',stroke:'currentColor','stroke-width':'1.8',
       'stroke-linecap':'round','stroke-linejoin':'round','aria-hidden':'true',focusable:'false'})) svg.setAttribute(attr,v);
@@ -44,5 +54,5 @@
     path.setAttribute('d',icons.find(i=>i.id===preference.icon).path);
     svg.appendChild(path); wrapper.appendChild(svg); return wrapper;
   }
-  host.FleetDeviceAppearance={key,icons,colors,normalize,get,set,createIcon};
+  host.FleetDeviceAppearance={key,icons,colors,letterText,normalize,get,set,createIcon};
 })(globalThis);

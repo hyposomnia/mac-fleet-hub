@@ -3,6 +3,43 @@ import XCTest
 
 @MainActor
 final class SettingsTests: XCTestCase {
+    func testBareServerAddressesUseHTTPSAndEmptySettingsCannotAuthorize() throws {
+        XCTAssertEqual(try FleetSettings.validatedOrigin(" fleet.example.test:7443/ "), "https://fleet.example.test:7443")
+        XCTAssertEqual(try FleetSettings.validatedOrigin("192.0.2.10:7443"), "https://192.0.2.10:7443")
+        XCTAssertThrowsError(try FleetSettings.validatedOrigin(""))
+    }
+
+    func testSaveDoesNotOverwriteDraftEditedWhileRequestIsPending() async {
+        let client = TestManagement()
+        let model = SettingsModel(client: client)
+        await model.refresh()
+        var continuation: CheckedContinuation<FleetSettings, Never>?
+        client.onSave = { settings in
+            await withCheckedContinuation { continuation = $0 }
+        }
+        model.origin = "https://first.example.test"
+        let saving = Task { await model.save() }
+        while continuation == nil { await Task.yield() }
+        model.origin = "https://latest.example.test"
+        client.onSave = nil
+        continuation?.resume(returning: FleetSettings(schema: 1, origin: "https://first.example.test", autoStart: true))
+        await saving.value
+        XCTAssertEqual(model.origin, "https://latest.example.test")
+        XCTAssertEqual(model.status?.settings.origin, "https://latest.example.test")
+        XCTAssertEqual(client.actions.filter { $0 == "save" }.count, 2)
+    }
+
+    func testAutoStartCanBeSavedBeforeAServerIsConfigured() async {
+        let client = TestManagement()
+        let model = SettingsModel(client: client)
+        await model.refresh()
+        model.origin = ""
+        model.autoStart = false
+        await model.save()
+        XCTAssertTrue(model.error.isEmpty)
+        XCTAssertEqual(model.status?.settings.origin, "")
+        XCTAssertEqual(model.status?.settings.autoStart, false)
+    }
     func testNativeOAuthURLAndExpiryRemainRetryable() {
         var state = PairingState(phase: "browser", attempt: "new", origin: "https://fleet.example.test", url: "https://fleet.example.test/oauth/authorize?client_id=fleet-hub&response_type=code&scope=device%3Aenroll&state=new&code_challenge_method=S256&code_challenge=challenge&redirect_uri=http%3A%2F%2F127.0.0.1%3A51234%2Foauth%2Fcallback", code: nil, deviceID: nil, ownerEmail: nil, error: nil)
         XCTAssertNotNil(state.verificationURL)
@@ -84,6 +121,7 @@ final class SettingsTests: XCTestCase {
 
 @MainActor
 final class TestManagement: LocalManagement {
+    var onSave: ((FleetSettings) async -> FleetSettings)?
     var rejectSave = false
     var rejectStatus = false
     var actions: [String] = []
@@ -95,6 +133,7 @@ final class TestManagement: LocalManagement {
     func save(_ settings: FleetSettings) async throws -> FleetSettings {
         actions.append("save")
         if rejectSave { throw FleetError.message("无法保存") }
+        if let onSave { return await onSave(settings) }
         return settings
     }
     func recheckDisk() async throws -> DiskAccess {

@@ -3,6 +3,11 @@ import XCTest
 @testable import FleetCore
 
 final class RuntimeTests: XCTestCase {
+    func testInstallationUsesNormalizedPathRatherThanLaunchSpelling() throws {
+        let layout = RuntimeLayout(application: URL(fileURLWithPath: "/Applications/../Applications/Fleet Hub.app/"), home: URL(fileURLWithPath: "/Users/fixture"))
+        XCTAssertFalse(layout.requiresInstallation)
+        XCTAssertNoThrow(try layout.launchDefinition())
+    }
     func testPrivateRuntimeRejectsSymlinksAndKeepsPermissions() throws {
         let directory = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: directory) }

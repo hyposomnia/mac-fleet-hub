@@ -62,14 +62,14 @@ PASS: bundled ttyd responds and bundled tmux creates an isolated session without
 
 ## 发行阻塞与后续验收
 
-只读检查：
+本次源码验证阶段曾遇到如下只读检查失败：
 
 ```text
 xcrun notarytool history --keychain-profile mac-fleet-hub-notary
 Error: No Keychain password item found for profile: mac-fleet-hub-notary
 ```
 
-退出码 69。公证 profile 必须由用户在本机终端恢复，密码不进入聊天或共享日志。恢复后从最新干净不可变提交重走 `scripts/release-fleet-agent.sh --native-candidate`，完成 agent、Hub、DMG 公证 Accepted、Sparkle 签名与真实 HTTPS 下载验证后，才晋级 abj 测试下载源。上一轮 `0.1.1+2` 中间产物也不能替代本次发行。
+退出码 69。随后用户在本机终端恢复公证 profile，并恢复内网连接；密码不进入聊天或共享日志。已从最新干净不可变提交 `86f89c8ff85e6abbd740e966f1f8d233c27060b6` 重走 `scripts/release-fleet-agent.sh --native-candidate`，完成 `0.1.2+3` 的 agent、Hub、DMG 公证 Accepted、Sparkle 签名及真实 HTTPS 下载验证后才晋级 abj 测试下载源。没有将上一轮 `0.1.1+2` 中间产物替代新包。详见 [测试发行记录](native-build3-test-release-2026-10-07.md)。
 
 正式包发布后的验收顺序：
 

@@ -28,9 +28,9 @@ function setup() {
     body: new Node(), querySelector(selector) { return elements[selector.slice(1)] || null; }, createElement() { return new Node(); },
   }};
   vm.createContext(context); vm.runInContext(preview, context); vm.runInContext(source, context);
-  let opened = 0;
-  context.FleetWorkspaceTabs.init({onOpen() { opened++; }});
-  return {api: context.FleetWorkspaceTabs, elements, body: context.document.body, flush() { const pending = [...timers.values()]; timers.clear(); pending.forEach(fn => fn()); }, get opened() { return opened; }};
+  let opened = 0, closed = 0;
+  context.FleetWorkspaceTabs.init({onOpen() { opened++; }, onCloseChat() { closed++; elements['chat-pane'].hidden = true; }});
+  return {api: context.FleetWorkspaceTabs, elements, body: context.document.body, flush() { const pending = [...timers.values()]; timers.clear(); pending.forEach(fn => fn()); }, get opened() { return opened; }, get closed() { return closed; }};
 }
 const url = (path, mac = 'm1', cwd = '/repo') => `/view?${new URLSearchParams({mac, path, cwd})}`;
 function clickLink(href, extras = {}) {
@@ -113,7 +113,7 @@ test('ordinary file links are intercepted but external links, downloads and modi
   api.reset(); assert.equal(e['workspace-preview'].children.length, 0);
 });
 
-test('tabs support keyboard selection and delete while closing never removes the conversation tab', () => {
+test('tabs support keyboard selection and deleting a file restores the conversation tab', () => {
   const {api, elements: e} = setup(); api.open(url('a.py'));
   e['workspace-tabs'].children[1].children[0].onkeydown({key: 'Home', preventDefault() {}});
   assert.equal(e.win.dataset.workspacePreview, 'false');
@@ -185,4 +185,44 @@ test('file tabs retain the original composer, draft, and submit handler while tr
   composer.onsubmit(); assert.equal(sent, 1);
   api.showChat(); assert.equal(e['chat-input'], input); assert.equal(input.value, '继续检查这份文件');
   assert.equal(e['chat-scroll'].inert, false);
+});
+
+
+test('conversation and file tabs always expose close controls in selected and background states', () => {
+  const state = setup(), e = state.elements;
+  state.api.open(url('a.md'));
+  assert.equal(e['workspace-tabs'].children[0].children[1].attrs['aria-label'], '关闭会话');
+  for (const tab of e['workspace-tabs'].children) {
+    assert.equal(tab.children.length, 2);
+    assert.match(tab.children[1].attrs['aria-label'], /^关闭(?: |会话)/);
+  }
+  e['workspace-tabs'].children[0].children[1].onclick();
+  assert.equal(state.closed, 1);
+  assert.equal(e['workspace-tabs'].children.length, 1);
+  assert.equal(e['workspace-preview'].children.length, 1);
+  assert.equal(e.win.dataset.workspacePreview, 'true');
+  e['workspace-tabs'].children[0].children[1].onclick();
+  assert.equal(e['workspace-tabs'].hidden, true);
+  assert.equal(e['workspace-preview'].hidden, true);
+});
+
+test('closing the active conversation selects a retained file and reopening chat restores its tab', () => {
+  const state = setup(), e = state.elements;
+  state.api.open(url('a.md')); state.api.showChat();
+  e['workspace-tabs'].children[0].children[1].onclick();
+  assert.equal(state.closed, 1);
+  assert.equal(e.win.dataset.workspacePreview, 'true');
+  e['chat-pane'].hidden = false;
+  state.api.showChat();
+  assert.equal(e['workspace-tabs'].children.length, 2);
+  assert.equal(e.win.dataset.workspacePreview, 'false');
+});
+
+test('closing a lone conversation hides the tab row without creating or deleting any file', () => {
+  const state = setup(), e = state.elements;
+  e['workspace-tabs'].children[0].children[1].onclick();
+  assert.equal(state.closed, 1);
+  assert.equal(e['workspace-tabs'].children.length, 0);
+  assert.equal(e['workspace-tabs'].hidden, true);
+  assert.equal(e['workspace-preview'].children.length, 0);
 });

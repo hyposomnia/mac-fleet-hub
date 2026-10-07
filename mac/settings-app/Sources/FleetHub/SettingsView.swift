@@ -27,6 +27,7 @@ struct SettingsView: View {
     @State private var confirmUninstall = false
     @State private var confirmLogout = false
     @State private var removeSettings = false
+    @State private var saveDelay: Task<Void, Never>?
     @StateObject private var diskGuide = DiskAccessGuideController()
     @FocusState private var originFocused: Bool
     private var theme: FleetTheme { FleetTheme(scheme: scheme) }
@@ -34,6 +35,10 @@ struct SettingsView: View {
         FleetSetupAction(requiresInstallation: management.layout.requiresInstallation,
                          backgroundInstalled: FileManager.default.isExecutableFile(atPath: management.layout.agent.path))
     }
+    private var installationTitle: String {
+        FleetSetupAction.installationTitle(installed: FileManager.default.fileExists(atPath: "/Applications/Fleet Hub.app"))
+    }
+    private var validOrigin: Bool { (try? FleetSettings.validatedOrigin(model.origin)) != nil }
 
     var body: some View {
         HStack(spacing: 0) {
@@ -72,7 +77,13 @@ struct SettingsView: View {
         .disabled(model.isBusy || operationBusy || updater.busy)
         .onDisappear { diskGuide.close() }
         .onChange(of: page) { selected in if selected != .privacy { diskGuide.close() } }
+        .onChange(of: model.origin) { _ in queueSave() }
+        .onChange(of: model.autoStart) { _ in queueSave() }
         .task {
+            if let origin = FleetSetupAction.initialOrigin(arguments: CommandLine.arguments) {
+                model.origin = origin
+                page = .connection
+            }
             if management.layout.requiresInstallation { return }
             operationBusy = true
             await updater.recoverAfterLaunch()
@@ -116,7 +127,7 @@ struct SettingsView: View {
                     Text(model.status == nil ? setupAction.status : "后台运行中").font(.system(size: 16, weight: .semibold))
                     Spacer()
                     if model.status == nil {
-                        Button(setupAction.title) {
+                        Button(setupAction == .installApplication ? installationTitle : setupAction.title) {
                             if setupAction == .installApplication { installApplication() }
                             else { perform { try await management.start(); await model.refresh(); try management.setAutoStart(model.autoStart) } }
                         }
@@ -153,7 +164,9 @@ struct SettingsView: View {
                 .buttonStyle(.plain)
             }
             card {
-                row("登录后启动", management.layout.requiresInstallation ? "随应用安装" : management.autoStartStatus)
+                Toggle("登录后启动后台", isOn: $model.autoStart).toggleStyle(.switch)
+                    .disabled(management.layout.requiresInstallation)
+                Text(management.layout.requiresInstallation ? "安装后可设置" : management.autoStartStatus).foregroundStyle(theme.secondaryText)
                 DisclosureGroup("运行详情") {
                     if let current = model.status { row("版本", current.version); row("进程", String(current.pid)).monospacedDigit() }
                 }
@@ -173,15 +186,15 @@ struct SettingsView: View {
                     .overlay(RoundedRectangle(cornerRadius: FleetTheme.controlRadius).stroke(originFocused ? theme.accent : .clear, lineWidth: 2))
                     .disabled(model.status?.binding != nil)
                 HStack {
-                    Button("打开网页授权") { saveSettings(authorize: true) }
+                    Button("打开网页授权") {
+                        if management.layout.requiresInstallation { installApplication() }
+                        else { saveSettings(authorize: true) }
+                    }
                         .buttonStyle(FleetButtonStyle(.primary))
-                        .disabled(management.layout.requiresInstallation || model.status?.binding != nil || model.status?.pairing?.phase == "joining")
-                    Button("保存设置") { saveSettings(authorize: false) }.disabled(management.layout.requiresInstallation)
+                        .disabled(!validOrigin || model.isSaving || model.status?.binding != nil || model.status?.pairing?.phase == "joining")
+                    if model.isSaving { ProgressView().controlSize(.small) }
                 }
-            }
-            card {
-                Toggle("登录后启动后台", isOn: $model.autoStart).toggleStyle(.switch)
-                Text(management.autoStartStatus).foregroundStyle(theme.secondaryText)
+                if management.layout.requiresInstallation { Text("先\(installationTitle)，再继续网页授权。").foregroundStyle(theme.secondaryText) }
             }
             if let pairing = model.status?.pairing, pairing.phase != "idle" {
                 card {
@@ -275,7 +288,7 @@ struct SettingsView: View {
                 if updater.sessionActive { Button("继续安装升级") { Task { await updater.continueInstallation() } } }
             }
             if management.layout.requiresInstallation {
-                Button("安装并启动") { installApplication() }
+                Button(installationTitle) { installApplication() }
                 .buttonStyle(FleetButtonStyle(.primary))
             } else {
                 DisclosureGroup("卸载") {
@@ -300,21 +313,34 @@ struct SettingsView: View {
     }
     private func installApplication() {
         perform {
-            let installed = try await management.install()
+            let installed: URL
+            if FileManager.default.fileExists(atPath: "/Applications/Fleet Hub.app") { installed = try await management.installedApplication() }
+            else { installed = try await management.install() }
             let configuration = NSWorkspace.OpenConfiguration()
             configuration.arguments = ["--fleet-install-and-start"]
+            if let origin = try? FleetSettings.validatedOrigin(model.origin) { configuration.arguments.append("--fleet-origin=\(origin)") }
             configuration.createsNewApplicationInstance = true
             _ = try await NSWorkspace.shared.openApplication(at: installed, configuration: configuration)
             NSApplication.shared.terminate(nil)
         }
     }
     private func saveSettings(authorize: Bool) {
+        saveDelay?.cancel()
         perform {
             if model.status == nil { try await management.start(); await model.refresh() }
-            await model.save()
-            guard model.error.isEmpty else { return }
-            try management.setAutoStart(model.autoStart)
+            guard await model.save() else { return }
             if authorize { await model.beginPairing() }
+        }
+    }
+    private func queueSave() {
+        saveDelay?.cancel()
+        guard !management.layout.requiresInstallation, !updater.sessionActive,
+              model.origin.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || validOrigin else { return }
+        saveDelay = Task {
+            do { try await Task.sleep(nanoseconds: 600_000_000) } catch { return }
+            guard !Task.isCancelled else { return }
+            if model.status == nil { saveSettings(authorize: false) }
+            else { await model.save() }
         }
     }
     private func perform(_ action: @escaping @MainActor () async throws -> Void) {

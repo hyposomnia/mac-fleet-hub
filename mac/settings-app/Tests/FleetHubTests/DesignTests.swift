@@ -2,6 +2,12 @@ import XCTest
 @testable import FleetHub
 
 final class DesignTests: XCTestCase {
+    func testTemporaryLaunchCanOpenInstalledAppAndCarryOnlyAValidatedOrigin() throws {
+        XCTAssertEqual(FleetSetupAction.installationTitle(installed: true), "打开已安装应用")
+        XCTAssertEqual(FleetSetupAction.installationTitle(installed: false), "安装并启动")
+        XCTAssertEqual(FleetSetupAction.initialOrigin(arguments: ["Fleet Hub", "--fleet-origin=https://fleet.example.test"]), "https://fleet.example.test")
+        XCTAssertNil(FleetSetupAction.initialOrigin(arguments: ["Fleet Hub", "--fleet-origin=https://fleet.example.test/path"]))
+    }
     func testTitaniumMetricsAndAccountNavigation() {
         XCTAssertEqual(FleetTheme.controlHeight, 44)
         XCTAssertEqual(FleetTheme.controlRadius, 12)

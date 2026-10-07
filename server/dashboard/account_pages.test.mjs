@@ -13,7 +13,7 @@ class Element {
 }
 function text(node) { return typeof node === 'string' ? node : (node?.textContent || '') + (node?.children || []).map(text).join(' '); }
 function all(node, predicate) { return [node, ...(node.children || []).flatMap((child) => typeof child === 'string' ? [] : all(child, predicate))].filter(predicate); }
-function harness({ page = 'auth', path = '/auth', search = '', role = 'user', respond, confirmed = true, origin = 'https://fleet.test', released = true, transformRelease = value => value } = {}) {
+function harness({ page = 'auth', path = '/auth', search = '', role = 'user', respond, confirmed = true, origin = 'https://fleet.test', released = true, transformRelease = value => value, embedded = false } = {}) {
   assert.ok(source, 'shared account page implementation is missing');
   const sandbox = { URL, URLSearchParams };
   vm.runInNewContext(source, sandbox);
@@ -40,7 +40,8 @@ function harness({ page = 'auth', path = '/auth', search = '', role = 'user', re
   const history = { replaceState: (_, __, target) => {
     const url = new URL(target, location.origin); location.pathname = url.pathname; location.search = url.search;
   } };
-  const pages = sandbox.FleetAccountPages.createPages({ document, auth, location, history, confirm: () => confirmed });
+  const pages = sandbox.FleetAccountPages.createPages({ document: embedded ? { ...document, querySelector: () => null } : document,
+    auth, location, history, confirm: () => confirmed, ...(embedded ? { content, status, nav } : {}) });
   const find = (predicate) => all(content, predicate)[0];
   const form = (name) => find((node) => node.tagName === 'form' && node.attributes['data-form'] === name);
   const submit = async (name, values) => {
@@ -281,7 +282,7 @@ test('security changes that revoke the current session preserve recovery codes u
 });
 
 test('add device offers a native DMG and explains fresh browser OAuth and background disk authorization', async () => {
-  const current = harness({ page: 'account' });
+  const current = harness({ page: 'add-device' });
   await current.start();
   assert.doesNotMatch(text(current.content), /bootstrap\.sh|curl -fsSL/);
   const add = current.find((node) => node.id === 'add-device');
@@ -309,7 +310,7 @@ test('add device offers a native DMG and explains fresh browser OAuth and backgr
 });
 
 test('unpublished clients do not produce fake download links', async () => {
-  const current = harness({ page: 'account', released: false });
+  const current = harness({ page: 'add-device', released: false });
   await current.start();
   const add = current.find((node) => node.id === 'add-device');
   assert.equal(all(add, (node) => node.tagName === 'a' && node.download).length, 0);
@@ -325,7 +326,7 @@ test('invalid or cross-origin native releases never expose download links', asyn
     release => { release.assets.dmg.sha256 = ''; },
     release => { release.bundle_id = 'other.application'; },
   ]) {
-    const current = harness({ page: 'account', transformRelease: release => { mutate(release); return release; } });
+    const current = harness({ page: 'add-device', transformRelease: release => { mutate(release); return release; } });
     await current.start();
     const add = current.find(node => node.id === 'add-device');
     assert.equal(all(add, node => node.tagName === 'a' && node.download).length, 0);
@@ -334,7 +335,7 @@ test('invalid or cross-origin native releases never expose download links', asyn
 
 test('native installation instructions use the current service origin', async () => {
   for (const origin of ['https://other.example.com:8443', 'https://192.0.2.10:9443']) {
-    const current = harness({ page: 'account', origin });
+    const current = harness({ page: 'add-device', origin });
     await current.start();
     const add = current.find((node) => node.id === 'add-device');
     assert.ok(text(add).includes(origin));
@@ -354,24 +355,51 @@ test('null and empty login recovery codes complete verification without an empty
   }
 });
 
-test('auth navigation marks the current step without losing the pairing destination', async () => {
+test('auth links switch between login and registration without losing the authorization destination', async () => {
   const current = harness({ path: '/auth', search: '?next=%2Fenroll%2Fconfirm%3Fcode%3DABC', respond: () => ({ state: 'challenge' }) });
   await current.start();
   const links = all(current.content, (node) => node.tagName === 'a');
-  assert.equal(links.filter((node) => node.attributes['aria-current'] === 'page').length, 1);
-  assert.equal(links.find((node) => text(node) === '登录').attributes['aria-current'], 'page');
+  assert.equal(links.filter((node) => node.attributes['aria-current'] === 'page').length, 0);
+  assert.ok(links.some((node) => node.href.startsWith('/auth/register')));
   assert.ok(links.every((node) => node.href.includes('next=%2Fenroll%2Fconfirm%3Fcode%3DABC')));
   await current.submit('login', { email: 'one@example.com', password: 'password' });
   assert.equal(all(current.content, (node) => node.attributes['aria-current'] === 'page').length, 0);
 });
 
-test('registration and verification steps do not offer navigation that leaves the active flow', async () => {
-  for (const step of ['register', 'setup', 'verify']) {
+test('verification steps do not offer navigation that leaves the active flow', async () => {
+  for (const step of ['setup', 'verify']) {
     const current = harness({ path: `/auth/${step}` });
     await current.start();
     assert.equal(all(current.content, (node) => node.tagName === 'a').length, 0);
     assert.equal(current.nav.children.length, 0);
   }
+});
+
+test('registration links back to login and preserves next', async () => {
+  const current = harness({ path: '/auth/register', search: '?next=%2Foauth%2Fauthorize' });
+  await current.start();
+  assert.ok(all(current.content, node => node.tagName === 'a').some(node => node.href === '/auth?next=%2Foauth%2Fauthorize'));
+});
+
+test('embedded account and add-device pages reuse security logic but stay separate', async () => {
+  const current = harness({ page: 'account', embedded: true });
+  await current.start();
+  assert.ok(current.form('password'));
+  assert.equal(current.find(node => node.id === 'add-device'), undefined);
+  assert.ok(!current.calls.some(call => call.url === '/enroll/client-release.json'));
+  await current.pages.start('add-device');
+  assert.ok(current.find(node => node.id === 'add-device'));
+  assert.equal(current.form('password'), undefined);
+});
+
+test('embedded security flow cannot be silently discarded until recovery codes are acknowledged', async () => {
+  const current = harness({ page: 'account', embedded: true, respond: url => url.endsWith('recovery-codes') ? { recovery_codes: ['NEW-CODE'] } : { devices: [], sessions: [] } });
+  await current.start();
+  assert.equal(current.pages.canLeave(), true);
+  await current.submit('recovery-codes', { password: 'new-password', code: '123456' });
+  assert.equal(current.pages.canLeave(), false);
+  await current.submit('recovery-ack', { saved: true });
+  assert.equal(current.pages.canLeave(), true);
 });
 
 test('recovery acknowledgment renders its checkbox before the label and still requires explicit consent', async () => {

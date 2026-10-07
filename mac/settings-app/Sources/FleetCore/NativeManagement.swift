@@ -5,11 +5,13 @@ import ServiceManagement
 public final class NativeManagement: LocalManagement {
     public let layout: RuntimeLayout
     private let loginService = SMAppService.agent(plistName: "com.macfleet.desktop-login.plist")
+    private let configureAutoStart: ((Bool) throws -> Void)?
     private let execute: (URL, [String], Data?, TimeInterval) async throws -> Data
-    public init(layout: RuntimeLayout, execute: @escaping (URL, [String], Data?, TimeInterval) async throws -> Data = {
+    public init(layout: RuntimeLayout, configureAutoStart: ((Bool) throws -> Void)? = nil, execute: @escaping (URL, [String], Data?, TimeInterval) async throws -> Data = {
         try await CommandRunner.run(executable: $0, arguments: $1, input: $2, timeout: $3)
     }) {
         self.layout = layout
+        self.configureAutoStart = configureAutoStart
         self.execute = execute
     }
 
@@ -29,7 +31,19 @@ public final class NativeManagement: LocalManagement {
     }
 
     public func save(_ settings: FleetSettings) async throws -> FleetSettings {
+        let previous = try await status().settings
         let saved = try JSONDecoder().decode(FleetSettings.self, from: await request("settings", input: JSONEncoder().encode(settings)))
+        if previous.autoStart != saved.autoStart {
+            do {
+                if let configureAutoStart { try configureAutoStart(saved.autoStart) }
+                else { try setAutoStart(saved.autoStart) }
+            } catch {
+                let failure = error
+                do { _ = try await request("settings", input: JSONEncoder().encode(previous)) }
+                catch { throw FleetError.message("自动启动设置失败，后台设置回滚失败：\(error.localizedDescription)") }
+                throw failure
+            }
+        }
         return saved
     }
 
@@ -82,6 +96,14 @@ public final class NativeManagement: LocalManagement {
             _ = try await CommandRunner.run(executable: URL(fileURLWithPath: "/usr/sbin/spctl"), arguments: ["--assess", "--type", "execute", candidate.path], timeout: 30)
             _ = try await CommandRunner.run(executable: URL(fileURLWithPath: "/usr/bin/codesign"), arguments: ["--verify", "--deep", "--strict", candidate.path], timeout: 30)
         }
+        return destination
+    }
+
+    public func installedApplication() async throws -> URL {
+        let destination = URL(fileURLWithPath: "/Applications/Fleet Hub.app")
+        _ = try BackgroundIdentity.read(destination, identifier: "com.macfleet.fleet-hub")
+        _ = try await execute(URL(fileURLWithPath: "/usr/sbin/spctl"), ["--assess", "--type", "execute", destination.path], nil, 30)
+        _ = try await execute(URL(fileURLWithPath: "/usr/bin/codesign"), ["--verify", "--deep", "--strict", destination.path], nil, 30)
         return destination
     }
 
