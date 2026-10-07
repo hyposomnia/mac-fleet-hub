@@ -7106,6 +7106,11 @@ function syncHostLetterIcon() {
   $('#hm-letter-input').setAttribute('aria-invalid', String(invalid));
   $('#hm-save').disabled = invalid;
   $('#hm-device-icon').replaceChildren(FleetDeviceAppearance.createIcon(draft));
+  const choice = $('#hm-icon-choices .device-icon-letters');
+  if (choice) {
+    const text = FleetDeviceAppearance.letterText(draft.text) || 'A';
+    choice.textContent = text; choice.setAttribute('data-length', String(text.length));
+  }
 }
 function renderHostAppearanceChoices() {
   const draft = state.hostAppearanceDraft;

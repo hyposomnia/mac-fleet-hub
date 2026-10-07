@@ -3291,12 +3291,14 @@ test('editing device letters preserves the draft when changing color and does no
   const previousQuery=appSandbox.document.querySelector, previousDraft=appState.hostAppearanceDraft;
   const ids=['hm-device-icon','hm-icon-choices','hm-color-choices','hm-letter-field','hm-letter-input','hm-letter-error','hm-save','hm-appearance-reset'];
   const fields=Object.fromEntries(ids.map(id=>['#'+id,testElement('div')]));
+  const letterChoice=testElement('span');fields['#hm-icon-choices .device-icon-letters']=letterChoice;
   appSandbox.document.querySelector=selector=>fields[selector] || null;
   try {
     appState.hostAppearanceDraft={icon:'text',text:'A',color:'steel'};
     vm.runInContext('renderHostAppearanceChoices()',appSandbox);
     const input=fields['#hm-letter-input'];input.value='mb';input.oninput();
     assert.equal(input.value,'MB');assert.equal(fields['#hm-save'].disabled,false);
+    assert.equal(letterChoice.textContent,'MB');assert.equal(letterChoice.getAttribute('data-length'),'2');
     fields['#hm-color-choices'].children.find(b=>b.getAttribute('aria-label')==='紫罗兰').onclick();
     assert.equal(appState.hostAppearanceDraft.text,'MB');assert.equal(appState.hostAppearanceDraft.color,'violet');
     assert.equal(appSandbox.FleetDeviceAppearance.get('m8').icon,'monitor');
