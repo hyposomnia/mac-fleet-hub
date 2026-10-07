@@ -7123,10 +7123,10 @@ function renderHostAppearanceChoices() {
       onclick: () => {state.hostAppearanceDraft = {...state.hostAppearanceDraft, icon: choice.id, text: undefined}; renderHostAppearanceChoices();}},
       FleetDeviceAppearance.createIcon({...draft, icon: choice.id}), h('span', {text: choice.label})));
   });
-  icons.append(h('button', {type: 'button', class: 'device-icon-choice', 'aria-label': '字母图标',
+  icons.append(h('button', {type: 'button', class: 'device-icon-choice', 'aria-label': '文字图标',
     'aria-pressed': String(draft.icon === 'text'),
     onclick: () => {state.hostAppearanceDraft = {...state.hostAppearanceDraft, icon: 'text', text: state.hostAppearanceDraft.text || 'A'}; renderHostAppearanceChoices();}},
-    FleetDeviceAppearance.createIcon({icon: 'text', text: draft.text || 'A', color: draft.color}), h('span', {text: '字母'})));
+    FleetDeviceAppearance.createIcon({icon: 'text', text: draft.text || 'A', color: draft.color}), h('span', {text: '文字'})));
   $('#hm-letter-field').hidden = draft.icon !== 'text';
   const letterInput = $('#hm-letter-input');
   letterInput.value = draft.icon === 'text' ? draft.text || '' : '';

@@ -1147,7 +1147,7 @@ textarea.chat-request-input { resize: vertical; }
 }
 .chat-options-trigger:hover, .chat-options-trigger[aria-expanded="true"] { color: var(--chat-text); background: var(--chat-surface-hover);  }
 .chat-options-trigger:active { transform: translateY(1px); }
-.chat-options-trigger .ic { width: 15px; height: 15px; flex: none; }
+.chat-options-trigger .ic { width: 15px; height: 15px; flex: none; stroke-width: 1.8; }
 #chat-options-model { min-width: 0; overflow: hidden; text-overflow: ellipsis; font-size: var(--t-secondary); font-weight: 500; }
 .chat-options-secondary { flex: none; color: var(--chat-text-2); font-size: var(--t-secondary); }
 .chat-options-chevron, .chat-options-row-chevron {
