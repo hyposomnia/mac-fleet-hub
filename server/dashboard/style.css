@@ -1927,7 +1927,7 @@ html[data-workspace-tab="true"] .preview-actions .iconbtn { width: 26px; height:
 /* File tabs keep a small, shared composer floating on the right. */
 #chat-preview-output { display: none; }
 #win[data-workspace-preview="true"] #workspace-preview { bottom: 0; }
-#win[data-workspace-preview="true"] #chat-pane { overflow: visible; }
+#win[data-workspace-preview="true"] #chat-pane { --preview-bar-height: 48px; overflow: visible; }
 #win[data-workspace-preview="true"] #chat-composer {
   position: absolute; right: 20px; bottom: calc(14px + env(safe-area-inset-bottom, 0px));
   width: min(600px, calc(100% - 40px)); padding: 0; background: transparent;
@@ -1971,7 +1971,15 @@ html[data-workspace-tab="true"] .preview-actions .iconbtn { width: 26px; height:
   pointer-events: auto; border-radius: var(--radius-panel); box-shadow: var(--chat-popover-shadow);
   background: color-mix(in srgb, var(--chat-surface) 94%, transparent);
   -webkit-backdrop-filter: blur(16px); backdrop-filter: blur(16px);
-  animation: opop var(--dur-2) var(--ease);
+  animation: preview-unfold var(--dur-2) var(--ease);
+}
+/* Reveal upwards from the existing input bar; never translate or scale its controls. */
+@keyframes preview-unfold {
+  from { clip-path: inset(calc(100% - var(--preview-bar-height)) 0 0 round var(--radius-panel)); }
+  to { clip-path: inset(0 round var(--radius-panel)); }
+}
+@media (prefers-reduced-motion: reduce) {
+  #win[data-workspace-preview="true"][data-compact-composer-expanded="true"] #chat-pane { animation: none; }
 }
 #win[data-workspace-preview="true"][data-compact-composer-expanded="true"] #chat-preview-header:not([hidden]) {
   position: relative; z-index: 1; display: flex; flex: none; align-items: center; justify-content: space-between;
@@ -1982,10 +1990,10 @@ html[data-workspace-tab="true"] .preview-actions .iconbtn { width: 26px; height:
   position: relative; visibility: visible; pointer-events: auto; padding: 12px 16px; overscroll-behavior: contain;
 }
 #win[data-workspace-preview="true"][data-compact-composer-expanded="true"] #chat-composer {
-  position: relative; right: auto; bottom: auto; width: 100%; padding: 6px;
+  position: relative; right: auto; bottom: auto; width: 100%; padding: 0;
 }
 #win[data-workspace-preview="true"][data-compact-composer-expanded="true"] .chat-composer-inner {
-  grid-template-rows: auto auto; background: transparent; box-shadow: none;
+  grid-template-rows: auto auto;
 }
 #win[data-workspace-preview="true"][data-compact-composer-expanded="true"] #chat-input {
   max-height: 180px; white-space: pre-wrap; overflow-y: auto;
@@ -2155,6 +2163,7 @@ html[data-workspace-tab="true"] .preview-actions .iconbtn { width: 26px; height:
   .mobile-assistant-seg, .menu-theme-seg { border-radius: var(--radius-card); }
   .menu .menu-theme-seg button { min-height: 44px; border-radius: var(--radius-control); }
   .mobile-assistant-seg button, .scope-button.mobile-device-scope { min-height: 44px; border-radius: var(--radius-control); }
+  #win[data-workspace-preview="true"] #chat-pane { --preview-bar-height: 56px; }
   #win[data-workspace-preview="true"] #chat-composer { right: 10px; bottom: max(10px, env(safe-area-inset-bottom, 0px)); width: calc(100% - 20px); }
   #win[data-workspace-preview="true"] .chat-composer-inner { grid-template-columns: 44px minmax(0, 1fr) 44px 44px 44px; grid-template-rows: auto 44px; min-height: 56px; }
   #win[data-workspace-preview="true"] #chat-input { height: 44px; min-height: 44px; max-height: 44px; padding-block: 12px; font-size: var(--t-control); }

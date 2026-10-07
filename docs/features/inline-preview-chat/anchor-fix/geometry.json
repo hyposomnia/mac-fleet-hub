@@ -1,0 +1,136 @@
+{
+  "desktop": {
+    "before": {
+      "chat-approval": {
+        "height": 36,
+        "width": 36,
+        "x": 1142,
+        "y": 844
+      },
+      "chat-attach": {
+        "height": 36,
+        "width": 36,
+        "x": 666,
+        "y": 844
+      },
+      "chat-input": {
+        "height": 36,
+        "width": 436,
+        "x": 704,
+        "y": 844
+      },
+      "chat-options-trigger": {
+        "height": 36,
+        "width": 36,
+        "x": 1180,
+        "y": 844
+      },
+      "chat-send": {
+        "height": 36,
+        "width": 36,
+        "x": 1218,
+        "y": 844
+      }
+    },
+    "after": {
+      "chat-approval": {
+        "height": 36,
+        "width": 36,
+        "x": 1142,
+        "y": 844
+      },
+      "chat-attach": {
+        "height": 36,
+        "width": 36,
+        "x": 666,
+        "y": 844
+      },
+      "chat-input": {
+        "height": 36,
+        "width": 436,
+        "x": 704,
+        "y": 844
+      },
+      "chat-options-trigger": {
+        "height": 36,
+        "width": 36,
+        "x": 1180,
+        "y": 844
+      },
+      "chat-send": {
+        "height": 36,
+        "width": 36,
+        "x": 1218,
+        "y": 844
+      }
+    },
+    "unchanged": true
+  },
+  "mobile": {
+    "before": {
+      "chat-approval": {
+        "height": 44,
+        "width": 44,
+        "x": 238,
+        "y": 784
+      },
+      "chat-attach": {
+        "height": 44,
+        "width": 44,
+        "x": 16,
+        "y": 784
+      },
+      "chat-input": {
+        "height": 44,
+        "width": 174,
+        "x": 62,
+        "y": 784
+      },
+      "chat-options-trigger": {
+        "height": 44,
+        "width": 44,
+        "x": 284,
+        "y": 784
+      },
+      "chat-send": {
+        "height": 44,
+        "width": 44,
+        "x": 330,
+        "y": 784
+      }
+    },
+    "after": {
+      "chat-approval": {
+        "height": 44,
+        "width": 44,
+        "x": 238,
+        "y": 784
+      },
+      "chat-attach": {
+        "height": 44,
+        "width": 44,
+        "x": 16,
+        "y": 784
+      },
+      "chat-input": {
+        "height": 44,
+        "width": 174,
+        "x": 62,
+        "y": 784
+      },
+      "chat-options-trigger": {
+        "height": 44,
+        "width": 44,
+        "x": 284,
+        "y": 784
+      },
+      "chat-send": {
+        "height": 44,
+        "width": 44,
+        "x": 330,
+        "y": 784
+      }
+    },
+    "unchanged": true
+  }
+}

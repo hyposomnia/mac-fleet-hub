@@ -139,3 +139,13 @@ test('inline input starts at one line, grows with draft and caps long content', 
   win.dataset.compactComposerExpanded = 'false';
   context.resizeChatInput(); assert.equal(input.style.height, ''); assert.equal(input.value, '第一行\n第二行');
 });
+
+
+test('expanding keeps the input bar padding and surface, without moving or scaling it', async () => {
+  const css = await readFile(new URL('./style.css', import.meta.url), 'utf8');
+  const expanded = '#win[data-workspace-preview="true"][data-compact-composer-expanded="true"]';
+  const block = selector => css.split(selector + ' {')[1]?.split('}')[0] || '';
+  assert.match(block(expanded + ' #chat-composer'), /padding: 0;/);
+  assert.doesNotMatch(block(expanded + ' .chat-composer-inner'), /background: transparent/);
+  assert.doesNotMatch(block(expanded + ' #chat-pane'), /animation: opop/);
+});
