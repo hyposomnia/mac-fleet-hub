@@ -1494,6 +1494,15 @@ test('jump-to-bottom control uses an accessible inline SVG icon', () => {
   assert.doesNotMatch(indexHTML, />跳到底部<\/button>/);
 });
 
+test('floating summaries and jump control share a translucent surface independently of user bubbles', () => {
+  assert.ok(/--chat-floating-bg:\s*color-mix\(in srgb, var\(--chat-surface-2\) 72%, transparent\)/.test(styleCSS), 'floating surface retains an alpha channel');
+  for (const selector of ['.chat-turn-pin-card', '#chat-jump', '#win[data-workspace-preview="true"] #chat-preview-output:not([hidden])']) {
+    const block = styleCSS.split(selector + ' {')[1]?.split('}')[0] || '';
+    assert.match(block, /background:\s*var\(--chat-floating-bg\)/, selector);
+    assert.match(block, /backdrop-filter:\s*blur\(18px\)/, selector);
+  }
+});
+
 test('jump-to-bottom glass is not trapped inside the composer backdrop root', () => {
   assert.match(styleCSS, /#chat-composer\s*\{[^}]*background:\s*transparent;[^}]*backdrop-filter:\s*none;/s);
   assert.match(styleCSS, /#chat-composer::before\s*\{[^}]*backdrop-filter:\s*blur\(18px\);/s);

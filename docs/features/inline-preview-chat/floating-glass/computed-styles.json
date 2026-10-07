@@ -1,0 +1,202 @@
+{
+  "chatLight": {
+    "#chat-jump": {
+      "ancestors": [],
+      "background": "color(srgb 0.890196 0.913725 0.937255 / 0.72)",
+      "blur": "blur(18px)",
+      "border": "0px",
+      "rect": {
+        "bottom": 632,
+        "height": 48,
+        "left": 1212,
+        "right": 1260,
+        "top": 584,
+        "width": 48,
+        "x": 1212,
+        "y": 584
+      }
+    },
+    "#chat-preview-output": {
+      "ancestors": [],
+      "background": "rgba(0, 0, 0, 0)",
+      "blur": "none",
+      "border": "0px",
+      "rect": {
+        "bottom": 0,
+        "height": 0,
+        "left": 0,
+        "right": 0,
+        "top": 0,
+        "width": 0,
+        "x": 0,
+        "y": 0
+      }
+    },
+    ".chat-turn-pin-card": {
+      "ancestors": [],
+      "background": "color(srgb 0.890196 0.913725 0.937255 / 0.72)",
+      "blur": "blur(18px)",
+      "border": "0px",
+      "rect": {
+        "bottom": 85.5,
+        "height": 35.5,
+        "left": 924,
+        "right": 1260,
+        "top": 50,
+        "width": 336,
+        "x": 924,
+        "y": 50
+      }
+    }
+  },
+  "chatDark": {
+    "#chat-jump": {
+      "ancestors": [],
+      "background": "color(srgb 0.152941 0.192157 0.262745 / 0.72)",
+      "blur": "blur(18px)",
+      "border": "0px",
+      "rect": {
+        "bottom": 632,
+        "height": 48,
+        "left": 1212,
+        "right": 1260,
+        "top": 584,
+        "width": 48,
+        "x": 1212,
+        "y": 584
+      }
+    },
+    "#chat-preview-output": {
+      "ancestors": [],
+      "background": "rgba(0, 0, 0, 0)",
+      "blur": "none",
+      "border": "0px",
+      "rect": {
+        "bottom": 0,
+        "height": 0,
+        "left": 0,
+        "right": 0,
+        "top": 0,
+        "width": 0,
+        "x": 0,
+        "y": 0
+      }
+    },
+    ".chat-turn-pin-card": {
+      "ancestors": [],
+      "background": "color(srgb 0.152941 0.192157 0.262745 / 0.72)",
+      "blur": "blur(18px)",
+      "border": "0px",
+      "rect": {
+        "bottom": 85.5,
+        "height": 35.5,
+        "left": 924,
+        "right": 1260,
+        "top": 50,
+        "width": 336,
+        "x": 924,
+        "y": 50
+      }
+    }
+  },
+  "fileLight": {
+    "#chat-jump": {
+      "ancestors": [],
+      "background": "color(srgb 0.890196 0.913725 0.937255 / 0.72)",
+      "blur": "blur(18px)",
+      "border": "0px",
+      "rect": {
+        "bottom": 712,
+        "height": 48,
+        "left": 1192,
+        "right": 1240,
+        "top": 664,
+        "width": 48,
+        "x": 1192,
+        "y": 664
+      }
+    },
+    "#chat-preview-output": {
+      "ancestors": [],
+      "background": "color(srgb 0.890196 0.913725 0.937255 / 0.72)",
+      "blur": "blur(18px)",
+      "border": "0px",
+      "rect": {
+        "bottom": 758,
+        "height": 32,
+        "left": 660,
+        "right": 1260,
+        "top": 726,
+        "width": 600,
+        "x": 660,
+        "y": 726
+      }
+    },
+    ".chat-turn-pin-card": {
+      "ancestors": [],
+      "background": "color(srgb 0.890196 0.913725 0.937255 / 0.72)",
+      "blur": "blur(18px)",
+      "border": "0px",
+      "rect": {
+        "bottom": 85.5,
+        "height": 35.5,
+        "left": 924,
+        "right": 1260,
+        "top": 50,
+        "width": 336,
+        "x": 924,
+        "y": 50
+      }
+    }
+  },
+  "fileDark": {
+    "#chat-jump": {
+      "ancestors": [],
+      "background": "color(srgb 0.152941 0.192157 0.262745 / 0.72)",
+      "blur": "blur(18px)",
+      "border": "0px",
+      "rect": {
+        "bottom": 712,
+        "height": 48,
+        "left": 1192,
+        "right": 1240,
+        "top": 664,
+        "width": 48,
+        "x": 1192,
+        "y": 664
+      }
+    },
+    "#chat-preview-output": {
+      "ancestors": [],
+      "background": "color(srgb 0.152941 0.192157 0.262745 / 0.72)",
+      "blur": "blur(18px)",
+      "border": "0px",
+      "rect": {
+        "bottom": 758,
+        "height": 32,
+        "left": 660,
+        "right": 1260,
+        "top": 726,
+        "width": 600,
+        "x": 660,
+        "y": 726
+      }
+    },
+    ".chat-turn-pin-card": {
+      "ancestors": [],
+      "background": "color(srgb 0.152941 0.192157 0.262745 / 0.72)",
+      "blur": "blur(18px)",
+      "border": "0px",
+      "rect": {
+        "bottom": 85.5,
+        "height": 35.5,
+        "left": 924,
+        "right": 1260,
+        "top": 50,
+        "width": 336,
+        "x": 924,
+        "y": 50
+      }
+    }
+  }
+}

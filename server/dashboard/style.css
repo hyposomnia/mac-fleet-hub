@@ -81,6 +81,7 @@
   --chat-link:var(--accent-text);
   --chat-code-bg:var(--surface-2);
   --chat-user-bg:var(--surface-2);
+  --chat-floating-bg: color-mix(in srgb, var(--chat-surface-2) 72%, transparent);
   --chat-composer-bg:var(--surface-2);
  --chat-border:transparent;
   --chat-border-light:transparent;
@@ -146,6 +147,7 @@
   --chat-link:var(--accent-text);
   --chat-code-bg:var(--surface-2);
   --chat-user-bg:var(--surface-2);
+  --chat-floating-bg: color-mix(in srgb, var(--chat-surface-2) 72%, transparent);
   --chat-composer-bg:var(--surface-2);
  --chat-border:transparent;
   --chat-border-light:transparent;
@@ -838,9 +840,9 @@ html.automation-doc-root, html.automation-doc-root body { height: auto; min-heig
 .chat-turn-pin-inner { width: 100%; min-width: 0; max-width: none; margin: 0; display: flex; justify-content: flex-end; }
 .chat-turn-pin-card {
   width: fit-content; max-width: min(74%, 680px); min-width: 0; overflow: hidden; padding: 8px 12px;
-  border: 0; border-radius: var(--radius-control); background: var(--chat-user-bg);
+  border: 0; border-radius: var(--radius-control); background: var(--chat-floating-bg);
   box-shadow: var(--chat-composer-shadow); color: var(--chat-text); font-size: var(--t-body); line-height: 1.5; text-overflow: ellipsis; white-space: nowrap;
-  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px); backdrop-filter: blur(18px);
 }
 .chat-history-state { display: flex; justify-content: center; min-height: 24px; color: var(--chat-text-2); font-size: var(--t-secondary); }
 .chat-row { display: flex; align-items: flex-start; justify-content: flex-start; }
@@ -1251,17 +1253,16 @@ textarea.chat-request-input { resize: vertical; }
 .chat-image-viewer-close .ic { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; }
 #chat-jump {
   width: 48px; height: 48px; padding: 0; flex: none; display: grid; place-items: center;
-  border: 0; border-radius: 50%; background: var(--chat-user-bg); color: var(--chat-text-1);
+  border: 0; border-radius: 50%; background: var(--chat-floating-bg); color: var(--chat-text-1);
   pointer-events: auto; -webkit-backdrop-filter: blur(18px); backdrop-filter: blur(18px);
   transition: background var(--dur-1) var(--ease), color var(--dur-1) var(--ease),
               border-color var(--dur-1) var(--ease), transform var(--dur-1) var(--ease);
 }
 #chat-jump[hidden] { display: none; }
-/* 与用户气泡 .chat-row.user .chat-card 共用 Titanium 表面色；
-   多一个 blur 保证浮在文字上时是磨砂；hover 加深一档 */
+/* Floating controls keep an alpha surface even when user bubbles are opaque. */
 @media (hover: hover) {
   #chat-jump:hover {
-    background: color-mix(in oklab, var(--chat-text) 3%, var(--chat-user-bg));  color: var(--chat-text);
+    background: color-mix(in oklab, var(--chat-text) 3%, var(--chat-floating-bg));  color: var(--chat-text);
     transform: translateY(-1px);
   }
 }
@@ -2002,8 +2003,8 @@ html[data-workspace-tab="true"] .preview-actions .iconbtn { width: 26px; height:
 #win[data-workspace-preview="true"] #chat-preview-output:not([hidden]) {
   display: flex; align-items: center; gap: 10px; width: 100%; min-height: 32px;
   padding: 6px 12px; margin-bottom: 6px; border: 0; border-radius: var(--radius-control);
-  background: color-mix(in srgb, var(--chat-surface) 94%, transparent); box-shadow: var(--chat-composer-shadow); color: var(--chat-text-2); text-align: left;
-  -webkit-backdrop-filter: blur(16px); backdrop-filter: blur(16px);
+  background: var(--chat-floating-bg); box-shadow: var(--chat-composer-shadow); color: var(--chat-text-2); text-align: left;
+  -webkit-backdrop-filter: blur(18px); backdrop-filter: blur(18px);
 }
 #chat-preview-output-text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--t-secondary); }
 #chat-preview-output-icon.completed { width: 8px; height: 8px; background: var(--text-2); opacity: .45; }
