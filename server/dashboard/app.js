@@ -7099,6 +7099,14 @@ async function pingHost(id) {
 function hostProxyForm() {
   return {enabled: $('#hm-proxy-on').checked, http: $('#hm-http').value.trim(), https: $('#hm-https').value.trim()};
 }
+function syncHostLetterIcon() {
+  const draft = state.hostAppearanceDraft;
+  const invalid = draft.icon === 'text' && !FleetDeviceAppearance.letterText(draft.text);
+  $('#hm-letter-error').hidden = !invalid;
+  $('#hm-letter-input').setAttribute('aria-invalid', String(invalid));
+  $('#hm-save').disabled = invalid;
+  $('#hm-device-icon').replaceChildren(FleetDeviceAppearance.createIcon(draft));
+}
 function renderHostAppearanceChoices() {
   const draft = state.hostAppearanceDraft;
   $('#hm-device-icon').replaceChildren(FleetDeviceAppearance.createIcon(draft));
@@ -7107,13 +7115,26 @@ function renderHostAppearanceChoices() {
   FleetDeviceAppearance.icons.forEach(choice => {
     icons.append(h('button', {type: 'button', class: 'device-icon-choice', title: choice.label,
       'aria-label': choice.label, 'aria-pressed': String(draft.icon === choice.id),
-      onclick: () => {state.hostAppearanceDraft = {...draft, icon: choice.id}; renderHostAppearanceChoices();}},
+      onclick: () => {state.hostAppearanceDraft = {...state.hostAppearanceDraft, icon: choice.id, text: undefined}; renderHostAppearanceChoices();}},
       FleetDeviceAppearance.createIcon({...draft, icon: choice.id}), h('span', {text: choice.label})));
   });
+  icons.append(h('button', {type: 'button', class: 'device-icon-choice', 'aria-label': '字母图标',
+    'aria-pressed': String(draft.icon === 'text'),
+    onclick: () => {state.hostAppearanceDraft = {...state.hostAppearanceDraft, icon: 'text', text: state.hostAppearanceDraft.text || 'A'}; renderHostAppearanceChoices();}},
+    FleetDeviceAppearance.createIcon({icon: 'text', text: draft.text || 'A', color: draft.color}), h('span', {text: '字母'})));
+  $('#hm-letter-field').hidden = draft.icon !== 'text';
+  const letterInput = $('#hm-letter-input');
+  letterInput.value = draft.icon === 'text' ? draft.text || '' : '';
+  letterInput.oninput = () => {
+    const text = letterInput.value.replace(/[a-z]/g, letter => letter.toUpperCase()); letterInput.value = text;
+    state.hostAppearanceDraft = {...state.hostAppearanceDraft, icon: 'text', text};
+    syncHostLetterIcon();
+  };
+  syncHostLetterIcon();
   FleetDeviceAppearance.colors.forEach(choice => {
     colors.append(h('button', {type: 'button', class: 'device-color-choice', title: choice.label,
       'aria-label': choice.label, 'aria-pressed': String(draft.color === choice.id),
-      onclick: () => {state.hostAppearanceDraft = {...draft, color: choice.id}; renderHostAppearanceChoices();}},
+      onclick: () => {state.hostAppearanceDraft = {...state.hostAppearanceDraft, color: choice.id}; renderHostAppearanceChoices();}},
       h('span', {class: 'device-color-swatch', dataset: {deviceColor: choice.id}},
         draft.color === choice.id ? svgIcon('ic', 'M5 12l4 4L19 6') : null)));
   });
@@ -7153,6 +7174,9 @@ async function openHostModal(id) {
 async function saveHost() {
   const id = state.hostModalMac;
   if (!id) return;
+  if (state.hostAppearanceDraft.icon === 'text' && !FleetDeviceAppearance.letterText(state.hostAppearanceDraft.text)) {
+    syncHostLetterIcon(); $('#hm-letter-input').focus(); return;
+  }
   const btn = $('#hm-save'); btn.disabled = true; btn.textContent = '保存中…';
 
   const appearanceSaved = FleetDeviceAppearance.set(id, state.hostAppearanceDraft);

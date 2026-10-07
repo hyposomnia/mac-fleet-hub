@@ -1,5 +1,5 @@
 // PWA 外壳缓存。终端、API 与用户文件必须实时，明确不进入 Cache Storage。
-const CACHE = 'fleet-shell-v179';
+const CACHE = 'fleet-shell-v180';
 const FILE_TYPE_ICONS = [
   'audio', 'c', 'console', 'cpp', 'csharp', 'css', 'dart', 'database', 'docker',
   'document', 'exe', 'font', 'git', 'go', 'html', 'image', 'java', 'javascript',
@@ -14,13 +14,13 @@ const CODEMIRROR_ASSETS = [
   'javascript', 'xml', 'jsx', 'css', 'go', 'python', 'ruby', 'shell', 'yaml', 'toml', 'properties',
 ].map((name, index) => index < 2 ? name : `/vendor/codemirror/mode/${name}/${name}.js?v=5.65.20`);
 const SHELL = [
-  '/', '/index.html', '/theme.js?v=179', '/device_appearance.js?v=179', '/icons/favicon.svg?v=179', '/automation-guide.html', '/style.css?v=179',
+  '/', '/index.html', '/theme.js?v=180', '/device_appearance.js?v=180', '/icons/favicon.svg?v=180', '/automation-guide.html', '/style.css?v=180',
   '/vendor/purify.min.js?v=3.2.6', '/vendor/marked.min.js?v=15.0.12',
   ...CODEMIRROR_ASSETS,
-  '/markdown.js?v=179', '/preview.js?v=179', '/chat_model.js?v=179',
-  '/upload_model.js?v=179', '/sidebar_layout.js?v=179', '/device_hover.js?v=179', '/workspace_tabs.js?v=179', '/compact_composer.js?v=179', '/app.js?v=179',
-  '/manifest.webmanifest', '/icons/icon.svg?v=179', '/icons/icon-180.png?v=179', '/icons/icon-192.png?v=179',
-  '/icons/icon-512.png?v=179', '/icons/icon-maskable-512.png?v=179',
+  '/markdown.js?v=180', '/preview.js?v=180', '/chat_model.js?v=180',
+  '/upload_model.js?v=180', '/sidebar_layout.js?v=180', '/device_hover.js?v=180', '/workspace_tabs.js?v=180', '/compact_composer.js?v=180', '/app.js?v=180',
+  '/manifest.webmanifest', '/icons/icon.svg?v=180', '/icons/icon-180.png?v=180', '/icons/icon-192.png?v=180',
+  '/icons/icon-512.png?v=180', '/icons/icon-maskable-512.png?v=180',
   ...FILE_TYPE_ICONS,
 ];
 const SHELL_KEYS = new Set(SHELL);

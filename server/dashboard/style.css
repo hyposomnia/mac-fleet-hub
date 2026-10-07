@@ -666,7 +666,7 @@ html.automation-doc-root, html.automation-doc-root body { height: auto; min-heig
 .device-appearance-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
 .device-appearance-heading strong { font-size: var(--t-body); }
 .device-choice-label { color: var(--text-1); font-size: var(--t-secondary); }
-.device-icon-choices { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 4px; }
+.device-icon-choices { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 4px; }
 .device-icon-choice { min-width: 0; min-height: 66px; padding: 8px 2px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 7px; border: 0; border-radius: var(--radius-control); background: var(--surface-1); color: var(--text-2); font-size: var(--t-caption); }
 .device-icon-choice:hover { background: var(--surface-hover); }
 .device-icon-choice[aria-pressed="true"] { background: var(--accent-soft); color: var(--accent-text); font-weight: 600; }
@@ -2182,3 +2182,9 @@ html[data-workspace-tab="true"] .preview-actions .iconbtn { width: 26px; height:
 @media (prefers-reduced-motion: reduce) { .device-hover-card, .device-hover-card .host .nm, .device-hover-card .host .ct, .device-hover-settings { transition: none; } }
 
 .device-hover-card:hover .host:not([aria-current="true"]) { background: var(--surface-hover); }
+
+.device-icon-letters { font-family: var(--font); font-size: var(--t-title); font-weight: 700; line-height: 1; letter-spacing: -.03em; }
+.device-icon-letters[data-length="2"] { font-size: var(--t-secondary); }
+.device-letter-input { width: 100px; text-transform: uppercase; }
+.device-letter-error { color: var(--danger); font-size: var(--t-secondary); }
+#hm-letter-field[hidden], .device-letter-error[hidden] { display: none; }

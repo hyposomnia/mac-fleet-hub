@@ -45,3 +45,27 @@ test('all six icon choices have SVG geometry and eight colors are distinct', () 
   for (const choice of api.icons) assert.ok(api.createIcon({icon:choice.id}).children[0].children.length);
   assert.equal(new Set(api.colors.map(color=>color.id)).size,8);
 });
+test('one or two ASCII letters normalize to uppercase and invalid text never becomes an icon', () => {
+  const {api}=setup();
+  for(const [text,expected] of [['m','M'],['mb','MB'],[' A ','A']]) {
+    assert.deepEqual(JSON.parse(JSON.stringify(api.normalize({icon:'text',text,color:'violet'}))), {icon:'text',text:expected,color:'violet'});
+  }
+  for(const text of ['', 'ABC', 'M1', '中', '<', 'é', 'ß', 'ſ', 'ı']) assert.equal(api.normalize({icon:'text',text}).icon,'monitor');
+});
+test('letter icons persist per device, invalid saves retain prior preference and SVG selection clears text',()=>{
+  const {api,stored}=setup();
+  assert.equal(api.set('m1',{icon:'text',text:'mb',color:'teal'}),true);
+  assert.equal(setup(stored()).api.get('m1').text,'MB');
+  assert.equal(api.get('m2').icon,'monitor');
+  assert.equal(api.set('m1',{icon:'text',text:'M1',color:'rose'}),false);
+  assert.equal(api.get('m1').text,'MB');
+  api.set('m1',{icon:'mini',text:'MB',color:'teal'});
+  assert.equal(api.get('m1').icon,'mini');assert.equal(api.get('m1').text,undefined);
+});
+test('letter previews are plain text in the same coloured icon container and do not mutate preferences',()=>{
+  const {api}=setup();const icon=api.createIcon({icon:'text',text:'ab',color:'coral'});
+  assert.equal(icon.children.length,0);assert.equal(icon.textContent,'AB');
+  assert.equal(icon.attributes['data-device-color'],'coral');
+  assert.match(icon.className,/device-icon-letters/);assert.equal(icon.attributes['data-length'],'2');
+  assert.equal(api.get('m1').icon,'monitor');
+});
