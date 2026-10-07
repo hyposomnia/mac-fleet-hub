@@ -23,3 +23,15 @@
 
 ![桌面半屏会话](desktop-light.png)
 ![手机半屏会话](mobile-light.png)
+
+## 发布与线上验收
+
+Web v183 已从不可变源码提交 `b701026` 发布；运行配置与 Mac 客户端未修改，未重启服务。原始发布输出见 [deploy.txt](deploy.txt)，脚本见 [deploy.sh](deploy.sh)，静态 SHA 清单见 [static.sha256](static.sha256)。
+
+- 已备份旧静态文件：`/var/backups/mac-fleet-hub/dashboard-before-v183-20261007T113740Z.tgz`。
+- 109 个线上静态文件 SHA 匹配，动态 `api/nodes.json` 保留。
+- nginx、fleet-enroll、headscale、fleet-nodes.timer 均为 active。
+- 公网未认证 HTTP 返回 302 至既有认证入口，见 [http.txt](http.txt)。
+- 真实线上 Chrome 桌面 1516×917：最近输出有半透明底色与16px blur，点击原地展开正文，README 文件 Tab 保持选中；输入36px，面板458.5px。模型菜单操作保持面板，Escape先关闭菜单。
+- 真实线上 Chrome 手机视口390×844：摘要点击与输入聚焦均展开，面板422px，输入与收起按钮44px；收起后文件仍选中，无横向溢出，控制台warning/error为0。
+- 未发送测试消息、未改动模型或权限，未进行真实iOS键盘/PWA验收。含真实会话的线上截图仅保存在本机临时目录；仓库截图使用虚构内容。
