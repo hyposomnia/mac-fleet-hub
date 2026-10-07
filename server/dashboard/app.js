@@ -7435,6 +7435,16 @@ function init() {
       pushFleetHistory({ mode: 'sessions', term: true });
       $('#app').classList.add('term-open');
     }
+  }, onCloseChat: ({hasFiles}) => {
+    state.selectedSid = state.selectedSessionMacId = null;
+    showEmpty();
+    if (hasFiles) $('#fullscreen-btn').hidden = false;
+    $$('.ses.sel').forEach(row => row.classList.remove('sel'));
+    persistUIState();
+    if (!hasFiles) {
+      if (isMobile()) returnToSessionList();
+      else $('#session-search').focus();
+    }
   }});
   window.FleetSidebarLayout?.init();
   mountDeviceScopeButtons();

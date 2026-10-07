@@ -2161,7 +2161,7 @@ test('mobile title switch emphasizes only the selected mode', () => {
 });
 
 test('mobile device picker sits compactly in each title row', () => {
-  const sessionTitle = indexHTML.match(/<div class="sc-title-row">[\s\S]*?<\/div>\s*<div class="session-search-row">/)?.[0] || '';
+  const sessionTitle = indexHTML.match(/<div class="sc-title-row">[\s\S]*?<div class="seg mobile-assistant-seg"/)?.[0] || '';
   const fileTitle = indexHTML.match(/<header class="file-mobile-head">[\s\S]*?<\/header>/)?.[0] || '';
   assert.match(sessionTitle, /class="mobile-title-switch"[\s\S]*data-device-scope-slot="sessions"[\s\S]*class="sc-head-actions"/);
   assert.match(fileTitle, /class="mobile-title-switch"[\s\S]*data-device-scope-slot="files"[\s\S]*class="iconbtn bare mobile-menu-trigger"/);

@@ -24,27 +24,33 @@
 
   function createModel() {
     const tabs = [];
-    let active = 'chat';
+    let active = 'chat', chatOpen = true;
     return {
-      get tabs() { return tabs.slice(); }, get active() { return active; },
+      get tabs() { return tabs.slice(); }, get active() { return active; }, get chatOpen() { return chatOpen; },
       open(target) {
         if (!tabs.some(tab => tab.key === target.key)) tabs.push(target);
         active = target.key;
       },
       select(key) {
-        if (key === 'chat' || tabs.some(tab => tab.key === key)) active = key;
+        if (key === 'chat') { chatOpen = true; active = key; }
+        else if (tabs.some(tab => tab.key === key)) active = key;
       },
       close(key) {
+        if (key === 'chat') {
+          chatOpen = false;
+          if (active === key) active = tabs[0]?.key || null;
+          return;
+        }
         const index = tabs.findIndex(tab => tab.key === key);
         if (index < 0) return;
         tabs.splice(index, 1);
-        if (active === key) active = tabs[Math.max(0, index - 1)]?.key || 'chat';
+        if (active === key) active = tabs[Math.max(0, index - 1)]?.key || (chatOpen ? 'chat' : null);
       },
-      reset() { tabs.length = 0; active = 'chat'; },
+      reset() { tabs.length = 0; active = 'chat'; chatOpen = true; },
     };
   }
 
-  function init({onOpen = () => {}} = {}) {
+  function init({onOpen = () => {}, onCloseChat = () => {}} = {}) {
     const doc = root.document, win = doc.querySelector('#win');
     const strip = doc.querySelector('#workspace-tabs'), stage = doc.querySelector('#workspace-preview');
     if (!win || !strip || !stage || strip.dataset.ready) return;
@@ -104,7 +110,7 @@
     if (composer && root.ResizeObserver) new root.ResizeObserver(syncComposerHeight).observe(composer);
     function syncHeader() {
       const pane = doc.querySelector('#chat-pane');
-      const visible = !!(pane && !pane.hidden) || model.tabs.length > 0;
+      const visible = !!(model.chatOpen && pane && !pane.hidden) || model.tabs.length > 0;
       win.dataset.workspaceTabs = String(visible);
       strip.hidden = !visible;
     }
@@ -128,7 +134,7 @@
     }
     function render({focus = false} = {}) {
       hideTip();
-      const showing = model.active !== 'chat';
+      const showing = model.active !== null && model.active !== 'chat';
       syncComposerHeight();
       win.dataset.workspacePreview = String(showing);
       syncHeader(); stage.hidden = !showing;
@@ -141,7 +147,7 @@
         frame.hidden = key !== model.active;
       }
       strip.replaceChildren(); controls.clear();
-      for (const tab of [{key: 'chat', name: chatTitle(), detail: ''}, ...model.tabs]) {
+      for (const tab of [...(model.chatOpen ? [{key: 'chat', name: chatTitle(), detail: ''}] : []), ...model.tabs]) {
         const wrap = element('div', 'workspace-tab');
         const button = element('button', 'workspace-tab-select');
         const icon = element('span', 'workspace-tab-icon');
@@ -164,29 +170,31 @@
         wrap.dataset.selected = String(selected);
         button.onclick = () => { model.select(tab.key); render({focus: true}); };
         button.onkeydown = event => {
-          const keys = ['chat', ...model.tabs.map(item => item.key)];
+          const keys = [...(model.chatOpen ? ['chat'] : []), ...model.tabs.map(item => item.key)];
           const index = keys.indexOf(tab.key);
           let next;
           if (event.key === 'ArrowRight') next = keys[(index + 1) % keys.length];
           if (event.key === 'ArrowLeft') next = keys[(index + keys.length - 1) % keys.length];
-          if (event.key === 'Home') next = 'chat';
+          if (event.key === 'Home') next = keys[0];
           if (event.key === 'End') next = keys[keys.length - 1];
           if (next) { event.preventDefault(); model.select(next); render({focus: true}); }
-          if (event.key === 'Delete' && tab.key !== 'chat') { event.preventDefault(); close(tab.key); }
+          if (event.key === 'Delete') { event.preventDefault(); close(tab.key); }
         };
         wrap.append(button); controls.set(tab.key, button);
-        if (tab.key !== 'chat') {
-          const closeButton = element('button', 'workspace-tab-close', '×');
-          closeButton.type = 'button';
-          closeButton.setAttribute('aria-label', `关闭 ${tab.name}`);
-          closeButton.onclick = () => close(tab.key);
-          wrap.append(closeButton);
-        }
+        const closeButton = element('button', 'workspace-tab-close');
+        closeButton.type = 'button';
+        closeButton.setAttribute('aria-label', `关闭 ${tab.name}`);
+        closeButton.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M6 18 18 6"/></svg>';
+        closeButton.onclick = () => close(tab.key);
+        wrap.append(closeButton);
         strip.append(wrap);
       }
       if (focus) controls.get(model.active)?.focus({preventScroll: true});
     }
     function close(key) {
+      if (key === 'chat') {
+        model.close(key); onCloseChat({hasFiles: model.tabs.length > 0}); render({focus: true}); return;
+      }
       pause(frames.get(key)); frames.get(key)?.remove(); frames.delete(key);
       model.close(key); render({focus: true});
     }

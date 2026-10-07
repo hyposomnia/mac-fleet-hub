@@ -545,8 +545,8 @@ html.automation-doc-root, html.automation-doc-root body { height: auto; min-heig
 .rail-heading .brand { min-width: 0; }
 .sidebar-collapse { flex: none; }
 #sessions-collapse, #app .sessions-launcher {
-  width: 42px; height: 42px; border: 0; border-radius: var(--radius-control);
-  background: var(--surface-2); box-shadow: none; color: var(--text-1);
+  width: 28px; height: 28px; border: 0; border-radius: var(--radius-compact);
+  background: transparent; box-shadow: none; color: var(--text-1);
 }
 :is(#sessions-collapse, #sessions-launcher) .sidebar-icon-pane { fill: none; stroke: none; }
 :is(#sessions-collapse, #sessions-launcher)[aria-expanded="true"] .sidebar-icon-pane { fill: currentColor; }
@@ -1304,7 +1304,7 @@ html[data-workspace-tab="true"] .preview-actions .iconbtn { width: 26px; height:
 #win[data-workspace-tabs="true"] > .win-head { min-height: 42px; padding-block: 6px; gap: 8px; background: var(--surface); }
 #win[data-workspace-tabs="true"] > .win-head .info { display: none; }
 #win[data-workspace-tabs="true"] > .win-head > .iconbtn { width: 28px; height: 28px; }
-.workspace-tab { display: flex; align-items: center; flex: 0 1 220px; min-width: 90px; max-width: 220px; border: 0; border-radius: var(--radius-compact); background: var(--surface-2); color: var(--text-2); }
+.workspace-tab { display: flex; align-items: center; flex: 0 1 220px; min-width: 90px; max-width: 220px; border: 0; border-radius: var(--radius-compact); background: transparent; color: var(--text-2); }
 .workspace-tab[data-selected="true"] { background: var(--surface-1); color: var(--text); box-shadow: var(--e1); }
 .workspace-tab-select { display: flex; align-items: center; gap: 7px; flex: 1; min-width: 0; height: 28px; min-height: 28px; padding: 0 9px; border: 0; border-radius: var(--radius-compact); font-size: var(--t-secondary); line-height: 1; }
 .workspace-tab-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -1330,6 +1330,11 @@ html[data-workspace-tab="true"] .preview-actions .iconbtn { width: 26px; height:
 #win[data-workspace-preview="true"] > #reload-banner { display: none; }
 
 @media (max-width: 860px) {
+  #sescol .sc-head { display: flex; flex-direction: column; align-items: stretch; gap: 0; }
+  #sescol .sc-title-row { order: 0; }
+  #sescol .mobile-assistant-seg { order: 1; }
+  #sescol .session-search-row { order: 2; }
+  #win[data-workspace-tabs="true"] > .win-head { background: var(--workspace-header-bg); }
   #win[data-workspace-tabs="true"] > .win-head { flex-wrap: nowrap; padding-block: 0; gap: 6px; min-height: 44px; }
   #win[data-workspace-tabs="true"] > .win-head > .iconbtn { width: 44px; height: 44px; }
   #workspace-tabs { gap: 4px; }
@@ -2045,4 +2050,26 @@ html[data-workspace-tab="true"] .preview-actions .iconbtn { width: 26px; height:
   .mobile-assistant-seg, .menu-theme-seg { border-radius: var(--radius-card); }
   .menu .menu-theme-seg button { min-height: 44px; border-radius: var(--radius-control); }
   .mobile-assistant-seg button, .scope-button.mobile-device-scope { min-height: 44px; border-radius: var(--radius-control); }
+}
+
+
+/* The list toolbar and workspace share one continuous header surface. */
+#app { --workspace-header-height: 42px; --workspace-header-bg: var(--surface-2); }
+.workspace-tab-close svg { width: 12px; height: 12px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; }
+@media (min-width: 861px) {
+  #sescol .sc-head { padding: 0; }
+  #sescol .session-search-row {
+    height: var(--workspace-header-height); margin: 0; padding: 6px 10px; gap: 4px;
+    grid-template-columns: 28px minmax(0, 1fr) 28px 28px; align-items: center; background: var(--workspace-header-bg);
+  }
+  #sescol .session-search-row .iconbtn { width: 28px; height: 28px; min-width: 28px; max-width: 28px; background: transparent; box-shadow: none; }
+  #sescol #session-view-toggle[aria-pressed="true"] { background: var(--surface-1); color: var(--accent-text); }
+  #sescol .session-searchbar { height: 28px; min-height: 28px; padding: 0 6px; background: transparent; }
+  #sescol .session-searchbar input { font-size: var(--t-secondary); }
+  #sescol .sc-title-row { padding: 8px 10px 0; }
+  #win > .win-head, #win[data-workspace-tabs="true"] > .win-head {
+    height: var(--workspace-header-height); min-height: var(--workspace-header-height); padding: 6px 10px; background: var(--workspace-header-bg);
+  }
+  #app .sessions-launcher:not([hidden]) { top: 7px; left: calc(var(--layout-rail-w) + 10px); }
+  #app[data-sessions-collapsed="true"][data-mode="sessions"] > #win > .win-head { padding-left: 48px; }
 }
