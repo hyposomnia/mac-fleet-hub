@@ -944,6 +944,23 @@ test('a newer background reply becomes unread until that session is selected', (
   }
 });
 
+test('a selected session remains unread while its file tab covers the conversation', () => {
+  const oldQuery = appSandbox.document.querySelector;
+  const saved = {sessionReadAt: appState.sessionReadAt, selectedSid: appState.selectedSid,
+    selectedSessionMacId: appState.selectedSessionMacId, selectedSessionAssistant: appState.selectedSessionAssistant};
+  const win = {dataset: {workspacePreview: 'true'}};
+  const session = {sessionId: 'preview-unread', macId: 'm1', assistant: 'codex', status: 'idle', mtime: fixedAppNowMs};
+  try {
+    appSandbox.document.querySelector = selector => selector === '#win' ? win : null;
+    appState.sessionReadAt = new Map([['m1\ncodex\npreview-unread', fixedAppNowMs - 1000]]);
+    appState.selectedSid = session.sessionId; appState.selectedSessionMacId = session.macId;
+    appState.selectedSessionAssistant = session.assistant;
+    assert.equal(sessionStatus(session).className, 'unread');
+    win.dataset.workspacePreview = 'false';
+    assert.equal(sessionStatus(session).className, 'read');
+  } finally { appSandbox.document.querySelector = oldQuery; Object.assign(appState, saved); }
+});
+
 test('a Desktop unread thread is not silently baselined as read on first sight', () => {
   const previousReadAt = appState.sessionReadAt;
   const previousSid = appState.selectedSid;

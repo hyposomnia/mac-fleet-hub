@@ -1344,7 +1344,8 @@ function markSessionRead(session) {
 function sessionIsUnread(session) {
   if (!session?.sessionId) return false;
   if (session.sessionId === state.selectedSid && session.macId === state.selectedSessionMacId &&
-      (session.assistant || state.assistant) === (state.selectedSessionAssistant || state.assistant)) return false;
+      (session.assistant || state.assistant) === (state.selectedSessionAssistant || state.assistant) &&
+      $('#win')?.dataset.workspacePreview !== 'true') return false;
   const activity = sessionActivityAt(session);
   const sharedReadAt = Number(session.readAt) || 0;
   if (sharedReadAt >= activity && sharedReadAt > 0) return false;
@@ -1997,7 +1998,7 @@ function showEmpty() {
   $('#mobile-input').hidden = true;
   stopWatch(); hideBanner();
   const tt = $('#win-title'); clear(tt); tt.append(h('span', { class: 'ttl', text: '选择一个会话' }));
-  $('#win-meta').textContent = '选择会话开始聊天';
+  $('#win-meta').textContent = '';
 }
 
 // 新建一个池条目（新 iframe）并显示，随后按上限 LRU 回收。
@@ -3100,6 +3101,7 @@ function renderChat({ preserveScroll = false, forceBottom = false } = {}) {
   if (progress) stack.append(progress);
   if (model.error) stack.append(renderChatError(model.error));
   clear(sc); sc.append(stack);
+  syncCompactComposer();
   if (preserveScroll) sc.scrollTop = oldTop + (sc.scrollHeight - oldHeight);
   else if (forceBottom || stick) sc.scrollTop = sc.scrollHeight;
   syncChatTurnPin();
@@ -4378,6 +4380,11 @@ function chatLinkHref(source) {
 function resizeChatInput() {
   const input = $('#chat-input');
   if (!input) return;
+  if ($('#win')?.dataset.workspacePreview === 'true') {
+    input.style.height = '';
+    input.style.overflowY = '';
+    return;
+  }
   input.style.height = 'auto';
   input.style.height = Math.min(input.scrollHeight, 180) + 'px';
   input.style.overflowY = input.scrollHeight > 180 ? 'auto' : 'hidden';
@@ -4438,6 +4445,12 @@ function updateChatComposerState() {
     : (action === 'wait-desktop' ? 'ChatGPT 桌面端正在使用此会话' :
       (blocked ? '等待附件上传完成' : (action === 'queue-desktop' ? '提交到服务器队列' : '发送')));
   send.setAttribute('aria-label', send.title);
+  syncCompactComposer();
+}
+
+let compactComposer;
+function syncCompactComposer() {
+  compactComposer?.update({model: state.chat?.model, running: isChatRunning(state.chat), unread: !!state.chat?.unread});
 }
 
 function mergeChatComposerText(failedText, currentText) {
@@ -5096,7 +5109,7 @@ function startChatEvents(chat = state.chat) {
           item.sessionId === chat.sessionId && (item.assistant || state.assistant) === chat.assistant) || {
           macId: chat.macId, assistant: chat.assistant, sessionId: chat.sessionId, mtime: Date.now(),
         };
-        if (state.chat === chat) markSessionRead(session);
+        if (state.chat === chat && $('#win')?.dataset.workspacePreview !== 'true' && !document.hidden) markSessionRead(session);
         else chat.unread = true;
       }
       // EventSource reconnects replay unresolved requests. Derive this from the
@@ -7173,6 +7186,7 @@ async function saveHost() {
 // ============================================================
 function doLogout() {
   closeMenus();
+  compactComposer?.update();
   location.href = `${BASE}/auth/logout?rd=${encodeURIComponent(location.origin + BASE + '/')}`;
 }
 
@@ -7429,6 +7443,15 @@ function init() {
     registerServiceWorker();
     return;
   }
+  compactComposer = window.FleetCompactComposer?.init({onResize: resizeChatInput,
+    onReturn: () => window.FleetWorkspaceTabs?.showChat(),
+    onRead: () => {
+      if (!state.chat) return;
+      markSessionRead({macId: state.chat.macId, assistant: state.chat.assistant,
+        sessionId: state.chat.sessionId, mtime: state.chat.updatedAt});
+      syncSessionRuntimeIndicators();
+    },
+  });
   window.FleetWorkspaceTabs?.init({onOpen: () => {
     if (state.mode !== 'sessions') setMode('sessions');
     if (isMobile() && !$('#app').classList.contains('term-open')) {

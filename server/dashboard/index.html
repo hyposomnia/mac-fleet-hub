@@ -5,18 +5,18 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content" />
   <!-- theme-color 与共享 Titanium 主题控制器同步。 -->
   <meta name="theme-color" content="#FFFFFF" />
-  <script src="/theme.js?v=175"></script>
+  <script src="/theme.js?v=176"></script>
   <title>mac fleet hub</title>
   <link rel="manifest" href="manifest.webmanifest" />
-  <link rel="icon" href="icons/favicon.svg?v=175" type="image/svg+xml" />
-  <link rel="apple-touch-icon" href="icons/icon-180.png?v=175" sizes="180x180" />
+  <link rel="icon" href="icons/favicon.svg?v=176" type="image/svg+xml" />
+  <link rel="apple-touch-icon" href="icons/icon-180.png?v=176" sizes="180x180" />
   <meta name="mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <meta name="apple-mobile-web-app-title" content="fleet hub" />
   <!-- theme.js 在样式加载前同步应用已保存的外观，默认浅色。 -->
   <link rel="stylesheet" href="vendor/codemirror/lib/codemirror.css?v=5.65.20" />
-  <link rel="stylesheet" href="style.css?v=175" />
+  <link rel="stylesheet" href="style.css?v=176" />
 </head>
 <body>
   <!-- DeepSeek 官方 whale mark，来源与 MIT 许可见 icons/deepseek/LICENSE.md。 -->
@@ -254,7 +254,7 @@
         <button id="win-back" class="iconbtn bare win-back" title="返回（不结束进程）"><svg class="ic" viewBox="0 0 24 24"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg></button>
         <div class="info">
           <span id="win-title" class="tt" tabindex="-1"><span class="ttl">选择一个会话</span></span>
-          <span id="win-meta" class="mt">选择会话开始聊天</span>
+          <span id="win-meta" class="mt" hidden aria-hidden="true"></span>
         </div>
         <div id="workspace-tabs" role="tablist" aria-label="会话与文件预览" hidden></div>
         <button id="reconnect-btn" class="iconbtn" title="重连" hidden><svg class="ic" viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg></button>
@@ -311,6 +311,10 @@
                 </div>
               </section>
               <div id="chat-pending-interaction" hidden></div>
+              <button id="chat-preview-output" type="button" hidden>
+                <span id="chat-preview-output-icon" class="session-state-dot" aria-hidden="true"></span>
+                <span id="chat-preview-output-text"></span>
+              </button>
               <div id="chat-followups" hidden></div>
               <div class="chat-composer-inner">
                 <div id="chat-attachments" hidden></div>
@@ -573,13 +577,14 @@
   <script src="vendor/codemirror/mode/yaml/yaml.js?v=5.65.20"></script>
   <script src="vendor/codemirror/mode/toml/toml.js?v=5.65.20"></script>
   <script src="vendor/codemirror/mode/properties/properties.js?v=5.65.20"></script>
-  <script src="markdown.js?v=175"></script>
-  <script src="preview.js?v=175"></script>
-  <script src="chat_model.js?v=175"></script>
-  <script src="upload_model.js?v=175"></script>
-  <script src="device_appearance.js?v=175"></script>
-  <script src="sidebar_layout.js?v=175"></script>
-  <script src="workspace_tabs.js?v=175"></script>
-  <script src="app.js?v=175"></script>
+  <script src="markdown.js?v=176"></script>
+  <script src="preview.js?v=176"></script>
+  <script src="chat_model.js?v=176"></script>
+  <script src="upload_model.js?v=176"></script>
+  <script src="device_appearance.js?v=176"></script>
+  <script src="sidebar_layout.js?v=176"></script>
+  <script src="workspace_tabs.js?v=176"></script>
+  <script src="compact_composer.js?v=176"></script>
+  <script src="app.js?v=176"></script>
 </body>
 </html>
