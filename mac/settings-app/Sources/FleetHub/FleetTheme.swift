@@ -39,6 +39,7 @@ struct FleetButtonStyle: ButtonStyle {
             .font(.system(size: 13, weight: .medium))
             .padding(.horizontal, kind == .compact ? 10 : 16)
             .frame(minHeight: kind == .compact ? FleetTheme.compactHeight : FleetTheme.controlHeight)
+            .contentShape(Rectangle())
             .foregroundStyle(kind == .primary ? theme.accentContrast : kind == .danger ? theme.danger : theme.text)
             .background(kind == .primary ? theme.accent : configuration.isPressed ? theme.hover : theme.secondarySurface,
                         in: RoundedRectangle(cornerRadius: kind == .compact ? FleetTheme.compactRadius : FleetTheme.controlRadius))

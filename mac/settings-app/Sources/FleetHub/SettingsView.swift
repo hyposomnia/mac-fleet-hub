@@ -27,8 +27,13 @@ struct SettingsView: View {
     @State private var confirmUninstall = false
     @State private var confirmLogout = false
     @State private var removeSettings = false
+    @StateObject private var diskGuide = DiskAccessGuideController()
     @FocusState private var originFocused: Bool
     private var theme: FleetTheme { FleetTheme(scheme: scheme) }
+    private var setupAction: FleetSetupAction {
+        FleetSetupAction(requiresInstallation: management.layout.requiresInstallation,
+                         backgroundInstalled: FileManager.default.isExecutableFile(atPath: management.layout.agent.path))
+    }
 
     var body: some View {
         HStack(spacing: 0) {
@@ -39,15 +44,7 @@ struct SettingsView: View {
                 }
                 VStack(spacing: 8) {
                     ForEach(SettingsPage.allCases) { item in
-                        Button { page = item } label: {
-                            Label(item.rawValue, systemImage: item.symbol)
-                                .font(.system(size: 13, weight: page == item ? .semibold : .regular))
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                .padding(.horizontal, 14).frame(height: FleetTheme.controlHeight)
-                                .foregroundStyle(page == item ? theme.accent : theme.secondaryText)
-                                .background(page == item ? theme.surface : .clear, in: RoundedRectangle(cornerRadius: FleetTheme.controlRadius))
-                        }
-                        .buttonStyle(.plain).accessibilityAddTraits(page == item ? .isSelected : [])
+                        FleetNavigationButton(page: item, selected: page == item) { page = item }
                     }
                 }
                 Spacer()
@@ -73,14 +70,25 @@ struct SettingsView: View {
         .font(.system(size: 13)).foregroundStyle(theme.text).background(theme.background).tint(theme.accent)
         .buttonStyle(FleetButtonStyle())
         .disabled(model.isBusy || operationBusy || updater.busy)
+        .onDisappear { diskGuide.close() }
+        .onChange(of: page) { selected in if selected != .privacy { diskGuide.close() } }
         .task {
-            if management.layout.requiresInstallation { page = .about; return }
+            if management.layout.requiresInstallation { return }
+            operationBusy = true
             await updater.recoverAfterLaunch()
             if !updater.recoveryPending {
-                do { try await management.prepareRuntime() }
+                do {
+                    if FleetSetupAction.startsAfterInstallation(arguments: CommandLine.arguments) { try await management.start() }
+                    else { try await management.prepareRuntime() }
+                }
                 catch { operationError = error.localizedDescription }
             }
             await model.refresh()
+            if FleetSetupAction.startsAfterInstallation(arguments: CommandLine.arguments), model.status != nil, !updater.recoveryPending {
+                do { try management.setAutoStart(model.autoStart) }
+                catch { operationError = error.localizedDescription }
+            }
+            operationBusy = false
             while !Task.isCancelled {
                 try? await Task.sleep(nanoseconds: 2_000_000_000)
                 guard !Task.isCancelled else { break }
@@ -105,11 +113,14 @@ struct SettingsView: View {
             card {
                 HStack(spacing: 12) {
                     Circle().fill(model.status == nil ? theme.secondaryText : theme.online).frame(width: 8, height: 8)
-                    Text(model.status == nil ? "后台未运行" : "后台运行中").font(.system(size: 16, weight: .semibold))
+                    Text(model.status == nil ? setupAction.status : "后台运行中").font(.system(size: 16, weight: .semibold))
                     Spacer()
                     if model.status == nil {
-                        Button("启动") { perform { try await management.start(); await model.refresh() } }
-                            .buttonStyle(FleetButtonStyle(.primary)).disabled(management.layout.requiresInstallation)
+                        Button(setupAction.title) {
+                            if setupAction == .installApplication { installApplication() }
+                            else { perform { try await management.start(); await model.refresh(); try management.setAutoStart(model.autoStart) } }
+                        }
+                        .buttonStyle(FleetButtonStyle(.primary))
                     } else {
                         Button("重启") { perform { try await management.restart(); await model.refresh() } }
                         Button("停止") { perform { try await management.stop(); await model.refresh() } }
@@ -136,12 +147,13 @@ struct SettingsView: View {
                         Spacer()
                         Image(systemName: "arrow.right").foregroundStyle(theme.accent)
                     }
-                    .padding(20).background(theme.surface, in: RoundedRectangle(cornerRadius: FleetTheme.cardRadius))
+                    .padding(20).contentShape(Rectangle())
+                    .background(theme.surface, in: RoundedRectangle(cornerRadius: FleetTheme.cardRadius))
                 }
                 .buttonStyle(.plain)
             }
             card {
-                row("登录后启动", management.autoStartStatus)
+                row("登录后启动", management.layout.requiresInstallation ? "随应用安装" : management.autoStartStatus)
                 DisclosureGroup("运行详情") {
                     if let current = model.status { row("版本", current.version); row("进程", String(current.pid)).monospacedDigit() }
                 }
@@ -216,18 +228,25 @@ struct SettingsView: View {
                         .help("由实际后台只读检查；文件权限与 ACL 仍然生效。").disabled(model.status == nil)
                 }
             }
-            HStack {
-                Button("打开系统设置") {
-                    if let link = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles") { NSWorkspace.shared.open(link) }
+            if let application = DiskAccessApplication(url: management.layout.backgroundApplication), !management.layout.requiresInstallation {
+                card { DiskAccessInstructions(application: application) }
+                HStack {
+                    Button("打开系统设置") {
+                        do { try diskGuide.show(applicationURL: management.layout.backgroundApplication) }
+                        catch { operationError = error.localizedDescription }
+                    }
+                    .buttonStyle(FleetButtonStyle(.primary))
+                    if model.diskState != .verified && model.status != nil {
+                        Button("重启并检查") { perform { try await management.restart(); await model.refresh(); await model.recheckDisk() } }
+                    }
+                }
+                Text("仅授权 Fleet Agent，设置应用无需磁盘权限。").foregroundStyle(theme.secondaryText)
+            } else {
+                Button("安装并启动") {
+                    if management.layout.requiresInstallation { installApplication() }
+                    else { perform { try await management.start(); await model.refresh(); try management.setAutoStart(model.autoStart) } }
                 }
                 .buttonStyle(FleetButtonStyle(.primary))
-                Button("选择后台应用") { NSWorkspace.shared.activateFileViewerSelecting([management.layout.backgroundApplication]) }
-                    .help("选择独立运行的 Fleet Agent.app；旧版 fleet-agent 的授权不会自动继承。")
-                    .disabled(management.layout.requiresInstallation || !FileManager.default.fileExists(atPath: management.layout.backgroundApplication.path))
-            }
-            Text("仅授权 Fleet Agent，设置应用无需磁盘权限。").foregroundStyle(theme.secondaryText)
-            if model.diskState != .verified && model.status != nil {
-                Button("重启并检查") { perform { try await management.restart(); await model.refresh(); await model.recheckDisk() } }
             }
             if let evidence = model.status?.diskAccess, !(evidence.deniedTargets ?? []).isEmpty {
                 DisclosureGroup("检测详情") {
@@ -256,9 +275,7 @@ struct SettingsView: View {
                 if updater.sessionActive { Button("继续安装升级") { Task { await updater.continueInstallation() } } }
             }
             if management.layout.requiresInstallation {
-                Button("安装到应用程序") {
-                    perform { let installed = try await management.install(); NSWorkspace.shared.open(installed); NSApplication.shared.terminate(nil) }
-                }
+                Button("安装并启动") { installApplication() }
                 .buttonStyle(FleetButtonStyle(.primary))
             } else {
                 DisclosureGroup("卸载") {
@@ -279,6 +296,16 @@ struct SettingsView: View {
         HStack(alignment: .firstTextBaseline) {
             Text(title).foregroundStyle(theme.secondaryText).frame(width: 88, alignment: .leading)
             Text(value).textSelection(.enabled)
+        }
+    }
+    private func installApplication() {
+        perform {
+            let installed = try await management.install()
+            let configuration = NSWorkspace.OpenConfiguration()
+            configuration.arguments = ["--fleet-install-and-start"]
+            configuration.createsNewApplicationInstance = true
+            _ = try await NSWorkspace.shared.openApplication(at: installed, configuration: configuration)
+            NSApplication.shared.terminate(nil)
         }
     }
     private func saveSettings(authorize: Bool) {

@@ -30,6 +30,7 @@ let paths = try pattern.matches(in: source, range: NSRange(source.startIndex...,
     return path
 }
 guard paths.count == 3 else { throw CocoaError(.fileReadCorruptFile) }
+let inkBounds = paths.reduce(CGRect.null) { $0.union($1.boundingBoxOfPath) }
 try FileManager.default.createDirectory(at: destination, withIntermediateDirectories: true)
 for (filename, pixels, icon) in [("AppIcon.png", 1024, true), ("BrandMark.png", 256, false)] {
     let context = CGContext(data: nil, width: pixels, height: pixels, bitsPerComponent: 8, bytesPerRow: 0,
@@ -39,8 +40,16 @@ for (filename, pixels, icon) in [("AppIcon.png", 1024, true), ("BrandMark.png", 
         context.fill(CGRect(x: 0, y: 0, width: pixels, height: pixels))
     }
     context.translateBy(x: 0, y: CGFloat(pixels))
-    context.scaleBy(x: CGFloat(pixels) / (icon ? 512 : 96), y: -CGFloat(pixels) / (icon ? 512 : 96))
-    if icon { context.translateBy(x: 88, y: 88); context.scaleBy(x: 3.5, y: 3.5) }
+    context.scaleBy(x: 1, y: -1)
+    if icon {
+        let scale = CGFloat(pixels) * 0.78 / max(inkBounds.width, inkBounds.height)
+        context.translateBy(x: (CGFloat(pixels) - inkBounds.width * scale) / 2,
+                            y: (CGFloat(pixels) - inkBounds.height * scale) / 2)
+        context.scaleBy(x: scale, y: scale)
+        context.translateBy(x: -inkBounds.minX, y: -inkBounds.minY)
+    } else {
+        context.scaleBy(x: CGFloat(pixels) / 96, y: CGFloat(pixels) / 96)
+    }
     context.setFillColor(CGColor(red: 44 / 255, green: 93 / 255, blue: 135 / 255, alpha: 1))
     for path in paths { context.addPath(path); context.fillPath() }
     let bitmap = NSBitmapImageRep(cgImage: context.makeImage()!)

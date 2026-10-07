@@ -47,6 +47,42 @@ test('both native app bundles include the adopted brand icon', () => {
   assert.match(script, /\$AGENT\/Contents\/Resources\/AppIcon\.icns/);
 });
 
+test('app icon artwork fills the canvas without clipping or changing the brand mark', { skip: process.platform !== 'darwin' }, () => {
+  const root = mkdtempSync(join(tmpdir(), 'fleet-icon-test-'));
+  try {
+    const renderer = fileURLToPath(new URL('./render-settings-icon.swift', import.meta.url));
+    const brand = fileURLToPath(new URL('../mac/settings-app/Resources/BrandMark.svg', import.meta.url));
+    const render = spawnSync('/usr/bin/swift', [renderer, brand, root], { encoding: 'utf8', timeout: 60000 });
+    assert.equal(render.status, 0, render.stderr);
+    const probe = join(root, 'probe.swift');
+    writeFileSync(probe, `import AppKit
+let bitmap = NSBitmapImageRep(data: try Data(contentsOf: URL(fileURLWithPath: CommandLine.arguments[1])))!
+var minimumX = bitmap.pixelsWide, minimumY = bitmap.pixelsHigh, maximumX = 0, maximumY = 0
+for row in 0..<bitmap.pixelsHigh {
+    for column in 0..<bitmap.pixelsWide {
+        guard let color = bitmap.colorAt(x: column, y: row)?.usingColorSpace(.deviceRGB) else { continue }
+        if color.redComponent < 0.6 && color.blueComponent > color.redComponent * 1.2 {
+            minimumX = min(minimumX, column); minimumY = min(minimumY, row)
+            maximumX = max(maximumX, column); maximumY = max(maximumY, row)
+        }
+    }
+}
+print("\\(minimumX) \\(minimumY) \\(maximumX) \\(maximumY) \\(bitmap.pixelsWide) \\(bitmap.pixelsHigh)")
+`);
+    const measured = spawnSync('/usr/bin/swift', [probe, join(root, 'AppIcon.png')], { encoding: 'utf8', timeout: 60000 });
+    assert.equal(measured.status, 0, measured.stderr);
+    const [minimumX, minimumY, maximumX, maximumY, width, height] = measured.stdout.trim().split(/\s+/).map(Number);
+    assert.equal(width, 1024); assert.equal(height, 1024);
+    assert.ok((maximumY - minimumY + 1) / height >= 0.76, 'logo is too small inside the app icon');
+    assert.ok(minimumX >= width * 0.08 && minimumY >= height * 0.08);
+    assert.ok(maximumX < width * 0.92 && maximumY < height * 0.92);
+    assert.ok(Math.abs((minimumX + maximumX) / 2 - (width - 1) / 2) <= 1);
+    assert.ok(Math.abs((minimumY + maximumY) / 2 - (height - 1) / 2) <= 1);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test('login helper only starts the independently managed daemon', () => {
   const plist = read('../mac/settings-app/Resources/com.macfleet.desktop-login.plist');
   assert.match(plist, /com\.macfleet\.desktop-login/);
@@ -87,14 +123,31 @@ test('native packaging requires verified bundled runtime instead of developer Ho
 
 test('native privacy instructions identify the background bundle and do not promise universal permission', () => {
   const view = read('../mac/settings-app/Sources/FleetHub/SettingsView.swift');
-  assert.match(view, /Privacy_AllFiles/);
-  assert.match(view, /Fleet Agent\.app/);
-  assert.match(view, /activateFileViewerSelecting\(\[management\.layout\.backgroundApplication\]\)/);
-  assert.doesNotMatch(view, /activateFileViewerSelecting\(\[management\.layout\.application\]\)/);
+  const guide = read('../mac/settings-app/Sources/FleetHub/DiskAccessGuide.swift');
+  assert.match(guide, /Privacy_AllFiles/);
+  assert.match(guide, /Fleet Agent\.app/);
+  assert.match(view, /applicationURL: management\.layout\.backgroundApplication/);
+  assert.match(guide, /NSDraggingItem\(pasteboardWriter: url as NSURL\)/);
+  assert.match(guide, /activateFileViewerSelecting\(\[application\.url\]\)/);
+  assert.match(guide, /无需授权 Fleet Hub/);
+  assert.match(guide, /打开开关/);
   assert.match(view, /accessibilityLabel\("重新检查后台权限"\)/);
-  assert.match(view, /旧版 fleet-agent 的授权不会自动继承/);
   assert.match(view, /ACL/);
-  assert.doesNotMatch(view, /tccutil|TCC\.db|sudo|mac-bundle\.tar/);
+  assert.doesNotMatch(view + guide, /tccutil|TCC\.db|sudo|mac-bundle\.tar/);
+});
+
+test('native sidebar and shared buttons hit the whole padded area, with first-run installation on the overview', () => {
+  const navigation = read('../mac/settings-app/Sources/FleetHub/FleetNavigationButton.swift');
+  assert.match(navigation, /frame\(maxWidth: \.infinity, alignment: \.leading\)/);
+  assert.match(navigation, /frame\(height: FleetTheme\.controlHeight\)/);
+  assert.match(navigation, /contentShape\(Rectangle\(\)\)/);
+  const theme = read('../mac/settings-app/Sources/FleetHub/FleetTheme.swift');
+  assert.match(theme, /frame\(minHeight:[\s\S]*?contentShape\(Rectangle\(\)\)/);
+  const view = read('../mac/settings-app/Sources/FleetHub/SettingsView.swift');
+  assert.match(view, /Button\(setupAction\.title\)/);
+  assert.match(view, /--fleet-install-and-start/);
+  assert.match(view, /configuration\.createsNewApplicationInstance = true/);
+  assert.doesNotMatch(view, /page = \.about; return/);
 });
 
 test('native candidate publication stays behind the unique signing entry and Accepted receipts', () => {

@@ -298,6 +298,9 @@ test('add device offers a native DMG and explains fresh browser OAuth and backgr
   assert.match(text(add), /签名.*公证/);
   assert.match(text(add), /完全磁盘访问/);
   assert.match(text(add), /Fleet Agent.app/);
+  assert.match(text(add), /内置 Fleet Agent.*无需另行下载/);
+  assert.match(text(add), /安装并启动/);
+  assert.match(text(add), /浮动引导窗.*拖入.*打开开关/);
   assert.doesNotMatch(text(add), /开启 Fleet Hub\.app/);
   assert.match(text(add), /关闭.*后台.*运行/);
   assert.match(text(add), /检查更新/);

@@ -222,11 +222,11 @@
       } else add.append(node('p', '本服务尚未发布经过签名公证的 Fleet Hub 应用，暂不提供下载。', { className: 'account-error' }));
       const steps = node('ol', '', { className: 'account-steps' });
       for (const description of [
-        '下载并打开 DMG，将 Fleet Hub 拖入“应用程序”，也可以双击后选择“安装到应用程序”。',
+        '下载并打开 DMG，将 Fleet Hub 拖入“应用程序”，也可打开后点击“安装并启动”；应用内置 Fleet Agent，无需另行下载。',
         '打开 Fleet Hub 应用，在“关联账号”填写下方服务网页地址，点击“打开网页授权”。',
         '浏览器登录并完成 Authenticator 验证，核对账号与设备名称，点击“授权并连接”；应用会自动接入。',
         '授权过期或取消时，回到应用再次点击“打开网页授权”，每次都会创建新的授权请求。',
-        '在应用“磁盘权限”中选择后台应用，在系统设置开启独立 Fleet Agent.app 的完全磁盘访问，点击“重启并检查”。Fleet Hub 只负责设置，无需磁盘权限；不要选择安装包中的后台副本或旧命令行 fleet-agent。',
+        '在应用“磁盘权限”中点击“打开系统设置”，将浮动引导窗里的 Fleet Agent.app 图标拖入完全磁盘访问列表并打开开关，返回应用点击“重启并检查”。Fleet Hub 只负责设置，无需磁盘权限。',
         '确认后台及设备服务正常后，可以关闭应用窗口，后台服务仍会持续运行。',
       ]) steps.append(node('li', description));
       add.append(steps);
