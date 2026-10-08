@@ -5,11 +5,11 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content" />
   <!-- theme-color 与共享主题控制器、Titanium 页面底色同步。 -->
   <meta name="theme-color" content="#FFFFFF" />
-  <script src="/theme.js?v=186"></script>
+  <script src="/theme.js?v=189"></script>
   <title>mac fleet hub</title>
   <link rel="manifest" href="manifest.webmanifest" />
-  <link rel="icon" href="icons/favicon.svg?v=186" type="image/svg+xml" />
-  <link rel="apple-touch-icon" href="icons/icon-180.png?v=186" sizes="180x180" />
+  <link rel="icon" href="icons/favicon.svg?v=189" type="image/svg+xml" />
+  <link rel="apple-touch-icon" href="icons/icon-180.png?v=189" sizes="180x180" />
   <meta name="mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
@@ -17,8 +17,8 @@
   <!-- theme.js 在样式加载前同步应用已保存的外观，默认浅色。 -->
 
   <link rel="stylesheet" href="vendor/codemirror/lib/codemirror.css?v=5.65.20" />
-  <link rel="stylesheet" href="style.css?v=186" />
-  <link rel="stylesheet" href="account.css?v=186" />
+  <link rel="stylesheet" href="style.css?v=189" />
+  <link rel="stylesheet" href="account.css?v=189" />
 </head>
 <body>
   <div id="auth-status" role="status"><span id="auth-status-message">正在验证登录…</span><a href="">重新加载</a></div>
@@ -190,6 +190,10 @@
             <header class="file-toolbar">
               <div class="file-title-row">
                 <h1 id="file-folder-title">文件</h1>
+                <div class="file-searchbar">
+                  <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><line x1="16.5" y1="16.5" x2="21" y2="21"/></svg>
+                  <input id="file-search" type="search" placeholder="搜索当前文件夹" autocomplete="off" aria-label="搜索文件">
+                </div>
                 <div class="file-actions">
                   <button id="file-upload" class="iconbtn" title="上传文件" aria-label="上传文件"><svg class="ic" viewBox="0 0 24 24"><path d="M12 16V4m0 0 5 5m-5-5L7 9M5 20h14"/></svg></button>
                   <button id="file-new-folder" class="iconbtn" title="新建文件夹" aria-label="新建文件夹"><svg class="ic" viewBox="0 0 24 24"><path d="M3 6.5A2.5 2.5 0 0 1 5.5 4H9l2 2h7.5A2.5 2.5 0 0 1 21 8.5v8A2.5 2.5 0 0 1 18.5 19h-13A2.5 2.5 0 0 1 3 16.5v-10Z"/><path d="M12 10v5m-2.5-2.5h5"/></svg></button>
@@ -198,10 +202,6 @@
               </div>
               <div id="file-upload-queue-mobile" class="file-upload-queue file-upload-queue-inline" aria-label="上传队列" hidden></div>
               <nav id="file-breadcrumbs" class="file-breadcrumbs" aria-label="路径"></nav>
-              <div class="file-searchbar">
-                <svg class="ic" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><line x1="16.5" y1="16.5" x2="21" y2="21"/></svg>
-                <input id="file-search" type="search" placeholder="搜索当前文件夹" autocomplete="off" aria-label="搜索文件">
-              </div>
             </header>
             <div class="file-table-head" role="row">
               <span role="columnheader" aria-sort="ascending"><button type="button" class="file-sort-button" data-file-sort="name"><span>名称</span><svg class="file-sort-indicator" viewBox="0 0 24 24" aria-hidden="true"><polyline points="6 15 12 9 18 15"/></svg></button></span>
@@ -620,21 +620,21 @@
   <script src="vendor/codemirror/mode/yaml/yaml.js?v=5.65.20"></script>
   <script src="vendor/codemirror/mode/toml/toml.js?v=5.65.20"></script>
   <script src="vendor/codemirror/mode/properties/properties.js?v=5.65.20"></script>
-  <script src="auth-client.js?v=186"></script>
-  <script src="account.js?v=186"></script>
-  <script src="settings_dialog.js?v=186"></script>
-  <script src="markdown.js?v=186"></script>
-  <script src="preview.js?v=186"></script>
-  <script src="chat_model.js?v=186"></script>
-  <script src="upload_model.js?v=186"></script>
-  <script src="device_appearance.js?v=186"></script>
-  <script src="sidebar_layout.js?v=186"></script>
-  <script src="device_hover.js?v=186"></script>
-  <script src="workspace_tabs.js?v=186"></script>
-  <script src="compact_composer.js?v=186"></script>
-  <script src="fleet_core.js?v=186"></script>
-  <script src="app.js?v=186"></script>
-  <script src="workspace.js?v=186"></script>
-  <script src="native_bridge.js?v=186"></script>
+  <script src="auth-client.js?v=189"></script>
+  <script src="account.js?v=189"></script>
+  <script src="settings_dialog.js?v=189"></script>
+  <script src="markdown.js?v=189"></script>
+  <script src="preview.js?v=189"></script>
+  <script src="chat_model.js?v=189"></script>
+  <script src="upload_model.js?v=189"></script>
+  <script src="device_appearance.js?v=189"></script>
+  <script src="sidebar_layout.js?v=189"></script>
+  <script src="device_hover.js?v=189"></script>
+  <script src="workspace_tabs.js?v=189"></script>
+  <script src="compact_composer.js?v=189"></script>
+  <script src="fleet_core.js?v=189"></script>
+  <script src="app.js?v=189"></script>
+  <script src="workspace.js?v=189"></script>
+  <script src="native_bridge.js?v=189"></script>
 </body>
 </html>
