@@ -7,6 +7,7 @@ const src = await readFile(new URL('./chat_model.js', import.meta.url), 'utf8');
 const uploadModelSrc = await readFile(new URL('./upload_model.js', import.meta.url), 'utf8');
 const deviceAppearanceSrc = await readFile(new URL('./device_appearance.js', import.meta.url), 'utf8');
 const themeSrc = await readFile(new URL('./theme.js', import.meta.url), 'utf8');
+const fleetCoreSrc = await readFile(new URL('./fleet_core.js', import.meta.url), 'utf8');
 const appSrc = await readFile(new URL('./app.js', import.meta.url), 'utf8');
 const markdownSrc = await readFile(new URL('./markdown.js', import.meta.url), 'utf8');
 const previewSrc = await readFile(new URL('./preview.js', import.meta.url), 'utf8');
@@ -97,6 +98,7 @@ const appSandbox = {
 vm.createContext(appSandbox);
 vm.runInContext(themeSrc, appSandbox);
 vm.runInContext(deviceAppearanceSrc, appSandbox);
+vm.runInContext(fleetCoreSrc, appSandbox);
 vm.runInContext(`${appSrc}\n;globalThis.__chatCacheTest = { chatCacheVictim, isChatConnectionKept, isSessionRunning, updateChatUpdatedAt, formatChatDate, chatAssistantMetaText, chatUserMetaText, chatMessageMetaVisibility, applyChatMetadataDefaults, normalizeChatDraft, isNoActiveTurnError, createDeviceScopeButton, chatSkillTriggerAt, parseChatSkillInput, chatSkillTokenNames, mergeChatComposerText, mergeChatAttachments, chatComposerAction: typeof chatComposerAction === 'function' ? chatComposerAction : null, isNewerChatControlSnapshot: typeof isNewerChatControlSnapshot === 'function' ? isNewerChatControlSnapshot : null, isCompleteChatControlSnapshot: typeof isCompleteChatControlSnapshot === 'function' ? isCompleteChatControlSnapshot : null, applyChatControlSnapshot: typeof applyChatControlSnapshot === 'function' ? applyChatControlSnapshot : null, isChatControlFresh: typeof isChatControlFresh === 'function' ? isChatControlFresh : null, markChatControlSyncFailure: typeof markChatControlSyncFailure === 'function' ? markChatControlSyncFailure : null, chatOwnershipPresentation: typeof chatOwnershipPresentation === 'function' ? chatOwnershipPresentation : null, chatImageSrc, chatImageDownloadName: typeof chatImageDownloadName === 'function' ? chatImageDownloadName : null, clampChatImageViewerZoom: typeof clampChatImageViewerZoom === 'function' ? clampChatImageViewerZoom : null, chatImageViewerFitScale: typeof chatImageViewerFitScale === 'function' ? chatImageViewerFitScale : null, chatImageViewerWheelZoom: typeof chatImageViewerWheelZoom === 'function' ? chatImageViewerWheelZoom : null, chatImageViewerPinchZoom: typeof chatImageViewerPinchZoom === 'function' ? chatImageViewerPinchZoom : null, chatImageViewerViewportAnchor: typeof chatImageViewerViewportAnchor === 'function' ? chatImageViewerViewportAnchor : null, chatImageViewerViewportCenter: typeof chatImageViewerViewportCenter === 'function' ? chatImageViewerViewportCenter : null, openChatImageViewer: typeof openChatImageViewer === 'function' ? openChatImageViewer : null, closeChatImageViewer: typeof closeChatImageViewer === 'function' ? closeChatImageViewer : null, setChatImageViewerZoom: typeof setChatImageViewerZoom === 'function' ? setChatImageViewerZoom : null, handleChatImageViewerKeydown: typeof handleChatImageViewerKeydown === 'function' ? handleChatImageViewerKeydown : null, chatToolStatus, chatToolDuration, chatToolActivityLabel, chatToolHasExpandableBody, isChatActivityItem, isChatTraceItem: typeof isChatTraceItem === 'function' ? isChatTraceItem : null, chatRenderUnits: typeof chatRenderUnits === 'function' ? chatRenderUnits : null, renderChatTurnProgress: typeof renderChatTurnProgress === 'function' ? renderChatTurnProgress : null, chatActivityGroupSummaryText, chatActivityActiveSummarySegments, chatActivityGroupIconKind, renderChatActivityGroup, renderChatActivityRun: typeof renderChatActivityRun === 'function' ? renderChatActivityRun : null, renderChatItem: typeof renderChatItem === 'function' ? renderChatItem : null, sessionProjectInfo: typeof sessionProjectInfo === 'function' ? sessionProjectInfo : null, groupSessionsByProject: typeof groupSessionsByProject === 'function' ? groupSessionsByProject : null, sessionRow, sessionStatus, observeSessionActivity, filterFileEntries, sortFileEntries: typeof sortFileEntries === 'function' ? sortFileEntries : null, normalizeFileView: typeof normalizeFileView === 'function' ? normalizeFileView : null, truncateFileColumns: typeof truncateFileColumns === 'function' ? truncateFileColumns : null, fileColumnRequestCurrent: typeof fileColumnRequestCurrent === 'function' ? fileColumnRequestCurrent : null, fileIconName: typeof fileIconName === 'function' ? fileIconName : null, activeFileLocationID: typeof activeFileLocationID === 'function' ? activeFileLocationID : null, applyTheme: typeof applyTheme === 'function' ? applyTheme : null, visualKeyboardInset: typeof visualKeyboardInset === 'function' ? visualKeyboardInset : null, sessionBackDragOffset: typeof sessionBackDragOffset === 'function' ? sessionBackDragOffset : null, isSessionBackSwipe: typeof isSessionBackSwipe === 'function' ? isSessionBackSwipe : null, ensurePendingChatStarted: typeof ensurePendingChatStarted === 'function' ? ensurePendingChatStarted : null, filePreviewTypeLabel, filePreviewLocation, chatTurnPinText: typeof chatTurnPinText === 'function' ? chatTurnPinText : () => '', isInternalChatTool: typeof isInternalChatTool === 'function' ? isInternalChatTool : () => false, chatSubagentStatus: typeof chatSubagentStatus === 'function' ? chatSubagentStatus : null, chatSubagentMeta: typeof chatSubagentMeta === 'function' ? chatSubagentMeta : null, chatSubagentShouldShow: typeof chatSubagentShouldShow === 'function' ? chatSubagentShouldShow : null, chatSubagentShouldRefreshDetail: typeof chatSubagentShouldRefreshDetail === 'function' ? chatSubagentShouldRefreshDetail : null, ensureChatSubagentState: typeof ensureChatSubagentState === 'function' ? ensureChatSubagentState : null, state };`, appSandbox);
 const { chatCacheVictim, isChatConnectionKept, isSessionRunning, updateChatUpdatedAt, formatChatDate, chatAssistantMetaText, chatUserMetaText, chatMessageMetaVisibility, applyChatMetadataDefaults, normalizeChatDraft, isNoActiveTurnError, createDeviceScopeButton, chatSkillTriggerAt, parseChatSkillInput, chatSkillTokenNames, mergeChatComposerText, mergeChatAttachments, chatComposerAction, isNewerChatControlSnapshot, isCompleteChatControlSnapshot, applyChatControlSnapshot, isChatControlFresh, markChatControlSyncFailure, chatOwnershipPresentation, chatImageSrc, chatImageDownloadName, clampChatImageViewerZoom, chatImageViewerFitScale, chatImageViewerWheelZoom, chatImageViewerPinchZoom, chatImageViewerViewportAnchor, chatImageViewerViewportCenter, openChatImageViewer, closeChatImageViewer, setChatImageViewerZoom, handleChatImageViewerKeydown, chatToolStatus, chatToolDuration, chatToolActivityLabel, chatToolHasExpandableBody, isChatActivityItem, isChatTraceItem, chatRenderUnits, renderChatTurnProgress, chatActivityGroupSummaryText, chatActivityActiveSummarySegments, chatActivityGroupIconKind, renderChatActivityGroup, renderChatActivityRun, renderChatItem, sessionProjectInfo, groupSessionsByProject, sessionRow, sessionStatus, observeSessionActivity, filterFileEntries, sortFileEntries, normalizeFileView, truncateFileColumns, fileColumnRequestCurrent, fileIconName, activeFileLocationID, applyTheme, visualKeyboardInset, sessionBackDragOffset, isSessionBackSwipe, ensurePendingChatStarted, filePreviewTypeLabel, filePreviewLocation, chatTurnPinText, isInternalChatTool, chatSubagentStatus, chatSubagentMeta, chatSubagentShouldShow, chatSubagentShouldRefreshDetail, ensureChatSubagentState, state: appState } = appSandbox.__chatCacheTest;
 vm.runInContext('globalThis.__updateChatSkillMenuTest = updateChatSkillMenu;', appSandbox);
@@ -1130,8 +1132,8 @@ test('queue transcript cards render exactly the actions permitted by the state m
 });
 
 test('external writer messages use the agent queue and render takeover actions below the user message', () => {
-  // 队列按 (assistant, sessionId) 分区：assistant 随当前自绘助手走（原断言写死 codex）
-  assert.match(appSrc, /chat\/queue\?assistant=\$\{state\.assistant\}/);
+  // 队列按缓存会话的 (assistant, sessionId) 分区。
+  assert.match(appSrc, /chat\/queue\?assistant=\$\{chat\.assistant\}/);
   assert.match(appSrc, /chat\/queue\/decision/);
   assert.match(appSrc, /enqueueServerChatMessage/);
   assert.match(appSrc, /中断全部并接管/);
@@ -3433,4 +3435,30 @@ test('invalid device letters block saving and focus the field without changing s
     assert.equal(fields['#hm-save'].disabled,true);assert.equal(fields['#hm-letter-error'].hidden,false);
     assert.equal(fields['#hm-letter-input'].focused,true);assert.equal(appSandbox.FleetDeviceAppearance.get('m8').icon,'monitor');
   } finally {appSandbox.document.querySelector=previousQuery;appState.hostAppearanceDraft=previousDraft;appState.hostModalMac=previousId;}
+});
+
+test('cached chat queue keeps its assistant when native navigation switches to Claude', async () => {
+  vm.runInContext(`globalThis.__cachedAssistantOriginals = {
+    api, beginChatControlRequest, applyChatControlSnapshot, assistant: state.assistant, chat: state.chat
+  };
+  globalThis.__cachedAssistantCalls = [];
+  state.assistant = 'claude'; state.chat = null;
+  api = async (macId, endpoint) => { __cachedAssistantCalls.push({macId, endpoint}); return {}; };
+  beginChatControlRequest = () => 1;
+  applyChatControlSnapshot = () => true;`, appSandbox);
+  try {
+    await vm.runInContext("loadServerChatQueue({assistant:'codex', macId:'m1', sessionId:'cached-codex'})", appSandbox);
+    await vm.runInContext("loadServerChatQueue({assistant:'dsh', macId:'m2', sessionId:'cached-dsh'})", appSandbox);
+    assert.equal(appSandbox.__cachedAssistantCalls[0].endpoint, 'chat/queue?assistant=codex&sessionId=cached-codex');
+    assert.equal(appSandbox.__cachedAssistantCalls[1].endpoint, 'chat/queue?assistant=dsh&sessionId=cached-dsh');
+    for (const name of ['loadChatSkills', 'uploadChatFile', 'loadOlderChatHistory', 'startChatEvents',
+      'ensurePendingChatStarted', 'saveServerChatQueueItem', 'restoreChatAfterForeground']) {
+      const source = vm.runInContext(`typeof ${name} === 'function' ? ${name}.toString() : ''`, appSandbox);
+      assert.ok(source, `${name} must exist`);
+      assert.doesNotMatch(source, /assistant: state\.assistant|assistant=\$\{state\.assistant\}|append\('assistant', state\.assistant\)/);
+    }
+  } finally {
+    vm.runInContext(`({api, beginChatControlRequest, applyChatControlSnapshot} = __cachedAssistantOriginals);
+      state.assistant = __cachedAssistantOriginals.assistant; state.chat = __cachedAssistantOriginals.chat;`, appSandbox);
+  }
 });

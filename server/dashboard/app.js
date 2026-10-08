@@ -238,46 +238,13 @@ function releaseVisualKeyboard() {
 }
 function projName(cwd) { return cwd ? cwd.split('/').filter(Boolean).pop() : '(未知项目)'; }
 function projFull(cwd) { return (cwd || '(未知路径)').replace(/^\/Users\/[^/]+/, '~'); }
-function sessionProjectInfo(session) {
-  const projectless = !!session?.projectless;
-  const cwd = projectless ? '' : (session?.projectCwd || session?.cwd || '');
-  const projectId = session?.projectId || '';
-  return {
-    key: projectless ? 'projectless:' : (cwd ? `cwd:${cwd}` : (projectId ? `id:${projectId}` : 'unknown:')),
-    name: projectless ? '无项目' : (session?.projectName || projName(cwd)),
-    cwd,
-    projectless,
-  };
-}
-function groupSessionsByProject(sessions, projects = [], search = '') {
-  const groups = new Map();
-  for (const session of sessions || []) {
-    const project = sessionProjectInfo(session);
-    let group = groups.get(project.key);
-    if (!group) {
-      group = { ...project, arr: [] };
-      groups.set(project.key, group);
-    }
-    group.arr.push(session);
-  }
-  const needle = search.toLocaleLowerCase();
-  for (const project of projects || []) {
-    if (!project.cwd || (needle && !`${project.name || ''}\n${project.cwd}`.toLocaleLowerCase().includes(needle))) continue;
-    const key = `cwd:${project.cwd}`;
-    if (groups.has(key)) {
-      groups.get(key).name = project.name || groups.get(key).name;
-    } else {
-      groups.set(key, { key, name: project.name || projName(project.cwd), cwd: project.cwd,
-        macId: project.macId, projectless: false, arr: [] });
-    }
-  }
-  return [...groups.values()];
-}
+function sessionProjectInfo(session) { return FleetCore.projectInfo(session); }
+function groupSessionsByProject(sessions, projects = [], search = '') { return FleetCore.groupSessions(sessions, projects, search); }
 function macName(id) { return macNames[id] || ('Mac ' + id.slice(1)); }
 // 助手白名单：localStorage/会话快照回读时用它校验，非法值（旧数据、手改）一律回退 codex。
-const ASSISTANTS = ['codex', 'dsh'];
+const ASSISTANTS = ['codex', 'dsh', ...(globalThis.__fleetNativeVersion === 1 ? ['claude'] : [])];
 function normalizeAssistant(a) { return ASSISTANTS.includes(a) ? a : 'codex'; }
-const ASSISTANT_LABELS = { codex: 'ChatGPT', dsh: 'DeepSeek' };
+const ASSISTANT_LABELS = { codex: 'ChatGPT', dsh: 'DeepSeek', claude: 'Claude' };
 function assistantLabel(a = state.assistant) { return ASSISTANT_LABELS[normalizeAssistant(a)]; }
 // 自绘对话的"连接中"文案。Codex 连的是 app-server，DSH 连的是 Desktop 已启动的
 // harness host——术语不同，不能共用一句，否则 DeepSeek tab 上会写"正在连接 ChatGPT…"。
@@ -1483,10 +1450,7 @@ function renderSessionResults(opts = {}) {
   } else if (state.sessionView === 'recent') {
     wrap.append(h('div', { class: 'recent-session-list' }, ...sessions.map(sessionRow)));
   } else {
-    const ordered = groupSessionsByProject(sessions, state.sessionProjects, state.sessionSearch).map((group) => {
-      group.arr.sort((a, b) => (Number(b.pinned) - Number(a.pinned)) || (b.live - a.live) || (b.mtime - a.mtime));
-      return { ...group, pinned: group.arr.some((session) => session.pinned), last: Math.max(0, ...group.arr.map((s) => s.mtime)) };
-    }).sort((a, b) => (Number(b.pinned) - Number(a.pinned)) || (b.last - a.last));
+    const ordered = FleetCore.orderedSessionGroups(sessions, state.sessionProjects, state.sessionSearch);
 
     for (const g of ordered) {
       const collapsed = state.collapsed.has(g.key);
@@ -1860,7 +1824,7 @@ function renderSessionMenu(session) {
   return menu;
 }
 
-async function mutateSession(session, action, value = '') {
+async function mutateSession(session, action, value = '', { throwOnError = false } = {}) {
   try {
     await api(session.macId, 'sessions/action', {
       method: 'POST', headers: { 'content-type': 'application/json' },
@@ -1882,6 +1846,7 @@ async function mutateSession(session, action, value = '') {
       await loadSessions();
     }
   } catch (error) {
+    if (throwOnError) throw error;
     toast('会话操作失败：' + error.message, 'err');
   }
 }
@@ -2210,7 +2175,7 @@ async function loadChatSkills(chat) {
   if (chat.skillsPromise) return chat.skillsPromise;
   const request = api(chat.macId, 'chat/skills', {
     method: 'POST', headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ assistant: state.assistant, cwd }),
+    body: JSON.stringify({ assistant: chat.assistant, cwd }),
   });
   const task = request.then((response) => {
     if (state.chatCache.get(chat.cacheKey) !== chat) return [];
@@ -2467,7 +2432,7 @@ async function loadServerChatQueue(chat) {
   if (!chat || chat.pendingStart) return;
   const requestSeq = beginChatControlRequest(chat);
   try {
-    const result = await api(chat.macId, `chat/queue?assistant=${state.assistant}&sessionId=${encodeURIComponent(chat.sessionId)}`);
+    const result = await api(chat.macId, `chat/queue?assistant=${chat.assistant}&sessionId=${encodeURIComponent(chat.sessionId)}`);
     if (!applyChatControlSnapshot(chat, result, requestSeq)) {
       if (markChatControlSyncFailure(chat) && state.chat === chat) {
         renderChatOwnershipHead(chat);
@@ -4434,8 +4399,8 @@ function resizeChatInput() {
     return;
   }
   input.style.height = 'auto';
-  input.style.height = Math.min(input.scrollHeight, 180) + 'px';
-  input.style.overflowY = input.scrollHeight > 180 ? 'auto' : 'hidden';
+  input.style.height = (input.value ? Math.min(input.scrollHeight, 180) : 0) + 'px';
+  input.style.overflowY = input.value && input.scrollHeight > 180 ? 'auto' : 'hidden';
 }
 
 function chatComposerAction(chat, hasContent) {
@@ -4616,7 +4581,7 @@ async function addChatFiles(files) {
 async function uploadChatFile(chat, att, file) {
   try {
     const fd = new FormData();
-    fd.append('assistant', state.assistant);
+    fd.append('assistant', chat.assistant);
     fd.append('sessionId', chat.sessionId);
     fd.append('file', file, file.name || 'attachment');
     const r = await fetch(`${apiBase(chat.macId)}/api/chat/upload`, { method: 'POST', body: fd });
@@ -4749,7 +4714,7 @@ async function openChatSession(s) {
     const controlRequestSeq = beginChatControlRequest(chat);
     chat.resumePromise = api(chat.macId, 'chat/resume', {
       method: 'POST', headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ assistant: state.assistant, sessionId: chat.sessionId, mode: 'default' }),
+      body: JSON.stringify({ assistant: chat.assistant, sessionId: chat.sessionId, mode: 'default' }),
     });
     const resumed = await chat.resumePromise;
     if (state.chatCache.get(chat.cacheKey) === chat) {
@@ -4942,7 +4907,7 @@ async function selectChatApprovalMode(value) {
   const previousUpdate = chat.approvalUpdateChain || Promise.resolve();
   const update = previousUpdate.catch(() => {}).then(() => api(chat.macId, 'chat/settings', {
     method: 'POST', headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ assistant: state.assistant, sessionId: chat.sessionId, approvalMode }),
+    body: JSON.stringify({ assistant: chat.assistant, sessionId: chat.sessionId, approvalMode }),
   }));
   chat.approvalUpdateChain = update;
   try {
@@ -5125,7 +5090,7 @@ async function loadOlderChatHistory() {
   chat.historyLoading = true;
   renderChat({ preserveScroll: true });
   try {
-    const page = await api(chat.macId, `chat/history?assistant=${state.assistant}&sessionId=${encodeURIComponent(chat.sessionId)}&cursor=${encodeURIComponent(chat.historyCursor)}`);
+    const page = await api(chat.macId, `chat/history?assistant=${chat.assistant}&sessionId=${encodeURIComponent(chat.sessionId)}&cursor=${encodeURIComponent(chat.historyCursor)}`);
     if (state.chat !== chat) return;
     chat.model = FleetChatModel.prependHistory(chat.model, page.events || []);
     applyChatMetadataDefaults(chat);
@@ -5143,7 +5108,7 @@ async function loadOlderChatHistory() {
 function startChatEvents(chat = state.chat) {
   if (!chat) return;
   if (chat.events && chat.events.readyState !== EventSource.CLOSED) return;
-  const url = `${apiBase(chat.macId)}/api/chat/events?assistant=${state.assistant}&sessionId=${encodeURIComponent(chat.sessionId)}`;
+  const url = `${apiBase(chat.macId)}/api/chat/events?assistant=${chat.assistant}&sessionId=${encodeURIComponent(chat.sessionId)}`;
   const es = new EventSource(url);
   chat.events = es;
   syncSessionRuntimeIndicators();
@@ -5207,7 +5172,7 @@ async function restoreChatAfterForeground(chat = state.chat) {
       const controlRequestSeq = beginChatControlRequest(chat);
       const resumed = await api(chat.macId, 'chat/resume', {
         method: 'POST', headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ assistant: state.assistant, sessionId: chat.sessionId, mode: 'default' }),
+        body: JSON.stringify({ assistant: chat.assistant, sessionId: chat.sessionId, mode: 'default' }),
       });
       if (state.chatCache.get(chat.cacheKey) !== chat) return;
       chat.model = FleetChatModel.prependHistory(chat.model, resumed.history?.events || []);
@@ -5274,7 +5239,7 @@ async function ensurePendingChatStarted(chat) {
     const controlRequestSeq = beginChatControlRequest(chat);
     const started = await api(chat.macId, 'chat/start', {
       method: 'POST', headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ assistant: state.assistant, cwd, mode: 'default' }),
+      body: JSON.stringify({ assistant: chat.assistant, cwd, mode: 'default' }),
     });
     const sessionId = String(started.sessionId || '').trim();
     if (!sessionId) throw new Error(`${assistantLabel()} 未返回有效的会话 ID`);
@@ -5299,7 +5264,7 @@ async function ensurePendingChatStarted(chat) {
     state.chatCache.set(newKey, chat);
     state.selectedSid = sessionId;
     state.selectedSessionMacId = chat.macId;
-    state.selectedSessionAssistant = state.assistant;
+    state.selectedSessionAssistant = chat.assistant;
     startChatEvents(chat);
     startChatSubagentSync(chat);
     if (preferredApproval !== chat.approvalConfirmedMode) {
@@ -5308,7 +5273,7 @@ async function ensurePendingChatStarted(chat) {
       try {
         const control = await api(chat.macId, 'chat/settings', {
           method: 'POST', headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ assistant: state.assistant, sessionId: chat.sessionId, approvalMode: preferredApproval }),
+          body: JSON.stringify({ assistant: chat.assistant, sessionId: chat.sessionId, approvalMode: preferredApproval }),
         });
         chat.approvalUpdatePending = false;
         if (!applyChatControlSnapshot(chat, control, settingsRequestSeq)) throw new Error('服务端返回了无效的权限状态');
@@ -5428,7 +5393,7 @@ async function saveServerChatQueueItem(chat, item, deliveryMode) {
     return await api(chat.macId, 'chat/queue', {
       method: 'POST', headers: { 'content-type': 'application/json' },
       body: JSON.stringify({
-        assistant: state.assistant, sessionId: chat.sessionId, clientMessageId: item.id,
+        assistant: chat.assistant, sessionId: chat.sessionId, clientMessageId: item.id,
         cwd: chat.cwd || '', text: item.text, displayText: item.displayText,
         deliveryMode: deliveryMode === 'auto' ? 'auto' : 'next',
         skills: item.skills || [], images: item.images.map(({ id, name, mime, size, url }) => ({ id, name, mime, size, url })),
@@ -5462,7 +5427,7 @@ async function interruptChat() {
   try {
     await api(chat.macId, 'chat/interrupt', {
       method: 'POST', headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ assistant: state.assistant, sessionId: chat.sessionId }),
+      body: JSON.stringify({ assistant: chat.assistant, sessionId: chat.sessionId }),
     });
   } catch (e) {
     if (isNoActiveTurnError(e)) {
@@ -5488,7 +5453,7 @@ async function releaseChatWriter() {
     const controlRequestSeq = beginChatControlRequest(chat);
     const control = await api(chat.macId, 'chat/access', {
       method: 'POST', headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ assistant: state.assistant, sessionId: chat.sessionId, action: 'release' }),
+      body: JSON.stringify({ assistant: chat.assistant, sessionId: chat.sessionId, action: 'release' }),
     });
     if (!isCompleteChatControlSnapshot(control?.control || control)) throw new Error('服务端返回了无效的会话控制状态');
     applyChatControlSnapshot(chat, control, controlRequestSeq);
@@ -5522,7 +5487,7 @@ async function enableChatWriter() {
     const controlRequestSeq = beginChatControlRequest(chat);
     const control = await api(chat.macId, 'chat/access', {
       method: 'POST', headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ assistant: state.assistant, sessionId: chat.sessionId, action: 'enable-write' }),
+      body: JSON.stringify({ assistant: chat.assistant, sessionId: chat.sessionId, action: 'enable-write' }),
     });
     if (!isCompleteChatControlSnapshot(control?.control || control)) throw new Error('服务端返回了无效的会话控制状态');
     applyChatControlSnapshot(chat, control, controlRequestSeq);
@@ -5548,7 +5513,7 @@ async function respondChatRequest(requestId, response) {
   try {
     await api(chat.macId, 'chat/respond', {
       method: 'POST', headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ assistant: state.assistant, sessionId: chat.sessionId, requestId, response }),
+      body: JSON.stringify({ assistant: chat.assistant, sessionId: chat.sessionId, requestId, response }),
     });
     chat.model = FleetChatModel.reduceChatEvent(chat.model, { type: 'interaction_resolved', data: { requestId, response } });
     renderChat();

@@ -13,6 +13,12 @@ mac-fleet-hub 是一套开源多用户系统，只有**用户、设备、管理�
 - 登录会话自签发起**绝对有效 30 天**，活跃访问不会续期；账号页可修改密码、管理验证器、恢复码和会话。
 - 管理员由本地 `fleet-enroll admin <registered-email>` 显式提升，首个注册用户不会自动成为管理员。后台只能管理用户和设备元信息、禁用账号或撤销授权；管理员身份不授予他人的文件、终端或聊天正文访问权。
 
+## iOS App（开发版）
+
+`iOS/` 提供 SwiftUI 原生设备栏、会话栏，以及复用现有 dashboard 的 Web 会话窗口。支持普通 iPhone 的单栏导航与宽屏展开后的双栏 / 三栏布局，两侧栏可独立收起；Claude 使用 ttyd。
+
+打开 `iOS/FleetHub.xcodeproj` 构建运行，网关须部署配套 dashboard 资源。构建与验证见 [iOS 开发说明](iOS/README.md)，共享组件和后续 Web 维护约定见 [iOS / Web 共享架构](docs/ios-web-shared-architecture.md)。
+
 ## 它长什么样
 
 ```
