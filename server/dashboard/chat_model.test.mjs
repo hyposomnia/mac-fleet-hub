@@ -1498,8 +1498,8 @@ test('jump-to-bottom control uses an accessible inline SVG icon', () => {
   assert.doesNotMatch(indexHTML, />跳到底部<\/button>/);
 });
 
-test('floating summaries and jump control use a visibly half-transparent surface independently of user bubbles', () => {
-  assert.ok(/--chat-floating-bg:\s*color-mix\(in srgb, var\(--chat-surface-2\) 50%, transparent\)/.test(styleCSS), 'floating surface stays at half opacity instead of drifting toward an opaque theme surface');
+test('floating summaries and jump control use a visibly translucent surface independently of user bubbles', () => {
+  assert.ok(/--chat-floating-bg:\s*color-mix\(in srgb, var\(--chat-surface-2\) 35%, transparent\)/.test(styleCSS), 'floating surface stays translucent enough for the backdrop blur to remain visible');
   for (const selector of ['.chat-turn-pin-card', '#chat-jump', '#win[data-workspace-preview="true"] #chat-preview-output:not([hidden])']) {
     const block = styleCSS.split(selector + ' {')[1]?.split('}')[0] || '';
     assert.match(block, /background:\s*var\(--chat-floating-bg\)/, selector);
