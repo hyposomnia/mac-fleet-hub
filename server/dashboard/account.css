@@ -40,7 +40,18 @@ body.account-page { display: block; height: auto; min-height: 100dvh; overflow: 
 .account-form label:has(input[type="checkbox"]) { display: flex; align-items: center; }
 .account-form input[type="checkbox"] { flex: none; width: 18px; height: 18px; min-height: 0; padding: 0; accent-color: var(--accent); }
 .account-form label:has(input[type="checkbox"]) { min-height: 44px; }
-.account-form input:focus-visible, .account-button:focus-visible, .account-page a:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+.account-form input:not([type="checkbox"]):focus,
+.account-form input:not([type="checkbox"]):focus-visible { outline: none; box-shadow: none; }
+.account-button:focus-visible, .account-page a:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+details.account-section.account-disclosure { padding: 0; }
+.account-disclosure > summary { display: flex; align-items: center; justify-content: space-between; gap: 16px; min-height: 56px; padding: 16px 20px; list-style: none; cursor: pointer; font-size: 17px; font-weight: 600; border-radius: var(--radius-card); }
+.account-disclosure > summary::-webkit-details-marker { display: none; }
+.account-disclosure > summary::after { content: ''; flex: none; width: 8px; height: 8px; border-right: 2px solid currentColor; border-bottom: 2px solid currentColor; transform: rotate(-45deg); color: var(--text-2); }
+.account-disclosure[open] > summary::after { transform: rotate(45deg); }
+.account-disclosure > summary:hover { background: var(--surface-hover); }
+.account-disclosure > summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.account-disclosure-body { padding: 0 20px 20px; }
+.account-disclosure-body > .account-button { margin: 4px 8px 0 0; }
 .account-button { min-height: 44px; padding: 8px 14px; border: 0; border-radius: var(--radius-control); background: var(--surface-2); color: var(--text); font: inherit; cursor: pointer; transition: background var(--dur-1) var(--ease); }
 .account-button:hover { background: var(--surface-hover); }
 .account-button.primary { background: var(--accent); color: var(--accent-contrast);  font-weight: 600; }

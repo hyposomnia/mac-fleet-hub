@@ -368,7 +368,7 @@ svg.ic.fill { fill: currentColor; stroke: none; }
   transition: border-color var(--dur-1) var(--ease), box-shadow var(--dur-1) var(--ease);
  min-height: 44px;}
 .input::placeholder { color: var(--text-3); }
-.input:focus { outline: 2px solid var(--accent); outline-offset: 3px;  box-shadow: none; }
+.input:focus { outline: none; box-shadow: none; }
 
 /* 骨架屏 */
 .skel { background: linear-gradient(90deg, var(--surface-2) 25%, var(--surface-hover) 37%, var(--surface-2) 63%); background-size: 400% 100%; border-radius: var(--radius-compact); animation: shimmer 1.4s ease infinite; }
@@ -711,7 +711,7 @@ html.automation-doc-root, html.automation-doc-root body { height: auto; min-heig
 .sc-head .seg button { flex: 1; text-align: center; }
 .sc-head-actions { display: flex; align-items: center; gap: 7px; margin-left: auto; }
 .session-searchbar { display: flex; align-items: center; gap: 7px; margin: 9px 10px 0; padding: 0 9px; min-height: 36px; border: 0; border-radius: var(--radius-compact); background: var(--surface-2); color: var(--text-2); }
-.session-searchbar:focus-within {  box-shadow: none; color: var(--text-1);  outline: 2px solid var(--accent); outline-offset: 3px;}
+.session-searchbar:focus-within { box-shadow: none; color: var(--text-1); outline: none; }
 .session-searchbar .ic { width: 15px; height: 15px; flex: none; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; }
 .session-searchbar input { width: 100%; min-width: 0; border: 0; border-radius: 0; outline: 0; background: transparent; box-shadow: none; color: var(--text); font-size: var(--t-secondary); }
 .sc-body { flex: 1; overflow-y: auto; padding: 10px; }
@@ -1006,7 +1006,7 @@ html.automation-doc-root, html.automation-doc-root body { height: auto; min-heig
 .chat-request-field { display: flex; flex-direction: column; gap: 3px; margin-bottom: 12px; }
 .chat-request-input { width: 100%; min-width: 0; min-height: 36px; padding: 7px 9px; border: 0; border-radius: var(--radius-compact); outline: 0; background: var(--chat-bg); color: var(--chat-text); font: inherit; }
 textarea.chat-request-input { resize: vertical; }
-.chat-request-input:focus {  box-shadow: none;  outline: 2px solid var(--accent); outline-offset: 3px;}
+.chat-request-input:focus { box-shadow: none; outline: none; }
 .chat-request-option.other .chat-request-input { margin-top: 4px; }
 .chat-error {  background: var(--danger-soft); color: var(--danger); }
 #chat-composer {
@@ -1289,7 +1289,7 @@ textarea.chat-request-input { resize: vertical; }
 .keybar button.held { background: var(--accent); color: var(--accent-contrast);  box-shadow: var(--glow); }
 .inrow { display: flex; gap: 9px; align-items: flex-end; }
 #cmd-input { flex: 1; min-height: 46px; max-height: 120px; padding: 12px 14px; border-radius: var(--radius-control); background: var(--surface-2); border: 0; resize: none; outline: none; line-height: 1.4; }
-#cmd-input:focus {  box-shadow: none;  outline: 2px solid var(--accent); outline-offset: 3px;}
+#cmd-input:focus { box-shadow: none; outline: none; }
 .send-btn { width: 46px; height: 46px; border-radius: var(--radius-control); background: var(--accent); color: var(--accent-contrast); font-size: var(--t-display); display: grid; place-items: center; flex: none; }
 .chat-send { width: 36px; height: 36px; border-radius: var(--radius-compact); background: var(--chat-text); color: var(--chat-bg); box-shadow: var(--e1); }
 .chat-send .chat-stop-icon { display: none; }
@@ -1647,7 +1647,7 @@ html[data-workspace-tab="true"] .preview-actions .iconbtn { width: 26px; height:
   border: 0; border-radius: var(--radius-compact); background: var(--surface-2); color: var(--text-2);
 }
 .file-searchbar { margin-top: 12px; }
-.file-searchbar:focus-within {  box-shadow: none; color: var(--text-1);  outline: 2px solid var(--accent); outline-offset: 3px;}
+.file-searchbar:focus-within { box-shadow: none; color: var(--text-1); outline: none; }
 .file-searchbar .ic { width: 16px; height: 16px; flex: none; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; }
 .file-searchbar input { width: 100%; min-width: 0; border: 0; border-radius: 0; outline: 0; background: transparent; box-shadow: none; color: var(--text); font-size: var(--t-body); }
 .file-table-head, .file-row {

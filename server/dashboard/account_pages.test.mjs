@@ -93,6 +93,38 @@ test('account inputs use valid autocomplete and security forms identify the curr
   assert.deepEqual(JSON.parse(JSON.stringify(current.calls.at(-1).body)), payload);
 });
 
+test('account security sections are native disclosures closed by default in standalone and embedded pages', async () => {
+  for (const embedded of [false, true]) {
+    const current = harness({ page: 'account', embedded });
+    await current.start();
+    const disclosures = all(current.content, (node) => node.tagName === 'details');
+    assert.deepEqual(disclosures.map((node) => text(node.children[0])), ['登录设备', '更改密码', '更换 Authenticator', '重新生成恢复码']);
+    for (const disclosure of disclosures) {
+      assert.equal(disclosure.children[0].tagName, 'summary');
+      assert.equal(Boolean(disclosure.open), false);
+      assert.equal(disclosure.attributes.open, undefined);
+    }
+    for (const name of ['password', 'totp-start', 'recovery-codes']) {
+      assert.ok(disclosures.some((disclosure) => all(disclosure, (node) => node === current.form(name)).length));
+    }
+    assert.equal(current.find((node) => node.id === 'devices').tagName, 'section');
+    assert.match(text(disclosures[3]), /旧恢复码将立即失效/);
+  }
+});
+
+test('text inputs have no focus border while buttons and disclosures retain keyboard focus indicators', async () => {
+  const accountCSS = await readFile(new URL('./account.css', import.meta.url), 'utf8');
+  const styleCSS = await readFile(new URL('./style.css', import.meta.url), 'utf8');
+  assert.doesNotMatch(accountCSS, /\.account-form input:focus-visible,\s*\.account-button/);
+  assert.match(accountCSS, /\.account-form input:not\(\[type="checkbox"\]\):focus-visible\s*\{\s*outline:\s*none;\s*box-shadow:\s*none;/);
+  assert.match(accountCSS, /\.account-button:focus-visible,\s*\.account-page a:focus-visible\s*\{\s*outline:\s*2px solid/);
+  assert.match(accountCSS, /\.account-disclosure > summary:focus-visible\s*\{\s*outline:\s*2px solid/);
+  for (const selector of ['.input:focus', '.session-searchbar:focus-within', '.chat-request-input:focus', '#cmd-input:focus', '.file-searchbar:focus-within']) {
+    const declaration = styleCSS.slice(styleCSS.indexOf(selector)).split('}')[0];
+    assert.match(declaration, /outline:\s*none;/);
+  }
+});
+
 test('account metadata formats Unix timestamps and does not show unknown dates as epoch', async () => {
   const timestamp = 1800000000;
   const current = harness({ page: 'account', respond: (url) => url === '/api/devices'
