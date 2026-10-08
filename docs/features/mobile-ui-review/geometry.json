@@ -1,0 +1,126 @@
+{
+  "list": [
+    {
+      "assistantHeight": 52,
+      "menuRight": 306,
+      "toolbarRight": 306,
+      "width": 320
+    },
+    {
+      "assistantHeight": 52,
+      "menuRight": 376,
+      "toolbarRight": 376,
+      "width": 390
+    },
+    {
+      "assistantHeight": 52,
+      "menuRight": 416,
+      "toolbarRight": 416,
+      "width": 430
+    },
+    {
+      "assistantHeight": 52,
+      "menuRight": 754,
+      "toolbarRight": 754,
+      "width": 768
+    }
+  ],
+  "workspace": [
+    {
+      "composerRight": 310,
+      "header": 56,
+      "subagents": "none",
+      "tabs": [
+        {
+          "h": 44,
+          "w": 75
+        },
+        {
+          "h": 44,
+          "w": 44
+        },
+        {
+          "h": 44,
+          "w": 75
+        },
+        {
+          "h": 44,
+          "w": 44
+        }
+      ],
+      "width": 320
+    },
+    {
+      "composerRight": 380,
+      "header": 56,
+      "subagents": "none",
+      "tabs": [
+        {
+          "h": 44,
+          "w": 110
+        },
+        {
+          "h": 44,
+          "w": 44
+        },
+        {
+          "h": 44,
+          "w": 110
+        },
+        {
+          "h": 44,
+          "w": 44
+        }
+      ],
+      "width": 390
+    },
+    {
+      "composerRight": 420,
+      "header": 56,
+      "subagents": "none",
+      "tabs": [
+        {
+          "h": 44,
+          "w": 130
+        },
+        {
+          "h": 44,
+          "w": 44
+        },
+        {
+          "h": 44,
+          "w": 130
+        },
+        {
+          "h": 44,
+          "w": 44
+        }
+      ],
+      "width": 430
+    },
+    {
+      "composerRight": 758,
+      "header": 56,
+      "subagents": "none",
+      "tabs": [
+        {
+          "h": 44,
+          "w": 174
+        },
+        {
+          "h": 44,
+          "w": 44
+        },
+        {
+          "h": 44,
+          "w": 174
+        },
+        {
+          "h": 44,
+          "w": 44
+        }
+      ],
+      "width": 768
+    }
+  ]
+}

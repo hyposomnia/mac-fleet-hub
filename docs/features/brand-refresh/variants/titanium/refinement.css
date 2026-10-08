@@ -1,0 +1,50 @@
+/* Selected light Titanium design guide. */
+html[data-variant="titanium"] {--cover-bg:var(--surface-1);--cover-text:var(--text);--component-radius:var(--radius-control);}
+html[data-variant="titanium"] :is(.vg-nav,.vg-cover,.vg-app,.vg-principles,.vg-swatch-color,.vg-shot,.vg-components>div,.vg-board>img,.vg-footer,#vg-feedback,.vg-demo-controls button) {border:0;}
+html[data-variant="titanium"] .vg-cover {background:var(--surface-1);background-image:none;border-radius:var(--radius-panel);padding:32px;}
+html[data-variant="titanium"] .vg-identity {gap:16px;}
+html[data-variant="titanium"] .vg-app {background:var(--surface-2);border-radius:var(--radius-panel);}
+html[data-variant="titanium"] .vg-app-large {border-radius:22%;box-shadow:var(--e2);}
+html[data-variant="titanium"] .vg-heading h1 {letter-spacing:-.6px;}
+html[data-variant="titanium"] .vg-wordmark {font-size:38px;letter-spacing:.8px;font-weight:500;}
+html[data-variant="titanium"] .vg-mark img {width:108px;height:108px;}
+html[data-variant="titanium"] .vg-swatch-color {border-radius:var(--radius-control);}
+html[data-variant="titanium"] :is(.vg-shot,.vg-shot img,.vg-board>img) {border-radius:var(--radius-panel);}
+html[data-variant="titanium"] .vg-components>div {border-radius:var(--radius-card);background:var(--surface-1);}
+html[data-variant="titanium"] .vg-demo-controls button {height:44px;border-radius:var(--radius-control);background:var(--surface-2);}
+html[data-variant="titanium"] .vg-demo-controls .vg-primary {background:var(--accent);}
+html[data-variant="titanium"] .vg-mono img {background:#EDF2F6;border-radius:var(--radius-card);}
+html[data-variant="titanium"] .vg-mono img+img {background:#16202A;}
+html[data-variant="titanium"] .vg-caption {opacity:1;color:var(--text-2);}
+html[data-variant="titanium"] .vg-cover>p {opacity:1;color:var(--text-1);}
+html[data-variant="titanium"] :is(.vg-nav,.vg-footer) {padding-top:20px;padding-bottom:20px;}
+html[data-variant="titanium"] #vg-feedback {border-radius:var(--radius-card);box-shadow:var(--e2);}
+.ti-system {margin-top:36px;}
+.ti-system-head {display:flex;justify-content:space-between;gap:24px;align-items:baseline;margin-bottom:18px;}
+.ti-system-head h2 {font-size:22px;font-weight:500;margin:0;letter-spacing:-.5px;}
+.ti-system-head p {font-size:12px;color:var(--text-1);margin:0;}
+.ti-radius-grid {display:grid;grid-template-columns:repeat(3,1fr);gap:16px;}
+.ti-radius-cell {padding:24px;background:var(--surface-1);border-radius:var(--radius-card);}
+.ti-radius-label {font:11px var(--mono);color:var(--text-2);display:block;margin-bottom:22px;}
+.ti-control-row {display:flex;align-items:center;gap:8px;}
+.ti-control {display:flex;align-items:center;justify-content:center;flex:1;min-width:0;height:44px;padding:0 12px;border:0;border-radius:var(--radius-control);background:var(--surface-2);color:var(--text);font:12px var(--font);outline-offset:3px;}
+.ti-control.ti-icon {width:44px;flex:none;padding:0;font-size:18px;}
+.ti-control.ti-primary {background:var(--accent);color:var(--accent-contrast);}
+.ti-control-row.ti-compact .ti-control {height:36px;border-radius:var(--radius-compact);}
+.ti-control-row.ti-compact .ti-icon {width:36px;}
+.ti-sample-card {display:flex;align-items:center;justify-content:space-between;min-height:72px;padding:16px;background:var(--surface-2);border-radius:var(--radius-card);font-size:12px;}
+.ti-radius-cell p {margin:18px 0 0;color:var(--text-1);font-size:12px;}
+.ti-surface-note {margin-top:16px;display:flex;gap:24px;align-items:center;padding:24px;background:var(--surface-2);border-radius:var(--radius-card);}
+.ti-surface-note strong {font-size:13px;white-space:nowrap;font-weight:600;}
+.ti-surface-note p {margin:0;font-size:12px;color:var(--text-1);}
+@media(max-width:860px) {
+ html[data-variant="titanium"] .vg-wordmark {font-size:26px;letter-spacing:.4px;}
+ html[data-variant="titanium"] .vg-mark img {width:76px;height:76px;}
+ html[data-variant="titanium"] .vg-cover {padding:24px;}
+ .ti-radius-grid {grid-template-columns:1fr;}
+ .ti-system-head,.ti-surface-note {display:block;}
+ .ti-system-head p,.ti-surface-note p {margin-top:8px;}
+ /* Mobile equivalents retain 44px touch targets and a common 12px radius. */
+ .ti-control-row.ti-compact .ti-control {height:44px;border-radius:var(--radius-control);}
+ .ti-control-row.ti-compact .ti-icon {width:44px;}
+}

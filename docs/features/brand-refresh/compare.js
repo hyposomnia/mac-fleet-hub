@@ -1,0 +1,6 @@
+const originals={id:'original',number:'00',name:'原版香槟金',language:'层叠 F · 暖调中性 · 香槟金'};
+const compareOptions=[originals,...window.FLEET_VARIANTS];
+let compareTheme='dark';
+function updatePair(slot){const v=compareOptions.find(v=>v.id===document.getElementById('compare-'+slot).value);const original=v.id==='original';document.getElementById('compare-'+slot+'-image').src=original?'screenshots/desktop-'+compareTheme+'.png':'variants/'+v.id+'/screenshots/desktop-'+compareTheme+'.png';document.getElementById('compare-'+slot+'-link').href='dashboard.html?theme='+compareTheme+(original?'':'&variant='+v.id);document.getElementById('compare-'+slot+'-description').textContent=v.language}
+for(const slot of ['a','b']){const select=document.getElementById('compare-'+slot);for(const v of compareOptions){const option=document.createElement('option');option.value=v.id;option.textContent=v.number+' · '+v.name;select.append(option)}select.value=slot==='a'?'signal':'titanium';select.onchange=()=>updatePair(slot);updatePair(slot)}
+document.querySelectorAll('[data-compare-theme]').forEach(e=>e.onclick=()=>{compareTheme=e.dataset.compareTheme;document.querySelectorAll('[data-compare-theme]').forEach(x=>x.setAttribute('aria-pressed',String(x===e)));for(const slot of ['a','b'])updatePair(slot)});

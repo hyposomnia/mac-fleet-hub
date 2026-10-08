@@ -1,3 +1,7 @@
 [agents.pm]
 description = "Use for product-minded feature discovery, feasibility research, small technical spikes, UI/UX framing, and landing plans before implementation."
 config_file = "agents/pm.toml"
+
+[agents.ui]
+description = "用于 mac-fleet-hub 的 UI/UX 设计、设计系统、原生 HTML 交互原型与视觉评审；产出可验证的设计稿和开发交接，明确授权后实现前端表现层。"
+config_file = "agents/ui.toml"

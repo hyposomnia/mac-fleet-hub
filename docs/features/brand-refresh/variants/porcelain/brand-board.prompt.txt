@@ -1,0 +1,9 @@
+Use case: logo-brand
+Asset type: premium Fleet Hub identity overview for comparison, horizontal 16:10.
+Primary request: create one sophisticated brand overview for 瓷白雾蓝 (PORCELAIN). Fleet Hub is a remote Mac workspace for sessions and files. Communicate controlled access and focused work.
+Input images: Image 1 is the exact native App icon and logo mark; reproduce its geometry and hue faithfully. Image 2 is the exact existing dashboard layout and interface language; use as the digital application, preserving its three-column structure.
+Style/medium: Porcelain product identity, luminous ceramic white and mist blue, gently rounded modular loop mark, open calm composition, soft tactile surfaces, very restrained shadows, no glossy gradients.
+Composition: a curated four-panel identity presentation with generous negative space: one dominant logo/wordmark field; one honest dashboard application; one precise App icon application; one palette/type/system detail. Give this version its own composition and visual rhythm. Premium minimal studio art direction.
+Color palette: #EAF2F3, #F6FAFA, #213A43, #2D667C. Use the reference icon colors for its canvas.
+Text (verbatim): "Fleet Hub", "PORCELAIN". Only these essential labels; no other copy required. 圆润的小写字标与宽松的视觉呼吸；不改变正文排版。
+Constraints: keep exact reference logo and icon geometry, no invented letters or symbols. No slogans, invented statistics, stock objects, fake dashboards, phone redesigns, watermarks, glossy gradients, neon or fake gold foil. Reference screenshots contain local demo content; do not add features. This is a visual identity presentation, not a replacement UI layout.

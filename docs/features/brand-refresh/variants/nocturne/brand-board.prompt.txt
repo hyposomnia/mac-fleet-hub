@@ -1,0 +1,9 @@
+Use case: logo-brand
+Asset type: premium Fleet Hub identity overview for comparison, horizontal 16:10.
+Primary request: create one sophisticated brand overview for 夜航玫瑰 (NOCTURNE). Fleet Hub is a remote Mac workspace for sessions and files. Communicate controlled access and focused work.
+Input images: Image 1 is the exact native App icon and logo mark; reproduce its geometry and hue faithfully. Image 2 is the exact existing dashboard layout and interface language; use as the digital application, preserving its three-column structure.
+Style/medium: Nocturnal architectural identity, deep aubergine and dusty rose, dramatic negative space, crescent gateway mark, wide tracked wordmark, asymmetrical dark editorial board, matte surfaces, no neon or purple-blue glow.
+Composition: a curated four-panel identity presentation with generous negative space: one dominant logo/wordmark field; one honest dashboard application; one precise App icon application; one palette/type/system detail. Give this version its own composition and visual rhythm. Premium minimal studio art direction.
+Color palette: #1E1723, #281F2F, #F8EDF4, #E4ADB7. Use the reference icon colors for its canvas.
+Text (verbatim): "Fleet Hub", "NOCTURNE". Only these essential labels; no other copy required. 纤细大写字标与宽字距；暗色空间中保持清晰层级。
+Constraints: keep exact reference logo and icon geometry, no invented letters or symbols. No slogans, invented statistics, stock objects, fake dashboards, phone redesigns, watermarks, glossy gradients, neon or fake gold foil. Reference screenshots contain local demo content; do not add features. This is a visual identity presentation, not a replacement UI layout.

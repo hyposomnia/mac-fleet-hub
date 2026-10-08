@@ -1,0 +1,752 @@
+{
+  "contrast": [
+    {
+      "theme": "light",
+      "fg": "--text",
+      "bg": "--bg",
+      "ratio": 11.15,
+      "pass": true
+    },
+    {
+      "theme": "light",
+      "fg": "--text",
+      "bg": "--surface",
+      "ratio": 12.0,
+      "pass": true
+    },
+    {
+      "theme": "light",
+      "fg": "--text",
+      "bg": "--surface-1",
+      "ratio": 12.66,
+      "pass": true
+    },
+    {
+      "theme": "light",
+      "fg": "--text",
+      "bg": "--surface-2",
+      "ratio": 10.35,
+      "pass": true
+    },
+    {
+      "theme": "light",
+      "fg": "--text",
+      "bg": "--surface-hover",
+      "ratio": 9.64,
+      "pass": true
+    },
+    {
+      "theme": "light",
+      "fg": "--text-1",
+      "bg": "--bg",
+      "ratio": 5.97,
+      "pass": true
+    },
+    {
+      "theme": "light",
+      "fg": "--text-1",
+      "bg": "--surface",
+      "ratio": 6.42,
+      "pass": true
+    },
+    {
+      "theme": "light",
+      "fg": "--text-1",
+      "bg": "--surface-1",
+      "ratio": 6.78,
+      "pass": true
+    },
+    {
+      "theme": "light",
+      "fg": "--text-1",
+      "bg": "--surface-2",
+      "ratio": 5.54,
+      "pass": true
+    },
+    {
+      "theme": "light",
+      "fg": "--text-1",
+      "bg": "--surface-hover",
+      "ratio": 5.16,
+      "pass": true
+    },
+    {
+      "theme": "light",
+      "fg": "--text-2",
+      "bg": "--bg",
+      "ratio": 5.38,
+      "pass": true
+    },
+    {
+      "theme": "light",
+      "fg": "--text-2",
+      "bg": "--surface",
+      "ratio": 5.79,
+      "pass": true
+    },
+    {
+      "theme": "light",
+      "fg": "--text-2",
+      "bg": "--surface-1",
+      "ratio": 6.11,
+      "pass": true
+    },
+    {
+      "theme": "light",
+      "fg": "--text-2",
+      "bg": "--surface-2",
+      "ratio": 5.0,
+      "pass": true
+    },
+    {
+      "theme": "light",
+      "fg": "--text-2",
+      "bg": "--surface-hover",
+      "ratio": 4.65,
+      "pass": true
+    },
+    {
+      "theme": "light",
+      "fg": "--text-3",
+      "bg": "--bg",
+      "ratio": 5.36,
+      "pass": true
+    },
+    {
+      "theme": "light",
+      "fg": "--text-3",
+      "bg": "--surface",
+      "ratio": 5.77,
+      "pass": true
+    },
+    {
+      "theme": "light",
+      "fg": "--text-3",
+      "bg": "--surface-1",
+      "ratio": 6.09,
+      "pass": true
+    },
+    {
+      "theme": "light",
+      "fg": "--text-3",
+      "bg": "--surface-2",
+      "ratio": 4.98,
+      "pass": true
+    },
+    {
+      "theme": "light",
+      "fg": "--text-3",
+      "bg": "--surface-hover",
+      "ratio": 4.64,
+      "pass": true
+    },
+    {
+      "theme": "light",
+      "fg": "--accent-contrast",
+      "bg": "--accent",
+      "ratio": 6.95,
+      "pass": true
+    },
+    {
+      "theme": "light",
+      "fg": "--accent-contrast",
+      "bg": "--accent-1",
+      "ratio": 8.86,
+      "pass": true
+    },
+    {
+      "theme": "light",
+      "fg": "--accent-text",
+      "bg": "--surface",
+      "ratio": 8.39,
+      "pass": true
+    },
+    {
+      "theme": "light",
+      "fg": "--online",
+      "bg": "--surface-hover",
+      "ratio": 5.46,
+      "pass": true
+    },
+    {
+      "theme": "light",
+      "fg": "--wait",
+      "bg": "--surface-hover",
+      "ratio": 5.24,
+      "pass": true
+    },
+    {
+      "theme": "light",
+      "fg": "--danger",
+      "bg": "--surface-hover",
+      "ratio": 4.94,
+      "pass": true
+    },
+    {
+      "theme": "light",
+      "fg": "--offline",
+      "bg": "--surface-hover",
+      "ratio": 4.65,
+      "pass": true
+    },
+    {
+      "theme": "dark",
+      "fg": "--text",
+      "bg": "--bg",
+      "ratio": 16.88,
+      "pass": true
+    },
+    {
+      "theme": "dark",
+      "fg": "--text",
+      "bg": "--surface",
+      "ratio": 15.3,
+      "pass": true
+    },
+    {
+      "theme": "dark",
+      "fg": "--text",
+      "bg": "--surface-1",
+      "ratio": 13.54,
+      "pass": true
+    },
+    {
+      "theme": "dark",
+      "fg": "--text",
+      "bg": "--surface-2",
+      "ratio": 11.95,
+      "pass": true
+    },
+    {
+      "theme": "dark",
+      "fg": "--text",
+      "bg": "--surface-hover",
+      "ratio": 10.68,
+      "pass": true
+    },
+    {
+      "theme": "dark",
+      "fg": "--text-1",
+      "bg": "--bg",
+      "ratio": 10.98,
+      "pass": true
+    },
+    {
+      "theme": "dark",
+      "fg": "--text-1",
+      "bg": "--surface",
+      "ratio": 9.95,
+      "pass": true
+    },
+    {
+      "theme": "dark",
+      "fg": "--text-1",
+      "bg": "--surface-1",
+      "ratio": 8.81,
+      "pass": true
+    },
+    {
+      "theme": "dark",
+      "fg": "--text-1",
+      "bg": "--surface-2",
+      "ratio": 7.77,
+      "pass": true
+    },
+    {
+      "theme": "dark",
+      "fg": "--text-1",
+      "bg": "--surface-hover",
+      "ratio": 6.95,
+      "pass": true
+    },
+    {
+      "theme": "dark",
+      "fg": "--text-2",
+      "bg": "--bg",
+      "ratio": 8.91,
+      "pass": true
+    },
+    {
+      "theme": "dark",
+      "fg": "--text-2",
+      "bg": "--surface",
+      "ratio": 8.08,
+      "pass": true
+    },
+    {
+      "theme": "dark",
+      "fg": "--text-2",
+      "bg": "--surface-1",
+      "ratio": 7.15,
+      "pass": true
+    },
+    {
+      "theme": "dark",
+      "fg": "--text-2",
+      "bg": "--surface-2",
+      "ratio": 6.31,
+      "pass": true
+    },
+    {
+      "theme": "dark",
+      "fg": "--text-2",
+      "bg": "--surface-hover",
+      "ratio": 5.64,
+      "pass": true
+    },
+    {
+      "theme": "dark",
+      "fg": "--text-3",
+      "bg": "--bg",
+      "ratio": 8.36,
+      "pass": true
+    },
+    {
+      "theme": "dark",
+      "fg": "--text-3",
+      "bg": "--surface",
+      "ratio": 7.58,
+      "pass": true
+    },
+    {
+      "theme": "dark",
+      "fg": "--text-3",
+      "bg": "--surface-1",
+      "ratio": 6.71,
+      "pass": true
+    },
+    {
+      "theme": "dark",
+      "fg": "--text-3",
+      "bg": "--surface-2",
+      "ratio": 5.92,
+      "pass": true
+    },
+    {
+      "theme": "dark",
+      "fg": "--text-3",
+      "bg": "--surface-hover",
+      "ratio": 5.29,
+      "pass": true
+    },
+    {
+      "theme": "dark",
+      "fg": "--accent-contrast",
+      "bg": "--accent",
+      "ratio": 12.18,
+      "pass": true
+    },
+    {
+      "theme": "dark",
+      "fg": "--accent-contrast",
+      "bg": "--accent-1",
+      "ratio": 13.91,
+      "pass": true
+    },
+    {
+      "theme": "dark",
+      "fg": "--accent-text",
+      "bg": "--surface",
+      "ratio": 13.1,
+      "pass": true
+    },
+    {
+      "theme": "dark",
+      "fg": "--online",
+      "bg": "--surface-hover",
+      "ratio": 7.99,
+      "pass": true
+    },
+    {
+      "theme": "dark",
+      "fg": "--wait",
+      "bg": "--surface-hover",
+      "ratio": 8.43,
+      "pass": true
+    },
+    {
+      "theme": "dark",
+      "fg": "--danger",
+      "bg": "--surface-hover",
+      "ratio": 7.12,
+      "pass": true
+    },
+    {
+      "theme": "dark",
+      "fg": "--offline",
+      "bg": "--surface-hover",
+      "ratio": 5.64,
+      "pass": true
+    }
+  ],
+  "states": [
+    {
+      "state": "light-1440",
+      "overflow": false,
+      "columns": "260px 330px 850px"
+    },
+    {
+      "state": "guide-light-1440",
+      "overflow": false
+    },
+    {
+      "state": "light-390",
+      "overflow": false,
+      "columns": "260px 330px 1fr"
+    },
+    {
+      "state": "guide-light-390",
+      "overflow": false
+    },
+    {
+      "state": "dark-1440",
+      "overflow": false,
+      "columns": "260px 330px 850px"
+    },
+    {
+      "state": "guide-dark-1440",
+      "overflow": false
+    },
+    {
+      "state": "dark-390",
+      "overflow": false,
+      "columns": "260px 330px 1fr"
+    },
+    {
+      "state": "guide-dark-390",
+      "overflow": false
+    }
+  ],
+  "radiusChecks": [
+    {
+      "state": "light-1440-compact",
+      "selectors": [
+        "#new-session",
+        "#session-view-toggle",
+        "#session-searchbar",
+        "#chat-attach",
+        "#chat-approval",
+        "#chat-send"
+      ],
+      "radii": [
+        "8px",
+        "8px",
+        "8px",
+        "8px",
+        "8px",
+        "8px"
+      ],
+      "expected": "8px",
+      "pass": true
+    },
+    {
+      "state": "light-1440-standard",
+      "selectors": [
+        ".host",
+        ".ses",
+        ".userrow"
+      ],
+      "radii": [
+        "12px",
+        "12px",
+        "12px"
+      ],
+      "expected": "12px",
+      "pass": true
+    },
+    {
+      "state": "light-1440-guide-controls",
+      "selectors": [
+        ".vg-demo-controls button",
+        ".ti-control-row:not(.ti-compact) button"
+      ],
+      "radii": [
+        "12px",
+        "12px"
+      ],
+      "expected": "12px",
+      "pass": true
+    },
+    {
+      "state": "light-390-mobile-list",
+      "selectors": [
+        "#session-view-toggle",
+        "#session-searchbar"
+      ],
+      "radii": [
+        "12px",
+        "12px"
+      ],
+      "expected": "12px",
+      "pass": true
+    },
+    {
+      "state": "light-390-mobile-composer",
+      "selectors": [
+        "#chat-attach",
+        "#chat-approval",
+        "#chat-send"
+      ],
+      "radii": [
+        "12px",
+        "12px",
+        "12px"
+      ],
+      "expected": "12px",
+      "pass": true
+    },
+    {
+      "state": "light-390-guide-controls",
+      "selectors": [
+        ".vg-demo-controls button",
+        ".ti-control-row:not(.ti-compact) button"
+      ],
+      "radii": [
+        "12px",
+        "12px"
+      ],
+      "expected": "12px",
+      "pass": true
+    },
+    {
+      "state": "dark-1440-compact",
+      "selectors": [
+        "#new-session",
+        "#session-view-toggle",
+        "#session-searchbar",
+        "#chat-attach",
+        "#chat-approval",
+        "#chat-send"
+      ],
+      "radii": [
+        "8px",
+        "8px",
+        "8px",
+        "8px",
+        "8px",
+        "8px"
+      ],
+      "expected": "8px",
+      "pass": true
+    },
+    {
+      "state": "dark-1440-standard",
+      "selectors": [
+        ".host",
+        ".ses",
+        ".userrow"
+      ],
+      "radii": [
+        "12px",
+        "12px",
+        "12px"
+      ],
+      "expected": "12px",
+      "pass": true
+    },
+    {
+      "state": "dark-1440-guide-controls",
+      "selectors": [
+        ".vg-demo-controls button",
+        ".ti-control-row:not(.ti-compact) button"
+      ],
+      "radii": [
+        "12px",
+        "12px"
+      ],
+      "expected": "12px",
+      "pass": true
+    },
+    {
+      "state": "dark-390-mobile-list",
+      "selectors": [
+        "#session-view-toggle",
+        "#session-searchbar"
+      ],
+      "radii": [
+        "12px",
+        "12px"
+      ],
+      "expected": "12px",
+      "pass": true
+    },
+    {
+      "state": "dark-390-mobile-composer",
+      "selectors": [
+        "#chat-attach",
+        "#chat-approval",
+        "#chat-send"
+      ],
+      "radii": [
+        "12px",
+        "12px",
+        "12px"
+      ],
+      "expected": "12px",
+      "pass": true
+    },
+    {
+      "state": "dark-390-guide-controls",
+      "selectors": [
+        ".vg-demo-controls button",
+        ".ti-control-row:not(.ti-compact) button"
+      ],
+      "radii": [
+        "12px",
+        "12px"
+      ],
+      "expected": "12px",
+      "pass": true
+    }
+  ],
+  "borderChecks": [
+    {
+      "state": "dashboard-light-1440",
+      "visibleDecorativeBorders": [],
+      "pass": true
+    },
+    {
+      "state": "light-1440-hover-.host",
+      "visibleDecorativeBorders": [],
+      "pass": true
+    },
+    {
+      "state": "light-1440-hover-.ses",
+      "visibleDecorativeBorders": [],
+      "pass": true
+    },
+    {
+      "state": "light-1440-hover-#session-view-toggle",
+      "visibleDecorativeBorders": [],
+      "pass": true
+    },
+    {
+      "state": "light-1440-hover-#new-session",
+      "visibleDecorativeBorders": [],
+      "pass": true
+    },
+    {
+      "state": "light-1440-hover-#chat-attach",
+      "visibleDecorativeBorders": [],
+      "pass": true
+    },
+    {
+      "state": "files-light-1440",
+      "visibleDecorativeBorders": [],
+      "pass": true
+    },
+    {
+      "state": "guide-light-1440",
+      "visibleDecorativeBorders": [],
+      "pass": true
+    },
+    {
+      "state": "dashboard-light-390",
+      "visibleDecorativeBorders": [],
+      "pass": true
+    },
+    {
+      "state": "mobile-chat-light-390",
+      "visibleDecorativeBorders": [],
+      "pass": true
+    },
+    {
+      "state": "files-light-390",
+      "visibleDecorativeBorders": [],
+      "pass": true
+    },
+    {
+      "state": "guide-light-390",
+      "visibleDecorativeBorders": [],
+      "pass": true
+    },
+    {
+      "state": "dashboard-dark-1440",
+      "visibleDecorativeBorders": [],
+      "pass": true
+    },
+    {
+      "state": "dark-1440-hover-.host",
+      "visibleDecorativeBorders": [],
+      "pass": true
+    },
+    {
+      "state": "dark-1440-hover-.ses",
+      "visibleDecorativeBorders": [],
+      "pass": true
+    },
+    {
+      "state": "dark-1440-hover-#session-view-toggle",
+      "visibleDecorativeBorders": [],
+      "pass": true
+    },
+    {
+      "state": "dark-1440-hover-#new-session",
+      "visibleDecorativeBorders": [],
+      "pass": true
+    },
+    {
+      "state": "dark-1440-hover-#chat-attach",
+      "visibleDecorativeBorders": [],
+      "pass": true
+    },
+    {
+      "state": "files-dark-1440",
+      "visibleDecorativeBorders": [],
+      "pass": true
+    },
+    {
+      "state": "guide-dark-1440",
+      "visibleDecorativeBorders": [],
+      "pass": true
+    },
+    {
+      "state": "dashboard-dark-390",
+      "visibleDecorativeBorders": [],
+      "pass": true
+    },
+    {
+      "state": "mobile-chat-dark-390",
+      "visibleDecorativeBorders": [],
+      "pass": true
+    },
+    {
+      "state": "files-dark-390",
+      "visibleDecorativeBorders": [],
+      "pass": true
+    },
+    {
+      "state": "guide-dark-390",
+      "visibleDecorativeBorders": [],
+      "pass": true
+    }
+  ],
+  "errors": [],
+  "interactions": [
+    "默认浅色入口",
+    "规范主题与图标/截图/链接同步",
+    "会话搜索空态",
+    "搜索框可见聚焦反馈",
+    "移动会话打开/返回/本地发送",
+    "文件模式",
+    "规范按钮反馈",
+    "控件 hover/selected 无装饰描边"
+  ],
+  "icon": {
+    "sizes": [
+      24,
+      32,
+      180,
+      192,
+      512,
+      1024
+    ],
+    "opaque": true,
+    "maxRadius": 124.72,
+    "safeRadius": 204.8,
+    "facets": 3,
+    "pass": true
+  },
+  "pass": true,
+  "missingReferences": []
+}

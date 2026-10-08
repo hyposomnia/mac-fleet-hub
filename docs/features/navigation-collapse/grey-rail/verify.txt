@@ -1,0 +1,548 @@
+
+==> Go 测试：mac/fleet-agent (go test ./...)
+ok  	fleet-agent	(cached)
+
+==> Go 测试：server/enroll (go test ./...)
+ok  	fleet-enroll	(cached)
+ok  	fleet-enroll/multiuser	(cached)
+
+==> Dashboard JS 测试：server/dashboard (node --test)
+✔ registration has exactly three fields, sends exact contract, and requires Authenticator setup (4.336042ms)
+✔ account inputs use valid autocomplete and security forms identify the current account without changing payloads (1.702708ms)
+✔ account metadata formats Unix timestamps and does not show unknown dates as epoch (11.2065ms)
+✔ password login challenge never opens dashboard before OTP verification (0.784333ms)
+✔ setup verification shows recovery codes only in DOM and requires acknowledgment, preserving enrollment next (1.522375ms)
+✔ recovery sends email, password and recovery_code then forces new Authenticator setup (2.637833ms)
+✔ form errors are inline and re-enable submission; mismatched passwords never hit transport (0.674708ms)
+✔ account authenticates first, lists owned metadata, and sends password and recovery rotation contracts (1.283834ms)
+✔ account TOTP rotation uses start then confirm and displays new recovery codes (0.897167ms)
+✔ account device removal and other session revocation require confirmation and use writes (2.010833ms)
+✔ admin denies ordinary users without querying admin APIs (0.634541ms)
+✔ admin shows counts, searches and paginates metadata, with no content endpoints or injected markup (1.183875ms)
+✔ admin detail exposes only metadata and actions send exact status/revocation/device paths (1.746583ms)
+✔ enrollment reads return query, authenticates, and confirms only after explicit click (1.262084ms)
+✔ native OAuth consent uses the authenticated account, no pairing code, and a loopback callback (0.814584ms)
+✔ admin pagination disables both boundaries after a click rather than re-enabling them (1.076375ms)
+✔ recovery acknowledgment and TOTP pages prevent duplicate confirmation while the mutation is pending (0.633584ms)
+✔ security changes that revoke the current session preserve recovery codes until acknowledged (0.819584ms)
+✔ add device offers a native DMG and explains fresh browser OAuth and background disk authorization (1.091584ms)
+✔ unpublished clients do not produce fake download links (0.674334ms)
+✔ invalid or cross-origin native releases never expose download links (3.308458ms)
+✔ native installation instructions use the current service origin (1.344709ms)
+✔ null and empty login recovery codes complete verification without an empty code screen (0.960042ms)
+✔ auth navigation marks the current step without losing the pairing destination (0.619042ms)
+✔ registration and verification steps do not offer navigation that leaves the active flow (0.909125ms)
+✔ recovery acknowledgment renders its checkbox before the label and still requires explicit consent (0.315417ms)
+✔ private navigation identifies only the current page and keeps administrator visibility scoped (0.818459ms)
+✔ 旧 agent 不返回 dsh 块时，第三个入口保持隐藏 (0.8895ms)
+✔ 新 agent 未启用 dsh 时入口保持隐藏 (0.061542ms)
+✔ 启用但 Desktop 未运行时：入口可见（带降级横幅）但不允许自绘写操作 (0.045209ms)
+✔ 启用且就绪时：入口可见且允许自绘 (0.038458ms)
+✔ codex 与 claude 的能力判定不受 dsh 能力块影响 (0.044334ms)
+✔ 自绘对话的"连接中"文案随 assistant 走 (0.204084ms)
+✔ 共享对话界面里不再有写死的 Codex 文案 (0.571334ms)
+✔ retired preferences cannot enable Claude or ttyd (0.0925ms)
+✔ authenticated JSON and multipart writes include me CSRF with same-origin credentials and no-store (27.557875ms)
+✔ writes without a full session and cross-origin requests fail before transport (1.413333ms)
+✔ pending auth requests send exact JSON and invalid credentials stay on the form (1.635708ms)
+✔ private keys are unavailable before me, isolated by identity and legacy state is discarded (0.593916ms)
+✔ authenticated 401 clears both private storages and redirects once, retaining local enrollment return (0.56475ms)
+✔ logout is a CSRF protected POST, clears state only after success and stops later private writes (1.113375ms)
+✔ responses arriving after session loss cannot repopulate private UI (0.986042ms)
+✔ safe return URLs reject protocol-relative, escaped and authentication loop destinations (0.550334ms)
+✔ blocked browser storage cannot prevent authentication or 401 cleanup (0.806958ms)
+✔ successful verification signals other tabs to discard their previous user state (0.963333ms)
+✔ worker bypasses exact and nested protected pages and APIs without false prefix matches (27.25ms)
+✔ worker never puts an authentication redirect in navigation shell cache (0.988459ms)
+✔ all page shells reference shared absolute assets and initial private rendering is gated (2.883458ms)
+✔ dashboard awaits me before init/preview/polling and namespaces all private browser keys (1.622708ms)
+✔ owned device discovery uses /api/devices, logout uses POST client, and both menus expose new navigation (0.575625ms)
+✔ XHR uploads attach CSRF and invalidate on 401, private persistence stops on auth loss (0.389459ms)
+✔ session loss stops dashboard polling, closes chat streams and clears private in-memory state (0.997041ms)
+✔ chat model and app use the same versioned shell URLs (1.502042ms)
+✔ local supported file links resolve to the originating Mac preview route (0.452ms)
+✔ preview helpers build protected media URLs and parse only /view routes (0.681583ms)
+✔ file preview omits browser back actions and redundant device/type/size badges (0.124291ms)
+✔ preview page keeps HTML in a scriptless sandbox and media in native controls (0.182791ms)
+✔ text previews expose one persistent auto-wrap toggle in both preview headers (0.227708ms)
+✔ text previews map source formats into a read-only line-numbered code viewer (0.615166ms)
+✔ dashboard typography uses one UI scale and reserves monospace for technical content (3.758083ms)
+✔ custom chat header omits redundant badge and metadata (0.254583ms)
+✔ background ttyd frames cannot steal focus from dashboard controls (0.26525ms)
+✔ ChatGPT is the first and default session assistant (0.42075ms)
+✔ DeepSeek native UI uses the official black whale button and opens a host-scoped path (0.632625ms)
+✔ DeepSeek whale sits inside the assistant tab instead of the header actions (0.96175ms)
+✔ assistant capability probe is bounded so one unreachable Mac cannot hide the DeepSeek tab (0.27925ms)
+✔ DeepSeek native UI stays disabled until one online host reports a live native UI (0.531375ms)
+✔ Sub Agent strip sits above the composer and supports detail and list drawers (1.106625ms)
+✔ Sub Agent running status uses the task spinner without changing terminal states (0.202375ms)
+✔ Completed Sub Agents disappear while unfinished agents remain available (0.128333ms)
+✔ Sub Agent detail refreshes while running and once more on terminal transition (0.120709ms)
+✔ Sub Agent activity keeps identity in the model but remains internal to the main transcript (0.849875ms)
+✔ settings menu owns archive browsing and session settings (1.062875ms)
+✔ session settings expose chat cache without terminal controls (0.399125ms)
+✔ automation modal links to a concise cached API guide (0.115ms)
+✔ automation keys expose a four-level binding editor and submit the scope (0.121292ms)
+✔ automation key editing stays inside its card and copied requests target the key scope (0.328625ms)
+✔ automation uses the key name as a session alias without a separate editor (0.19325ms)
+✔ mobile session toolbar keeps square actions on both sides of search (0.2675ms)
+✔ new session controls distinguish unscoped and project sessions (0.455166ms)
+✔ fresh Codex detail starts locally and creates its thread on first submit (0.246708ms)
+✔ pending Codex chat resolves the home directory once and migrates to the real thread (0.662417ms)
+✔ session grouping omits aggregate badges and the view toggle has a visible pressed state (0.375125ms)
+✔ session pagination loads automatically near the scroll boundary (0.393333ms)
+✔ recent session polling reconciles keyed rows without rebuilding the list (0.321875ms)
+✔ mobile layout follows viewport width regardless of pointer type (0.569084ms)
+✔ mobile session list does not create a second safe-area block (0.471709ms)
+✔ mobile settings actions fill the drawer in two equal touch targets (0.320042ms)
+✔ root canvas uses the large viewport instead of clipping standalone content (0.200708ms)
+✔ session list aggregates online devices while row actions retain their source Mac (0.36325ms)
+✔ session project grouping follows Desktop assignments and merges projectless chats (0.139ms)
+✔ saved Desktop projects without threads remain visible and searchable (0.068667ms)
+✔ session rows remove redundant device, assistant, and idle labels (0.914125ms)
+✔ special session states use leading dots and never render relative time labels (0.38925ms)
+✔ a newer background reply becomes unread until that session is selected (0.140417ms)
+✔ a selected session remains unread while its file tab covers the conversation (0.073792ms)
+✔ a Desktop unread thread is not silently baselined as read on first sight (0.088292ms)
+✔ read on Desktop or another Fleet browser clears the session dot (0.268333ms)
+✔ external Codex writer keeps Fleet visible and queues confirmed input without acquire takeover (0.442333ms)
+✔ normal Fleet writer ownership does not show an ownership warning (0.081458ms)
+✔ Fleet retains release and read-only controls for actionable states (0.2005ms)
+✔ Dashboard is a server-authoritative chat shell with no local delivery state machine (0.706333ms)
+✔ server queue states map to distinct native UI treatments and actions (1.073083ms)
+✔ every server queue state has an explicit placement, label, and legal browser actions (0.136833ms)
+✔ queue transcript cards render exactly the actions permitted by the state matrix (0.234ms)
+✔ external writer messages use the agent queue and render takeover actions below the user message (0.261458ms)
+✔ Fleet-owned turn queue reuses the composer follow-up stack instead of transcript cards (0.445291ms)
+✔ browser queue projection is replaced from the server without legacy persistence (0.479875ms)
+✔ browser applies only newer complete server control snapshots (0.356542ms)
+✔ control projection clears request locks on a newer server item version (0.110083ms)
+✔ expired control transport disables mutations without inventing server state (0.047ms)
+✔ read-only Fleet writer is shown as unreleased instead of Codex-ready (0.049416ms)
+✔ pending app-server requests stay visible beside the composer and in the ownership header (0.115459ms)
+✔ successfully sent queue items do not render a redundant status card (0.031666ms)
+✔ refresh restores only actionable queue items, not sent or cancelled history (0.047125ms)
+✔ takeover is offered only for an external writer, never the current Fleet turn (0.053417ms)
+✔ waiting reply label is suppressed after an opened chat proves there is no actionable request (0.135875ms)
+✔ custom file browser stays on one device and shares the protected preview route (1.273709ms)
+✔ file preview presents native-style type and home-relative location details (0.392542ms)
+✔ file browser selects local SVG icons by filename, extension, and MIME (11.72075ms)
+✔ file browser hides dotfiles by default and can reveal them without changing search (0.741458ms)
+✔ file browser sorts folders and files by modified time or byte size without mutating API data (4.785167ms)
+✔ file browser supports persistent icon, list, and column views (0.425ms)
+✔ file browser highlights only the most specific matching location (0.159417ms)
+✔ column view truncates stale descendants and rejects stale async responses (0.106542ms)
+✔ hidden files stay muted in icon and column views (0.4275ms)
+✔ PWA shell supports install, offline navigation, updates, and native shortcuts (0.547917ms)
+✔ jump-to-bottom control uses an accessible inline SVG icon (0.124875ms)
+✔ jump-to-bottom glass is not trapped inside the composer backdrop root (0.265542ms)
+✔ chat cache evicts the earliest updated non-current session (0.059208ms)
+✔ chat cache update time is monotonic and green status follows EventSource state (0.055542ms)
+✔ session running indicator prefers server control and falls back to the session snapshot (0.051459ms)
+✔ vendored markdown parser formats common assistant response blocks (14.282083ms)
+✔ chat code blocks wrap, show line numbers, syntax color, and copy feedback (0.239417ms)
+✔ Codex git directives are parsed as structured status blocks (0.156583ms)
+✔ Codex directives inside fenced code remain Markdown (0.128625ms)
+✔ assistant deltas merge by item id (0.439ms)
+✔ Codex object status and turn lifecycle drive the running phase (0.118208ms)
+✔ Desktop turn ownership survives progress and clears on completion (0.275792ms)
+✔ stale inactive events cannot clear a newer active turn (0.071542ms)
+✔ no-active errors support structured and legacy agent responses (0.072042ms)
+✔ composer queues non-empty running input and only stops when empty (0.809709ms)
+✔ command enter queues the message for the next turn (0.084167ms)
+✔ chat skill trigger recognizes dollar and slash only at token start (0.109917ms)
+✔ pending Codex chat keeps slash commands available before thread creation (0.249667ms)
+✔ chat skill parsing supports dollar and slash, deduplicates, and keeps unknown tokens (0.179333ms)
+✔ same-name skill parsing keeps app-server first-result priority (0.032625ms)
+✔ plugin skill menu hides opaque IDs and short aliases retain exact invocation identity (0.144ms)
+✔ short plugin names never shadow another skill and explicit duplicate selection is retained (0.092042ms)
+✔ skill token detection covers plugin-prefixed names before a list retry (0.303166ms)
+✔ failed turn recovery preserves text order and deduplicates uploaded images (0.168375ms)
+✔ local user image path resolves through the selected Mac media endpoint (0.080208ms)
+✔ markdown media syntax renders audio and video files with native media controls (0.284042ms)
+✔ failed steering removes the optimistic transcript item before queue recovery (0.083208ms)
+✔ follow-up acknowledgement uses the Codex client message id (0.039458ms)
+✔ self-drawn composer contains native stop control and follow-up queue (0.789166ms)
+✔ mobile chat composer uses the root canvas and follows a resized visual viewport (1.77625ms)
+✔ chat image attachments open through one accessible fullscreen viewer with fit, zoom, and download controls (1.608208ms)
+✔ chat composer accepts arbitrary attachments and renders non-images as downloadable file cards (0.256042ms)
+✔ chat image viewer keeps zoom bounded and derives a useful download filename (0.330042ms)
+✔ opening the chat image viewer resets zoom, prepares download, and restores focus on close (0.316042ms)
+✔ self-drawn approval menu mirrors Codex three presets (1.275792ms)
+✔ approval mode is only sent for assistants that support session presets (0.0775ms)
+✔ self-drawn chat subscribes to the current assistant stream instead of a hardcoded codex (0.143708ms)
+✔ self-drawn option submenu grows to the available viewport height (0.505125ms)
+✔ self-drawn user message time renders outside the bubble (0.443667ms)
+✔ mobile session rows keep a compact touch target (0.253833ms)
+✔ mobile session rows center single-line content vertically (0.16725ms)
+✔ mobile title switch emphasizes only the selected mode (0.277375ms)
+✔ mobile device picker sits compactly in each title row (0.522083ms)
+✔ session and file views reuse one device scope component (0.385458ms)
+✔ device picker lists the small fleet without a search field (0.314958ms)
+✔ mobile session detail supports a deliberate edge swipe back (0.707875ms)
+✔ mobile file back gesture moves only the browsing region (1.0105ms)
+✔ root viewport stays fixed and uses the active app background (0.254958ms)
+✔ dashboard and preview disable double-tap zoom without disabling pinch zoom (0.075667ms)
+✔ manual theme selection updates the browser chrome color (0.083292ms)
+✔ system theme follows OS changes until a manual choice and can be selected again (0.227125ms)
+✔ mobile text controls prevent iOS focus zoom without disabling pinch zoom (0.162875ms)
+✔ self-drawn assistant messages fill the conversation column (0.2105ms)
+✔ turn pin follows the latest user message that has crossed the scroll top (0.147ms)
+✔ tool output appends to command card (0.056042ms)
+✔ generic tool updates preserve kind, summary, status, and details (0.06225ms)
+✔ tool activity rows mirror Codex inline summaries (0.707041ms)
+✔ tool-only activity summaries keep the existing compatibility fallback (0.716583ms)
+✔ manually expanded activity groups stay open across live rerenders (0.167875ms)
+✔ Codex activity traces omit internal reasoning items (0.043916ms)
+✔ tool-only fallback keeps native standalone tool boundaries (0.104875ms)
+✔ active reasoning appears immediately as a private thinking status (0.180708ms)
+✔ turn progress follows event order instead of item insertion order (0.14775ms)
+✔ late events from an old turn cannot overwrite active turn progress (0.034666ms)
+✔ reasoning stays hidden while native tool rows remain visible (0.173083ms)
+✔ tool-first traces keep Codex activity summaries instead of becoming Thought (0.162458ms)
+✔ context compaction and messages cut Codex activity traces (0.057125ms)
+✔ tool-only runs preserve image and computer-use standalone rows (0.13075ms)
+✔ Codex transcript exposes thinking state without reasoning content (0.707083ms)
+✔ activity group summary follows Codex part ordering and leading labels (0.095375ms)
+✔ running activity group uses the active item summary (0.052666ms)
+✔ tool activity labels follow Codex command and MCP wording (0.068625ms)
+✔ read-only tool activities stay collapsed like Codex summaries (0.035291ms)
+✔ node_repl transport calls stay visible unless explicitly internal (0.037583ms)
+✔ file changes keep paths and count added and deleted diff lines (0.093708ms)
+✔ file change normalization accepts explicit line counts (0.02925ms)
+✔ approval keeps app-server request id (0.060875ms)
+✔ server requests preserve their native method and project dedicated interaction types (0.07125ms)
+✔ image tool projection keeps a renderable media path and command actions (0.054708ms)
+✔ local user message is appended immediately (0.030041ms)
+✔ local user message keeps image attachments (0.024292ms)
+✔ history is prepended chronologically and deduplicated against live items (0.236833ms)
+✔ foreground history reconciliation does not duplicate a live turn with different server item ids (0.16425ms)
+✔ user and assistant message metadata is normalized for rendering (3.069292ms)
+✔ chat metadata dates use compact relative labels (0.050958ms)
+✔ history metadata falls back to Codex UUIDv7 turn time and session defaults (0.131625ms)
+✔ assistant metadata waits for turn completion and uses the last assistant item (0.259ms)
+✔ assistant metadata is placed after tools when the turn completes (0.17825ms)
+✔ hidden reasoning cannot consume the completed turn metadata anchor (0.065458ms)
+✔ active resumed turn does not expose historical metadata before completion (0.081792ms)
+✔ historical final answer exposes metadata without a live turn_done event (0.066834ms)
+✔ turn completion metadata backfills the last assistant message in that turn (0.142917ms)
+✔ thread token usage notification backfills the completed turn with last usage (0.203ms)
+✔ completed command history becomes a tool card (0.055917ms)
+✔ failed turn keeps its error and exits running state (0.05325ms)
+✔ structured app-server errors render a readable message (0.032917ms)
+✔ successful completion clears a transient turn error (0.05825ms)
+✔ optimistic user message can be removed without discarding later events (0.083084ms)
+✔ composer draft normalization rejects null-like persisted values (0.02125ms)
+✔ send and stop source contracts reject stale active state (0.25ms)
+✔ new Codex sessions open a local self-drawn draft before starting (0.158667ms)
+✔ fresh Codex sessions initialize model options without calling resume (0.213916ms)
+✔ foreground restore replaces a stale SSE stream and reconciles missed history (0.323416ms)
+✔ chat send keeps textarea focus through pointerdown on mobile keyboards (0.142959ms)
+✔ session archive is a first-level action beside the shared menu and respects native capabilities (1.556583ms)
+✔ DeepSeek menu clicks keep the row assistant and source Mac (0.250375ms)
+✔ session deletion keeps cached chat on failure and disposes it only on success (0.231959ms)
+✔ DeepSeek capability discovery refreshes existing rows only when capabilities change (0.333291ms)
+✔ global menu keyboard navigation skips disabled actions and Escape restores its trigger (0.163166ms)
+✔ session hover reveals actions without drawing an outline (27.170291ms)
+✔ saving only device appearance does not rewrite its name or proxy (0.22675ms)
+✔ summary uses the latest nonempty assistant line, never user, reasoning or tool output (1.243667ms)
+✔ preview focus expands, blur collapses and preserves a multiline draft (0.290333ms)
+✔ background completion stays unread until returning to visible conversation (0.279459ms)
+✔ closed conversation and hidden browser do not acknowledge replies, no output hides summary (0.249709ms)
+✔ reset and conversation switch replace private summary text instead of retaining it (0.280334ms)
+✔ unknown preferences and corrupt storage fall back to a steel computer (1.593375ms)
+✔ device appearance persists independently and ignores unsupported device IDs (1.273875ms)
+✔ blocked storage preserves in-page preferences and reports persistence failure (0.523208ms)
+✔ previewing a draft never changes saved appearance (0.646584ms)
+✔ all six icon choices have SVG geometry and eight colors are distinct (0.55475ms)
+✔ HTTP 非 2xx 记为网关不可达，并带上状态码 (0.761417ms)
+✔ 网络错误（fetch 抛错）同样记为网关不可达 (0.153375ms)
+✔ 恢复可达后故障态被清除 (0.126583ms)
+✔ 重复同一原因不重复重渲染（30s 轮询不该每轮刷屏） (0.111958ms)
+✔ 本来就是好的，再报可达不触发多余渲染 (0.200083ms)
+✔ refreshNodes 的失败分支不再静默 return (0.375125ms)
+✔ 可达性判定发生在 JSON 解析之后（网关有响应就不算连不上） (0.112834ms)
+✔ 网关不可达时提示服务器不可用，不显示添加设备空态 (1.144917ms)
+✔ 会话和文件的设备空列表在提示下方提供添加设备入口 (0.262416ms)
+✔ 故障态提供重试按钮，且点击会重新拉取 (0.214584ms)
+✔ 故障态用 danger 色系，和正常空态视觉上分开 (0.172042ms)
+✔ 设备和会话列表独立收起，展开列表直接恢复宽栏并保存 (2.733375ms)
+✔ 旧收起偏好仍有效，展开后选择会话或同步布局不自动收回列表 (1.062791ms)
+✔ 切文件模式隐藏入口，返回会话保持展开或收起偏好 (0.864041ms)
+✔ 移动断点不受桌面收起偏好影响，返回桌面保持原状态 (0.429459ms)
+✔ 浏览器禁用存储时仍可直接收起和展开 (0.311583ms)
+✔ 展开列表不注册浮层关闭交互，页面与样式移除悬浮列表 (4.824ms)
+✔ new users start light even when their OS is dark (1.064166ms)
+✔ saved dark survives reload and system is an explicit persistent choice (0.451208ms)
+✔ cross-tab preference changes update chrome and controls without another write (0.273ms)
+✔ storage restrictions and invalid choices still allow in-memory theme selection (0.262625ms)
+✔ 入队保持顺序、带上目标设备与目录、忽略无名条目 (1.245584ms)
+✔ 同一时刻只放行一个上传（串行泵） (0.114625ms)
+✔ 进度按已传/总量换算并夹在 0–100，总量未知时回落到文件大小 (0.089ms)
+✔ 完成/失败都释放串行位，未知 id 静默忽略 (0.08025ms)
+✔ 视图行按队列顺序给出名称/目录/大小/状态文案 (0.129666ms)
+✔ 汇总给面板头部用：计数、总进度、是否仍在忙、是否有失败 (0.147792ms)
+✔ 清除只摘掉已完成行，失败与待传行保留 (0.091708ms)
+✔ 校验阶段先占住串行位，校验通过再转上传 (0.055083ms)
+✔ 同名跳过：标记 conflict、给出原因、释放串行位并计入汇总 (0.078959ms)
+✔ 同名比较在 macOS 默认的文件系统语义下不区分大小写 (0.073958ms)
+✔ 选中多个文件后排成队列：只发一个请求，其余显示等待 (2.933333ms)
+✔ 进度事件实时反映到进度条与百分比，且请求完成后自动接下一个 (0.48025ms)
+✔ 单个文件失败不阻塞队列，失败原因留在该行 (0.4875ms)
+✔ 队列跑完且没有失败时自动收起面板 (0.289709ms)
+✔ 上传完成后只在还停在该目录时才刷新列表 (0.444542ms)
+✔ 目标目录已有同名文件：先校验，不发一个字节，队列继续下一个 (0.284333ms)
+✔ 目录名相同也算同名（agent 用 O_EXCL 建文件，同名文件夹一样会 409） (0.442083ms)
+✔ 有同名跳过时面板不自动收起，并提示跳过了几个 (0.217666ms)
+✔ 校验失败（拿不到目录）不阻塞上传，仍交给服务端兜底 (0.241792ms)
+✔ 外壳契约：两个挂载点、资源版本一致、上传走 XHR 且不再用转圈光标 (0.672042ms)
+✔ file identity scopes device/cwd, normalizes relative paths and line locations, rejects external routes (2.102583ms)
+✔ multiple files are retained, repeat links reuse a frame, selecting chat preserves the conversation DOM (0.542833ms)
+✔ closing a background tab preserves active file, last close restores chat and removes frames (0.437583ms)
+✔ a lone conversation uses the same tab header before opening files and after reset (0.362334ms)
+✔ ordinary file links are intercepted but external links, downloads and modifier clicks keep native behavior (0.487875ms)
+✔ tabs support keyboard selection and deleting a file restores the conversation tab (0.367708ms)
+✔ preview frame links open sibling tabs and switching pauses native media without changing HTML sandbox (0.369ms)
+✔ integration loads workspace before app, restores chat on navigation and isolates preview overlay (2.897ms)
+✔ workspace tabs use compact icon labels and a single integrated header (0.864542ms)
+✔ hover cards reveal full titles and paths, cancel on leave, and clear on selection/reset (0.809625ms)
+✔ file tabs retain the original composer, draft, and submit handler while transcript is inert (0.4365ms)
+✔ conversation and file tabs always expose close controls in selected and background states (0.403042ms)
+✔ closing the active conversation selects a retained file and reopening chat restores its tab (0.332792ms)
+✔ closing a lone conversation hides the tab row without creating or deleting any file (0.264208ms)
+ℹ tests 303
+ℹ suites 0
+ℹ pass 303
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 225.9365
+
+==> 候选安装包与独立网关配置测试
+✔ native download upgrade preserves existing routes and is idempotent (0.680167ms)
+✔ independent acceptance templates derive addresses from configured origin (0.430959ms)
+✔ client downloads require every real file, immutable revision and Accepted receipt (3.854959ms)
+✔ native release hashes actual app packages and derives feed from configured origin (5.384292ms)
+✔ native release rejects source archives, missing signatures and unfinished notarization (0.668375ms)
+﹣ SDK preparation replaces a tampered extracted cache from the verified archive (0.57075ms) # SKIP
+✔ development packaging is isolated and cannot publish an installer (0.254541ms)
+✔ both native app bundles include the adopted brand icon (0.138417ms)
+✔ login helper only starts the independently managed daemon (0.109417ms)
+✔ standalone agent is separately notarized before host signing (0.481417ms)
+✔ upgrade recovery synchronizes the standalone runtime even when an old daemon responds (0.1275ms)
+✔ native packaging requires verified bundled runtime instead of developer Homebrew (0.066291ms)
+✔ native privacy instructions identify the background bundle and do not promise universal permission (0.118417ms)
+✔ native candidate publication stays behind the unique signing entry and Accepted receipts (0.192292ms)
+ℹ tests 14
+ℹ suites 0
+ℹ pass 13
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 1
+ℹ todo 0
+ℹ duration_ms 71.330083
+
+==> 原生设置应用：校验 Sparkle SDK 与 Swift 测试
+/Users/hjc/Git_Repositories/mac-fleet-hub/mac/settings-app/Vendor
+Building for debugging...
+[Pre-planning 1 / 183]
+[Planning deferred tasks]
+[1 / 2]
+[5 / 14]
+[5 / 12] FleetHub-product
+[8 / 9] FleetHubTests-product
+Build complete! (1.03秒)
+Test Suite 'All tests' started at 2026-10-07 13:14:20.984.
+Test Suite 'FleetHubTests.xctest' started at 2026-10-07 13:14:20.985.
+Test Suite 'DesignTests' started at 2026-10-07 13:14:20.985.
+Test Case '-[FleetHubTests.DesignTests testTitaniumMetricsAndAccountNavigation]' started.
+Test Case '-[FleetHubTests.DesignTests testTitaniumMetricsAndAccountNavigation]' passed (0.000 seconds).
+Test Suite 'DesignTests' passed at 2026-10-07 13:14:20.985.
+	 Executed 1 test, with 0 failures (0 unexpected) in 0.000 (0.000) seconds
+Test Suite 'UpdaterDelegateTests' started at 2026-10-07 13:14:20.985.
+Test Case '-[FleetHubTests.UpdaterDelegateTests testSafetyCallbacksAreActuallyRegisteredWithSparkle]' started.
+Test Case '-[FleetHubTests.UpdaterDelegateTests testSafetyCallbacksAreActuallyRegisteredWithSparkle]' passed (0.000 seconds).
+Test Case '-[FleetHubTests.UpdaterDelegateTests testSparklePreservesManifestFieldsUsedBySafetyCallback]' started.
+Test Case '-[FleetHubTests.UpdaterDelegateTests testSparklePreservesManifestFieldsUsedBySafetyCallback]' passed (0.000 seconds).
+Test Suite 'UpdaterDelegateTests' passed at 2026-10-07 13:14:20.986.
+	 Executed 2 tests, with 0 failures (0 unexpected) in 0.000 (0.001) seconds
+Test Suite 'FleetHubTests.xctest' passed at 2026-10-07 13:14:20.986.
+	 Executed 3 tests, with 0 failures (0 unexpected) in 0.001 (0.001) seconds
+Test Suite 'All tests' passed at 2026-10-07 13:14:20.986.
+	 Executed 3 tests, with 0 failures (0 unexpected) in 0.001 (0.002) seconds
+Test Suite 'All tests' started at 2026-10-07 13:14:21.031.
+Test Suite 'FleetCoreTests.xctest' started at 2026-10-07 13:14:21.031.
+Test Suite 'BackgroundRuntimeTests' started at 2026-10-07 13:14:21.031.
+Test Case '-[FleetCoreTests.BackgroundRuntimeTests testBusyGuardLeavesOldAgentAndResumesWithoutActivation]' started.
+Test Case '-[FleetCoreTests.BackgroundRuntimeTests testBusyGuardLeavesOldAgentAndResumesWithoutActivation]' passed (0.003 seconds).
+Test Case '-[FleetCoreTests.BackgroundRuntimeTests testConcurrentDeploymentCannotAcquireSameRuntimeLock]' started.
+Test Case '-[FleetCoreTests.BackgroundRuntimeTests testConcurrentDeploymentCannotAcquireSameRuntimeLock]' passed (0.002 seconds).
+Test Case '-[FleetCoreTests.BackgroundRuntimeTests testFailedFirstInstallRemovesOnlyNewRuntime]' started.
+Test Case '-[FleetCoreTests.BackgroundRuntimeTests testFailedFirstInstallRemovesOnlyNewRuntime]' passed (0.002 seconds).
+Test Case '-[FleetCoreTests.BackgroundRuntimeTests testFailedHealthStopsNewAgentBeforeRestoringOldBundleAndDefinition]' started.
+Test Case '-[FleetCoreTests.BackgroundRuntimeTests testFailedHealthStopsNewAgentBeforeRestoringOldBundleAndDefinition]' passed (0.002 seconds).
+Test Case '-[FleetCoreTests.BackgroundRuntimeTests testIndependentInstallVerifiesBothCopiesBeforeReplacing]' started.
+Test Case '-[FleetCoreTests.BackgroundRuntimeTests testIndependentInstallVerifiesBothCopiesBeforeReplacing]' passed (0.002 seconds).
+Test Case '-[FleetCoreTests.BackgroundRuntimeTests testSymlinkAndNestedAppDestinationsAreRejected]' started.
+Test Case '-[FleetCoreTests.BackgroundRuntimeTests testSymlinkAndNestedAppDestinationsAreRejected]' passed (0.001 seconds).
+Test Case '-[FleetCoreTests.BackgroundRuntimeTests testUnsafeRollbackKeepsBackupInsteadOfReplacingRunningProcess]' started.
+Test Case '-[FleetCoreTests.BackgroundRuntimeTests testUnsafeRollbackKeepsBackupInsteadOfReplacingRunningProcess]' passed (0.002 seconds).
+Test Case '-[FleetCoreTests.BackgroundRuntimeTests testUnverifiedPayloadNeverStopsOrChangesInstalledAgent]' started.
+Test Case '-[FleetCoreTests.BackgroundRuntimeTests testUnverifiedPayloadNeverStopsOrChangesInstalledAgent]' passed (0.001 seconds).
+Test Suite 'BackgroundRuntimeTests' passed at 2026-10-07 13:14:21.046.
+	 Executed 8 tests, with 0 failures (0 unexpected) in 0.015 (0.015) seconds
+Test Suite 'DesktopAutostartTests' started at 2026-10-07 13:14:21.046.
+Test Case '-[FleetCoreTests.DesktopAutostartTests testLauncherDoesNotLoadUntrustedRuntimeOrReplaceLegacyFleet]' started.
+Test Case '-[FleetCoreTests.DesktopAutostartTests testLauncherDoesNotLoadUntrustedRuntimeOrReplaceLegacyFleet]' passed (0.002 seconds).
+Test Case '-[FleetCoreTests.DesktopAutostartTests testLauncherOnlyBootstrapsVerifiedIndependentRuntime]' started.
+Test Case '-[FleetCoreTests.DesktopAutostartTests testLauncherOnlyBootstrapsVerifiedIndependentRuntime]' passed (0.001 seconds).
+Test Case '-[FleetCoreTests.DesktopAutostartTests testLauncherRejectsLegacyNestedAndForeignProgramDefinitions]' started.
+Test Case '-[FleetCoreTests.DesktopAutostartTests testLauncherRejectsLegacyNestedAndForeignProgramDefinitions]' passed (0.002 seconds).
+Test Suite 'DesktopAutostartTests' passed at 2026-10-07 13:14:21.052.
+	 Executed 3 tests, with 0 failures (0 unexpected) in 0.005 (0.005) seconds
+Test Suite 'InstallationTests' started at 2026-10-07 13:14:21.052.
+Test Case '-[FleetCoreTests.InstallationTests testConcurrentInstallationIsNeverOverwritten]' started.
+Test Case '-[FleetCoreTests.InstallationTests testConcurrentInstallationIsNeverOverwritten]' passed (0.001 seconds).
+Test Case '-[FleetCoreTests.InstallationTests testInstallationVerifiesStagingAndNeverLeavesPartialDestination]' started.
+Test Case '-[FleetCoreTests.InstallationTests testInstallationVerifiesStagingAndNeverLeavesPartialDestination]' passed (0.002 seconds).
+Test Suite 'InstallationTests' passed at 2026-10-07 13:14:21.055.
+	 Executed 2 tests, with 0 failures (0 unexpected) in 0.003 (0.003) seconds
+Test Suite 'NativeRuntimeTests' started at 2026-10-07 13:14:21.055.
+Test Case '-[FleetCoreTests.NativeRuntimeTests testFailedUpgradeRestoresOldRuntimeAndLaunchDefinition]' started.
+Test Case '-[FleetCoreTests.NativeRuntimeTests testFailedUpgradeRestoresOldRuntimeAndLaunchDefinition]' passed (0.006 seconds).
+Test Case '-[FleetCoreTests.NativeRuntimeTests testFirstPreparationInstallsAgentOutsideHubWithoutStartingIt]' started.
+Test Case '-[FleetCoreTests.NativeRuntimeTests testFirstPreparationInstallsAgentOutsideHubWithoutStartingIt]' passed (0.003 seconds).
+Test Case '-[FleetCoreTests.NativeRuntimeTests testMatchingRuntimeDoesNotRestartOnEverySettingsLaunch]' started.
+Test Case '-[FleetCoreTests.NativeRuntimeTests testMatchingRuntimeDoesNotRestartOnEverySettingsLaunch]' passed (0.005 seconds).
+Test Case '-[FleetCoreTests.NativeRuntimeTests testMatchingVersionSymlinkCannotRemainRunningInsideHub]' started.
+Test Case '-[FleetCoreTests.NativeRuntimeTests testMatchingVersionSymlinkCannotRemainRunningInsideHub]' passed (0.004 seconds).
+Test Case '-[FleetCoreTests.NativeRuntimeTests testMigratesRunningNestedAgentOnlyAfterIdleCheck]' started.
+Test Case '-[FleetCoreTests.NativeRuntimeTests testMigratesRunningNestedAgentOnlyAfterIdleCheck]' passed (0.004 seconds).
+Test Case '-[FleetCoreTests.NativeRuntimeTests testMigrationBusyGuardKeepsOldProgramAndProcess]' started.
+Test Case '-[FleetCoreTests.NativeRuntimeTests testMigrationBusyGuardKeepsOldProgramAndProcess]' passed (0.003 seconds).
+Test Suite 'NativeRuntimeTests' passed at 2026-10-07 13:14:21.080.
+	 Executed 6 tests, with 0 failures (0 unexpected) in 0.025 (0.025) seconds
+Test Suite 'ReleaseTests' started at 2026-10-07 13:14:21.080.
+Test Case '-[FleetCoreTests.ReleaseTests testReleaseRejectsUnsignedDowngradedOrCrossOriginAssets]' started.
+Test Case '-[FleetCoreTests.ReleaseTests testReleaseRejectsUnsignedDowngradedOrCrossOriginAssets]' passed (0.000 seconds).
+Test Suite 'ReleaseTests' passed at 2026-10-07 13:14:21.080.
+	 Executed 1 test, with 0 failures (0 unexpected) in 0.000 (0.000) seconds
+Test Suite 'RuntimeTests' started at 2026-10-07 13:14:21.080.
+Test Case '-[FleetCoreTests.RuntimeTests testLaunchDefinitionKeepsDesktopAndSecretsOutOfEnvironment]' started.
+Test Case '-[FleetCoreTests.RuntimeTests testLaunchDefinitionKeepsDesktopAndSecretsOutOfEnvironment]' passed (0.000 seconds).
+Test Case '-[FleetCoreTests.RuntimeTests testPrivateRuntimeRejectsSymlinksAndKeepsPermissions]' started.
+Test Case '-[FleetCoreTests.RuntimeTests testPrivateRuntimeRejectsSymlinksAndKeepsPermissions]' passed (0.001 seconds).
+Test Case '-[FleetCoreTests.RuntimeTests testProcessRunnerDoesNotTreatCommandFailureOrTimeoutAsSuccess]' started.
+Test Case '-[FleetCoreTests.RuntimeTests testProcessRunnerDoesNotTreatCommandFailureOrTimeoutAsSuccess]' passed (0.418 seconds).
+Test Case '-[FleetCoreTests.RuntimeTests testRemovingRuntimePreservesSettingsBindingAndUnrelatedFiles]' started.
+Test Case '-[FleetCoreTests.RuntimeTests testRemovingRuntimePreservesSettingsBindingAndUnrelatedFiles]' passed (0.006 seconds).
+Test Case '-[FleetCoreTests.RuntimeTests testRuntimeDoesNotRunFromReadOnlyDMGOrSourceDirectory]' started.
+Test Case '-[FleetCoreTests.RuntimeTests testRuntimeDoesNotRunFromReadOnlyDMGOrSourceDirectory]' passed (0.000 seconds).
+Test Suite 'RuntimeTests' passed at 2026-10-07 13:14:21.507.
+	 Executed 5 tests, with 0 failures (0 unexpected) in 0.425 (0.426) seconds
+Test Suite 'SettingsTests' started at 2026-10-07 13:14:21.507.
+Test Case '-[FleetCoreTests.SettingsTests testBrowserURLIsSameOriginAndConfirmationStaysExplicit]' started.
+Test Case '-[FleetCoreTests.SettingsTests testBrowserURLIsSameOriginAndConfirmationStaysExplicit]' passed (0.001 seconds).
+Test Case '-[FleetCoreTests.SettingsTests testClosingSettingsDoesNotStopBackground]' started.
+Test Case '-[FleetCoreTests.SettingsTests testClosingSettingsDoesNotStopBackground]' passed (0.000 seconds).
+Test Case '-[FleetCoreTests.SettingsTests testFailedSavePreservesEffectiveSettingsAndDraft]' started.
+Test Case '-[FleetCoreTests.SettingsTests testFailedSavePreservesEffectiveSettingsAndDraft]' passed (0.000 seconds).
+Test Case '-[FleetCoreTests.SettingsTests testNativeOAuthURLAndExpiryRemainRetryable]' started.
+Test Case '-[FleetCoreTests.SettingsTests testNativeOAuthURLAndExpiryRemainRetryable]' passed (0.000 seconds).
+Test Case '-[FleetCoreTests.SettingsTests testRefreshDoesNotOverwriteAnEditedDraft]' started.
+Test Case '-[FleetCoreTests.SettingsTests testRefreshDoesNotOverwriteAnEditedDraft]' passed (0.000 seconds).
+Test Case '-[FleetCoreTests.SettingsTests testRejectsUnsafeOriginAndNormalizesDraft]' started.
+Test Case '-[FleetCoreTests.SettingsTests testRejectsUnsafeOriginAndNormalizesDraft]' passed (0.000 seconds).
+Test Case '-[FleetCoreTests.SettingsTests testStoppedBackgroundNeverClaimsDiskAuthorization]' started.
+Test Case '-[FleetCoreTests.SettingsTests testStoppedBackgroundNeverClaimsDiskAuthorization]' passed (0.000 seconds).
+Test Case '-[FleetCoreTests.SettingsTests testUIEvidenceAndMissingTargetsDoNotImplyFDA]' started.
+Test Case '-[FleetCoreTests.SettingsTests testUIEvidenceAndMissingTargetsDoNotImplyFDA]' passed (0.000 seconds).
+Test Suite 'SettingsTests' passed at 2026-10-07 13:14:21.510.
+	 Executed 8 tests, with 0 failures (0 unexpected) in 0.003 (0.003) seconds
+Test Suite 'UninstallPreparationTests' started at 2026-10-07 13:14:21.510.
+Test Case '-[FleetCoreTests.UninstallPreparationTests testRunningServiceIsNotRestartedAndBusyServiceBlocksUninstall]' started.
+Test Case '-[FleetCoreTests.UninstallPreparationTests testRunningServiceIsNotRestartedAndBusyServiceBlocksUninstall]' passed (0.000 seconds).
+Test Case '-[FleetCoreTests.UninstallPreparationTests testStartupFailureDoesNotProceedWithUninstall]' started.
+Test Case '-[FleetCoreTests.UninstallPreparationTests testStartupFailureDoesNotProceedWithUninstall]' passed (0.000 seconds).
+Test Case '-[FleetCoreTests.UninstallPreparationTests testStoppedServiceStartsBeforeReadingBindingAndCheckingIdle]' started.
+Test Case '-[FleetCoreTests.UninstallPreparationTests testStoppedServiceStartsBeforeReadingBindingAndCheckingIdle]' passed (0.000 seconds).
+Test Suite 'UninstallPreparationTests' passed at 2026-10-07 13:14:21.511.
+	 Executed 3 tests, with 0 failures (0 unexpected) in 0.001 (0.001) seconds
+Test Suite 'UpdateHealthTests' started at 2026-10-07 13:14:21.511.
+Test Case '-[FleetCoreTests.UpdateHealthTests testRecoveryDoesNotAcceptInitialUnboundStatusForRegisteredDevice]' started.
+Test Case '-[FleetCoreTests.UpdateHealthTests testRecoveryDoesNotAcceptInitialUnboundStatusForRegisteredDevice]' passed (0.000 seconds).
+Test Case '-[FleetCoreTests.UpdateHealthTests testRecoveryRequiresMatchingAgentVersionAndNewPID]' started.
+Test Case '-[FleetCoreTests.UpdateHealthTests testRecoveryRequiresMatchingAgentVersionAndNewPID]' passed (0.000 seconds).
+Test Suite 'UpdateHealthTests' passed at 2026-10-07 13:14:21.512.
+	 Executed 2 tests, with 0 failures (0 unexpected) in 0.001 (0.001) seconds
+Test Suite 'UpdatePreparationTests' started at 2026-10-07 13:14:21.512.
+Test Case '-[FleetCoreTests.UpdatePreparationTests testBackupFailureResumesAndDoesNotAllowInstallation]' started.
+Test Case '-[FleetCoreTests.UpdatePreparationTests testBackupFailureResumesAndDoesNotAllowInstallation]' passed (0.000 seconds).
+Test Case '-[FleetCoreTests.UpdatePreparationTests testBusyServicePreventsBackupAndStop]' started.
+Test Case '-[FleetCoreTests.UpdatePreparationTests testBusyServicePreventsBackupAndStop]' passed (0.000 seconds).
+Test Case '-[FleetCoreTests.UpdatePreparationTests testCancellingDuringBackupDoesNotStopTheService]' started.
+Test Case '-[FleetCoreTests.UpdatePreparationTests testCancellingDuringBackupDoesNotStopTheService]' passed (0.000 seconds).
+Test Case '-[FleetCoreTests.UpdatePreparationTests testCancellingWhileStopCompletesRestoresService]' started.
+Test Case '-[FleetCoreTests.UpdatePreparationTests testCancellingWhileStopCompletesRestoresService]' passed (0.000 seconds).
+Test Case '-[FleetCoreTests.UpdatePreparationTests testUpdateCannotStopServiceBeforeIdleCheckAndBackup]' started.
+Test Case '-[FleetCoreTests.UpdatePreparationTests testUpdateCannotStopServiceBeforeIdleCheckAndBackup]' passed (0.000 seconds).
+Test Suite 'UpdatePreparationTests' passed at 2026-10-07 13:14:21.514.
+	 Executed 5 tests, with 0 failures (0 unexpected) in 0.002 (0.002) seconds
+Test Suite 'FleetCoreTests.xctest' passed at 2026-10-07 13:14:21.514.
+	 Executed 43 tests, with 0 failures (0 unexpected) in 0.479 (0.483) seconds
+Test Suite 'All tests' passed at 2026-10-07 13:14:21.514.
+	 Executed 43 tests, with 0 failures (0 unexpected) in 0.479 (0.483) seconds
+◇ Test run started.
+↳ Testing Library Version: 2084
+↳ Target Platform: arm64e-apple-macos14.0
+✔ Test run with 0 tests in 0 suites passed after 0.001 seconds.
+◇ Test run started.
+↳ Testing Library Version: 2084
+↳ Target Platform: arm64e-apple-macos14.0
+✔ Test run with 0 tests in 0 suites passed after 0.001 seconds.
+
+==> Shell 工具测试：tests/tailscale-utils_test.sh
+tailscale-utils tests passed
+
+==> Mac shared 安装测试：tests/setup-mac-shared_test.sh
+setup-mac shared tests passed
+
+==> 逐用户客户端授权：tests/client-authorization_test.sh
+client-authorization tests passed
+
+==> Codex 路径解析回归（R2）：tests/codex-bin-resolve_test.sh
+codex-bin-resolve tests passed
+
+==> app-server 熔断/退避回归（R4）：tests/codex-keeper-launch_test.sh
+codex-keeper-launch tests passed
+
+==> 卸载还原 GUI 域环境变量回归（R1/R3）：tests/uninstall-restore_test.sh
+uninstall-restore tests passed
+
+==> Codex 空闲迁移守卫测试：tests/check-codex-idle_test.sh
+check-codex-idle tests passed
+
+==> Fleet 自更新安全守卫测试：tests/check-fleet-update-safe_test.sh
+check-fleet-update-safe tests passed
+
+==> nginx 站点配置测试：tests/nginx-config_test.sh
+nginx-config tests passed
+
+==> 统一多用户部署测试：tests/multiuser-server_test.sh
+multiuser-server tests passed
+
+==> shell 变量花括号守卫：tests/bash-var-brace_test.sh
+bash-var-brace tests passed
+
+==> shared 迁移 agent API 重试：tests/migrate-agent-retry_test.sh
+✔ 200 直接通过（exit=0 调用=1）
+✔ 503 后转 200 自愈（exit=0 调用=2）
+✔ 400 立刻停且带码与响应体（exit=1 调用=1）
+✔ 连不上重试到上限后失败（exit=1 调用=2）
+✔ 一直 503 重试到上限（exit=1 调用=2）
+✔ 超时给 rc=28 而非无响应（exit=1 调用=2）
+✔ 单次超时按参数透传（--max-time 17）
+migrate-agent-retry tests passed
+
+==> 全部验证通过 ✓

@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="light" data-palette="champagne">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Fleet Hub · 品牌与界面规范</title><link rel="icon" href="assets/favicon.svg"><link rel="stylesheet" href="tokens.css"><link rel="stylesheet" href="guide.css"></head>
+<body>
+<header class="guide-nav"><a class="guide-wordmark" href="#identity"><img src="assets/logo-mark-dark.svg" alt="">fleet hub</a><nav aria-label="规范章节"><a href="compare.html">五版对比 ↗</a><a href="#identity">标识</a><a href="#color">色彩</a><a href="#interface">界面</a><a href="#rules">规范</a></nav><a class="guide-open" href="dashboard.html">打开预览 ↗</a></header>
+<main class="guide-main">
+<div class="guide-title"><div><p class="guide-kicker">MAC FLEET HUB / BRAND SYSTEM</p><h1>品牌与界面规范</h1></div><p class="guide-intro">墨黑、暖瓷白、香槟金。<br>保留熟悉的框架，让细节体现质感。</p></div>
+<section id="identity" class="identity-grid" aria-label="品牌标识">
+<div class="identity-cover"><div class="cover-label">01 / 主标识</div><div class="cover-logo"><img src="assets/logo-mark.svg" alt="Fleet 层叠 F 标记"><span>fleet hub</span></div><div class="cover-bottom"><span>层叠窗口 · 统一入口</span><span>香槟金 / 墨黑</span></div></div>
+<div class="identity-icon"><div class="panel-label">APP ICON</div><img class="hero-icon" src="assets/app-icon.svg" alt="墨黑底香槟金 Fleet App icon"><div class="icon-sizes"><img src="assets/app-icon.svg" width="24" height="24" alt="24像素"><img src="assets/app-icon.svg" width="40" height="40" alt="40像素"><img src="assets/app-icon.svg" width="60" height="60" alt="60像素"></div><p>一个标记，覆盖桌面与移动端。</p></div>
+<div class="identity-construction"><div class="panel-label">构成与留白</div><div class="construction-display"><img src="assets/logo-mark-dark.svg" alt="几何构成标记"><span class="construction-note">96 × 96</span></div><p>上层窗口与 F 主干，12–14 单位笔画与 45° 切角。标记最小 24px；四周保留至少一倍主干厚度。</p></div>
+<div class="identity-mono"><div class="panel-label">单色适配</div><div class="mono-pair"><div><img src="assets/logo-mark-dark.svg" alt="深色单色标记"><span>暖瓷白底</span></div><div><img src="assets/logo-mark-light.svg" alt="浅色单色标记"><span>墨黑底</span></div></div><p>不依赖渐变、描边或光效，缩小后依然清晰。</p></div>
+</section>
+<section id="color" class="guide-section">
+<div class="section-heading"><div><span class="section-number">02</span><h2>色彩与材质</h2></div><p>中性色承担信息，强调色只引导操作。</p></div>
+<div class="palette-controls" role="group" aria-label="配色方案"><button data-palette-choice="champagne" aria-pressed="true"><i style="background:#D2B78D"></i>香槟金 <small>推荐</small></button><button data-palette-choice="jade" aria-pressed="false"><i style="background:#A7C4B7"></i>深玉绿</button><button data-palette-choice="platinum" aria-pressed="false"><i style="background:#C7CCD0"></i>冷铂灰</button><button id="guide-theme">查看深色</button></div>
+<div id="swatches" class="swatch-grid"></div>
+<div class="semantic-row"><div><i class="semantic-dot" style="background:var(--online)"></i><strong>在线 / 成功</strong><code data-token="--online"></code></div><div><i class="semantic-dot" style="background:var(--wait)"></i><strong>等待 / 确认</strong><code data-token="--wait"></code></div><div><i class="semantic-dot" style="background:var(--danger)"></i><strong>错误 / 危险</strong><code data-token="--danger"></code></div><div><i class="semantic-dot" style="background:var(--offline)"></i><strong>离线 / 中性</strong><code data-token="--offline"></code></div></div>
+<p class="section-note">在线、等待、错误始终使用语义色；选中同时保留形状与文字反馈。金色不用于成功或危险状态。</p>
+</section>
+<section id="interface" class="guide-section">
+<div class="section-heading"><div><span class="section-number">03</span><h2>沿用现有界面</h2></div><a href="dashboard.html" class="text-link">全屏交互预览 ↗</a></div>
+<div class="preview-frame"><div class="frame-label"><span>260px 主机栏 / 330px 会话栏 / 弹性工作区</span><span>可切换配色与明暗</span></div><iframe id="guide-preview" src="dashboard.html?theme=light" title="Fleet Hub 原布局品牌换肤预览" loading="lazy"></iframe></div>
+<p class="section-note" style="margin-top:16px"><a class="text-link" href="auth.html">查看同色彩系统的登录页面 ↗</a></p><div class="interface-notes"><div><h3>外壳</h3><p>暖调中性色建立层级，细边线分隔区域。尺寸、间距与组件位置沿用现有 CSS。</p></div><div><h3>聊天</h3><p>同步外壳的色温，保留原生消息流、Lucide 工具图标与整体输入器。</p></div><div><h3>移动端</h3><p>保留 860px 断点、列表和全屏会话。触控与焦点保持清晰，不增加导航层级。</p></div></div>
+</section>
+<section id="rules" class="guide-section">
+<div class="section-heading"><div><span class="section-number">04</span><h2>组件与设计纪律</h2></div><a href="SPEC.md" class="text-link">开发规范 ↗</a></div>
+<div class="rules-grid"><article class="type-specimen"><div class="panel-label">系统字体 / 原有字号阶</div><div class="type-page">有序，清晰。</div><div class="type-title">远程工作，保持专注。</div><p class="type-body">界面主体保持 13px，标题使用 15–17px。移动表单使用 16px，避免输入时自动放大。</p><code>SF Mono / 0123456789</code><div class="spacing-spec"><i style="width:4px"></i><i style="width:8px"></i><i style="width:12px"></i><i style="width:16px"></i><i style="width:24px"></i><i style="width:32px"></i><span>4pt 间距阶</span></div></article>
+<article class="component-specimen"><div class="panel-label">语义与交互</div><div class="sample-buttons"><button class="spec-button primary" id="sample-action">继续</button><button class="spec-button">次要操作</button><button class="spec-button" disabled>不可用</button></div><label class="sample-input">输入与焦点<input placeholder="点击查看焦点" aria-label="焦点示例"></label><div class="sample-badges"><span class="ok">在线</span><span class="waiting">等待确认</span><span class="error">连接失败</span></div><p>强调色只用于主要操作、选中和焦点；正文对比度 ≥ 4.5:1。</p></article></div>
+<div class="discipline-list"><div><span>01</span><p>圆角延续 8 / 12 / 16 / 22px，聊天输入器保留 24px；不增加新的卡片层级。</p></div><div><span>02</span><p>短过渡沿用 140 / 220ms。无常驻光晕、金属高光或大面积装饰渐变。</p></div><div><span>03</span><p>Icon 保留完整方形画布，由系统裁切；核心图形位于 maskable 安全区内。</p></div></div>
+</section>
+<section class="download-section"><div><h2>交付文件</h2><p>矢量标识、安装图标、颜色令牌与开发规范。</p></div><div class="download-links"><a href="assets/logo-mark.svg" download>Logo SVG ↓</a><a href="assets/icon-1024.png" download>App icon 1024 ↓</a><a href="tokens.css" download>色彩令牌 ↓</a><a href="SPEC.md">开发规范 ↗</a></div></section>
+<footer class="guide-footer"><span>fleet hub</span><span>Brand refresh / Design proposal</span></footer>
+</main><div id="guide-toast" role="status" hidden>主要操作的反馈示例</div><script src="guide.js"></script></body></html>

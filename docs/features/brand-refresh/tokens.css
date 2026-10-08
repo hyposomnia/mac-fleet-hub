@@ -1,0 +1,49 @@
+/* Brand proposal: load after the current stylesheet. Geometry stays in base.css. */
+:root,[data-theme="dark"] {
+ --bg:#111310; --surface:#171A16; --surface-1:#1D201B; --surface-2:#242720; --surface-hover:#2C3028;
+ --border:#30352C; --border-1:#41473B; --border-strong:#737C68;
+ --text:#F4F1E9; --text-1:#BEBFB3; --text-2:#A1A795; --text-3:#979F8B;
+ --accent:#D2B78D; --accent-1:#E0C9A6; --accent-text:#E0C9A6; --accent-contrast:#171816;
+ --accent-soft:rgba(210,183,141,.10); --accent-line:rgba(210,183,141,.30);
+ --online:#91B69F; --online-soft:rgba(145,182,159,.12); --offline:#949A89;
+ --danger:#E5A19B; --danger-soft:rgba(229,161,155,.12); --wait:#D8BA79; --wait-soft:rgba(216,186,121,.13);
+ --e1:0 1px 2px rgba(0,0,0,.18); --e2:0 6px 20px rgba(0,0,0,.24); --e3:0 18px 48px rgba(0,0,0,.32);
+ --ring:0 0 0 3px var(--accent-soft); --glow:0 0 0 1px var(--accent-line); --brand-grad:var(--accent);
+ --brand-ink:#171816; --brand-ivory:#F4F1E9; --brand-gold:#D2B78D;
+ --chat-bg:#171A16; --chat-surface:#1D201B; --chat-surface-1:#20241E; --chat-surface-2:#242720; --chat-surface-hover:#2C3028;
+ --chat-border:#383E32; --chat-border-light:#30352C; --chat-border-strong:#737C68;
+ --chat-text:#F4F1E9; --chat-text-1:#BEBFB3; --chat-text-2:#A1A795; --chat-text-3:#979F8B; --chat-link:#E0C9A6;
+ --chat-code-bg:#20241E; --chat-user-bg:#242720; --chat-composer-bg:#242720;
+ --chat-composer-shadow:0 8px 28px rgba(0,0,0,.16); --chat-popover-shadow:var(--e3);
+ --syntax-comment:#949A89; --syntax-keyword:#C9AED0; --syntax-atom:#E5A19B; --syntax-number:#D8BA79;
+ --syntax-string:#91B69F; --syntax-definition:#A7BDCE; --syntax-variable:#F4F1E9; --syntax-type:#9FC7BE;
+ --syntax-property:#D2B78D; --syntax-tag:#E5A19B; --syntax-attribute:#C0C49A; --syntax-meta:#BEBFB3;
+ color-scheme:dark;
+}
+[data-theme="light"] {
+ --bg:#ECEBE5; --surface:#F4F1E9; --surface-1:#FFFEFA; --surface-2:#EAE8DF; --surface-hover:#E4E2D8;
+ --border:#D4D3C8; --border-1:#BDBFB1; --border-strong:#8A8F7B;
+ --text:#242820; --text-1:#535B4B; --text-2:#5B6452; --text-3:#5E6756;
+ --accent:#82643A; --accent-1:#6E532F; --accent-text:#74552E; --accent-contrast:#FFFEFA;
+ --accent-soft:rgba(130,100,58,.08); --accent-line:rgba(130,100,58,.28);
+ --online:#426A53; --online-soft:rgba(66,106,83,.09); --offline:#5B6452;
+ --danger:#A7433B; --danger-soft:rgba(167,67,59,.08); --wait:#7D5C21; --wait-soft:rgba(137,102,37,.09);
+ --e1:0 1px 2px rgba(36,40,32,.06); --e2:0 6px 20px rgba(36,40,32,.08); --e3:0 18px 48px rgba(36,40,32,.12);
+ --brand-grad:var(--accent);
+ --chat-bg:#FFFEFA; --chat-surface:#F4F1E9; --chat-surface-1:#F4F1E9; --chat-surface-2:#EAE8DF; --chat-surface-hover:#E4E2D8;
+ --chat-border:#D4D3C8; --chat-border-light:#DFDED5; --chat-border-strong:#8A8F7B;
+ --chat-text:#242820; --chat-text-1:#535B4B; --chat-text-2:#5B6452; --chat-text-3:#5E6756; --chat-link:#74552E;
+ --chat-code-bg:#F4F1E9; --chat-user-bg:#ECEBE5; --chat-composer-bg:#F4F1E9;
+ --chat-composer-shadow:0 8px 28px rgba(36,40,32,.06); --chat-popover-shadow:var(--e3);
+ --syntax-comment:#5B6452; --syntax-keyword:#71507D; --syntax-atom:#A7433B; --syntax-number:#7D5C21;
+ --syntax-string:#426A53; --syntax-definition:#416580; --syntax-variable:#242820; --syntax-type:#3D6E65;
+ --syntax-property:#82643A; --syntax-tag:#A7433B; --syntax-attribute:#596431; --syntax-meta:#535B4B;
+ color-scheme:light;
+}
+[data-palette="jade"] {--accent:#A7C4B7;--accent-1:#C0D6CC;--accent-text:#C0D6CC;--accent-soft:rgba(167,196,183,.10);--accent-line:rgba(167,196,183,.30);--chat-link:#C0D6CC}
+[data-theme="light"][data-palette="jade"] {--accent:#426B5B;--accent-1:#345748;--accent-text:#345748;--accent-soft:rgba(66,107,91,.08);--accent-line:rgba(66,107,91,.28);--chat-link:#345748}
+[data-palette="platinum"] {--accent:#C7CCD0;--accent-1:#DEE1E3;--accent-text:#DEE1E3;--accent-soft:rgba(199,204,208,.10);--accent-line:rgba(199,204,208,.30);--chat-link:#DEE1E3}
+[data-theme="light"][data-palette="platinum"] {--accent:#59656E;--accent-1:#424C54;--accent-text:#424C54;--accent-soft:rgba(89,101,110,.08);--accent-line:rgba(89,101,110,.28);--chat-link:#424C54}
+.modeseg button[aria-selected="true"],.iconbtn.primary-action,.iconbtn.primary-action:hover,.btn.primary,.account-button.primary {color:var(--accent-contrast)}
+.brand .logo,#mtopbar .logo {background:var(--accent);color:var(--accent-contrast);box-shadow:none}
+.logo svg {display:block;width:24px;height:24px;fill:currentColor}

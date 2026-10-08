@@ -1,0 +1,458 @@
+<!DOCTYPE html>
+
+<html data-palette="champagne" data-theme="dark" lang="zh-CN"><head><meta charset="utf-8"/><meta content="width=device-width,initial-scale=1,viewport-fit=cover" name="viewport"/><meta content="#111310" name="theme-color"/><title>Fleet Hub · 品牌换肤预览</title><link href="assets/favicon.svg" rel="icon"/><link href="base.css" rel="stylesheet"/><link href="tokens.css" rel="stylesheet"/><link href="preview.css" rel="stylesheet"/><script src="variants.js"></script><script src="variant-loader.js"></script></head><body><div class="review-bar"><a href="index.html">← 设计规范</a><span class="review-caption">原布局 · 品牌换肤预览</span><label><span class="sr-only">配色</span><select id="review-palette"><option value="champagne">香槟金</option><option value="jade">深玉绿</option><option value="platinum">冷铂灰</option></select></label><button id="review-theme" type="button">切换浅色</button></div><div data-mode="sessions" id="app">
+<aside class="pane" id="rail">
+<div class="brand"><span class="logo"><svg aria-hidden="true" viewbox="0 0 96 96"><path d="M30 12H82L70 24H30Z"></path><path d="M20 30H68L56 42H34V49H61L49 61H34V80H20Z"></path></svg></span><span>fleet hub</span></div>
+<div class="modeseg" role="tablist">
+<button aria-selected="true" data-mode="sessions" role="tab"><svg class="ic" viewbox="0 0 24 24"><polyline points="4 17 10 11 4 5"></polyline><line x1="12" x2="20" y1="19" y2="19"></line></svg>会话</button>
+<button aria-selected="false" data-mode="files" role="tab"><svg class="ic" viewbox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" x2="8" y1="13" y2="13"></line><line x1="16" x2="8" y1="17" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>文件</button>
+</div>
+<nav class="hostlist" id="host-list"><div class="hd eyebrow">主机</div><button aria-current="true" class="host" data-demo-host="0"><span class="dot"></span><span class="nm">全部设备</span><span class="ct">8</span></button><button aria-current="false" class="host" data-demo-host="1"><span class="dot"></span><span class="nm">Mac Studio</span><span class="ct">5</span></button><button aria-current="false" class="host" data-demo-host="2"><span class="dot off"></span><span class="nm">MacBook Pro</span><span class="ct">3</span></button></nav>
+<div class="railfoot">
+<button aria-haspopup="true" class="userrow" id="user-btn">
+<span class="avatar"><svg class="ic" viewbox="0 0 24 24"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09A1.65 1.65 0 0 0 19.4 15z"></path></svg></span><span class="un" id="user-name">外观与账户</span><span class="cv"><svg class="ic" viewbox="0 0 24 24"><polyline points="6 9 12 15 18 9"></polyline></svg></span>
+</button>
+<div class="menu" hidden="" id="usermenu">
+<button data-act="account">账户</button>
+<button data-act="admin" hidden="">管理</button>
+<button data-act="add-device">添加设备</button>
+<div class="menu-theme"><div class="menu-label">外观</div><div aria-label="外观" class="seg full menu-theme-seg" role="group"><button aria-pressed="true" data-theme-choice="system" type="button">系统</button><button aria-pressed="false" data-theme-choice="light" type="button">浅色</button><button aria-pressed="false" data-theme-choice="dark" type="button">深色</button></div></div>
+<button aria-pressed="false" class="archive-menu-action" data-act="archive"><svg class="ic" viewbox="0 0 24 24"><rect height="4" rx="1" width="18" x="3" y="4"></rect><path d="M5 8v11a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8M10 12h4"></path></svg><span class="menu-item-label">显示已归档会话</span><span aria-hidden="true" class="menu-check"></span></button>
+<button data-act="automation"><svg class="ic" viewbox="0 0 24 24"><path d="M8 3h8v5H8zM5 16h6v5H5zM13 16h6v5h-6zM12 8v4M8 12h8M8 12v4M16 12v4"></path></svg>自动化</button>
+<button data-act="settings"><svg class="ic" viewbox="0 0 24 24"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>会话设置</button>
+<div class="sep"></div>
+<button class="danger" data-act="logout"><svg class="ic" viewbox="0 0 24 24"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path><polyline points="16 17 21 12 16 7"></polyline><line x1="21" x2="9" y1="12" y2="12"></line></svg>退出登录</button>
+</div>
+</div>
+</aside>
+<header id="mtopbar">
+<span class="logo"><svg aria-hidden="true" viewbox="0 0 96 96"><path d="M30 12H82L70 24H30Z"></path><path d="M20 30H68L56 42H34V49H61L49 61H34V80H20Z"></path></svg></span><span class="tt">fleet hub</span>
+<button class="iconbtn" id="m-info-btn" title="当前主机设置"><svg class="ic" viewbox="0 0 24 24"><circle cx="12" cy="12" r="10"></circle><line x1="12" x2="12" y1="16" y2="12"></line><line x1="12" x2="12.01" y1="8" y2="8"></line></svg></button>
+<button aria-haspopup="true" class="iconbtn" id="m-menu-btn" title="菜单"><svg class="ic fill" viewbox="0 0 24 24"><circle cx="12" cy="5" r="1.6"></circle><circle cx="12" cy="12" r="1.6"></circle><circle cx="12" cy="19" r="1.6"></circle></svg></button>
+<div class="menu" hidden="" id="m-menu">
+<button data-act="account">账户</button>
+<button data-act="admin" hidden="">管理</button>
+<button data-act="add-device">添加设备</button>
+<div class="menu-theme"><div class="menu-label">外观</div><div aria-label="外观" class="seg full menu-theme-seg" role="group"><button aria-pressed="true" data-theme-choice="system" type="button">系统</button><button aria-pressed="false" data-theme-choice="light" type="button">浅色</button><button aria-pressed="false" data-theme-choice="dark" type="button">深色</button></div></div>
+<button aria-pressed="false" class="archive-menu-action" data-act="archive"><svg class="ic" viewbox="0 0 24 24"><rect height="4" rx="1" width="18" x="3" y="4"></rect><path d="M5 8v11a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8M10 12h4"></path></svg><span class="menu-item-label">显示已归档会话</span><span aria-hidden="true" class="menu-check"></span></button>
+<button data-act="automation"><svg class="ic" viewbox="0 0 24 24"><path d="M8 3h8v5H8zM5 16h6v5H5zM13 16h6v5h-6zM12 8v4M8 12h8M8 12v4M16 12v4"></path></svg>自动化</button>
+<button data-act="settings"><svg class="ic" viewbox="0 0 24 24"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>会话设置</button>
+<div class="sep"></div>
+<button class="danger" data-act="logout"><svg class="ic" viewbox="0 0 24 24"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path><polyline points="16 17 21 12 16 7"></polyline><line x1="21" x2="9" y1="12" y2="12"></line></svg>退出登录</button>
+</div>
+</header>
+<div id="mobctl">
+<div class="hostchips" id="host-chips"></div>
+<div class="seg full" role="tablist">
+<button aria-selected="true" data-mode="sessions" role="tab">会话</button>
+<button aria-selected="false" data-mode="files" role="tab">文件</button>
+</div>
+</div>
+<section class="pane" id="sescol">
+<header class="sc-head">
+<div class="sc-title-row">
+<div aria-label="内容" class="mobile-title-switch" role="tablist">
+<button aria-selected="true" data-mode="sessions" role="tab">会话</button>
+<button aria-selected="false" data-mode="files" role="tab">文件</button>
+</div>
+<div class="seg assistant-seg" role="tablist">
+<button aria-selected="true" data-assistant="codex" role="tab">ChatGPT</button>
+<div class="assistant-tab" data-assistant-entry="dsh" hidden="" role="presentation">
+<button aria-selected="false" class="assistant-tab-label" data-assistant="dsh" hidden="" role="tab">DeepSeek</button>
+<button aria-label="打开 DeepSeek Harness" class="dsh-native-open" data-dsh-native-open="" disabled="" title="请先选择一台 Mac" type="button"><svg aria-hidden="true" class="dsh-whale" viewbox="0 0 23.16 17.04"><use href="#deepseek-whale-mark"></use></svg></button>
+</div>
+</div>
+<span data-device-scope-slot="sessions"><button class="scope-button mobile-device-scope" data-demo-scope="true"><span class="device-scope-avatar">M</span><strong>全部设备</strong></button></span>
+<div class="sc-head-actions">
+<button aria-haspopup="true" aria-label="菜单" class="iconbtn bare mobile-menu-trigger" title="菜单"><svg class="ic" viewbox="0 0 24 24"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.87l.04.04-2.87 2.87-.04-.04A1.7 1.7 0 0 0 15 19.4a1.7 1.7 0 0 0-1 1.55V21h-4v-.05A1.7 1.7 0 0 0 9 19.4a1.7 1.7 0 0 0-1.87.34l-.04.04-2.87-2.87.04-.04A1.7 1.7 0 0 0 4.6 15a1.7 1.7 0 0 0-1.55-1H3v-4h.05A1.7 1.7 0 0 0 4.6 9a1.7 1.7 0 0 0-.34-1.87l-.04-.04 2.87-2.87.04.04A1.7 1.7 0 0 0 9 4.6a1.7 1.7 0 0 0 1-1.55V3h4v.05A1.7 1.7 0 0 0 15 4.6a1.7 1.7 0 0 0 1.87-.34l.04-.04 2.87 2.87-.04.04A1.7 1.7 0 0 0 19.4 9a1.7 1.7 0 0 0 1.55 1H21v4h-.05a1.7 1.7 0 0 0-1.55 1Z"></path></svg></button>
+<button aria-label="新建无项目会话" class="iconbtn primary-action" id="new-session" title="新建无项目会话"><svg class="ic" viewbox="0 0 24 24"><line x1="12" x2="12" y1="5" y2="19"></line><line x1="5" x2="19" y1="12" y2="12"></line></svg></button>
+</div>
+</div>
+<div class="seg mobile-assistant-seg" role="tablist">
+<button aria-selected="true" data-assistant="codex" role="tab">ChatGPT</button>
+<div class="assistant-tab" data-assistant-entry="dsh" hidden="" role="presentation">
+<button aria-selected="false" class="assistant-tab-label" data-assistant="dsh" hidden="" role="tab">DeepSeek</button>
+<button aria-label="打开 DeepSeek Harness" class="dsh-native-open" data-dsh-native-open="" disabled="" title="请先选择一台 Mac" type="button"><svg aria-hidden="true" class="dsh-whale" viewbox="0 0 23.16 17.04"><use href="#deepseek-whale-mark"></use></svg></button>
+</div>
+</div>
+<div class="session-search-row">
+<button aria-label="按最近更新排序" aria-pressed="false" class="iconbtn" id="session-view-toggle" title="按最近更新排序"><svg class="ic" viewbox="0 0 24 24"><circle cx="12" cy="12" r="9"></circle><path d="M12 7v5l3 2"></path></svg></button>
+<div class="session-searchbar" id="session-searchbar">
+<svg class="ic" viewbox="0 0 24 24"><circle cx="11" cy="11" r="7"></circle><line x1="16.5" x2="21" y1="16.5" y2="21"></line></svg>
+<input aria-label="搜索会话" autocomplete="off" id="session-search" placeholder="搜索全部未归档会话" type="search"/>
+</div>
+<button aria-label="新建无项目会话" class="iconbtn primary-action mobile-new-session" id="new-session-mobile" title="新建无项目会话"><svg class="ic" viewbox="0 0 24 24"><line x1="12" x2="12" y1="5" y2="19"></line><line x1="5" x2="19" y1="12" y2="12"></line></svg></button>
+</div>
+</header>
+<div class="sc-body" id="session-groups"><div class="grp"><div class="grp-h"><span class="gn">mac-fleet-hub</span></div><div class="grp-items"><button aria-pressed="true" class="ses sel chat-connected" data-demo-session="0"><span class="ses-top"><span class="session-state-dot running"></span><span class="t">更新文件预览交互</span></span><span class="ses-meta"><span class="session-device-name">Mac Studio</span><span class="session-project-name">刚刚</span></span></button><button aria-pressed="false" class="ses" data-demo-session="1"><span class="ses-top"><span class="session-state-dot read"></span><span class="t">检查共享会话连接</span></span><span class="ses-meta"><span class="session-device-name">Mac Studio</span><span class="session-project-name">12 分钟</span></span></button><button aria-pressed="false" class="ses" data-demo-session="2"><span class="ses-top"><span class="session-state-dot unread"></span><span class="t">整理品牌设计令牌</span></span><span class="ses-meta"><span class="session-device-name">MacBook Pro</span><span class="session-project-name">36 分钟</span></span></button><button aria-pressed="false" class="ses" data-demo-session="3"><span class="ses-top"><span class="session-state-dot waiting"></span><span class="t">部署前验证</span></span><span class="ses-meta"><span class="session-device-name">Mac Studio</span><span class="session-project-name">1 小时</span></span></button><button aria-pressed="false" class="ses" data-demo-session="4"><span class="ses-top"><span class="session-state-dot read"></span><span class="t">校对项目文档</span></span><span class="ses-meta"><span class="session-device-name">MacBook Pro</span><span class="session-project-name">昨天</span></span></button></div></div><p class="empty" hidden="" id="demo-empty">没有匹配的会话</p></div>
+</section>
+<section class="pane" id="win">
+<div aria-hidden="true" id="session-back-gesture"></div>
+<section hidden="" id="file-browser">
+<header class="file-mobile-head">
+<div aria-label="内容" class="mobile-title-switch" role="tablist">
+<button aria-selected="false" data-mode="sessions" role="tab">会话</button>
+<button aria-selected="true" data-mode="files" role="tab">文件</button>
+</div>
+<span data-device-scope-slot="files"><button class="scope-button mobile-device-scope" data-demo-scope="true"><span class="device-scope-avatar">M</span><strong>全部设备</strong></button></span>
+<button aria-haspopup="true" aria-label="菜单" class="iconbtn bare mobile-menu-trigger" title="菜单"><svg class="ic" viewbox="0 0 24 24"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.87l.04.04-2.87 2.87-.04-.04A1.7 1.7 0 0 0 15 19.4a1.7 1.7 0 0 0-1 1.55V21h-4v-.05A1.7 1.7 0 0 0 9 19.4a1.7 1.7 0 0 0-1.87.34l-.04.04-2.87-2.87.04-.04A1.7 1.7 0 0 0 4.6 15a1.7 1.7 0 0 0-1.55-1H3v-4h.05A1.7 1.7 0 0 0 4.6 9a1.7 1.7 0 0 0-.34-1.87l-.04-.04 2.87-2.87.04.04A1.7 1.7 0 0 0 9 4.6a1.7 1.7 0 0 0 1-1.55V3h4v.05A1.7 1.7 0 0 0 15 4.6a1.7 1.7 0 0 0 1.87-.34l.04-.04 2.87 2.87-.04.04A1.7 1.7 0 0 0 19.4 9a1.7 1.7 0 0 0 1.55 1H21v4h-.05a1.7 1.7 0 0 0-1.55 1Z"></path></svg></button>
+</header>
+<div class="file-layout">
+<div aria-hidden="true" hidden="" id="file-back-gesture"></div>
+<aside class="file-sources">
+<div class="file-sources-head"><h1>文件</h1></div>
+<div class="file-source-label">个人收藏</div>
+<nav aria-label="文件位置" class="file-location-list" id="file-locations"></nav>
+<div aria-label="上传队列" class="file-upload-queue" hidden="" id="file-upload-queue"></div>
+</aside>
+<section class="file-main">
+<header class="file-toolbar">
+<div class="file-title-row">
+<h1 id="file-folder-title">mac-fleet-hub</h1>
+<div class="file-actions">
+<button aria-label="上传文件" class="iconbtn" id="file-upload" title="上传文件"><svg class="ic" viewbox="0 0 24 24"><path d="M12 16V4m0 0 5 5m-5-5L7 9M5 20h14"></path></svg></button>
+<button aria-label="新建文件夹" class="iconbtn" id="file-new-folder" title="新建文件夹"><svg class="ic" viewbox="0 0 24 24"><path d="M3 6.5A2.5 2.5 0 0 1 5.5 4H9l2 2h7.5A2.5 2.5 0 0 1 21 8.5v8A2.5 2.5 0 0 1 18.5 19h-13A2.5 2.5 0 0 1 3 16.5v-10Z"></path><path d="M12 10v5m-2.5-2.5h5"></path></svg></button>
+<button aria-controls="file-settings-menu" aria-expanded="false" aria-haspopup="dialog" aria-label="文件设置" class="iconbtn file-settings-trigger" id="file-settings" title="文件设置"><svg class="ic" viewbox="0 0 24 24"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.87l.04.04-2.87 2.87-.04-.04A1.7 1.7 0 0 0 15 19.4a1.7 1.7 0 0 0-1 1.55V21h-4v-.05A1.7 1.7 0 0 0 9 19.4a1.7 1.7 0 0 0-1.87.34l-.04.04-2.87-2.87.04-.04A1.7 1.7 0 0 0 4.6 15a1.7 1.7 0 0 0-1.55-1H3v-4h.05A1.7 1.7 0 0 0 4.6 9a1.7 1.7 0 0 0-.34-1.87l-.04-.04 2.87-2.87.04.04A1.7 1.7 0 0 0 9 4.6a1.7 1.7 0 0 0 1-1.55V3h4v.05A1.7 1.7 0 0 0 15 4.6a1.7 1.7 0 0 0 1.87-.34l.04-.04 2.87 2.87-.04.04A1.7 1.7 0 0 0 19.4 9a1.7 1.7 0 0 0 1.55 1H21v4h-.05a1.7 1.7 0 0 0-1.55 1Z"></path></svg></button>
+</div>
+</div>
+<div aria-label="上传队列" class="file-upload-queue file-upload-queue-inline" hidden="" id="file-upload-queue-mobile"></div>
+<nav aria-label="路径" class="file-breadcrumbs" id="file-breadcrumbs"><span>Mac Studio</span><span> / </span><span>mac-fleet-hub</span></nav>
+<div class="file-searchbar">
+<svg class="ic" viewbox="0 0 24 24"><circle cx="11" cy="11" r="7"></circle><line x1="16.5" x2="21" y1="16.5" y2="21"></line></svg>
+<input aria-label="搜索文件" autocomplete="off" id="file-search" placeholder="搜索当前文件夹" type="search"/>
+</div>
+</header>
+<div class="file-table-head" role="row">
+<span aria-sort="ascending" role="columnheader"><button class="file-sort-button" data-file-sort="name" type="button"><span>名称</span><svg aria-hidden="true" class="file-sort-indicator" viewbox="0 0 24 24"><polyline points="6 15 12 9 18 15"></polyline></svg></button></span>
+<span aria-sort="none" role="columnheader"><button class="file-sort-button" data-file-sort="modifiedAt" type="button"><span>修改时间</span><svg aria-hidden="true" class="file-sort-indicator" viewbox="0 0 24 24"><polyline points="6 15 12 9 18 15"></polyline></svg></button></span>
+<span aria-sort="none" role="columnheader"><button class="file-sort-button" data-file-sort="size" type="button"><span>大小</span><svg aria-hidden="true" class="file-sort-indicator" viewbox="0 0 24 24"><polyline points="6 15 12 9 18 15"></polyline></svg></button></span>
+<span role="columnheader">操作</span>
+</div>
+<div class="file-browser-content">
+<div aria-live="polite" class="file-list" id="file-list"><button class="file-row" data-demo-file="server"><span class="file-name-cell" data-mobile-meta="今天 10:24"><span class="file-glyph folder"><svg aria-hidden="true" class="ic" viewbox="0 0 24 24"><path d="M3 6.5A2.5 2.5 0 0 1 5.5 4H9l2 2h7.5A2.5 2.5 0 0 1 21 8.5v8A2.5 2.5 0 0 1 18.5 19h-13A2.5 2.5 0 0 1 3 16.5v-10Z"></path></svg></span><strong>server</strong></span><span class="file-row-time">今天 10:24</span><span class="file-row-size">—</span><span>···</span></button><button class="file-row" data-demo-file="mac"><span class="file-name-cell" data-mobile-meta="今天 10:24"><span class="file-glyph folder"><svg aria-hidden="true" class="ic" viewbox="0 0 24 24"><path d="M3 6.5A2.5 2.5 0 0 1 5.5 4H9l2 2h7.5A2.5 2.5 0 0 1 21 8.5v8A2.5 2.5 0 0 1 18.5 19h-13A2.5 2.5 0 0 1 3 16.5v-10Z"></path></svg></span><strong>mac</strong></span><span class="file-row-time">今天 10:24</span><span class="file-row-size">—</span><span>···</span></button><button class="file-row" data-demo-file="scripts"><span class="file-name-cell" data-mobile-meta="今天 10:24"><span class="file-glyph folder"><svg aria-hidden="true" class="ic" viewbox="0 0 24 24"><path d="M3 6.5A2.5 2.5 0 0 1 5.5 4H9l2 2h7.5A2.5 2.5 0 0 1 21 8.5v8A2.5 2.5 0 0 1 18.5 19h-13A2.5 2.5 0 0 1 3 16.5v-10Z"></path></svg></span><strong>scripts</strong></span><span class="file-row-time">今天 10:24</span><span class="file-row-size">—</span><span>···</span></button><button class="file-row" data-demo-file="README.md"><span class="file-name-cell" data-mobile-meta="今天 10:24 · 8 KB"><span class="file-glyph"><svg aria-hidden="true" class="ic" viewbox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8zM14 2v6h6M8 13h8M8 17h6"></path></svg></span><strong>README.md</strong></span><span class="file-row-time">今天 10:24</span><span class="file-row-size">8 KB</span><span>···</span></button><button class="file-row" data-demo-file="AGENTS.md"><span class="file-name-cell" data-mobile-meta="今天 10:24 · 14 KB"><span class="file-glyph"><svg aria-hidden="true" class="ic" viewbox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8zM14 2v6h6M8 13h8M8 17h6"></path></svg></span><strong>AGENTS.md</strong></span><span class="file-row-time">今天 10:24</span><span class="file-row-size">14 KB</span><span>···</span></button></div>
+<footer class="file-status"><span id="file-count">5 项</span><span id="file-status-device">Mac Studio</span></footer>
+</div>
+</section>
+<aside class="file-preview-panel" hidden="" id="file-preview-panel">
+<header class="file-preview-head">
+<button aria-label="返回" class="iconbtn bare file-preview-mobile-back" id="file-preview-back" title="返回"><svg class="ic" viewbox="0 0 24 24"><line x1="19" x2="5" y1="12" y2="12"></line><polyline points="12 19 5 12 12 5"></polyline></svg></button>
+<div><strong id="file-preview-title">文件预览</strong><span id="file-preview-subtitle"></span></div>
+<button aria-label="开启自动换行" aria-pressed="false" class="iconbtn" hidden="" id="file-preview-wrap" title="开启自动换行" type="button"><svg class="ic" viewbox="0 0 24 24"><path d="M3 6h18M3 12h15a3 3 0 1 1 0 6h-4M3 18h7"></path><path d="m16 16-2 2 2 2"></path></svg></button>
+<a aria-label="完整预览" class="iconbtn" href="#" id="file-preview-open" rel="noopener" target="_blank" title="完整预览"><svg class="ic" viewbox="0 0 24 24"><path d="M14 3h7v7M10 14 21 3M21 14v5a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5"></path></svg></a>
+<button aria-label="关闭预览" class="iconbtn bare" id="file-preview-close" title="关闭预览"><svg class="ic" viewbox="0 0 24 24"><line x1="18" x2="6" y1="6" y2="18"></line><line x1="6" x2="18" y1="6" y2="18"></line></svg></button>
+</header>
+<div class="file-preview-stage">
+</div>
+<section aria-labelledby="file-preview-info-title" class="file-preview-info">
+<h2 id="file-preview-info-title">文件信息</h2>
+<dl>
+<div><dt>类型</dt><dd id="file-preview-type">—</dd></div>
+<div><dt>大小</dt><dd id="file-preview-size">—</dd></div>
+<div><dt>修改时间</dt><dd id="file-preview-modified">—</dd></div>
+<div><dt>位置</dt><dd id="file-preview-location">—</dd></div>
+<div><dt>设备</dt><dd id="file-preview-device">—</dd></div>
+</dl>
+</section>
+</aside>
+</div>
+<input hidden="" id="file-upload-input" multiple="" type="file"/>
+<div aria-label="文件设置" class="file-settings-menu" hidden="" id="file-settings-menu" role="dialog">
+<div class="file-setting-view">
+<span>查看方式</span>
+<div aria-label="查看方式" class="file-view-switch" id="file-view-switch" role="group">
+<button aria-label="图标视图" aria-pressed="false" data-file-view="icons" title="图标视图" type="button">
+<svg class="ic" viewbox="0 0 24 24"><rect height="7" rx="1" width="7" x="3" y="3"></rect><rect height="7" rx="1" width="7" x="14" y="3"></rect><rect height="7" rx="1" width="7" x="3" y="14"></rect><rect height="7" rx="1" width="7" x="14" y="14"></rect></svg>
+</button>
+<button aria-label="列表视图" aria-pressed="true" data-file-view="list" title="列表视图" type="button">
+<svg class="ic" viewbox="0 0 24 24"><line x1="9" x2="21" y1="6" y2="6"></line><line x1="9" x2="21" y1="12" y2="12"></line><line x1="9" x2="21" y1="18" y2="18"></line><circle cx="4.5" cy="6" r="1"></circle><circle cx="4.5" cy="12" r="1"></circle><circle cx="4.5" cy="18" r="1"></circle></svg>
+</button>
+<button aria-label="分栏视图" aria-pressed="false" data-file-view="columns" title="分栏视图" type="button">
+<svg class="ic" viewbox="0 0 24 24"><rect height="16" rx="1.5" width="18" x="3" y="4"></rect><line x1="9" x2="9" y1="4" y2="20"></line><line x1="15" x2="15" y1="4" y2="20"></line></svg>
+</button>
+</div>
+</div>
+<label class="file-setting-option" for="file-show-hidden">
+<span>显示隐藏文件</span>
+<input id="file-show-hidden" role="switch" type="checkbox"/>
+</label>
+</div>
+</section>
+<header class="win-head">
+<button class="iconbtn bare win-back" data-demo-back="true" id="win-back" title="返回（不结束进程）"><svg class="ic" viewbox="0 0 24 24"><line x1="19" x2="5" y1="12" y2="12"></line><polyline points="12 19 5 12 12 5"></polyline></svg></button>
+<div class="info">
+<span class="tt" id="win-title"><span class="ttl">更新文件预览交互</span></span>
+<span class="mt" id="win-meta">Mac Studio · mac-fleet-hub</span>
+</div>
+<button class="iconbtn" hidden="" id="reconnect-btn" title="重连"><svg class="ic" viewbox="0 0 24 24"><polyline points="23 4 23 10 17 10"></polyline><polyline points="1 20 1 14 7 14"></polyline><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path></svg></button>
+<button class="iconbtn" hidden="" id="fullscreen-btn" title="全屏"><svg class="ic" viewbox="0 0 24 24"><path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"></path></svg></button>
+</header>
+<div hidden="" id="reload-banner">
+<span class="rb-dot"></span>桌面端有新内容
+        <button class="btn sm primary rb-act" id="reload-btn">重载会话</button>
+<button class="iconbtn bare" id="reload-dismiss" title="忽略"><svg class="ic" viewbox="0 0 24 24"><line x1="18" x2="6" y1="6" y2="18"></line><line x1="6" x2="18" y1="6" y2="18"></line></svg></button>
+</div>
+<div class="win-body">
+<div id="frames"></div>
+<section id="chat-pane">
+<div aria-hidden="true" hidden="" id="chat-turn-pin">
+<div class="chat-turn-pin-inner"><div class="chat-turn-pin-card" id="chat-turn-pin-text"></div></div>
+</div>
+<div id="chat-scroll"><div class="chat-stack"><div class="chat-row user"><div class="chat-user-wrap"><div class="chat-card">检查文件预览的交互，保留现有布局。</div></div></div><div class="chat-row assistant"><div class="chat-card chat-markdown"><p>我会沿用当前的文件列表、侧边预览和移动端返回方式，先检查选择状态与预览反馈。</p></div></div><div class="chat-row tool"><details class="chat-tool"><summary class="chat-tool-summary"><span class="chat-tool-icon"><svg class="ic" viewbox="0 0 24 24"><path d="M4 4h6v16H4zM14 4h6v16h-6z"></path></svg></span><span class="chat-tool-label"><span class="chat-tool-verb">已读取</span><span class="chat-tool-path">server/dashboard/style.css</span></span></summary><div class="chat-tool-body"><pre>--rail-w: 260px;
+--sess-w: 330px;
+--r: 12px;</pre></div></details></div><div class="chat-row assistant"><div class="chat-card chat-markdown"><h3>现有框架保持一致</h3><p>桌面端保留主机栏、会话栏与工作区。移动端继续使用会话列表与全屏工作区；输入器与消息流共享宽度。</p><p>选中、连接中和等待确认各有明确状态。样式调整保持这些状态与操作位置一致。</p></div></div><div class="chat-row turn-meta"><span class="chat-msg-meta">已完成 · 12 秒</span></div></div></div>
+<form id="chat-composer">
+<div class="chat-composer-float">
+<button aria-label="跳到底部" hidden="" id="chat-jump" title="跳到底部" type="button">
+<svg aria-hidden="true" class="chat-jump-icon" viewbox="0 0 24 24">
+<path d="M12 4.5v14.25"></path>
+<path d="m5.5 12.5 6.5 6.25 6.5-6.25"></path>
+</svg>
+</button>
+</div>
+<input hidden="" id="chat-file" multiple="" type="file"/>
+<div class="chat-composer-shell">
+<section aria-label="Sub Agent" class="chat-subagents" data-mode="closed" hidden="" id="chat-subagents">
+<div class="chat-subagent-bar">
+<div aria-label="Sub Agent 状态" class="chat-subagent-chips" id="chat-subagent-chips" role="tablist"></div>
+<button aria-expanded="false" aria-label="展开 Sub Agent 列表" class="chat-subagent-toggle" id="chat-subagent-toggle" type="button">
+<svg aria-hidden="true" class="ic" viewbox="0 0 24 24"><polyline points="6 15 12 9 18 15"></polyline></svg>
+</button>
+</div>
+<div class="chat-subagent-drawer" hidden="" id="chat-subagent-drawer">
+<div class="chat-subagent-list" id="chat-subagent-list" role="list"></div>
+<section aria-live="polite" class="chat-subagent-detail" hidden="" id="chat-subagent-detail">
+<header class="chat-subagent-detail-head">
+<div class="chat-subagent-detail-title">
+<span class="dot off" id="chat-subagent-detail-dot"></span>
+<strong id="chat-subagent-detail-name">Sub Agent</strong>
+<span class="chat-subagent-state-label" id="chat-subagent-detail-state"></span>
+</div>
+<span class="chat-subagent-detail-meta" id="chat-subagent-detail-meta"></span>
+</header>
+<div class="chat-subagent-detail-scroll" id="chat-subagent-detail-scroll"></div>
+</section>
+</div>
+</section>
+<div hidden="" id="chat-pending-interaction"></div>
+<div hidden="" id="chat-followups"></div>
+<div class="chat-composer-inner">
+<div hidden="" id="chat-attachments"></div>
+<div aria-label="Skills" class="chat-skill-menu" hidden="" id="chat-skill-menu" role="listbox"></div>
+<textarea aria-label="消息" autocapitalize="off" autocomplete="off" autocorrect="off" id="chat-input" placeholder="继续对话…" rows="1" spellcheck="false"></textarea>
+<div class="chat-composer-toolbar">
+<div class="chat-tools-left">
+<button aria-label="添加附件" class="iconbtn chat-attach" id="chat-attach" title="添加附件" type="button"><svg class="ic" viewbox="0 0 24 24"><line x1="12" x2="12" y1="5" y2="19"></line><line x1="5" x2="19" y1="12" y2="12"></line></svg></button>
+<div class="chat-approval-menu" id="chat-approval-menu">
+<button aria-expanded="false" aria-haspopup="menu" aria-label="如何批准 ChatGPT 操作？" class="chat-approval-trigger" disabled="" id="chat-approval" title="如何批准 ChatGPT 操作？" type="button">
+<svg class="ic" viewbox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10"></path><path d="m9 12 2 2 4-4"></path></svg>
+<span id="chat-approval-label">替我审批</span>
+<svg aria-hidden="true" class="chat-select-chevron" viewbox="0 0 24 24"><polyline points="6 9 12 15 18 9"></polyline></svg>
+</button>
+<div class="chat-approval-popover" hidden="" id="chat-approval-popover" role="menu"></div>
+</div>
+</div>
+<div class="chat-tools-right">
+<div class="chat-options" hidden="" id="chat-options">
+<button aria-expanded="false" aria-haspopup="menu" aria-label="模型选项" class="chat-options-trigger" id="chat-options-trigger" title="模型选项" type="button">
+<svg class="ic" viewbox="0 0 24 24"><path d="M12 2a4 4 0 0 0-4 4v1a4 4 0 0 0-3 6.65V16a4 4 0 0 0 4 4h6a4 4 0 0 0 4-4v-2.35A4 4 0 0 0 16 7V6a4 4 0 0 0-4-4Z"></path><path d="M9 12h.01M15 12h.01M9 16h6"></path></svg>
+<span id="chat-options-model">模型</span>
+<span class="chat-options-secondary" id="chat-options-effort"></span>
+<svg aria-hidden="true" class="chat-options-chevron" viewbox="0 0 24 24"><polyline points="6 9 12 15 18 9"></polyline></svg>
+</button>
+<div class="chat-options-popover" hidden="" id="chat-options-popover" role="menu">
+<div class="chat-options-panel chat-options-main">
+<button class="chat-options-row" data-chat-options-panel="model" role="menuitem" type="button">
+<span>模型</span><span class="chat-options-value" id="chat-options-model-value"></span>
+<svg aria-hidden="true" class="chat-options-row-chevron" viewbox="0 0 24 24"><polyline points="9 18 15 12 9 6"></polyline></svg>
+</button>
+<button class="chat-options-row" data-chat-options-panel="effort" role="menuitem" type="button">
+<span>推理强度</span><span class="chat-options-value" id="chat-options-effort-value"></span>
+<svg aria-hidden="true" class="chat-options-row-chevron" viewbox="0 0 24 24"><polyline points="9 18 15 12 9 6"></polyline></svg>
+</button>
+<button class="chat-options-row" data-chat-options-panel="speed" role="menuitem" type="button">
+<span>速度</span><span class="chat-options-value" id="chat-options-speed-value"></span>
+<svg aria-hidden="true" class="chat-options-row-chevron" viewbox="0 0 24 24"><polyline points="9 18 15 12 9 6"></polyline></svg>
+</button>
+</div>
+<div class="chat-options-panel chat-options-submenu" hidden="" id="chat-options-submenu">
+<div class="chat-options-submenu-head">
+<button aria-label="返回模型选项" class="iconbtn bare chat-options-back" id="chat-options-back" title="返回模型选项" type="button"><svg class="ic" viewbox="0 0 24 24"><line x1="19" x2="5" y1="12" y2="12"></line><polyline points="12 19 5 12 12 5"></polyline></svg></button>
+<div class="chat-options-submenu-title" id="chat-options-submenu-title"></div>
+</div>
+<div class="chat-options-choices" id="chat-options-choices" role="menu"></div>
+</div>
+</div>
+</div>
+<button aria-label="发送" class="send-btn chat-send" data-action="send" disabled="" id="chat-send" title="发送">
+<svg class="ic chat-send-icon" viewbox="0 0 24 24"><line x1="12" x2="12" y1="19" y2="5"></line><polyline points="5 12 12 5 19 12"></polyline></svg>
+<svg aria-hidden="true" class="ic chat-stop-icon" viewbox="0 0 24 24"><rect fill="currentColor" height="12" rx="1.5" stroke="none" width="12" x="6" y="6"></rect></svg>
+</button>
+</div>
+</div>
+</div>
+</div>
+</form>
+</section>
+<div class="empty-state" hidden="" id="empty-state">
+<div class="g"><svg class="ic" viewbox="0 0 24 24"><polyline points="4 17 10 11 4 5"></polyline><line x1="12" x2="20" y1="19" y2="19"></line></svg></div>
+<div>选择一个会话开始聊天<br/>
+<span class="dim" style="font-size:var(--t-secondary)">也可以新建会话，开始新的任务</span>
+</div>
+</div>
+</div>
+<div hidden="" id="mobile-input">
+<div class="keybar">
+<button data-key="Escape">esc</button>
+<button data-key="Tab">tab</button>
+<button class="sticky" data-key="Control">ctrl</button>
+<button data-key="ArrowUp">↑</button>
+<button data-key="ArrowDown">↓</button>
+<button data-key="ArrowLeft">←</button>
+<button data-key="ArrowRight">→</button>
+</div>
+<div class="inrow">
+<textarea autocapitalize="off" autocomplete="off" autocorrect="off" id="cmd-input" placeholder="输入命令…" rows="1" spellcheck="false"></textarea>
+<button class="send-btn" id="send-btn" title="发送"><svg class="ic" viewbox="0 0 24 24"><line x1="12" x2="12" y1="19" y2="5"></line><polyline points="5 12 12 5 19 12"></polyline></svg></button>
+</div>
+</div>
+</section>
+<div class="overlay" hidden="" id="host-modal">
+<div class="modal">
+<div class="modal-head">
+<span class="dot" id="hm-dot"></span><span id="hm-title">Mac</span>
+<span class="badge" id="hm-state">—</span>
+<button class="iconbtn bare x" data-close="host-modal"><svg class="ic" viewbox="0 0 24 24"><line x1="18" x2="6" y1="6" y2="18"></line><line x1="6" x2="18" y1="6" y2="18"></line></svg></button>
+</div>
+<div class="modal-body">
+<div class="kv"><span class="k">Mesh IP</span>
+<span class="v"><span class="mono" id="hm-ip">—</span>
+<button class="ping-chip" id="hm-ping" title="重新探测延时">...</button>
+</span>
+</div>
+<div class="kv"><span class="k">代理（按会话注入）</span>
+<label class="switch"><input id="hm-proxy-on" type="checkbox"/><span class="tk"></span></label>
+</div>
+<div class="field"><label>HTTP 代理</label><input class="input mono" id="hm-http" placeholder="http://127.0.0.1:7897"/></div>
+<div class="field"><label>HTTPS 代理</label><input class="input mono" id="hm-https" placeholder="http://127.0.0.1:7897"/></div>
+<p class="hint">开启后，<b>新开 / 重开</b>的命令行会话将带上 HTTP(S)_PROXY。请确保该 Mac 本地代理在运行。</p>
+<div class="field"><label>显示名（仅本控制台显示，不改真实主机名，留空恢复默认）</label><input class="input" id="hm-name" maxlength="40" placeholder="Mac N"/></div>
+</div>
+<div class="modal-foot">
+<button class="btn sm" data-close="host-modal">取消</button>
+<button class="btn sm primary" id="hm-save">保存</button>
+</div>
+</div>
+</div>
+<div class="overlay" hidden="" id="settings-modal">
+<div class="modal">
+<div class="modal-head"><svg class="ic" style="width:18px;height:18px" viewbox="0 0 24 24"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg><span>会话设置</span><button class="iconbtn bare x" data-close="settings-modal"><svg class="ic" viewbox="0 0 24 24"><line x1="18" x2="6" y1="6" y2="18"></line><line x1="6" x2="18" y1="6" y2="18"></line></svg></button></div>
+<div class="modal-body">
+<section class="set-group">
+<div class="set-group-title">聊天设置</div>
+<div class="field"><label>保持连接的会话缓存数</label><input class="input tnum" id="st-chat-cache-max" inputmode="numeric" max="20" min="1" type="number"/></div>
+<div class="kv set-cache-stat"><span class="k">当前缓存</span><span class="v tnum" id="st-chat-cache-count">0 / 0</span></div>
+<div class="kv set-cache-stat"><span class="k">估算内存</span><span class="v tnum" id="st-chat-cache-bytes">0 KB</span></div>
+<div class="kv set-cache-stat"><span class="k">平均单个缓存</span><span class="v tnum" id="st-chat-cache-each">0 KB</span></div>
+<p class="hint">缓存会保持 ChatGPT / DeepSeek 的事件连接，切回同一会话会直接显示已有消息。估算包含消息/工具输出文本、图片预览大小和每条事件连接的基础开销；长工具输出和图片会明显增加占用。</p>
+</section>
+</div>
+<div class="modal-foot" id="settings-footer">
+<button class="btn sm" data-close="settings-modal">取消</button>
+<button class="btn sm primary" id="st-save">保存</button>
+</div>
+</div>
+</div>
+<div class="overlay" hidden="" id="automation-modal">
+<div class="modal automation-modal-card">
+<div class="modal-head"><svg class="ic" style="width:18px;height:18px" viewbox="0 0 24 24"><path d="M8 3h8v5H8zM5 16h6v5H5zM13 16h6v5h-6zM12 8v4M8 12h8M8 12v4M16 12v4"></path></svg><span>自动化</span><a class="automation-doc-link" href="/automation-guide.html" rel="noopener" target="_blank">使用文档 ↗</a><button class="iconbtn bare x" data-close="automation-modal"><svg class="ic" viewbox="0 0 24 24"><line x1="18" x2="6" y1="6" y2="18"></line><line x1="6" x2="18" y1="6" y2="18"></line></svg></button></div>
+<div class="modal-body">
+<div aria-label="自动化设置" class="seg set-tabs" role="tablist">
+<button aria-selected="true" data-automation-tab="keys" role="tab">访问密钥</button>
+<button aria-selected="false" data-automation-tab="messages" role="tab">消息记录</button>
+</div>
+<section class="set-group set-panel" data-automation-panel="keys">
+<div class="set-group-title automation-panel-title"><span>访问密钥</span><button class="btn sm primary" id="automation-key-create" type="button">新建密钥</button></div>
+<p class="hint">可逐级限定设备、AI 客户端、项目和会话；后续层级留空表示不限制。绑定到具体会话后，密钥名称可作为 alias 调用。</p>
+<form class="automation-key-form" hidden="" id="automation-key-form">
+<strong id="automation-key-form-title">新建密钥</strong>
+<div class="automation-key-identity">
+<label>名称（绑定到会话后即为别名）<input class="input" id="automation-key-name" maxlength="80" required=""/></label>
+<label>RPM<input class="input" id="automation-key-rpm" max="10000" min="1" required="" step="1" type="number" value="10"/></label>
+</div>
+<div class="automation-binding-grid">
+<label>设备<select class="input" id="automation-key-device"><option value="">全部设备</option></select></label>
+<label>AI 客户端<select class="input" disabled="" id="automation-key-client"><option value="">全部客户端</option><option value="codex">ChatGPT (Codex)</option><option value="deepseek">DeepSeek</option></select></label>
+<label>项目绝对路径<select class="input" disabled="" id="automation-key-project"><option value="">全部项目</option><option value="__custom__">手动输入项目路径…</option></select><input aria-label="手动输入项目绝对路径" class="input" disabled="" hidden="" id="automation-key-project-custom" placeholder="项目绝对路径"/></label>
+<label>会话 ID<select class="input" disabled="" id="automation-key-session"><option value="">全部会话</option></select></label>
+</div>
+<p class="hint" id="automation-key-options-status" role="status"></p>
+<div class="automation-key-form-actions"><button class="btn sm" id="automation-key-cancel" type="button">取消</button><button class="btn sm primary" id="automation-key-save" type="submit">保存密钥</button></div>
+</form>
+<div class="automation-key-list" id="automation-key-list"><div class="message-record-empty">正在加载…</div></div>
+<p class="hint warn">未绑定的密钥可向所有已纳管设备的项目会话发送消息。密钥应放在 <code>Authorization: Bearer …</code> 请求头中。</p>
+</section>
+<section class="set-group set-panel message-records-panel" data-automation-panel="messages" hidden="">
+<div class="set-group-title automation-panel-title"><span>API 消息记录</span><button class="btn sm" id="automation-message-refresh" type="button">刷新</button></div>
+<div class="automation-message-filter"><label for="automation-message-key-filter">访问密钥</label><select class="input" id="automation-message-key-filter"><option value="">全部密钥</option></select></div>
+<p class="hint">显示最近 100 条公网 API 请求。记录含用户消息与最终 AI 回复，终态记录默认在网关保留 7 天。</p>
+<div class="message-records" id="automation-message-records"><div class="message-record-empty">尚未加载</div></div>
+</section>
+</div>
+</div>
+</div>
+<div class="overlay" hidden="" id="device-modal">
+<div class="modal device-picker-modal">
+<div class="modal-head"><span id="device-modal-title">选择设备</span><button aria-label="关闭" class="iconbtn bare x" data-close="device-modal"><svg class="ic" viewbox="0 0 24 24"><line x1="18" x2="6" y1="6" y2="18"></line><line x1="6" x2="18" y1="6" y2="18"></line></svg></button></div>
+<div class="modal-body">
+<p class="hint device-picker-hint" id="device-modal-subtitle">选择内容所在的 Mac</p>
+<div class="device-options" id="device-options"></div>
+</div>
+</div>
+</div>
+<div class="overlay" hidden="" id="file-name-modal">
+<div class="modal">
+<div class="modal-head"><span id="file-name-title">新建文件夹</span><button aria-label="关闭" class="iconbtn bare x" data-close="file-name-modal"><svg class="ic" viewbox="0 0 24 24"><line x1="18" x2="6" y1="6" y2="18"></line><line x1="6" x2="18" y1="6" y2="18"></line></svg></button></div>
+<form id="file-name-form">
+<div class="modal-body"><div class="field"><label for="file-name-input">名称</label><input autocomplete="off" class="input" id="file-name-input" maxlength="255" required=""/></div></div>
+<div class="modal-foot"><button class="btn sm" data-close="file-name-modal" type="button">取消</button><button class="btn sm primary" id="file-name-submit">创建</button></div>
+</form>
+</div>
+</div>
+<div class="overlay" hidden="" id="confirm-file-delete">
+<div class="modal" style="max-width:380px">
+<div class="modal-head">删除文件<button aria-label="关闭" class="iconbtn bare x" data-close="confirm-file-delete"><svg class="ic" viewbox="0 0 24 24"><line x1="18" x2="6" y1="6" y2="18"></line><line x1="6" x2="18" y1="6" y2="18"></line></svg></button></div>
+<div class="modal-body"><p class="wrap-pretty" id="file-delete-copy"></p></div>
+<div class="modal-foot"><button class="btn sm" data-close="confirm-file-delete">取消</button><button class="btn sm danger" id="file-delete-confirm">删除</button></div>
+</div>
+</div>
+<div class="overlay" hidden="" id="confirm-kill">
+<div class="modal" style="max-width:380px">
+<div class="modal-head">终止会话进程<button class="iconbtn bare x" data-close="confirm-kill"><svg class="ic" viewbox="0 0 24 24"><line x1="18" x2="6" y1="6" y2="18"></line><line x1="6" x2="18" y1="6" y2="18"></line></svg></button></div>
+<div class="modal-body">
+<p class="wrap-pretty">终止「<b id="ck-name"></b>」在 Mac 上的进程？<br/>
+<span class="muted" style="font-size:var(--t-body)">会话条目会保留，仅结束其助手 / tmux 进程。</span>
+</p>
+</div>
+<div class="modal-foot">
+<button class="btn sm" data-close="confirm-kill">取消</button>
+<button class="btn sm danger" id="ck-confirm">终止进程</button>
+</div>
+</div>
+</div>
+<div aria-label="图片预览" aria-modal="true" class="chat-image-viewer" hidden="" id="chat-image-viewer" role="dialog">
+<div class="chat-image-viewer-stage" id="chat-image-viewer-stage">
+<div class="chat-image-viewer-canvas" id="chat-image-viewer-canvas">
+<img alt="" draggable="false" id="chat-image-viewer-image"/>
+</div>
+</div>
+<div aria-label="图片查看工具" class="chat-image-viewer-tools" role="toolbar">
+<button aria-label="缩小图片" class="chat-image-viewer-tool" id="chat-image-viewer-zoom-out" title="缩小（−）" type="button"><svg class="ic" viewbox="0 0 24 24"><line x1="5" x2="19" y1="12" y2="12"></line></svg></button>
+<button aria-label="适应窗口" class="chat-image-viewer-zoom-reset" id="chat-image-viewer-zoom-reset" title="适应窗口（0）" type="button">100%</button>
+<button aria-label="放大图片" class="chat-image-viewer-tool" id="chat-image-viewer-zoom-in" title="放大（+）" type="button"><svg class="ic" viewbox="0 0 24 24"><line x1="12" x2="12" y1="5" y2="19"></line><line x1="5" x2="19" y1="12" y2="12"></line></svg></button>
+<span aria-hidden="true" class="chat-image-viewer-separator"></span>
+<a aria-label="下载图片" class="chat-image-viewer-tool" download="" href="#" id="chat-image-viewer-download" rel="noopener" target="_blank" title="下载图片"><svg class="ic" viewbox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" x2="12" y1="15" y2="3"></line></svg></a>
+</div>
+<button aria-label="关闭大图" class="chat-image-viewer-close" id="chat-image-viewer-close" title="关闭大图" type="button"><svg class="ic" viewbox="0 0 24 24"><line x1="18" x2="6" y1="6" y2="18"></line><line x1="6" x2="18" y1="6" y2="18"></line></svg></button>
+</div>
+<div id="toast-wrap"></div>
+</div><div hidden="" id="review-toast" role="status"></div><script src="preview.js"></script></body></html>

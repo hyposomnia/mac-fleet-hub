@@ -1,0 +1,10 @@
+{
+  "source": "server/dashboard/style.css",
+  "sha256": "fd11b5e045893b0574f151de4d1a5f3f32cbca1b64b97aa4b08db0a6d7d65071",
+  "layout": {
+    "rail": 260,
+    "sessions": 330,
+    "breakpoint": 860
+  },
+  "geometry": "copied without edits"
+}

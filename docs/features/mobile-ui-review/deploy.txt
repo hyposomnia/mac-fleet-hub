@@ -1,0 +1,10 @@
+backup=/var/backups/mac-fleet-hub/dashboard-before-v181-20261007T073924Z.tgz
+static_sha256_matches=109
+runtime_nodes_present
+nginx=active
+fleet-enroll=active
+headscale=active
+fleet-nodes.timer=active
+// PWA 外壳缓存。终端、API 与用户文件必须实时，明确不进入 Cache Storage。
+const CACHE = 'fleet-shell-v181';
+release=dcb68df

@@ -1,0 +1,148 @@
+{
+  "desktop": {
+    "grid": "260px 330px 850px",
+    "overflow": false,
+    "theme": "light",
+    "width": 1440
+  },
+  "dark": {
+    "accent": "#B8D9FF",
+    "bg": "#10141B",
+    "focus": "user-btn",
+    "menuHidden": true,
+    "theme": "dark"
+  },
+  "escape": {
+    "expanded": "false",
+    "focus": "user-btn",
+    "hidden": true
+  },
+  "mobile": {
+    "controls": [
+      {
+        "border": "0px",
+        "height": 44,
+        "id": "session-device-button",
+        "radius": "12px",
+        "width": 170
+      },
+      {
+        "border": "0px",
+        "height": 44,
+        "id": "iconbtn bare mobile-menu-trigger",
+        "radius": "12px",
+        "width": 44
+      },
+      {
+        "border": "0px",
+        "height": 44,
+        "id": "session-view-toggle",
+        "radius": "12px",
+        "width": 44
+      },
+      {
+        "border": "0px",
+        "height": 44,
+        "id": "session-searchbar",
+        "radius": "12px",
+        "width": 260
+      },
+      {
+        "border": "0px",
+        "height": 44,
+        "id": "new-session-mobile",
+        "radius": "12px",
+        "width": 44
+      }
+    ],
+    "overflow": false,
+    "width": 390
+  },
+  "account": {
+    "controls": [
+      {
+        "border": "0px",
+        "radius": "12px"
+      },
+      {
+        "border": "0px",
+        "radius": "12px"
+      },
+      {
+        "border": "0px",
+        "radius": "12px"
+      },
+      {
+        "border": "0px",
+        "radius": "12px"
+      },
+      {
+        "border": "0px",
+        "radius": "12px"
+      },
+      {
+        "border": "0px",
+        "radius": "12px"
+      },
+      {
+        "border": "0px",
+        "radius": "12px"
+      },
+      {
+        "border": "0px",
+        "radius": "12px"
+      },
+      {
+        "border": "0px",
+        "radius": "12px"
+      },
+      {
+        "border": "0px",
+        "radius": "12px"
+      },
+      {
+        "border": "0px",
+        "radius": "12px"
+      },
+      {
+        "border": "0px",
+        "radius": "12px"
+      },
+      {
+        "border": "0px",
+        "radius": "12px"
+      },
+      {
+        "border": "0px",
+        "radius": "12px"
+      },
+      {
+        "border": "0px",
+        "radius": "12px"
+      },
+      {
+        "border": "0px",
+        "radius": "12px"
+      },
+      {
+        "border": "0px",
+        "radius": "12px"
+      },
+      {
+        "border": "0px",
+        "radius": "12px"
+      }
+    ],
+    "overflow": false,
+    "theme": "light"
+  },
+  "files": {
+    "mode": "files",
+    "overflow": false
+  },
+  "admin": {
+    "overflow": false,
+    "tableBorders": [],
+    "theme": "light"
+  }
+}

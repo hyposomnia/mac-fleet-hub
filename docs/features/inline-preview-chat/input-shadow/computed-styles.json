@@ -1,0 +1,38 @@
+{
+  "chat": {
+    "border": "0px",
+    "expanded": "false",
+    "inputOutline": "rgb(37, 52, 70) none 3px",
+    "outline": "rgb(37, 52, 70) none 3px",
+    "preview": "false",
+    "shadow": "rgba(26, 45, 64, 0.055) 0px 2px 8px 0px, rgba(26, 45, 64, 0.08) 0px 10px 30px 0px",
+    "theme": "light"
+  },
+  "fileCollapsed": {
+    "border": "0px",
+    "expanded": "false",
+    "inputOutline": "rgb(37, 52, 70) none 3px",
+    "outline": "rgb(37, 52, 70) none 0px",
+    "preview": "true",
+    "shadow": "rgba(26, 45, 64, 0.055) 0px 2px 8px 0px, rgba(26, 45, 64, 0.08) 0px 10px 30px 0px",
+    "theme": "light"
+  },
+  "fileFocused": {
+    "border": "0px",
+    "expanded": "true",
+    "inputOutline": "rgb(37, 52, 70) none 3px",
+    "outline": "rgb(37, 52, 70) none 0px",
+    "preview": "true",
+    "shadow": "rgba(26, 45, 64, 0.055) 0px 2px 8px 0px, rgba(26, 45, 64, 0.08) 0px 10px 30px 0px",
+    "theme": "light"
+  },
+  "dark": {
+    "border": "0px",
+    "expanded": "true",
+    "inputOutline": "rgb(242, 245, 249) none 3px",
+    "outline": "rgb(242, 245, 249) none 0px",
+    "preview": "true",
+    "shadow": "rgba(0, 0, 0, 0.16) 0px 2px 8px 0px, rgba(0, 0, 0, 0.24) 0px 10px 30px 0px",
+    "theme": "dark"
+  }
+}

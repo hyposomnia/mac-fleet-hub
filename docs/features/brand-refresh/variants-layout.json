@@ -1,0 +1,215 @@
+{
+  "states": [
+    {
+      "variant": "signal",
+      "theme": "dark",
+      "state": "desktop",
+      "overflow": false,
+      "columns": "260px 330px 850px"
+    },
+    {
+      "variant": "signal",
+      "theme": "dark",
+      "state": "mobile-list",
+      "overflow": false,
+      "columns": "260px 330px 1fr"
+    },
+    {
+      "variant": "signal",
+      "theme": "dark",
+      "state": "mobile-chat",
+      "overflow": false,
+      "inputVisible": true
+    },
+    {
+      "variant": "signal",
+      "theme": "light",
+      "state": "desktop",
+      "overflow": false,
+      "columns": "260px 330px 850px"
+    },
+    {
+      "variant": "signal",
+      "theme": "light",
+      "state": "mobile-list",
+      "overflow": false,
+      "columns": "260px 330px 1fr"
+    },
+    {
+      "variant": "signal",
+      "theme": "light",
+      "state": "mobile-chat",
+      "overflow": false,
+      "inputVisible": true
+    },
+    {
+      "variant": "titanium",
+      "theme": "dark",
+      "state": "desktop",
+      "overflow": false,
+      "columns": "260px 330px 850px"
+    },
+    {
+      "variant": "titanium",
+      "theme": "dark",
+      "state": "mobile-list",
+      "overflow": false,
+      "columns": "260px 330px 1fr"
+    },
+    {
+      "variant": "titanium",
+      "theme": "dark",
+      "state": "mobile-chat",
+      "overflow": false,
+      "inputVisible": true
+    },
+    {
+      "variant": "titanium",
+      "theme": "light",
+      "state": "desktop",
+      "overflow": false,
+      "columns": "260px 330px 850px"
+    },
+    {
+      "variant": "titanium",
+      "theme": "light",
+      "state": "mobile-list",
+      "overflow": false,
+      "columns": "260px 330px 1fr"
+    },
+    {
+      "variant": "titanium",
+      "theme": "light",
+      "state": "mobile-chat",
+      "overflow": false,
+      "inputVisible": true
+    },
+    {
+      "variant": "atelier",
+      "theme": "dark",
+      "state": "desktop",
+      "overflow": false,
+      "columns": "260px 330px 850px"
+    },
+    {
+      "variant": "atelier",
+      "theme": "dark",
+      "state": "mobile-list",
+      "overflow": false,
+      "columns": "260px 330px 1fr"
+    },
+    {
+      "variant": "atelier",
+      "theme": "dark",
+      "state": "mobile-chat",
+      "overflow": false,
+      "inputVisible": true
+    },
+    {
+      "variant": "atelier",
+      "theme": "light",
+      "state": "desktop",
+      "overflow": false,
+      "columns": "260px 330px 850px"
+    },
+    {
+      "variant": "atelier",
+      "theme": "light",
+      "state": "mobile-list",
+      "overflow": false,
+      "columns": "260px 330px 1fr"
+    },
+    {
+      "variant": "atelier",
+      "theme": "light",
+      "state": "mobile-chat",
+      "overflow": false,
+      "inputVisible": true
+    },
+    {
+      "variant": "porcelain",
+      "theme": "dark",
+      "state": "desktop",
+      "overflow": false,
+      "columns": "260px 330px 850px"
+    },
+    {
+      "variant": "porcelain",
+      "theme": "dark",
+      "state": "mobile-list",
+      "overflow": false,
+      "columns": "260px 330px 1fr"
+    },
+    {
+      "variant": "porcelain",
+      "theme": "dark",
+      "state": "mobile-chat",
+      "overflow": false,
+      "inputVisible": true
+    },
+    {
+      "variant": "porcelain",
+      "theme": "light",
+      "state": "desktop",
+      "overflow": false,
+      "columns": "260px 330px 850px"
+    },
+    {
+      "variant": "porcelain",
+      "theme": "light",
+      "state": "mobile-list",
+      "overflow": false,
+      "columns": "260px 330px 1fr"
+    },
+    {
+      "variant": "porcelain",
+      "theme": "light",
+      "state": "mobile-chat",
+      "overflow": false,
+      "inputVisible": true
+    },
+    {
+      "variant": "nocturne",
+      "theme": "dark",
+      "state": "desktop",
+      "overflow": false,
+      "columns": "260px 330px 850px"
+    },
+    {
+      "variant": "nocturne",
+      "theme": "dark",
+      "state": "mobile-list",
+      "overflow": false,
+      "columns": "260px 330px 1fr"
+    },
+    {
+      "variant": "nocturne",
+      "theme": "dark",
+      "state": "mobile-chat",
+      "overflow": false,
+      "inputVisible": true
+    },
+    {
+      "variant": "nocturne",
+      "theme": "light",
+      "state": "desktop",
+      "overflow": false,
+      "columns": "260px 330px 850px"
+    },
+    {
+      "variant": "nocturne",
+      "theme": "light",
+      "state": "mobile-list",
+      "overflow": false,
+      "columns": "260px 330px 1fr"
+    },
+    {
+      "variant": "nocturne",
+      "theme": "light",
+      "state": "mobile-chat",
+      "overflow": false,
+      "inputVisible": true
+    }
+  ],
+  "errors": []
+}

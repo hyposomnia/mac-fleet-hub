@@ -1,0 +1,55 @@
+{
+  "states": [
+    {
+      "state": "desktop-dark",
+      "geometry": {
+        "columns": "260px 330px 850px",
+        "width": 1440
+      },
+      "overflow": false
+    },
+    {
+      "state": "mobile-list-dark",
+      "overflow": false
+    },
+    {
+      "state": "mobile-chat-dark",
+      "overflow": false,
+      "inputVisible": true
+    },
+    {
+      "state": "mobile-files-dark",
+      "overflow": false
+    },
+    {
+      "state": "desktop-light",
+      "geometry": {
+        "columns": "260px 330px 850px",
+        "width": 1440
+      },
+      "overflow": false
+    },
+    {
+      "state": "mobile-list-light",
+      "overflow": false
+    },
+    {
+      "state": "mobile-chat-light",
+      "overflow": false,
+      "inputVisible": true
+    },
+    {
+      "state": "mobile-files-light",
+      "overflow": false
+    },
+    {
+      "state": "guide-desktop",
+      "overflow": false
+    },
+    {
+      "state": "guide-mobile",
+      "overflow": false
+    }
+  ],
+  "errors": []
+}
