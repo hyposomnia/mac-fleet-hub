@@ -38,12 +38,12 @@
 
 GUI 实测：临时位置的“关联账号”输入 `fleet.example.test:7443` 后“打开网页授权”可点击；空地址仍正确禁用，页面无保存按钮。未点击安装或实际授权，测试输入已清空，临时应用已退出。截图 `/private/tmp/fleet-settings-native-account.png`。原有后台仍是 PID `73774`，来自 `/Applications/Fleet Hub.app`，未重启或替换。
 
-## 正式发行阻塞
+## 正式发行与凭据复核
 
 拟统一发布 `0.1.3+4` 与 Web v185；abj 仍保留 `0.1.2+3`，本批未上线。
 
 唯一发行入口 `--native-candidate-check` 在公证凭据检查失败：`No Keychain password item found for profile: mac-fleet-hub-notary`。随后真实执行 `xcrun notarytool history --keychain-profile mac-fleet-hub-notary`，exit 69，仍为同一缺失；Developer ID 证书可见不代表公证凭据可用。
 
-已请用户在本机终端执行 `xcrun notarytool store-credentials mac-fleet-hub-notary`，凭据仅在终端输入，不发送聊天或进入日志。恢复后从最新干净不可变提交运行完整唯一入口，完成签名、公证、更新签名、下载 SHA 及 abj 验收，不能用开发包或旧包冒充完成。
+此前直接建议重新保存凭据的判断不成立：用户在自己的终端成功读取原有公证历史，未重新创建 profile；随后自动执行也 exit 0，有 31 条原有记录。已修正发布预检的误导提示，并对未知错误、锁定状态保持失败关闭。详见 [执行上下文核对](notary-keychain-context-2026-10-08.md)。从最新干净不可变提交运行完整唯一入口，完成签名、公证、更新签名、下载 SHA 及 abj 验收前，仍不能用开发包或旧包冒充完成。
 
 本地测试不证明真实 FDA、真实设备入网或升级后 TCC 保留。正式包的签名、公证、下载 SHA 与 abj 服务检查须以发行后的记录为准。

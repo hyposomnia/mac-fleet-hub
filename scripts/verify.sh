@@ -23,6 +23,7 @@ node --test "$ROOT/server/dashboard/chat_model.test.mjs" "$ROOT/server/dashboard
 step "候选安装包与独立网关配置测试"
 node --test "$ROOT/server/dashboard/settings_dialog.test.mjs" "$ROOT/server/dashboard/auth_effects.test.mjs"
 node --test "$ROOT/scripts/client-release-manifest.test.mjs" "$ROOT/scripts/acceptance-network-templates.test.mjs" "$ROOT/scripts/settings-app-package.test.mjs" "$ROOT/scripts/native-client-release.test.mjs"
+node --test "$ROOT/scripts/notary-preflight.test.mjs"
 
 if [[ "$(uname -s)" == Darwin ]]; then
   step "原生设置应用：校验 Sparkle SDK 与 Swift 测试"
