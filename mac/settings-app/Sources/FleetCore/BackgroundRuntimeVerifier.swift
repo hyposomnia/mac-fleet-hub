@@ -36,7 +36,7 @@ public enum BackgroundRuntimeVerifier {
             guard identity.version == expected.version, identity.build == expected.build else {
                 throw FleetError.message("后台与设置应用的版本不一致，未安装。")
             }
-            _ = try await execute(URL(fileURLWithPath: "/usr/bin/codesign"), ["--verify", "--deep", "--strict", "-R", requirement, candidate.path], nil, 30)
+            _ = try await execute(URL(fileURLWithPath: "/usr/bin/codesign"), ["--verify", "--deep", "--strict", "-R", "=" + requirement, candidate.path], nil, 30)
             _ = try await execute(URL(fileURLWithPath: "/usr/sbin/spctl"), ["--assess", "--type", "execute", candidate.path], nil, 30)
         }
     }

@@ -4,6 +4,15 @@ import XCTest
 
 @MainActor
 final class NativeRuntimeTests: XCTestCase {
+    func testBackgroundVerificationPassesInlineDeveloperIDRequirement() async throws {
+        let fixture = try NativeRuntimeFixture(running: false)
+        defer { fixture.remove() }
+        try await fixture.management.synchronizeBackground(launch: false)
+        let expected = "=identifier \"com.macfleet.fleet-agent\" and anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] exists and certificate leaf[field.1.2.840.113635.100.6.1.13] exists and certificate leaf[subject.OU] = \"FAKETEAM01\""
+        XCTAssertFalse(fixture.requirements.isEmpty)
+        XCTAssertTrue(fixture.requirements.allSatisfy { $0 == expected })
+    }
+
     func testFirstPreparationInstallsAgentOutsideHubWithoutStartingIt() async throws {
         let fixture = try NativeRuntimeFixture(running: false)
         defer { fixture.remove() }
