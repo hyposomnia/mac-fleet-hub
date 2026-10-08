@@ -1,0 +1,33 @@
+Source: 1e4debdf198d69b08f69b047b032847db8f959c4
+Previous: /opt/macfleet-saas-uat/releases/server-0da0ae56d4e7389589b23c00998f372522bffe3a
+Backup: /opt/macfleet-saas-uat/backups/auth-starlight-1e4debdf198d69b08f69b047b032847db8f959c4-20261008T101802Z
+Backend PID before: 597209
+Runtime changes: dashboard/account.css, dashboard/auth.html, dashboard/auth_effects.js
+Snapshot manifest: 136 verified files
+0a681c8108cc06f20dd7a27610ad091b99c4636707972f6d47bb33f3b4ea3d7c  /tmp/macfleet-auth-web-check.bXj3tz/auth.html
+13dee60466015ba3eb152107c82f0c018562f22de7ede7dfa357349ca9ffa026  /tmp/macfleet-auth-web-check.bXj3tz/account.css
+dbddceb30d9a8e1ac696d2c0e4f192fa4bbbe2f232ef7c1090ab78d7745a396d  /tmp/macfleet-auth-web-check.bXj3tz/auth_effects.js
+/healthz: 200 (expected 200)
+/readyz: 200 (expected 200)
+/api/devices: 401 (expected 401)
+/app.js: 303 (expected 303)
+/settings_dialog.js: 303 (expected 303)
+/sw.js: 303 (expected 303)
+active
+active
+active
+active
+Backend PID after: 597209
+HTTP/2 200 
+server: nginx
+date: Thu, 08 Oct 2026 10:18:03 GMT
+content-type: text/html; charset=utf-8
+content-length: 2665
+accept-ranges: bytes
+cache-control: no-store
+last-modified: Thu, 08 Oct 2026 10:18:02 GMT
+referrer-policy: same-origin
+x-content-type-options: nosniff
+
+DEPLOY VERIFIED: 1e4debdf198d69b08f69b047b032847db8f959c4
+Current: /opt/macfleet-saas-uat/releases/web-starlight-1e4debdf198d69b08f69b047b032847db8f959c4

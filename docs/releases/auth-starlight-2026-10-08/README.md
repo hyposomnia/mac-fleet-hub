@@ -23,6 +23,12 @@
 
 ## 发布范围
 
-目标为用户指定的独立验收服务 `https://10.17.74.92:7443/auth?next=%2Fadmin`。发布只替换 `dashboard/auth.html`、`dashboard/account.css`、`dashboard/auth_effects.js`。不可变归档来自已推送源码提交；在保留旧版本的前提下，复制当前快照并原子切换 current 指针。实际发布结果另附证据。
+目标为用户指定的独立验收服务 `https://10.17.74.92:7443/auth?next=%2Fadmin`。源码提交 `1e4debdf198d69b08f69b047b032847db8f959c4` 已快进合并并推送 `main`。2026-10-08 10:18 UTC 从该不可变提交归档发布，只替换 `dashboard/auth.html`、`dashboard/account.css`、`dashboard/auth_effects.js`；另更新快照 SHA256SUMS 并记录 WEB_REVISION，后端 REVISION 保留原值。
+
+当前快照为 `/opt/macfleet-saas-uat/releases/web-starlight-1e4debdf198d69b08f69b047b032847db8f959c4`，旧快照 `server-0da0ae56d4e7389589b23c00998f372522bffe3a` 保留。发布先备份 dashboard 与 current 指针，复制当前快照并逐文件确认只有上述三个运行文件变化，再原子切换；脚本在切换后任何验证失败会恢复旧指针。备份路径见 [deploy.txt](deploy.txt)。无需重启服务。
+
+远端完整快照 136 项 SHA 校验通过。本机及服务主机均使用从目标取得的公共证书执行 curl TLS 校验，没有跳过证书检查；HTTPS 下载的三个文件与源码提交逐字节相同，见 [public-check.txt](public-check.txt)。实际结果：`/auth` HTTP/2 200 且 no-store，`/healthz` 和 `/readyz` 均 200，未认证 `/api/devices` 为 401，私有 app/settings/sw 资源为 303；四项验收服务均 active。
+
+后端 PID 前后均为 `597209`，二进制 SHA-256 保持 `aac8231a317451e3d96433776253c4b1d5391ef5a8e53ad504f2db86bb5ce51a`。直接远端浏览器因原有证书信任提示未做视觉验收；视觉证据来自本地相同前端源码，线上证据为证书校验、资源字节、HTTP 状态与服务状态。
 
 服务端二进制、数据库、密钥、Headscale、网络、Mac 客户端和 Desktop 配置不属于本次发布。
