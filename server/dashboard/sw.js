@@ -1,5 +1,5 @@
 // PWA 外壳缓存。终端、API 与用户文件必须实时，明确不进入 Cache Storage。
-const CACHE = 'fleet-shell-v152';
+const CACHE = 'fleet-shell-v171';
 const FILE_TYPE_ICONS = [
   'audio', 'c', 'console', 'cpp', 'csharp', 'css', 'dart', 'database', 'docker',
   'document', 'exe', 'font', 'git', 'go', 'html', 'image', 'java', 'javascript',
@@ -14,28 +14,27 @@ const CODEMIRROR_ASSETS = [
   'javascript', 'xml', 'jsx', 'css', 'go', 'python', 'ruby', 'shell', 'yaml', 'toml', 'properties',
 ].map((name, index) => index < 2 ? name : `/vendor/codemirror/mode/${name}/${name}.js?v=5.65.20`);
 const SHELL = [
-  '/', '/index.html', '/automation-guide.html', '/style.css?v=152',
+  '/fleet_core.js?v=171', '/workspace.js?v=171', '/native_bridge.js?v=171', '/native.css?v=171', '/titanium.css?v=171', '/titanium.json', '/icons/logo.svg',
+  '/', '/index.html', '/automation-guide.html', '/theme.js?v=171', '/device_appearance.js?v=171', '/style.css?v=171', '/account.css?v=171', '/auth-client.js?v=171',
   '/vendor/purify.min.js?v=3.2.6', '/vendor/marked.min.js?v=15.0.12',
   ...CODEMIRROR_ASSETS,
-  '/markdown.js?v=152', '/preview.js?v=152', '/chat_model.js?v=152',
-  '/upload_model.js?v=152', '/app.js?v=152',
-  '/manifest.webmanifest', '/icons/icon.svg', '/icons/icon-180.png', '/icons/icon-192.png',
+  '/markdown.js?v=171', '/preview.js?v=171', '/chat_model.js?v=171',
+  '/upload_model.js?v=171', '/sidebar_layout.js?v=171', '/workspace_tabs.js?v=171', '/app.js?v=171',
+  '/manifest.webmanifest', '/icons/icon.svg', '/icons/favicon.svg', '/icons/icon-180.png', '/icons/icon-192.png',
   '/icons/icon-512.png', '/icons/icon-maskable-512.png',
   ...FILE_TYPE_ICONS,
 ];
 const SHELL_KEYS = new Set(SHELL);
 
 function isSensitivePath(pathname) {
-  return pathname.startsWith('/api/') ||
+  return /^\/(?:api|auth|account|admin|enroll)(?:\/|$)/.test(pathname) ||
     /^\/m\d+(?:\/|$)/.test(pathname) ||
-    pathname.startsWith('/auth/') ||
-    pathname.startsWith('/enroll/') ||
     pathname.startsWith('/files/');
 }
 
 async function cacheFresh(cache, request, key = request) {
   const response = await fetch(request, { cache: 'no-cache' });
-  if (response && response.ok) await cache.put(key, response.clone());
+  if (response && response.ok && !response.redirected) await cache.put(key, response.clone());
   return response;
 }
 
@@ -45,7 +44,7 @@ self.addEventListener('install', (event) => {
     // 单个可选图标失败不应让整个 PWA 安装失败。
     await Promise.allSettled(SHELL.map(async (url) => {
       const response = await fetch(url, { cache: 'reload' });
-      if (!response.ok) throw new Error(`${url}: ${response.status}`);
+      if (!response.ok || response.redirected) throw new Error(`${url}: ${response.status}`);
       await cache.put(url, response);
     }));
     await self.skipWaiting();
@@ -75,7 +74,7 @@ self.addEventListener('fetch', (event) => {
       const navigationKey = url.pathname === '/automation-guide.html' ? '/automation-guide.html' : '/index.html';
       try {
         const response = await fetch(request, { cache: 'no-cache' });
-        if (response.ok) await cache.put(navigationKey, response.clone());
+        if (response.ok && !response.redirected) await cache.put(navigationKey, response.clone());
         return response;
       } catch (_) {
         return (await cache.match(navigationKey)) ||

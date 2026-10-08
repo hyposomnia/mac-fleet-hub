@@ -1,0 +1,56 @@
+html[data-native="ios"], html[data-native="ios"] body {
+  height: 100%;
+  max-height: 100%;
+}
+html[data-native="ios"] #app {
+  display: flex;
+  height: 100%;
+  min-height: 0;
+}
+html[data-native="ios"] #rail,
+html[data-native="ios"] #sescol,
+html[data-native="ios"] #mtopbar,
+html[data-native="ios"] #mobctl,
+html[data-native="ios"] #session-back-gesture,
+html[data-native="ios"] .win-head,
+html[data-native="ios"] .file-mobile-head {
+  display: none !important;
+}
+html[data-native="ios"] #win,
+html[data-native="ios"] #app.term-open #win {
+  display: flex;
+  position: relative;
+  inset: auto;
+  z-index: auto;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  padding-top: 0;
+  transform: none;
+}
+html[data-native="ios"].visual-keyboard-open #app.term-open #win {
+  top: 0;
+  height: 100%;
+}
+html[data-native="ios"] #mobile-input:not([hidden]) { display: block; }
+html[data-native="ios"] #sessions-launcher,
+html[data-native="ios"] #win-back,
+html[data-native="ios"] #fullscreen-btn,
+html[data-native="ios"] #pwa-install,
+html[data-native="ios"] #sessions-backdrop { display: none !important; }
+html[data-native="ios"] #win[data-workspace-tabs="true"] .win-head { display: flex !important; }
+html[data-native="ios"][data-native-layout="expanded"] .win-head { display: flex !important; padding: 14px 16px; }
+html[data-native="ios"][data-native-layout="expanded"][data-native-sessions-pinned="false"] .win-head { padding-left: 70px; }
+html[data-native="ios"][data-native-layout="compact"] #app.term-open .win-head {
+  display: flex !important;
+  min-height: 44px;
+  padding: 0 58px;
+}
+html[data-native="ios"] #win[data-workspace-tabs="true"] #win-title,
+html[data-native="ios"] #win[data-workspace-tabs="true"] #win-meta,
+html[data-native="ios"] #win[data-workspace-tabs="true"] .win-actions { display: none !important; }
+html[data-native="ios"] #workspace-tabs { min-width: 0; }
+html[data-native="ios"] .workspace-tab-select,
+html[data-native="ios"] .workspace-tab-close { min-height: 44px; }
+html[data-native="ios"] .workspace-tab-close { min-width: 44px; }
+html[data-native="ios"] #file-browser { flex: 1; min-width: 0; }

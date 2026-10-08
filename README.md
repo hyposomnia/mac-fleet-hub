@@ -4,6 +4,12 @@
 
 你有不止一台 Mac（家里、公司、别处），想随时随地接着用上面的 Claude Code 或 Codex 会话——选一台机器、切到 Claude 或 Codex、列出会话、点一条继续聊；也能浏览 / 传文件、开新会话。这些 Mac **不暴露公网**，全部经一台你自己的网关 + 私有组网中转；整栈自托管、零容器、**改配置就能跑起自己的一套**。手机上「添加到主屏」即得一个 PWA，用起来像原生 App。
 
+## iOS App（开发版）
+
+`iOS/` 提供 SwiftUI 原生设备栏、会话栏，以及复用现有 dashboard 的 Web 会话窗口。支持普通 iPhone 的单栏导航与宽屏展开后的双栏 / 三栏布局，两侧栏可独立收起；Claude 使用 ttyd。
+
+打开 `iOS/FleetHub.xcodeproj` 构建运行，网关须部署配套 dashboard 资源。构建与验证见 [iOS 开发说明](iOS/README.md)，共享组件和后续 Web 维护约定见 [iOS / Web 共享架构](docs/ios-web-shared-architecture.md)。
+
 ## 它长什么样
 
 ```

@@ -185,21 +185,6 @@
     return { macId, path, cwd: params.get('cwd') || '', embed: params.get('embed') === '1' };
   }
 
-  function canReturnFromPreview(referrer = root.document?.referrer || '', historyLength = root.history?.length || 0) {
-    if (historyLength <= 1 || !referrer || !root.location?.origin) return false;
-    try { return new URL(referrer).origin === root.location.origin; } catch (_) { return false; }
-  }
-
-  function wirePreviewBack() {
-    const close = root.document?.querySelector('.preview-close');
-    if (!close) return;
-    close.onclick = (event) => {
-      if (!canReturnFromPreview()) return;
-      event.preventDefault();
-      root.history.back();
-    };
-  }
-
   function setPreviewState(kind) {
     const stage = document.querySelector('#preview-stage');
     if (!stage) return;
@@ -296,18 +281,9 @@
   function renderPreview(meta, request) {
     const title = document.querySelector('#preview-title');
     const path = document.querySelector('#preview-path');
-    const kind = document.querySelector('#preview-kind');
-    const size = document.querySelector('#preview-size');
     const download = document.querySelector('#preview-download');
-    const previewMeta = document.querySelector('#preview-meta');
     if (title) title.textContent = meta.name || '文件预览';
     if (path) path.textContent = meta.path || request.path;
-    if (kind) kind.textContent = ({
-      markdown: 'Markdown', text: '文本', html: 'HTML', pdf: 'PDF',
-      image: '图片', video: '视频', audio: '音频',
-    })[meta.kind] || meta.kind;
-    if (size) size.textContent = formatBytes(meta.size);
-    if (previewMeta) previewMeta.hidden = false;
     document.title = `${meta.name || '文件'} - fleet hub`;
     if (download) {
       download.href = fileEndpoint('content', request.macId, meta.path, { download: true });
@@ -373,14 +349,11 @@
       showPreviewError('预览链接缺少主机或文件路径。');
       return;
     }
-    wirePreviewBack();
     document.documentElement.dataset.previewEmbed = request.embed ? 'true' : 'false';
     const wrap = document.querySelector('#preview-wrap');
     if (wrap) {
       wrap.onclick = () => setTextWrap(wrap.getAttribute('aria-pressed') !== 'true');
     }
-    const host = document.querySelector('#preview-host');
-    if (host) host.textContent = request.macId.toUpperCase();
     try {
       const response = await fetch(fileEndpoint('preview', request.macId, request.path, { cwd: request.cwd }), { cache: 'no-store' });
       if (!response.ok) {
@@ -397,6 +370,6 @@
   root.FleetPreview = {
     resolveLocalLink, resourceURL, fileEndpoint, formatBytes, isPreviewRoute, previewRequest,
     safeHTMLDocument, rewriteCSSURLs, isTextPreviewPath, textPreviewMode, textWrapEnabled,
-    updateTextWrapButton, setTextWrap, canReturnFromPreview, wirePreviewBack, initRoute,
+    updateTextWrapButton, setTextWrap, initRoute,
   };
 })(typeof globalThis !== 'undefined' ? globalThis : window);

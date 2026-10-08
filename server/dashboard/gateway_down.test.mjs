@@ -164,19 +164,27 @@ function flattenText(node, out = []) {
   return out;
 }
 
-test('网关不可达时空态提示「服务器不可用」，而不是「暂无已入网的 Mac」', () => {
+test('网关不可达时提示服务器不可用，不显示添加设备空态', () => {
   const { created } = renderEmptyState({ gatewayDown: true });
   const texts = created.flatMap((n) => flattenText(n)).join(' | ');
   assert.match(texts, /无法连接服务器/, '必须明确说是服务器/网关的问题');
-  assert.match(texts, /不代表没有 Mac 入网/, '要点破这个最容易被误读的结论');
-  assert.ok(!/暂无已入网的 Mac/.test(texts), '故障态绝不能复用「没有 Mac」的文案');
+  assert.match(texts, /不代表没有设备入网/, '要点破这个最容易被误读的结论');
+  assert.ok(!/暂无已入网的设备/.test(texts), '故障态绝不能复用空列表文案');
+  assert.ok(!created.some((node) => node.attrs.href === '/account#add-device'));
 });
 
-test('网关正常但没有 Mac 时，仍是原来的中性文案', () => {
-  const { created } = renderEmptyState({ gatewayDown: false });
-  const texts = created.flatMap((n) => flattenText(n)).join(' | ');
-  assert.match(texts, /暂无已入网的 Mac/);
-  assert.ok(!/无法连接服务器/.test(texts), '正常空态不该吓唬人');
+test('会话和文件的设备空列表在提示下方提供添加设备入口', () => {
+  for (const mode of ['sessions', 'files']) {
+    const { created } = renderEmptyState({ gatewayDown: false, mode });
+    const empty = created.find((node) => node.attrs.class === 'empty');
+    assert.ok(empty);
+    assert.equal(empty.children[0].textContent, '暂无已入网的设备');
+    const add = empty.children[1];
+    assert.equal(add.tag, 'a');
+    assert.equal(add.textContent, '添加设备');
+    assert.equal(add.attrs.href, '/account#add-device');
+    assert.ok(!/无法连接服务器/.test(flattenText(empty).join(' | ')));
+  }
 });
 
 test('故障态提供重试按钮，且点击会重新拉取', () => {

@@ -1,0 +1,37 @@
+{
+  "typography": { "caption": 11, "secondary": 12, "body": 13, "title": 15, "control": 16, "display": 17, "page": 28 },
+  "navigation": { "mobileBreakpoint": 860, "compactDesktopBreakpoint": 1180, "deviceWidth": 260, "sessionWidth": 330, "compactDeviceWidth": 220, "compactSessionWidth": 310, "collapsedDeviceWidth": 72 },
+  "radii": { "compact": 8, "control": 12, "card": 16, "panel": 20 },
+  "deviceColors": {
+    "steel": { "light": "#2C5D87", "dark": "#8BB8E4" },
+    "teal": { "light": "#0A727E", "dark": "#6DD0D6" },
+    "green": { "light": "#39734E", "dark": "#85C79A" },
+    "amber": { "light": "#9C6016", "dark": "#E3B466" },
+    "coral": { "light": "#B84B43", "dark": "#F29287" },
+    "violet": { "light": "#7851B0", "dark": "#B9A0EB" },
+    "rose": { "light": "#A5487A", "dark": "#E391BC" },
+    "slate": { "light": "#576475", "dark": "#B5C1D0" }
+  },
+  "light": {
+    "bg": "#FFFFFF", "surface": "#FFFFFF", "surface-1": "#FFFFFF", "surface-2": "#E3E9EF", "surface-hover": "#D8E2EA",
+    "text": "#253446", "text-1": "#4B5D70", "text-2": "#516476", "text-3": "#536475",
+    "accent": "#2C5D87", "accent-1": "#244D70", "accent-text": "#244D70", "accent-contrast": "#FFFFFF",
+    "online": "#386046", "offline": "#516476", "wait": "#785319", "danger": "#A23B40",
+    "syntax-comment": "#667085", "syntax-keyword": "#7C3AED", "syntax-atom": "#B42318", "syntax-number": "#B54708",
+    "syntax-string": "#047857", "syntax-definition": "#1D4ED8", "syntax-variable": "#344054", "syntax-type": "#0369A1",
+    "syntax-property": "#9A3412", "syntax-tag": "#BE123C", "syntax-attribute": "#4D7C0F", "syntax-meta": "#475467",
+    "e1": "0 2px 5px rgba(26,45,64,.035)", "e2": "0 8px 24px rgba(26,45,64,.065)", "e3": "0 20px 60px rgba(26,45,64,.12)",
+    "chat-composer-shadow": "0 8px 30px rgba(26,45,64,.045)"
+  },
+  "dark": {
+    "bg": "#10141B", "surface": "#10141B", "surface-1": "#10141B", "surface-2": "#273143", "surface-hover": "#2D394B",
+    "text": "#F2F5F9", "text-1": "#BBC9DB", "text-2": "#A5B6CA", "text-3": "#A0B0C5",
+    "accent": "#B8D9FF", "accent-1": "#D0E6FF", "accent-text": "#D0E6FF", "accent-contrast": "#111826",
+    "online": "#B1E1BC", "offline": "#A5B6CA", "wait": "#F6D7A3", "danger": "#FFB8B8",
+    "syntax-comment": "#7F8B9D", "syntax-keyword": "#C792EA", "syntax-atom": "#F78C6C", "syntax-number": "#F0B46A",
+    "syntax-string": "#7BD88F", "syntax-definition": "#82AAFF", "syntax-variable": "#D7DCE5", "syntax-type": "#89DDFF",
+    "syntax-property": "#FFCB6B", "syntax-tag": "#F07178", "syntax-attribute": "#C3E88D", "syntax-meta": "#AAB4C4",
+    "e1": "0 2px 5px rgba(0,0,0,.10)", "e2": "0 8px 24px rgba(0,0,0,.16)", "e3": "0 20px 60px rgba(0,0,0,.25)",
+    "chat-composer-shadow": "0 8px 30px rgba(0,0,0,.12)"
+  }
+}

@@ -1,0 +1,97 @@
+[data-auth="checking"] #app,
+[data-auth="checking"] #preview-page,
+[data-auth="checking"] #page-content,
+[data-auth="expired"] #app,
+[data-auth="expired"] #preview-page,
+[data-auth="expired"] #page-content { display: none !important; }
+#auth-status { position: fixed; inset: 0; display: grid; place-content: center; padding: 24px; gap: 12px; }
+#auth-status[hidden] { display: none; }
+.account-root { height: auto; min-height: 100%; overflow: auto; }
+body.account-page { display: block; height: auto; min-height: 100dvh; overflow: visible; padding: max(24px, env(safe-area-inset-top)) max(20px, env(safe-area-inset-right)) max(32px, env(safe-area-inset-bottom)) max(20px, env(safe-area-inset-left)); }
+.account-page a { color: var(--accent-text); text-decoration: none; }
+.account-page a:hover { text-decoration: underline; }
+.account-header { max-width: 1060px; margin: 0 auto 32px; padding: 12px 20px; display: flex; flex-wrap: wrap; align-items: center; gap: 16px; background: var(--surface); border-radius: var(--radius-card); }
+.account-brand { display: inline-flex; align-items: center; gap: 10px; font-family: var(--mono); text-transform: uppercase; letter-spacing: .8px; font-size: 13px; font-weight: 600; color: var(--text) !important; }
+#page-nav, .account-links { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+#page-nav { margin-left: auto; }
+#page-nav a, .account-links a { display: inline-flex; align-items: center; justify-content: center; min-height: 44px; padding: 8px 12px; border-radius: var(--radius-control); color: var(--text-1); }
+#page-nav a:hover, .account-links a:hover { background: var(--surface-hover); text-decoration: none; }
+#page-nav a[aria-current="page"], .account-links a[aria-current="page"] { background: var(--surface-2); color: var(--accent-text); font-weight: 600; }
+#page-status { max-width: 1060px; margin: 0 auto; padding: 16px 20px; background: var(--surface-2); border-radius: var(--radius-card); color: var(--text-1); overflow-wrap: anywhere; }
+#page-status:empty { display: none; }
+#page-status a { display: inline-block; margin-left: 12px; }
+.account-content { max-width: 1060px; margin: 24px auto 0; }
+.account-content > a + a { margin-left: 16px; }
+.account-auth .account-header { position: relative; justify-content: center; min-height: 44px; padding: 0; background: transparent; }
+.account-auth #page-nav { display: none; }
+.account-auth .account-content { max-width: 420px; margin-top: 48px; padding: 0; background: transparent; border-radius: 0; }
+.account-auth #page-status { max-width: 420px; }
+.account-page[data-fleet-page="enrollment"] .account-content { max-width: 640px; padding: 32px; background: var(--surface-1); border-radius: var(--radius-panel); }
+.account-content h1 { font-size: var(--t-page); font-weight: 600; margin-bottom: 12px; }
+.account-content h2 { font-size: 17px; margin-bottom: 20px; font-weight: 600; }
+.account-content p { line-height: 1.65; margin-bottom: 16px; }
+.account-muted { color: var(--text-1); }
+.account-section { border: 0; margin-top: 24px; padding: 24px; background: var(--surface-1); border-radius: var(--radius-card); scroll-margin-top: 24px; }
+.account-section .account-section { background: var(--surface); }
+.account-section > :last-child { margin-bottom: 0; }
+.account-form { max-width: 420px; display: grid; gap: 16px; margin: 24px 0; }
+.account-form label { display: grid; gap: 8px; color: var(--text-1); }
+.account-form input { width: 100%; min-width: 0; background: var(--surface); color: var(--text); border: 0; border-radius: var(--radius-control); height: 44px; padding: 10px 12px; font-size: 16px; }
+.account-form label:has(input[type="checkbox"]) { display: flex; align-items: center; }
+.account-form input[type="checkbox"] { flex: none; width: 18px; height: 18px; min-height: 0; padding: 0; accent-color: var(--accent); }
+.account-form label:has(input[type="checkbox"]) { min-height: 44px; }
+.account-form input:focus-visible, .account-button:focus-visible, .account-page a:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+.account-button { min-height: 44px; padding: 8px 14px; border: 0; border-radius: var(--radius-control); background: var(--surface-2); color: var(--text); font: inherit; cursor: pointer; transition: background var(--dur-1) var(--ease); }
+.account-button:hover { background: var(--surface-hover); }
+.account-button.primary { background: var(--accent); color: var(--accent-contrast);  font-weight: 600; }
+.account-button.primary:hover { background: var(--accent-1); }
+.account-button.danger, .account-error { color: var(--danger); }
+.account-button:disabled { opacity: .5; cursor: default; }
+.account-error { padding: 12px 16px; background: var(--danger-soft); border-radius: var(--radius-control); margin: 0; }
+.account-error:empty { display: none; }
+.account-qr { width: 220px; height: 220px; max-width: 100%; object-fit: contain; display: block; background: white; margin: 24px 0; border-radius: var(--radius-card); }
+.account-secret { display: block; overflow-wrap: anywhere; user-select: all; }
+.account-codes, .account-command { padding: 16px; background: var(--surface); border: 0; border-radius: var(--radius-card); line-height: 1.8; white-space: pre-wrap; overflow-wrap: anywhere; font-family: var(--mono); }
+.account-downloads { display: flex; flex-wrap: wrap; gap: 12px; margin-bottom: 16px; }
+.account-downloads a { display: inline-flex; align-items: center; justify-content: center; text-decoration: none; }
+.account-steps { padding-left: 24px; margin-bottom: 20px; line-height: 1.7; }
+.account-steps li + li { margin-top: 12px; }
+.account-table-scroll { max-width: 100%; overflow-x: auto; margin: 16px 0; border-radius: var(--radius-card); background: var(--surface); }
+.account-table { width: 100%; border-collapse: collapse; font-size: 13px; text-align: left; }
+.account-table th, .account-table td { padding: 12px 16px 12px 0; border: 0; vertical-align: top; overflow-wrap: anywhere; }
+.account-table th { color: var(--text-1); font-weight: 500; white-space: nowrap; }
+.account-table td { min-width: 80px; }
+.account-table .account-button { white-space: nowrap; }
+.account-section > .account-button { margin: 4px 8px 0 0; }
+.account-content > .account-button { margin-top: 24px; }
+.account-form[data-form$="-search"] { max-width: 560px; grid-template-columns: minmax(0, 1fr) auto; align-items: end; gap: 12px; }
+.account-form[data-form$="-search"] .account-error { grid-column: 1 / -1; grid-row: 2; }
+@media (max-width: 640px) {
+  body.account-page { padding-top: max(16px, env(safe-area-inset-top)); padding-right: max(16px, env(safe-area-inset-right)); padding-left: max(16px, env(safe-area-inset-left)); }
+  .account-theme { border-radius: var(--radius-card); }
+  .account-theme button { min-height: 44px; border-radius: var(--radius-control); }
+  .account-header { padding: 16px; gap: 12px; }
+  #page-nav { order: 3; flex-basis: 100%; margin-left: 0; }
+  .account-theme { margin-left: auto; }
+  .account-page .account-theme button { min-height: 44px; padding: 0 10px; border-radius: var(--radius-control); }
+  .account-auth .account-header { min-height: 96px; align-items: flex-end; }
+  .account-auth .account-content { margin-top: 24px; padding: 0; }
+  .account-page[data-fleet-page="enrollment"] .account-content { padding: 24px; }
+  .account-section { padding: 20px; }
+  .account-content h1 { font-size: 24px; }
+  .account-table td { max-width: 240px; }
+  .account-links { gap: 4px; }
+}
+
+.account-brand .logo { display: grid; place-items: center; width: 30px; height: 30px; color: var(--accent); }
+.account-theme { display: inline-flex; gap: 4px; padding: 4px; background: var(--surface-2); border-radius: var(--radius-control); }
+.account-theme button { min-height: 36px; padding: 0 12px; border-radius: var(--radius-compact); color: var(--text-1); }
+.account-theme button[aria-pressed="true"] { background: var(--surface-1); color: var(--text); }
+.account-auth .account-theme { position: absolute; top: 5px; right: 0; margin-left: 0; gap: 2px; padding: 3px; border-radius: var(--radius-compact); }
+.account-auth .account-theme button { min-height: 28px; padding: 0 8px; font-size: var(--t-caption); }
+@media (max-width: 640px) {
+  .account-auth .account-theme { top: 0; }
+  .account-auth .account-theme button { min-height: 44px; min-width: 40px; border-radius: var(--radius-control); }
+}
+.account-table tbody tr:nth-child(odd) { background: var(--surface-2); }
+.account-table th, .account-table td { padding-left: 12px; }
