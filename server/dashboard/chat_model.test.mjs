@@ -545,11 +545,12 @@ test('settings menu owns archive browsing and session settings', () => {
   assert.match(indexHTML, /id="user-name">设置</);
   assert.deepEqual(
     [...indexHTML.matchAll(/<button data-act="([^"]+)"/g)].map((match) => match[1]),
-    ['archive', 'automation', 'settings', 'logout', 'archive', 'automation', 'settings', 'logout'],
+    ['appearance', 'archive', 'automation', 'settings', 'logout',
+      'appearance', 'archive', 'automation', 'settings', 'logout'],
   );
   assert.deepEqual(
     [...indexHTML.matchAll(/data-theme-choice="([^"]+)"/g)].map((match) => match[1]),
-    ['system', 'light', 'dark', 'system', 'light', 'dark'],
+    ['system', 'light', 'dark', 'system', 'light', 'dark', 'light', 'dark', 'system'],
   );
   assert.equal((indexHTML.match(/role="group" aria-label="外观"/g) || []).length, 2);
   assert.equal((indexHTML.match(/>显示已归档会话</g) || []).length, 2);
@@ -572,6 +573,20 @@ test('session settings expose chat cache without terminal controls', () => {
   assert.match(indexHTML, /id="automation-message-key-filter"/);
   assert.doesNotMatch(indexHTML, /data-settings-tab="terminal"|data-assistant="claude"|id="st-selfdraw"|id="st-dmax"/);
   assert.doesNotMatch(appSrc, /SELF_DRAW_KEY|setSelfDraw|用终端打开/);
+});
+
+test('appearance settings expose four configurable seed colors for light and dark themes', () => {
+  assert.match(indexHTML, /id="appearance-modal"/);
+  assert.equal((indexHTML.match(/data-act="appearance"/g) || []).length, 2);
+  for (const mode of ['light', 'dark']) {
+    for (const field of ['canvas', 'accent', 'highlight', 'text']) {
+      assert.match(indexHTML, new RegExp(`data-palette-color="${mode}\\.${field}"`));
+      assert.match(indexHTML, new RegExp(`data-palette-hex="${mode}\\.${field}"`));
+    }
+  }
+  assert.match(appSrc, /FleetTheme\.setPalette\(readAppearancePalette\(\)\)/);
+  assert.match(appSrc, /FleetTheme\.paletteDefaults/);
+  assert.match(styleCSS, /\.appearance-palette-grid\s*\{[^}]*grid-template-columns:\s*repeat\(2,/s);
 });
 
 test('automation modal links to a concise cached API guide', () => {
@@ -1517,7 +1532,7 @@ test('jump-to-bottom control uses an accessible inline SVG icon', () => {
 });
 
 test('floating summaries and jump control share a translucent surface independently of user bubbles', () => {
-  assert.ok(/--chat-floating-bg:\s*color-mix\(in srgb, var\(--chat-surface-2\) 72%, transparent\)/.test(styleCSS), 'floating surface retains an alpha channel');
+  assert.ok(/--chat-floating-bg:\s*color-mix\(in srgb, var\(--chat-surface-2\) 50%, transparent\)/.test(styleCSS), 'floating surface retains a 50% alpha channel');
   for (const selector of ['.chat-turn-pin-card', '#chat-jump', '#win[data-workspace-preview="true"] #chat-preview-output:not([hidden])']) {
     const block = styleCSS.split(selector + ' {')[1]?.split('}')[0] || '';
     assert.match(block, /background:\s*var\(--chat-floating-bg\)/, selector);
@@ -2301,9 +2316,9 @@ test('manual theme selection updates the browser chrome color', () => {
   themeMeta.content = '';
   appSandbox.document.querySelector = (selector) => selector === 'meta[name="theme-color"]' ? themeMeta : null;
   applyTheme('light');
-  assert.equal(themeMeta.content, '#FFFFFF');
+  assert.equal(themeMeta.content, '#FAFAFA');
   applyTheme('dark');
-  assert.equal(themeMeta.content, '#10141B');
+  assert.equal(themeMeta.content, '#000000');
   assert.equal((indexHTML.match(/<meta name="theme-color"/g) || []).length, 1);
 });
 
@@ -2352,7 +2367,7 @@ test('system theme follows OS changes until a manual choice and can be selected 
     prefersLight = true;
     onSystemChange();
     assert.equal(appSandbox.document.documentElement.getAttribute('data-theme'), 'light');
-    assert.equal(themeMeta.content, '#FFFFFF');
+    assert.equal(themeMeta.content, '#FAFAFA');
 
     setThemePreference('dark');
     assert.equal(stored, 'dark');
