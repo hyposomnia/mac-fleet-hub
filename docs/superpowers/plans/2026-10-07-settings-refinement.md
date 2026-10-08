@@ -29,6 +29,6 @@ Files: `auth.html`、`account.css`、`auth_effects.js`、`auth_effects.test.mjs`
 
 ## 4. 一次性交付
 
-- [ ] 全量 verify 通过、实际命令输出记录、聚焦提交推送。
-- [ ] 干净不可变提交唯一入口统一签名公证及更新 abj 测试；下载 SHA、签名、公证和 HTTP 验证。
+- [x] 全量 verify 通过、实际命令输出记录、聚焦提交推送。
+- [x] 干净不可变提交唯一入口统一签名公证及更新 abj 测试；下载 SHA、签名、公证和 HTTP 验证。实际版本、双源码 revision 及待用户验收边界见 `docs/native-build4-test-release-2026-10-08.md`。
 - [x] 清楚区分源码测试、下载验收、待用户安装的 TCC 和入网验证。

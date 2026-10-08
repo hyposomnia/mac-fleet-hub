@@ -28,7 +28,7 @@
 
 `FLEET_SPARKLE_ARCHIVE="$HOME/Library/Caches/fleet-hub/Sparkle-2.10.0.zip" bash scripts/verify.sh`
 
-最新日志：`/private/tmp/fleet-settings-batch-final-verify.log`。exit 0，Go agent/服务器、324 项 Dashboard + 9 项新增设置/动效测试，共 333 pass、0 fail；17 项发行/打包测试（0 skip）、58 项 Swift（0 failures）、全部 Shell 层通过。
+最终服务器发布前日志：`/private/tmp/fleet-native-build4-serverfix-final-verify.log`。exit 0，Go agent/服务器、331 项 Dashboard + 9 项设置/动效测试，共 340 pass、0 fail；18 项发行/打包测试与 4 项公证预检测试（0 skip）、58 项 Swift（0 failures）、全部 Shell 层通过。收尾在最新本地源码再次执行同一入口也 exit 0，日志 `/private/tmp/fleet-native-build4-closeout-verify.log`；源码检查不改变已发行客户端和服务器的 revision。
 
 ## 原生开发构建与隔离运行
 
@@ -40,10 +40,12 @@ GUI 实测：临时位置的“关联账号”输入 `fleet.example.test:7443` �
 
 ## 正式发行与凭据复核
 
-拟统一发布 `0.1.3+4` 与 Web v185；abj 仍保留 `0.1.2+3`，本批未上线。
+已统一发布 `0.1.3+4` 与 Web v185 到 abj 独立验收实例。客户端签名源码 `3ba3ea2`，服务器源码 `2d320e2`；签名后补齐服务器登录动效路由，两个 revision 不同。完整证据见 [build 4 发行记录](native-build4-test-release-2026-10-08.md)。
 
-唯一发行入口 `--native-candidate-check` 在公证凭据检查失败：`No Keychain password item found for profile: mac-fleet-hub-notary`。随后真实执行 `xcrun notarytool history --keychain-profile mac-fleet-hub-notary`，exit 69，仍为同一缺失；Developer ID 证书可见不代表公证凭据可用。
+本轮唯一发行入口 `--native-candidate-check` 曾在公证凭据检查失败：`No Keychain password item found for profile: mac-fleet-hub-notary`。当时真实执行 `xcrun notarytool history --keychain-profile mac-fleet-hub-notary` 也 exit 69；Developer ID 证书可见不代表公证凭据可读，lookup 错误也不证明凭据被删除。
 
-此前直接建议重新保存凭据的判断不成立：用户在自己的终端成功读取原有公证历史，未重新创建 profile；随后自动执行也 exit 0，有 31 条原有记录。已修正发布预检的误导提示，并对未知错误、锁定状态保持失败关闭。详见 [执行上下文核对](notary-keychain-context-2026-10-08.md)。从最新干净不可变提交运行完整唯一入口，完成签名、公证、更新签名、下载 SHA 及 abj 验收前，仍不能用开发包或旧包冒充完成。
+此前直接建议重新保存凭据的判断不成立：用户在自己的终端成功读取原有公证历史，未重新创建 profile；随后自动执行也 exit 0，有 31 条原有记录。已修正发布预检的误导提示，并对未知错误、锁定状态保持失败关闭。详见 [执行上下文核对](notary-keychain-context-2026-10-08.md)。从干净不可变提交运行完整唯一入口已 exit 0，Agent、Hub、DMG 三项 Accepted，更新签名、真实下载 SHA 和 Gatekeeper 验证均通过；未使用开发包冒充发行包。
+
+abj 四项服务 active，健康与就绪接口 200、未认证设备 API 401，私有脚本仍 303。服务器更新保留原账号、设备状态和加密密钥。本轮 Chrome 检查遇到验收 CA 未信任警告，未绕过，不能声称已完成部署后的浏览器交互验证；命令检查使用配置的 CA 保持 TLS 校验。
 
 本地测试不证明真实 FDA、真实设备入网或升级后 TCC 保留。正式包的签名、公证、下载 SHA 与 abj 服务检查须以发行后的记录为准。
