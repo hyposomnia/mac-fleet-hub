@@ -35,3 +35,16 @@ FLEET_SPARKLE_ARCHIVE="$HOME/Library/Caches/fleet-hub/Sparkle-2.10.0.zip" bash s
 - 添加设备页已无用户指定段落；安装、浏览器授权、Agent 磁盘授权、后台常驻及更新入口仍存在。孤立本地实例没有发行包，正确显示暂不提供下载，未制造假链接。
 
 截图：`/private/tmp/fleet-settings-copy-desktop.png`、`/private/tmp/fleet-settings-copy-mobile.png`、`/private/tmp/fleet-settings-copy-mobile-dark.png`，仅包含合成数据。合并后重新加载桌面并复查添加设备、会话设置，标题行不存在、关闭热区仍为 44×44、指定文案不存在且无横向溢出；最终截图为 `/private/tmp/fleet-settings-copy-merged-desktop.png`。abj 静态资源部署与真实 HTTPS 验证另外记录，不将本地浏览器测试声称为现网登录验收。
+
+## abj 独立验收网页发布
+
+2026-10-08 10:51 UTC 从已推送、全量验证通过的不可变提交 `eebefe6616c22f4fc9378920130516a33123a3d1` 归档 13 项前端文件（包含三项测试），更新用户指定的 `https://10.17.74.92:7443` 独立验收实例。保留已上线星光；原生下载与旧生产网关没有修改。
+
+- 新快照：`/opt/macfleet-saas-uat/releases/web-settings-eebefe6616c22f4fc9378920130516a33123a3d1`，`WEB_REVISION` 记录本轮提交；后台 `REVISION` 继续保留 `0da0ae56d4e7389589b23c00998f372522bffe3a`。
+- 原快照与备份保留：`web-starlight-1e4debdf198d69b08f69b047b032847db8f959c4`；备份目录为 `/opt/macfleet-saas-uat/backups/settings-copy-eebefe6616c22f4fc9378920130516a33123a3d1-20261008T105116Z`。
+- 同时持有服务器与星光静态发行锁；校验旧快照、复制并严格检查只变更上述前端文件，重建 136 项 SHA 清单后原子切换。切换后的检查失败会恢复原指针；没有重启服务。
+- 136 项快照 SHA 校验通过；本机独立 TLS 检查的五项公开资源与提交逐字节一致，全部 13 项部署文件与源码 SHA 一致。使用配置的 CA 校验证书，未使用 `curl -k`。
+- `/auth` 为 HTTP/2 200、`cache-control: no-store`；`/healthz` 和 `/readyz` 为 200，匿名 `/api/devices` 为 401，私有 app/settings/native bridge/sw 脚本为 303；四项验收服务均 active。
+- 后台 PID 前后均为 `597209`；二进制 SHA-256 均为 `aac8231a317451e3d96433776253c4b1d5391ef5a8e53ad504f2db86bb5ce51a`。原生两项下载指针与发行清单未变；数据库、密钥、Headscale、Mac 安装及 Desktop 配置没有修改。
+
+实际发布输出：`/private/tmp/macfleet-settings-copy-deploy.log`；本机 TLS、HTTP 与源码一致性输出：`/private/tmp/macfleet-settings-copy-public-check.log`。合并后全量验证为 Go 通过，JS 各组 21、333、15、18、4 项通过，Swift 59 项通过，Shell 全部通过，真实 exit 0。浏览器视觉证据仅来自本地相同源码和合成账号，不作为现网登录态验收；完成后已退出测试账号、删除临时 cookie 文件、恢复浏览器尺寸并停止隔离服务。
