@@ -127,7 +127,7 @@
     }
     function showTOTP(totp, name, submit) {
       flowLocked = true;
-      content.append(node('p', '使用 Authenticator（如 Apple 密码、Google Authenticator 或 1Password）扫描二维码，再输入六位验证码。'));
+      content.append(node('p', '用 Authenticator 扫码，再输入六位验证码。'));
       const image = node('img', '', { src: '/api/auth/qr', alt: 'Authenticator 设置二维码', className: 'account-qr' });
       image.onerror = () => { status.textContent = '二维码不可用或设置已过期，请重新开始登录或更换 Authenticator。'; };
       content.append(image);
@@ -149,19 +149,19 @@
     function showAuth(step, totp) {
       history.replaceState(null, '', authURL(step));
       if (step === 'setup') {
-        heading('设置 Authenticator', '所有账户都必须开启两步验证。完成设置后才能访问设备。');
+        heading('设置 Authenticator');
         showTOTP(totp, 'verify', async (values) => completeAuthentication(await post('/api/auth/verify', values)));
       } else if (step === 'verify') {
         heading('两步验证', '输入 Authenticator 中的六位验证码。');
         form('verify', [otpField()], '登录', async (values) => completeAuthentication(await post('/api/auth/verify', values)));
       } else if (step === 'register') {
-        heading('创建账户', '使用邮箱注册，下一步设置 Authenticator。');
+        heading('创建账户', '注册后设置 Authenticator。');
         form('register', [emailField(), passwordField('password', '密码', 'new-password'), passwordField('confirm_password', '确认密码', 'new-password')], '注册', async (values) => authTransition(await post('/api/auth/register', values)));
       } else if (step === 'recovery') {
         heading('恢复账户', '使用密码和一个未使用的恢复码，随后重新设置 Authenticator。');
         form('recover', [emailField(), passwordField(), field('recovery_code', '恢复码')], '恢复并重新设置', async (values) => authTransition(await post('/api/auth/recover', values)));
       } else {
-        heading('登录 Fleet', '连接和管理你的设备。');
+        heading('登录 Fleet');
         form('login', [emailField(), passwordField()], '继续', async (values) => authTransition(await post('/api/auth/login', values)));
       }
       if (['login', 'register', 'recovery'].includes(step)) authLinks(step);
@@ -214,24 +214,23 @@
       try {
         release = nativeClientRelease(await auth.json('/enroll/client-release.json'));
       } catch (_) {}
-      heading('添加设备', '安装 Fleet Hub，使用当前账号关联这台 Mac。');
+      heading('添加设备');
       const add = section('macOS 客户端');
       add.id = 'add-device';
-      add.append(node('p', '下载并在要添加的 Mac 上运行客户端，授权请求由 fleet-agent 发起。邮箱、密码和 Authenticator 验证码只在浏览器输入。'));
       const downloads = node('div', '', { className: 'account-downloads' });
       if (release) {
         downloads.append(node('a', '下载 macOS 应用', { href: release.assets.dmg.path, download: 'Fleet-Hub.dmg', className: 'account-button primary' }));
         add.append(downloads);
         add.append(node('p', `Fleet Hub ${release.version} · macOS ${release.minimum_macos} 及以上 · ${(release.assets.dmg.size / 1048576).toFixed(1)} MB`, { className: 'account-muted' }));
-      } else add.append(node('p', '本服务尚未发布经过签名公证的 Fleet Hub 应用，暂不提供下载。', { className: 'account-error' }));
+      } else add.append(node('p', 'Fleet Hub 尚未发布，暂不提供下载。', { className: 'account-error' }));
       const steps = node('ol', '', { className: 'account-steps' });
       for (const description of [
-        '下载并打开 DMG，将 Fleet Hub 拖入“应用程序”，也可打开后点击“安装并启动”；应用内置 Fleet Agent，无需另行下载。',
-        '打开 Fleet Hub 应用，在“关联账号”填写下方服务网页地址，地址自动保存，点击“打开网页授权”。',
+        '打开 DMG，将 Fleet Hub 拖入“应用程序”，或点击“安装并启动”。内置 Fleet Agent，无需另行下载。',
+        '打开 Fleet Hub 应用，在“关联账号”填写下方服务网页地址，点击“打开网页授权”。',
         '浏览器登录并完成 Authenticator 验证，核对账号与设备名称，点击“授权并连接”；应用会自动接入。',
-        '授权过期或取消时，回到应用再次点击“打开网页授权”，每次都会创建新的授权请求。',
-        '在应用“磁盘权限”中点击“打开系统设置”，将浮动引导窗里的 Fleet Agent.app 图标拖入完全磁盘访问列表并打开开关，返回应用点击“重启并检查”。Fleet Hub 只负责设置，无需磁盘权限。',
-        '确认后台及设备服务正常后，可以关闭应用窗口，后台服务仍会持续运行。',
+        '授权过期或取消后，在应用中重新点击“打开网页授权”。',
+        '在“磁盘权限”打开系统设置，将浮动引导窗中的 Fleet Agent.app 拖入完全磁盘访问列表并打开开关，返回点击“重启并检查”。Fleet Hub 无需磁盘权限。',
+        '关闭应用窗口后，后台继续运行。',
       ]) steps.append(node('li', description));
       add.append(steps);
       add.append(node('p', `本服务网页地址：${serviceOrigin}`));
@@ -240,8 +239,7 @@
         await root.navigator.clipboard.writeText(serviceOrigin);
         status.textContent = '服务器地址已复制。';
       }, add);
-      add.append(node('p', '更新客户端：打开 Fleet Hub → 检查更新，从已设置的服务器下载并升级整个应用。重启、登录后自动运行和卸载也在应用中管理。', { className: 'account-muted' }));
-      add.append(node('p', '客户端经 Developer ID 签名与 Apple 公证。若下载不可用，请联系本服务管理员检查应用发行状态。完全磁盘访问由你在系统设置开启，文件本身的权限仍然生效。', { className: 'account-muted' }));
+      add.append(node('p', '更新：Fleet Hub → 检查更新。', { className: 'account-muted' }));
     }
 
     async function showAccount() {

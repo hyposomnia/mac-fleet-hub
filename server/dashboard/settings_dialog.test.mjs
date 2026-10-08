@@ -4,6 +4,20 @@ import { readFile } from 'node:fs/promises';
 import vm from 'node:vm';
 
 const source = await readFile(new URL('./settings_dialog.js', import.meta.url), 'utf8').catch(() => '');
+const markup = await readFile(new URL('./index.html', import.meta.url), 'utf8');
+const styles = await readFile(new URL('./account.css', import.meta.url), 'utf8');
+
+test('unified settings have no visible title row and retain an accessible floating close control', () => {
+  const settings = markup.slice(markup.indexOf('<div id="fleet-settings-modal"'), markup.indexOf('<div id="device-modal"'));
+  assert.doesNotMatch(settings, /class="modal-head"/);
+  assert.match(settings, /aria-labelledby="fleet-settings-title"/);
+  assert.match(settings, /<span id="fleet-settings-title" hidden>设置<\/span>/);
+  assert.match(settings, /<button[^>]*class="[^"]*fleet-settings-close[^"]*"[^>]*type="button"[^>]*data-close="fleet-settings-modal"[^>]*aria-label="关闭设置"/);
+  assert.match(styles, /\.fleet-settings-close\s*\{[^}]*position:\s*absolute[^}]*width:\s*44px[^}]*height:\s*44px/s);
+  assert.match(styles, /\.fleet-settings-nav\s*\{[^}]*scrollbar-width:\s*none/s);
+  assert.match(settings, /class="automation-panel-tools"[^]*使用文档 ↗/);
+});
+
 function element(dataset = {}) {
   return { dataset, hidden: true, textContent: '', children: [], attributes: {}, controls: [],
     setAttribute(name, value) { this.attributes[name] = String(value); },

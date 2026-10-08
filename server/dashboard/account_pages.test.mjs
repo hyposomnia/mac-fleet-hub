@@ -295,8 +295,7 @@ test('add device offers a native DMG and explains fresh browser OAuth and backgr
   assert.match(text(add), /关联账号.*打开网页授权/);
   assert.match(text(add), /授权.*自动接入/);
   assert.doesNotMatch(text(add), /配对码|确认接入|保存并连接/);
-  assert.match(text(add), /fleet-agent 发起/);
-  assert.match(text(add), /签名.*公证/);
+  assert.doesNotMatch(text(add), /fleet-agent 发起|Developer ID|Apple 公证|本服务管理员|文件本身的权限仍然生效/);
   assert.match(text(add), /完全磁盘访问/);
   assert.match(text(add), /Fleet Agent.app/);
   assert.match(text(add), /内置 Fleet Agent.*无需另行下载/);
@@ -307,6 +306,21 @@ test('add device offers a native DMG and explains fresh browser OAuth and backgr
   assert.match(text(add), /检查更新/);
   assert.ok(!current.calls.some((call) => call.url === '/api/enrollment/start'), 'web page must not initiate a client grant');
   assert.equal(current.form('enrollment-code'), undefined);
+});
+
+test('login and device setup omit redundant introductory copy without dropping account identity or security reminders', async () => {
+  const login = harness();
+  await login.start();
+  assert.doesNotMatch(text(login.content), /连接和管理你的设备/);
+  const addition = harness({ page: 'add-device', embedded: true });
+  await addition.start();
+  assert.doesNotMatch(text(addition.content), /安装 Fleet Hub，使用当前账号关联这台 Mac|授权请求由/);
+  assert.match(text(addition.content), /Fleet Hub.*检查更新/);
+  assert.match(text(addition.content), /Fleet Hub.*无需磁盘权限/);
+  const account = harness({ page: 'account', embedded: true });
+  await account.start();
+  assert.match(text(account.content), /one@example.com/);
+  assert.match(text(account.content), /旧恢复码.*失效/);
 });
 
 test('unpublished clients do not produce fake download links', async () => {

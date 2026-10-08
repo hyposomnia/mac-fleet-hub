@@ -556,7 +556,7 @@ test('settings menu owns archive browsing and session settings', () => {
   );
   assert.equal((indexHTML.match(/role="group" aria-label="外观"/g) || []).length, 2);
   assert.equal((indexHTML.match(/>显示已归档会话</g) || []).length, 2);
-  assert.equal((indexHTML.match(/>会话设置</g) || []).length, 4);
+  assert.equal((indexHTML.match(/>会话设置</g) || []).length, 3);
   assert.doesNotMatch(indexHTML, /data-settings-tab="sessions"|id="st-show-archived"/);
   assert.match(appSrc, /SESSION_ARCHIVE_KEY\s*=\s*'fleet-show-archived-sessions'/);
   assert.match(appSrc, /localStorage\.setItem\(SESSION_ARCHIVE_KEY/);

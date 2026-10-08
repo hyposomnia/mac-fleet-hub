@@ -118,8 +118,8 @@ body.account-auth { background: var(--surface); isolation: isolate; }
 .auth-probe::after { top: 15px; left: 0; height: 1px; width: 32px; }
 .auth-probe span { position: absolute; left: 28px; top: 28px; white-space: nowrap; font: 10px var(--mono); letter-spacing: .5px; }
 .fleet-settings-dialog { max-width: 960px; height: min(760px, 88dvh); display: flex; flex-direction: column; overflow: hidden; background: var(--settings-elevated); }
-.fleet-settings-dialog > .modal-head { flex: none; padding: 20px 24px; }
 .fleet-settings-dialog { position: relative; }
+.fleet-settings-close { position: absolute; top: 12px; right: 12px; z-index: 1; width: 44px; height: 44px; }
 .settings-discard-prompt { position: absolute; inset: 0; z-index: 2; display: grid; place-items: center; padding: 20px; background: color-mix(in srgb, var(--settings-elevated) 80%, transparent); backdrop-filter: blur(4px); }
 .settings-discard-prompt[hidden] { display: none; }
 .settings-discard-card { padding: 24px; background: var(--settings-surface); border-radius: var(--radius-panel); box-shadow: var(--e2); }
@@ -137,14 +137,14 @@ body.account-auth { background: var(--surface); isolation: isolate; }
 .fleet-settings-panel .account-content h1 { font-size: 20px; }
 .fleet-settings-panel .account-content h1.settings-primary-title { display: none; }
 .fleet-settings-panel .account-content > .account-muted { margin-bottom: 20px; }
+.fleet-settings-panel .account-content > .account-muted:first-of-type { padding-right: 48px; }
 .fleet-settings-panel .account-section { background: var(--settings-surface); padding: 20px; margin-top: 16px; }
 .fleet-settings-panel .account-section .account-form { margin: 16px 0 0; max-width: none; }
 .fleet-settings-panel .account-form input { background: var(--settings-input); }
 .fleet-settings-panel .account-table-scroll { background: var(--surface-1); }
 .fleet-settings-panel .account-table tbody tr:nth-child(odd) { background: var(--surface-2); }
 .fleet-settings-panel .account-table { font-size: 12px; }
-.fleet-settings-panel .modal-head { padding: 0 0 16px; background: transparent; }
-.fleet-settings-panel .modal-head > svg, .fleet-settings-panel .modal-head > span, .fleet-settings-panel .modal-head > .x { display: none; }
+.automation-panel-tools { display: flex; align-items: center; justify-content: flex-end; min-height: 44px; margin-top: -12px; padding-right: 52px; margin-bottom: 12px; }
 .fleet-settings-panel .modal-body { padding: 0; }
 .fleet-settings-panel .modal-foot { padding: 20px 0 0; }
 .fleet-settings-panel .input { background: var(--settings-input); }
@@ -158,10 +158,13 @@ body:has(#fleet-settings-modal:not([hidden])) .pwa-update { visibility: hidden; 
 @media (max-width: 860px) {
   .fleet-settings-dialog { height: min(850px, 92dvh); max-height: 92dvh; border-radius: var(--radius-panel) var(--radius-panel) 0 0; }
   .fleet-settings-layout { display: flex; flex-direction: column; }
-  .fleet-settings-nav { flex: none; flex-direction: row; padding: 8px 16px; overflow-x: auto; gap: 4px; }
+  .fleet-settings-nav { flex: none; flex-direction: row; padding: 8px 16px; margin-right: 60px; overflow-x: auto; scrollbar-width: none; gap: 4px; }
+  .fleet-settings-nav::-webkit-scrollbar { display: none; }
   .fleet-settings-nav button { flex: 1 0 auto; width: auto; padding: 0 12px; text-align: center; }
   .fleet-settings-scroll { flex: 1; padding: 20px 16px max(24px, env(safe-area-inset-bottom)); }
   .fleet-settings-panel .account-section { padding: 16px; }
+  .fleet-settings-panel .account-content > .account-muted:first-of-type { padding-right: 0; }
+  .automation-panel-tools { min-height: 24px; margin-top: 0; padding-right: 0; }
   .account-auth .account-content { margin-top: 32px; }
 }
 @media (prefers-reduced-motion: reduce), (pointer: coarse) {
