@@ -1,0 +1,24 @@
+stage_sha256_matches=135
+backup_database=ok; users=1; devices=0
+/healthz=200
+/readyz=200
+/auth=200
+/api/devices=401
+/oauth/token=400
+/oauth/authorize=400
+/oauth/consent=303
+account.js_matches=ok
+account.css_matches=ok
+auth_effects.js_matches=ok
+theme.js_matches=ok
+style.css_matches=ok
+/app.js_anonymous=303
+/settings_dialog.js_anonymous=303
+/sw.js_anonymous=303
+database=ok; oauth_schema=present; users=1; devices=0
+macfleet-saas-uat=active
+macfleet-saas-uat-web=active
+macfleet-saas-uat-headscale=active
+macfleet-saas-uat-mesh=active
+revision=0da0ae56d4e7389589b23c00998f372522bffe3a
+backup=/opt/macfleet-saas-uat/backups/server-before-all-merge-20261008T072052Z
