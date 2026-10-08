@@ -1,5 +1,5 @@
 // PWA 外壳缓存。终端、API 与用户文件必须实时，明确不进入 Cache Storage。
-const CACHE = 'fleet-shell-v188';
+const CACHE = 'fleet-shell-v189';
 const FILE_TYPE_ICONS = [
   'audio', 'c', 'console', 'cpp', 'csharp', 'css', 'dart', 'database', 'docker',
   'document', 'exe', 'font', 'git', 'go', 'html', 'image', 'java', 'javascript',
@@ -14,13 +14,13 @@ const CODEMIRROR_ASSETS = [
   'javascript', 'xml', 'jsx', 'css', 'go', 'python', 'ruby', 'shell', 'yaml', 'toml', 'properties',
 ].map((name, index) => index < 2 ? name : `/vendor/codemirror/mode/${name}/${name}.js?v=5.65.20`);
 const SHELL = [
-  '/', '/index.html', '/automation-guide.html', '/theme.js?v=188', '/device_appearance.js?v=188', '/style.css?v=188', '/account.css?v=188', '/auth-client.js?v=188',
+  '/', '/index.html', '/automation-guide.html', '/theme.js?v=188', '/device_appearance.js?v=188', '/style.css?v=189', '/account.css?v=188', '/auth-client.js?v=188',
   '/vendor/purify.min.js?v=3.2.6', '/vendor/marked.min.js?v=15.0.12',
   ...CODEMIRROR_ASSETS,
   "/fleet_core.js?v=188", "/workspace.js?v=188", "/native_bridge.js?v=188", "/native.css?v=188", "/titanium.css?v=188", "/icons/logo.svg?v=188",
-  '/markdown.js?v=188', '/preview.js?v=188', '/chat_model.js?v=188',
+  '/markdown.js?v=189', '/preview.js?v=189', '/chat_model.js?v=189',
   '/account.js?v=188', '/settings_dialog.js?v=188', '/auth_effects.js?v=188',
-  '/upload_model.js?v=188', '/sidebar_layout.js?v=188', '/device_hover.js?v=188', '/workspace_tabs.js?v=188', '/compact_composer.js?v=188', '/app.js?v=188',
+  '/upload_model.js?v=189', '/sidebar_layout.js?v=188', '/device_hover.js?v=188', '/workspace_tabs.js?v=188', '/compact_composer.js?v=188', '/app.js?v=189',
   '/manifest.webmanifest', '/icons/icon.svg?v=188', '/icons/favicon.svg?v=188', '/icons/icon-180.png?v=188', '/icons/icon-192.png?v=188',
   '/icons/icon-512.png?v=188', '/icons/icon-maskable-512.png?v=188',
   ...FILE_TYPE_ICONS,

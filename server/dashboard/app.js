@@ -493,10 +493,16 @@ function renderHosts() {
         retry,
       ));
     } else {
-      const addDevice = h('a', { class: 'btn empty-add-device', href: '/account#add-device', text: '添加设备' });
+      const addIcon = svgIcon('ic empty-add-device-icon', 'M12 5v14M5 12h14');
+      addIcon.setAttribute('aria-hidden', 'true');
+      addIcon.setAttribute('focusable', 'false');
+      const addDevice = h('a', { class: 'btn empty-add-device', href: '/account#add-device', 'aria-label': '添加设备', title: '添加设备' },
+        addIcon,
+        h('span', { class: 'empty-add-device-label', text: '添加设备' }),
+      );
       addDevice.onclick = event => { event.preventDefault(); openUnifiedSettings('add-device', addDevice); };
-      nav.append(h('div', { class: 'empty' },
-        h('div', { text: '暂无已入网的设备' }),
+      nav.append(h('div', { class: 'empty empty-devices' },
+        h('div', { class: 'empty-device-message', text: '暂无已入网的设备' }),
         addDevice,
       ));
     }

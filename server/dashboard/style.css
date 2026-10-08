@@ -603,6 +603,12 @@ html.automation-doc-root, html.automation-doc-root body { height: auto; min-heig
   /* Compensate for the extra mode row throughout the animation, keeping devices fixed. */
   #rail .hostlist .hd { overflow: hidden; transition: height var(--dur-2) var(--ease), padding var(--dur-2) var(--ease), margin-bottom var(--dur-2) var(--ease), opacity var(--dur-2) var(--ease), visibility var(--dur-2); }
   #app[data-rail-collapsed="true"] #rail .hostlist .hd { height: 0; padding-top: 0; padding-bottom: 0; margin-bottom: calc(-1 * var(--rail-host-gap)); opacity: 0; visibility: hidden; }
+  #app[data-rail-collapsed="true"] #rail .empty-devices { padding: 0; }
+  #app[data-rail-collapsed="true"] #rail .empty-device-message,
+  #app[data-rail-collapsed="true"] #rail .empty-add-device-label { display: none; }
+  #app[data-rail-collapsed="true"] #rail .empty-add-device { display: flex; align-items: center; justify-content: center; width: 100%; min-width: 44px; height: 44px; margin: 0; padding: 0; background: transparent; color: var(--text-2); }
+  #app[data-rail-collapsed="true"] #rail .empty-add-device:hover { background: var(--surface-hover); color: var(--text); }
+  #app[data-rail-collapsed="true"] #rail .empty-add-device .empty-add-device-icon { display: block; }
   #app[data-rail-collapsed="true"] #usermenu { left: 58px; right: auto; min-width: 240px; bottom: 0; }
   #app[data-sessions-collapsed="true"][data-mode="sessions"] { --layout-sess-w: 0px; }
   #app[data-sessions-collapsed="true"] #sescol { visibility: hidden; overflow: hidden; }
@@ -792,6 +798,7 @@ html.automation-doc-root, html.automation-doc-root body { height: auto; min-heig
 .empty { color: var(--text-2); text-align: center; padding: 40px 18px; font-size: var(--t-body); }
 .empty small { color: var(--text-3); }
 .empty-add-device { margin-top: 16px; text-decoration: none; }
+.empty-add-device .empty-add-device-icon { display: none; }
 /* 网关不可达的空态：要和「确实没有 Mac」一眼区分开，所以用 danger 色调 + 可点的重试。
    padding 比 .empty 小 —— 这里有三行信息，40px 会把重试按钮顶出可视区。 */
 .empty-down { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 28px 14px; }
