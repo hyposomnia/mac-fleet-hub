@@ -3411,7 +3411,7 @@ test('editing device letters or digits preserves case and draft when changing co
     appState.hostAppearanceDraft={icon:'text',text:'A',color:'steel'};
     vm.runInContext('renderHostAppearanceChoices()',appSandbox);
     const input=fields['#hm-letter-input'];
-    for(const [text,expected] of [['mb','mb'],['4','4'],['04','04'],['a1','a1'],['mbp','mbp'],['MbP','MbP'],['MBP','MBP'],['009','009'],['a1b','a1b'],['A1b','A1b']]) {
+    for(const [text,expected] of [['mb','mb'],['4','4'],['04','04'],['a1','a1'],['mbp','mbp'],['MbP','MbP'],['MBP','MBP'],['009','009'],['a1b','a1b'],['A1b','A1b'],['home','home'],['Mac4','Mac4'],['0009','0009']]) {
       input.value=text;input.oninput();
       assert.equal(input.value,expected);assert.equal(fields['#hm-save'].disabled,false);
       assert.equal(fields['#hm-letter-error'].hidden,true);

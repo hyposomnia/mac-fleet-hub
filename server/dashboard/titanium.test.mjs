@@ -16,6 +16,16 @@ test('web tokens match the shared native design resource', () => {
   assert.deepEqual(design.navigation, { mobileBreakpoint: 860, compactDesktopBreakpoint: 1180, deviceWidth: 260, sessionWidth: 330, compactDeviceWidth: 220, compactSessionWidth: 310, collapsedDeviceWidth: 72 });
   assert.equal(design.light.accent, '#2C5D87');
   assert.equal(design.dark.accent, '#B8D9FF');
+  assert.deepEqual(design.deviceColors, {
+    steel: { light: '#2466A3', dark: '#72B7F4' },
+    teal: { light: '#008A96', dark: '#3DD8E2' },
+    green: { light: '#2F7D49', dark: '#68D18B' },
+    amber: { light: '#B66A00', dark: '#F0AD3D' },
+    coral: { light: '#CD4038', dark: '#FF796E' },
+    violet: { light: '#7E45C2', dark: '#B58AFF' },
+    rose: { light: '#B33B7A', dark: '#EF76B6' },
+    slate: { light: '#576475', dark: '#B5C1D0' },
+  });
   const colorNames = Object.keys(design.light).filter((name) => design.light[name].startsWith('#'));
   for (const name of colorNames) {
     for (const palette of [design.light, design.dark]) assert.match(palette[name], /^#[0-9A-F]{6}$/);

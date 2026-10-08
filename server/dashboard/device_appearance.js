@@ -18,7 +18,7 @@
   ];
   function letterText(value) {
     const text = typeof value === 'string' ? value.trim() : '';
-    return /^[A-Za-z0-9]{1,3}$/.test(text) ? text : '';
+    return /^[A-Za-z0-9]{1,4}$/.test(text) ? text : '';
   }
   function normalize(value) {
     const color = colors.some(c=>c.id===value?.color) ? value.color : 'steel';

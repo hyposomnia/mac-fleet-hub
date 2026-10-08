@@ -123,38 +123,38 @@
 }
 
 [data-device-color="steel"] {
-  --device-ink: #2C5D87;
-  --device-dark: #8BB8E4;
+  --device-ink: #2466A3;
+  --device-dark: #72B7F4;
 }
 
 [data-device-color="teal"] {
-  --device-ink: #0A727E;
-  --device-dark: #6DD0D6;
+  --device-ink: #008A96;
+  --device-dark: #3DD8E2;
 }
 
 [data-device-color="green"] {
-  --device-ink: #39734E;
-  --device-dark: #85C79A;
+  --device-ink: #2F7D49;
+  --device-dark: #68D18B;
 }
 
 [data-device-color="amber"] {
-  --device-ink: #9C6016;
-  --device-dark: #E3B466;
+  --device-ink: #B66A00;
+  --device-dark: #F0AD3D;
 }
 
 [data-device-color="coral"] {
-  --device-ink: #B84B43;
-  --device-dark: #F29287;
+  --device-ink: #CD4038;
+  --device-dark: #FF796E;
 }
 
 [data-device-color="violet"] {
-  --device-ink: #7851B0;
-  --device-dark: #B9A0EB;
+  --device-ink: #7E45C2;
+  --device-dark: #B58AFF;
 }
 
 [data-device-color="rose"] {
-  --device-ink: #A5487A;
-  --device-dark: #E391BC;
+  --device-ink: #B33B7A;
+  --device-dark: #EF76B6;
 }
 
 [data-device-color="slate"] {

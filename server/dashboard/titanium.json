@@ -3,13 +3,13 @@
   "navigation": { "mobileBreakpoint": 860, "compactDesktopBreakpoint": 1180, "deviceWidth": 260, "sessionWidth": 330, "compactDeviceWidth": 220, "compactSessionWidth": 310, "collapsedDeviceWidth": 72 },
   "radii": { "compact": 8, "control": 12, "card": 16, "panel": 20 },
   "deviceColors": {
-    "steel": { "light": "#2C5D87", "dark": "#8BB8E4" },
-    "teal": { "light": "#0A727E", "dark": "#6DD0D6" },
-    "green": { "light": "#39734E", "dark": "#85C79A" },
-    "amber": { "light": "#9C6016", "dark": "#E3B466" },
-    "coral": { "light": "#B84B43", "dark": "#F29287" },
-    "violet": { "light": "#7851B0", "dark": "#B9A0EB" },
-    "rose": { "light": "#A5487A", "dark": "#E391BC" },
+    "steel": { "light": "#2466A3", "dark": "#72B7F4" },
+    "teal": { "light": "#008A96", "dark": "#3DD8E2" },
+    "green": { "light": "#2F7D49", "dark": "#68D18B" },
+    "amber": { "light": "#B66A00", "dark": "#F0AD3D" },
+    "coral": { "light": "#CD4038", "dark": "#FF796E" },
+    "violet": { "light": "#7E45C2", "dark": "#B58AFF" },
+    "rose": { "light": "#B33B7A", "dark": "#EF76B6" },
     "slate": { "light": "#576475", "dark": "#B5C1D0" }
   },
   "light": {
