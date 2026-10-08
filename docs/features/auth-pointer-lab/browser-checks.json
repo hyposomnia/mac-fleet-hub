@@ -1,0 +1,218 @@
+{
+  "date": "2026-10-08",
+  "layouts": [
+    {
+      "kind": "desktop",
+      "effect": 1,
+      "canvasWidth": 1440,
+      "height": 900,
+      "pageWidth": 1440,
+      "selected": "choice-1",
+      "theme": "light",
+      "width": 1440
+    },
+    {
+      "kind": "desktop",
+      "effect": 2,
+      "canvasWidth": 1440,
+      "height": 900,
+      "pageWidth": 1440,
+      "selected": "choice-2",
+      "theme": "light",
+      "width": 1440
+    },
+    {
+      "kind": "desktop",
+      "effect": 3,
+      "canvasWidth": 1440,
+      "height": 900,
+      "pageWidth": 1440,
+      "selected": "choice-3",
+      "theme": "light",
+      "width": 1440
+    },
+    {
+      "kind": "desktop",
+      "effect": 4,
+      "canvasWidth": 1440,
+      "height": 900,
+      "pageWidth": 1440,
+      "selected": "choice-4",
+      "theme": "light",
+      "width": 1440
+    },
+    {
+      "kind": "desktop",
+      "effect": 5,
+      "canvasWidth": 1440,
+      "height": 900,
+      "pageWidth": 1440,
+      "selected": "choice-5",
+      "theme": "light",
+      "width": 1440
+    },
+    {
+      "kind": "desktop",
+      "effect": 1,
+      "canvasWidth": 1440,
+      "height": 900,
+      "pageWidth": 1440,
+      "selected": "choice-1",
+      "theme": "dark",
+      "width": 1440
+    },
+    {
+      "kind": "desktop",
+      "effect": 2,
+      "canvasWidth": 1440,
+      "height": 900,
+      "pageWidth": 1440,
+      "selected": "choice-2",
+      "theme": "dark",
+      "width": 1440
+    },
+    {
+      "kind": "desktop",
+      "effect": 3,
+      "canvasWidth": 1440,
+      "height": 900,
+      "pageWidth": 1440,
+      "selected": "choice-3",
+      "theme": "dark",
+      "width": 1440
+    },
+    {
+      "kind": "desktop",
+      "effect": 4,
+      "canvasWidth": 1440,
+      "height": 900,
+      "pageWidth": 1440,
+      "selected": "choice-4",
+      "theme": "dark",
+      "width": 1440
+    },
+    {
+      "kind": "desktop",
+      "effect": 5,
+      "canvasWidth": 1440,
+      "height": 900,
+      "pageWidth": 1440,
+      "selected": "choice-5",
+      "theme": "dark",
+      "width": 1440
+    },
+    {
+      "kind": "mobile-touch",
+      "effect": 1,
+      "height": 844,
+      "pageWidth": 375,
+      "selected": "choice-1",
+      "theme": "light",
+      "width": 390
+    },
+    {
+      "kind": "mobile-touch",
+      "effect": 2,
+      "height": 844,
+      "pageWidth": 375,
+      "selected": "choice-2",
+      "theme": "light",
+      "width": 390
+    },
+    {
+      "kind": "mobile-touch",
+      "effect": 3,
+      "height": 844,
+      "pageWidth": 375,
+      "selected": "choice-3",
+      "theme": "light",
+      "width": 390
+    },
+    {
+      "kind": "mobile-touch",
+      "effect": 4,
+      "height": 844,
+      "pageWidth": 375,
+      "selected": "choice-4",
+      "theme": "light",
+      "width": 390
+    },
+    {
+      "kind": "mobile-touch",
+      "effect": 5,
+      "height": 844,
+      "pageWidth": 375,
+      "selected": "choice-5",
+      "theme": "light",
+      "width": 390
+    },
+    {
+      "kind": "mobile-touch",
+      "effect": 1,
+      "height": 844,
+      "pageWidth": 375,
+      "selected": "choice-1",
+      "theme": "dark",
+      "width": 390
+    },
+    {
+      "kind": "mobile-touch",
+      "effect": 2,
+      "height": 844,
+      "pageWidth": 375,
+      "selected": "choice-2",
+      "theme": "dark",
+      "width": 390
+    },
+    {
+      "kind": "mobile-touch",
+      "effect": 3,
+      "height": 844,
+      "pageWidth": 375,
+      "selected": "choice-3",
+      "theme": "dark",
+      "width": 390
+    },
+    {
+      "kind": "mobile-touch",
+      "effect": 4,
+      "height": 844,
+      "pageWidth": 375,
+      "selected": "choice-4",
+      "theme": "dark",
+      "width": 390
+    },
+    {
+      "kind": "mobile-touch",
+      "effect": 5,
+      "height": 844,
+      "pageWidth": 375,
+      "selected": "choice-5",
+      "theme": "dark",
+      "width": 390
+    }
+  ],
+  "reducedMotion": {
+    "before": {
+      "alpha": 56095,
+      "weighted": 28725140
+    },
+    "after": {
+      "alpha": 56095,
+      "weighted": 28725140
+    },
+    "autoDisabled": true
+  },
+  "touch": {
+    "before": {
+      "alpha": 47289,
+      "weighted": 24214015
+    },
+    "after": {
+      "alpha": 47289,
+      "weighted": 24214015
+    }
+  },
+  "consoleErrors": [],
+  "previewSubmissionNetworkRequests": []
+}

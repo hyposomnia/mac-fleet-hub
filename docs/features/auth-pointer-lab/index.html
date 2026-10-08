@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="light">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="color-scheme" content="light dark">
+  <title>Fleet · 鼠标跟随效果评审</title>
+  <link rel="icon" href="assets/logo.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="lab.css">
+  <script src="lab.js" defer></script>
+</head>
+<body>
+  <section class="lab-stage" id="effect-panel" role="tabpanel" aria-labelledby="choice-1">
+    <canvas id="effect-canvas" aria-hidden="true"></canvas>
+    <header class="auth-header">
+      <div class="auth-brand"><img src="assets/logo.svg" alt=""><span>fleet hub</span></div>
+      <div class="theme-choices" role="group" aria-label="预览外观">
+        <button type="button" data-theme-choice="light" aria-pressed="true">浅色</button>
+        <button type="button" data-theme-choice="dark" aria-pressed="false">深色</button>
+      </div>
+    </header>
+    <main class="auth-content">
+      <h1>登录 Fleet</h1>
+      <p class="auth-subtitle">连接和管理你的设备。</p>
+      <form id="preview-form" class="auth-form">
+        <label>邮箱<input type="text" value="name@example.com" readonly aria-describedby="preview-note"></label>
+        <label>密码<input type="password" value="preview-only" readonly aria-describedby="preview-note"></label>
+        <button class="primary" type="submit">继续</button>
+      </form>
+      <div class="auth-links"><span>还没有账号？</span><button type="button" data-preview-action>注册</button><button type="button" data-preview-action>使用恢复码</button></div>
+      <p id="preview-note">效果预览，不连接账号。</p>
+      <p id="form-feedback" role="status" aria-live="polite"></p>
+    </main>
+  </section>
+
+  <aside class="review-dock" aria-label="鼠标效果评审">
+    <div class="review-heading">
+      <div><span class="review-eyebrow">FLEET / INTERACTION STUDY</span><h2>鼠标跟随，五种方向。</h2></div>
+      <div class="review-actions">
+        <button id="motion-toggle" type="button" aria-pressed="true">效果已开启</button>
+        <button id="auto-preview" type="button" aria-pressed="false">自动演示</button>
+      </div>
+    </div>
+    <div class="effect-choices" role="tablist" aria-label="选择一个鼠标跟随效果">
+      <button id="choice-1" role="tab" aria-controls="effect-panel" aria-selected="true" tabindex="0" data-demo="1"><span class="choice-number">01</span><span class="choice-label">柔光追随<span>柔和 · 安静</span></span></button>
+      <button id="choice-2" role="tab" aria-controls="effect-panel" aria-selected="false" tabindex="-1" data-demo="2"><span class="choice-number">02</span><span class="choice-label">磁性点阵<span>精密 · 有反馈</span></span></button>
+      <button id="choice-3" role="tab" aria-controls="effect-panel" aria-selected="false" tabindex="-1" data-demo="3"><span class="choice-number">03</span><span class="choice-label">精密光环<span>轻巧 · 直接</span></span></button>
+      <button id="choice-4" role="tab" aria-controls="effect-panel" aria-selected="false" tabindex="-1" data-demo="4"><span class="choice-number">04</span><span class="choice-label">金属掠光<span>材质 · 空间感</span></span></button>
+      <button id="choice-5" role="tab" aria-controls="effect-panel" aria-selected="false" tabindex="-1" data-demo="5"><span class="choice-number">05</span><span class="choice-label">弹性丝带<span>灵动 · 表现力</span></span></button>
+    </div>
+    <div class="review-caption"><p id="effect-description" aria-live="polite"></p><p id="motion-status" role="status">在上方空白处移动鼠标，比较跟随手感。</p></div>
+  </aside>
+</body>
+</html>
