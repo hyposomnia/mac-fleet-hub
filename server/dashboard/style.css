@@ -81,7 +81,7 @@
   --chat-link:var(--accent-text);
   --chat-code-bg:var(--surface-2);
   --chat-user-bg:var(--surface-2);
-  --chat-floating-bg: color-mix(in srgb, var(--chat-surface-2) 72%, transparent);
+  --chat-floating-bg: color-mix(in srgb, var(--chat-surface-2) 50%, transparent);
   --chat-composer-bg:var(--surface-2);
  --chat-border:transparent;
   --chat-border-light:transparent;
@@ -147,7 +147,7 @@
   --chat-link:var(--accent-text);
   --chat-code-bg:var(--surface-2);
   --chat-user-bg:var(--surface-2);
-  --chat-floating-bg: color-mix(in srgb, var(--chat-surface-2) 72%, transparent);
+  --chat-floating-bg: color-mix(in srgb, var(--chat-surface-2) 50%, transparent);
   --chat-composer-bg:var(--surface-2);
  --chat-border:transparent;
   --chat-border-light:transparent;
