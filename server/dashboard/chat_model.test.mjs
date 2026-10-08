@@ -3132,6 +3132,107 @@ test('foreground restore replaces a stale SSE stream and reconciles missed histo
   assert.match(appSrc, /addEventListener\('pageshow',[\s\S]*?event\.persisted/);
 });
 
+function sessionNavigationFixture() {
+  const elements = new Map();
+  const document = {
+    addEventListener() {}, querySelectorAll() { return []; }, createElement: testElement,
+    querySelector(selector) {
+      if (!elements.has(selector)) elements.set(selector, {...testElement('div'), hidden: true,
+        value: '', classList: {remove() {}, add() {}, contains() { return false; }}});
+      return elements.get(selector);
+    },
+  };
+  const context = {document, FleetUploadModel: uploadSandbox.globalThis.FleetUploadModel,
+    FleetChatModel: sandbox.globalThis.FleetChatModel, matchMedia: () => ({matches: false}),
+    window: {FleetWorkspaceTabs: {showChat() {}}}};
+  vm.createContext(context);
+  vm.runInContext(appSrc, context);
+  // Keep navigation and draft lifecycle real; isolate rendering and device I/O.
+  vm.runInContext(`
+    for (const name of ['updateSettingsMenus', 'renderHosts', 'updateDeviceScopeUI',
+      'persistUIState', 'loadSessions', 'resetFileBackGesture', 'stopChatSubagentSync',
+      'closeChatImageViewer', 'closeChatSkillMenu', 'closeChatOptions', 'stopWatch',
+      'hideBanner', 'releaseVisualKeyboard', 'resetSessionBackGesture', 'loadFileDirectory',
+      'closeMenus', 'markSessionRead']) globalThis[name] = () => {};
+    globalThis.opened = [];
+    openChatSession = session => {
+      opened.push(session);
+      state.chat = state.chatCache.get(chatCacheKey(session.macId, session.sessionId)) || session;
+      state.macId = session.macId;
+      showChatPane(state.chat.title, state.chat.cwd);
+      $('#chat-input').value = state.chat.draft || '';
+    };
+    globalThis.navigation = {state, setMode, restoreTermOrEmpty};
+  `, context);
+  return {...context.navigation, elements, opened: context.opened};
+}
+
+test('returning from files restores the selected cached conversation and its saved draft', () => {
+  const fixture = sessionNavigationFixture(), {state, setMode, elements, opened} = fixture;
+  const chat = {macId: 'm1', assistant: 'codex', sessionId: 'selected-chat', title: 'Selected',
+    draft: '', model: {messages: ['message-1']}, attachments: [{name: 'reference.png'}]};
+  const other = {...chat, macId: 'm2', title: 'Other device'};
+  Object.assign(state, {macId: 'm1', fileMacId: 'm2', selectedSid: chat.sessionId,
+    selectedSessionMacId: 'm1', selectedSessionAssistant: 'codex', chat});
+  state.chatCache.set('m1\nselected-chat', chat);
+  state.chatCache.set('m2\nselected-chat', other);
+  // Soft refresh may replace the list while the document is open.
+  state.sessionResults = [];
+  elements.set('#chat-input', {value: '继续检查文档'});
+  setMode('files');
+  assert.equal(state.chat, null);
+  assert.equal(chat.draft, '继续检查文档');
+  assert.equal(state.macId, 'm2');
+  setMode('sessions');
+  assert.equal(state.chat, chat);
+  assert.equal(state.macId, 'm1');
+  assert.equal(opened.length, 1);
+  assert.equal(opened[0], chat);
+  assert.equal(elements.get('#chat-pane').hidden, false);
+  assert.equal(elements.get('#empty-state').hidden, true);
+  assert.equal(elements.get('#chat-input').value, '继续检查文档');
+  assert.deepEqual(chat.model.messages, ['message-1']);
+  assert.equal(chat.attachments[0].name, 'reference.png');
+});
+
+test('restoring a mounted conversation keeps its current draft and does not reopen it', () => {
+  const {state, restoreTermOrEmpty, elements, opened} = sessionNavigationFixture();
+  const chat = {macId: 'm1', assistant: 'codex', sessionId: 'mounted-chat', title: 'Mounted'};
+  Object.assign(state, {selectedSid: chat.sessionId, selectedSessionMacId: chat.macId,
+    selectedSessionAssistant: chat.assistant, chat});
+  state.chatCache.set('m1\nmounted-chat', chat);
+  elements.set('#chat-input', {value: '未发送的草稿'});
+  restoreTermOrEmpty();
+  assert.equal(state.chat, chat);
+  assert.equal(opened.length, 0);
+  assert.equal(elements.get('#chat-pane').hidden, false);
+  assert.equal(elements.get('#chat-input').value, '未发送的草稿');
+});
+
+test('an evicted selected conversation restores by its exact device and assistant identity', () => {
+  const {state, restoreTermOrEmpty, opened} = sessionNavigationFixture();
+  Object.assign(state, {selectedSid: 'evicted-chat', selectedSessionMacId: 'm2',
+    selectedSessionAssistant: 'codex'});
+  const session = {sessionId: 'evicted-chat', macId: 'm2', assistant: 'codex', title: 'Selected'};
+  state.sessionResults = [{...session, macId: 'm1'}, {...session, assistant: 'dsh'}, session];
+  restoreTermOrEmpty();
+  assert.equal(opened.length, 1);
+  assert.equal(opened[0], session);
+});
+
+test('closing a conversation or changing assistants does not restore a stale cached selection', () => {
+  const {state, restoreTermOrEmpty, opened, elements} = sessionNavigationFixture();
+  const chat = {macId: 'm1', assistant: 'codex', sessionId: 'old-chat', title: 'Old'};
+  state.chatCache.set('m1\nold-chat', chat);
+  restoreTermOrEmpty();
+  assert.equal(opened.length, 0);
+  assert.equal(elements.get('#empty-state').hidden, false);
+  Object.assign(state, {assistant: 'dsh', selectedSid: chat.sessionId,
+    selectedSessionMacId: chat.macId, selectedSessionAssistant: 'codex'});
+  restoreTermOrEmpty();
+  assert.equal(opened.length, 0);
+});
+
 test('chat send keeps textarea focus through pointerdown on mobile keyboards', () => {
   assert.match(appSrc, /\$\('#chat-send'\)\.addEventListener\('pointerdown',[\s\S]*?document\.activeElement === \$\('#chat-input'\)[\s\S]*?e\.preventDefault\(\)/);
 });
