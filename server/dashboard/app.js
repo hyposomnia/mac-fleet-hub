@@ -7185,7 +7185,7 @@ function renderHostAppearanceChoices() {
   const letterInput = $('#hm-letter-input');
   letterInput.value = draft.icon === 'text' ? draft.text || '' : '';
   letterInput.oninput = () => {
-    const text = letterInput.value.replace(/[a-z]/g, letter => letter.toUpperCase()); letterInput.value = text;
+    const text = letterInput.value;
     state.hostAppearanceDraft = {...state.hostAppearanceDraft, icon: 'text', text};
     syncHostLetterIcon();
   };

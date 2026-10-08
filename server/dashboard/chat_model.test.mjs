@@ -3399,7 +3399,7 @@ test('saving only device appearance does not rewrite its name or proxy', async (
   }
 });
 
-test('editing device letters or digits preserves the draft when changing color and does not persist before save', () => {
+test('editing device letters or digits preserves case and draft when changing color without saving', () => {
   const previousQuery=appSandbox.document.querySelector, previousDraft=appState.hostAppearanceDraft;
   const ids=['hm-device-icon','hm-icon-choices','hm-color-choices','hm-letter-field','hm-letter-input','hm-letter-error','hm-save','hm-appearance-reset'];
   const fields=Object.fromEntries(ids.map(id=>['#'+id,testElement('div')]));
@@ -3409,7 +3409,7 @@ test('editing device letters or digits preserves the draft when changing color a
     appState.hostAppearanceDraft={icon:'text',text:'A',color:'steel'};
     vm.runInContext('renderHostAppearanceChoices()',appSandbox);
     const input=fields['#hm-letter-input'];
-    for(const [text,expected] of [['mb','MB'],['4','4'],['04','04'],['a1','A1'],['mbp','MBP'],['009','009'],['a1b','A1B']]) {
+    for(const [text,expected] of [['mb','mb'],['4','4'],['04','04'],['a1','a1'],['mbp','mbp'],['MbP','MbP'],['MBP','MBP'],['009','009'],['a1b','a1b'],['A1b','A1b']]) {
       input.value=text;input.oninput();
       assert.equal(input.value,expected);assert.equal(fields['#hm-save'].disabled,false);
       assert.equal(fields['#hm-letter-error'].hidden,true);
