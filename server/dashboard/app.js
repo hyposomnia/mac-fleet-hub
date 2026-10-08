@@ -1756,10 +1756,10 @@ function sessionRow(s) {
   const archive = renderSessionArchiveAction(s);
   const running = sessionRunning || live || FleetChatModel.chatPhase(s.status) === 'running';
   const top = h('div', { class: 'ses-top' },
-    renderSessionStateDot(s, running),
     h('span', { class: 't', text: s.title || '(无标题)' }),
     pin,
     (archive || menu) && h('div', { class: 'ses-actions' }, archive, menu),
+    renderSessionStateDot(s, running),
   );
   const meta = h('div', { class: 'ses-meta' },
     state.sessionMacId === 'all' ? h('span', { class: 'session-device-name', text: macName(macId) }) : null,

@@ -890,7 +890,7 @@ test('session rows remove redundant device, assistant, and idle labels', () => {
   }
 });
 
-test('special session states use leading dots and never render relative time labels', () => {
+test('special session states use trailing indicators and never render relative time labels', () => {
   const waiting = sessionRow({
     sessionId: 'thread-waiting', macId: 'm1', assistant: 'codex',
     title: 'Waiting for input', mtime: fixedAppNowMs, status: 'active', waiting: true,
@@ -905,16 +905,24 @@ test('special session states use leading dots and never render relative time lab
   assert.equal(runningDot?.attributes['aria-label'], '进行中');
   assert.ok(String(waitingDot?.className).includes('waiting'));
   assert.ok(String(runningDot?.className).includes('running'));
+  const waitingTop = nodesWithClass(waiting, 'ses-top')[0];
+  const runningTop = nodesWithClass(running, 'ses-top')[0];
+  assert.equal(waitingTop?.children.at(-1), waitingDot);
+  assert.equal(runningTop?.children.at(-1), runningDot);
   assert.equal(nodesWithClass(waiting, 'ses-time').length, 0);
   assert.equal(nodesWithClass(running, 'ses-time').length, 0);
   assert.doesNotMatch(appSrc, /class:\s*'ses-time'/);
   assert.match(styleCSS, /\.session-state-dot\.unread\s*\{/);
-  const runningStyle = styleCSS.match(/\.session-state-dot\.running,\s*\.chat-subagents \.dot\.running\s*\{([^}]*)\}/)?.[1];
-  assert.ok(runningStyle, '会话和 Sub Agent 的进行中标记应共用旋转圈');
+  const runningStyle = styleCSS.match(/\.session-state-dot\.running\s*\{([^}]*)\}/)?.[1];
+  assert.ok(runningStyle, '会话进行中标记应使用清晰可见的旋转圈');
+  assert.match(runningStyle, /width:\s*14px/);
+  assert.match(runningStyle, /height:\s*14px/);
   assert.match(runningStyle, /background:\s*transparent/);
   assert.match(runningStyle, /box-shadow:\s*none/);
-  assert.match(runningStyle, /border:\s*1\.5px solid var\(--text-2\)/);
-  assert.match(runningStyle, /animation:\s*spin/);
+  assert.match(runningStyle, /border:\s*2px solid color-mix/);
+  assert.match(runningStyle, /border-top-color:\s*var\(--accent\)/);
+  assert.match(runningStyle, /border-right-color:\s*var\(--accent\)/);
+  assert.match(runningStyle, /animation:\s*spin \.65s linear infinite/);
 });
 
 test('a newer background reply becomes unread until that session is selected', () => {
