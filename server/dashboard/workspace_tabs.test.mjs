@@ -4,7 +4,7 @@ import vm from 'node:vm';
 import {readFile} from 'node:fs/promises';
 const source = await readFile(new URL('./workspace_tabs.js', import.meta.url), 'utf8');
 const preview = await readFile(new URL('./preview.js', import.meta.url), 'utf8');
-function setup() {
+function setup({onSelectChat = () => {}} = {}) {
   class Node {
     constructor() { this.dataset = {}; this.attrs = {}; this.children = []; this.events = {}; this.hidden = false; this.inert = false; this.style = {}; }
     setAttribute(key, value) { this.attrs[key] = value; }
@@ -29,7 +29,7 @@ function setup() {
   }};
   vm.createContext(context); vm.runInContext(preview, context); vm.runInContext(source, context);
   let opened = 0, closed = 0;
-  context.FleetWorkspaceTabs.init({onOpen() { opened++; }, onCloseChat() { closed++; elements['chat-pane'].hidden = true; }});
+  context.FleetWorkspaceTabs.init({onSelectChat, onOpen() { opened++; }, onCloseChat() { closed++; elements['chat-pane'].hidden = true; }});
   return {api: context.FleetWorkspaceTabs, elements, body: context.document.body, flush() { const pending = [...timers.values()]; timers.clear(); pending.forEach(fn => fn()); }, get opened() { return opened; }, get closed() { return closed; }};
 }
 const url = (path, mac = 'm1', cwd = '/repo') => `/view?${new URLSearchParams({mac, path, cwd})}`;
@@ -185,6 +185,47 @@ test('file tabs retain the original composer, draft, and submit handler while tr
   composer.onsubmit(); assert.equal(sent, 1);
   api.showChat(); assert.equal(e['chat-input'], input); assert.equal(input.value, '继续检查这份文件');
   assert.equal(e['chat-scroll'].inert, false);
+});
+
+test('clicking the conversation tab restores its pane after file navigation detached it', () => {
+  let restored = 0;
+  const {api, elements: e} = setup({onSelectChat() { restored++; e['chat-pane'].hidden = false; }});
+  api.open(url('a.md'));
+  const frame = e['workspace-preview'].children[0];
+  e['chat-pane'].hidden = true;
+  e['workspace-tabs'].children[0].children[0].onclick();
+  assert.equal(restored, 1);
+  assert.equal(e['chat-pane'].hidden, false);
+  assert.equal(e.win.dataset.workspacePreview, 'false');
+  assert.equal(e['workspace-preview'].children[0], frame);
+});
+
+test('keyboard return and closing the final active file restore the selected conversation', () => {
+  let restored = 0;
+  const {api, elements: e} = setup({onSelectChat() { restored++; e['chat-pane'].hidden = false; }});
+  api.open(url('a.md'));
+  e['chat-pane'].hidden = true;
+  e['workspace-tabs'].children[1].children[0].onkeydown({key: 'Home', preventDefault() {}});
+  assert.equal(restored, 1);
+  assert.equal(e['chat-pane'].hidden, false);
+  assert.equal(e['workspace-tabs'].children[0].children[0].focused, true);
+  api.open(url('a.md'));
+  e['chat-pane'].hidden = true;
+  e['workspace-tabs'].children[1].children[1].onclick();
+  assert.equal(restored, 2);
+  assert.equal(e['chat-pane'].hidden, false);
+  assert.equal(e.win.dataset.workspacePreview, 'false');
+});
+
+test('programmatic chat selection and explicitly closed conversations do not trigger automatic restore', () => {
+  let restored = 0;
+  const state = setup({onSelectChat() { restored++; }}), e = state.elements;
+  state.api.open(url('a.md')); state.api.showChat();
+  assert.equal(restored, 0, 'openChatSession uses showChat and must not recursively restore');
+  e['workspace-tabs'].children[0].children[1].onclick();
+  assert.equal(state.closed, 1);
+  e['workspace-tabs'].children[0].children[1].onclick();
+  assert.equal(restored, 0);
 });
 
 

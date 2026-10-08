@@ -2076,8 +2076,24 @@ function renderTermHead() {
     + (mb ? mb.meta : '正常权限');
 }
 
-// 切回会话模式：当前池条目仍在则显示，否则空态。
+// 文件模式会关闭聊天面板，切回时按选中身份恢复缓存，列表刷新不影响恢复。
 function restoreTermOrEmpty() {
+  const macId = state.selectedSessionMacId, sessionId = state.selectedSid;
+  const assistant = state.selectedSessionAssistant || state.assistant;
+  if (macId && sessionId && assistant === state.assistant && canSelfDrawChat(assistant, macId)) {
+    const cached = state.chatCache.get(chatCacheKey(macId, sessionId));
+    const chat = cached?.assistant === assistant ? cached : null;
+    if (chat && state.chat === chat) {
+      window.FleetWorkspaceTabs?.showChat();
+      showChatPane(chat.title, chat.cwd, { connected: !chat.pendingStart });
+      markSessionRead({ ...chat, mtime: chat.updatedAt });
+    } else {
+      const session = chat || state.sessionResults.find(s => s.macId === macId &&
+        s.sessionId === sessionId && (s.assistant || state.assistant) === assistant);
+      openChatSession(session || { macId, sessionId, assistant });
+    }
+    return;
+  }
   if (state.current && state.pool.includes(state.current)) poolShow(state.current);
   else showEmpty();
 }
@@ -7132,7 +7148,7 @@ function renderHostAppearanceChoices() {
   const letterInput = $('#hm-letter-input');
   letterInput.value = draft.icon === 'text' ? draft.text || '' : '';
   letterInput.oninput = () => {
-    const text = letterInput.value.replace(/[a-z]/g, letter => letter.toUpperCase()); letterInput.value = text;
+    const text = letterInput.value;
     state.hostAppearanceDraft = {...state.hostAppearanceDraft, icon: 'text', text};
     syncHostLetterIcon();
   };
@@ -7487,7 +7503,7 @@ function init() {
       pushFleetHistory({ mode: 'sessions', term: true });
       $('#app').classList.add('term-open');
     }
-  }, onCloseChat: ({hasFiles}) => {
+  }, onSelectChat: restoreTermOrEmpty, onCloseChat: ({hasFiles}) => {
     state.selectedSid = state.selectedSessionMacId = null;
     showEmpty();
     if (hasFiles) $('#fullscreen-btn').hidden = false;

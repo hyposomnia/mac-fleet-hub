@@ -50,7 +50,7 @@
     };
   }
 
-  function init({onOpen = () => {}, onCloseChat = () => {}} = {}) {
+  function init({onOpen = () => {}, onSelectChat = () => {}, onCloseChat = () => {}} = {}) {
     const doc = root.document, win = doc.querySelector('#win');
     const strip = doc.querySelector('#workspace-tabs'), stage = doc.querySelector('#workspace-preview');
     if (!win || !strip || !stage || strip.dataset.ready) return;
@@ -168,7 +168,7 @@
         button.setAttribute('aria-controls', tab.key === 'chat' ? 'chat-pane' : frames.get(tab.key).id);
         button.tabIndex = selected ? 0 : -1;
         wrap.dataset.selected = String(selected);
-        button.onclick = () => { model.select(tab.key); render({focus: true}); };
+        button.onclick = () => select(tab.key);
         button.onkeydown = event => {
           const keys = [...(model.chatOpen ? ['chat'] : []), ...model.tabs.map(item => item.key)];
           const index = keys.indexOf(tab.key);
@@ -177,7 +177,7 @@
           if (event.key === 'ArrowLeft') next = keys[(index + keys.length - 1) % keys.length];
           if (event.key === 'Home') next = keys[0];
           if (event.key === 'End') next = keys[keys.length - 1];
-          if (next) { event.preventDefault(); model.select(next); render({focus: true}); }
+          if (next) { event.preventDefault(); select(next); }
           if (event.key === 'Delete') { event.preventDefault(); close(tab.key); }
         };
         wrap.append(button); controls.set(tab.key, button);
@@ -191,12 +191,20 @@
       }
       if (focus) controls.get(model.active)?.focus({preventScroll: true});
     }
+    function select(key) {
+      model.select(key);
+      if (key === 'chat') onSelectChat();
+      render({focus: true});
+    }
     function close(key) {
       if (key === 'chat') {
         model.close(key); onCloseChat({hasFiles: model.tabs.length > 0}); render({focus: true}); return;
       }
+      const wasActive = model.active === key;
       pause(frames.get(key)); frames.get(key)?.remove(); frames.delete(key);
-      model.close(key); render({focus: true});
+      model.close(key);
+      if (wasActive && model.active === 'chat') onSelectChat();
+      render({focus: true});
     }
     function open(href) {
       const target = previewTarget(href);
