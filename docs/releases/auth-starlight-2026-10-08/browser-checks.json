@@ -1,0 +1,46 @@
+[
+  {
+    "state": "light-desktop",
+    "width": 1440,
+    "height": 900,
+    "scrollWidth": 1440,
+    "theme": "light",
+    "canvasPointerEvents": "none",
+    "formBackground": "rgba(0, 0, 0, 0)",
+    "formBefore": "none",
+    "effectURL": "http://127.0.0.1:8790/auth_effects.js?v=188"
+  },
+  {
+    "state": "dark-desktop",
+    "width": 1440,
+    "height": 900,
+    "scrollWidth": 1440,
+    "theme": "dark",
+    "canvasPointerEvents": "none",
+    "formBackground": "rgba(0, 0, 0, 0)",
+    "formBefore": "none",
+    "effectURL": "http://127.0.0.1:8790/auth_effects.js?v=188"
+  },
+  {
+    "state": "light-mobile",
+    "width": 390,
+    "height": 844,
+    "scrollWidth": 390,
+    "theme": "light",
+    "canvasPointerEvents": "none",
+    "formBackground": "rgba(0, 0, 0, 0)",
+    "formBefore": "none",
+    "effectURL": "http://127.0.0.1:8790/auth_effects.js?v=188"
+  },
+  {
+    "state": "dark-mobile",
+    "width": 390,
+    "height": 844,
+    "scrollWidth": 390,
+    "theme": "dark",
+    "canvasPointerEvents": "none",
+    "formBackground": "rgba(0, 0, 0, 0)",
+    "formBefore": "none",
+    "effectURL": "http://127.0.0.1:8790/auth_effects.js?v=188"
+  }
+]

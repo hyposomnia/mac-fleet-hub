@@ -1,0 +1,21 @@
+{
+  "reduced": {
+    "reduced": true,
+    "hidden": true,
+    "display": "none"
+  },
+  "touch": {
+    "coarse": true,
+    "display": "none",
+    "fine": false,
+    "hidden": true
+  },
+  "canvas": {
+    "alpha": 1195,
+    "litPixels": 205,
+    "maxAlpha": 61,
+    "visible": true,
+    "fine": true
+  },
+  "consoleErrorsAndWarnings": []
+}

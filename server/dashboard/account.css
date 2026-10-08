@@ -111,12 +111,7 @@ body.account-page { display: block; height: auto; min-height: 100dvh; overflow: 
 body.account-auth { background: var(--surface); isolation: isolate; }
 .account-auth .account-form input { background: var(--settings-input); }
 .account-auth .account-content { margin-top: clamp(48px, 12dvh, 112px); }
-.auth-grid { position: fixed; inset: 0; z-index: -1; pointer-events: none; overflow: hidden; background-image: linear-gradient(color-mix(in srgb, var(--accent) 6%, transparent) 1px, transparent 1px), linear-gradient(90deg, color-mix(in srgb, var(--accent) 6%, transparent) 1px, transparent 1px); background-size: 56px 56px; mask-image: linear-gradient(transparent 8%, black 70%, transparent); }
-.auth-probe { position: absolute; top: 0; left: 0; width: 32px; height: 32px; margin: -16px; color: var(--accent-text); opacity: .35; will-change: transform; }
-.auth-probe::before, .auth-probe::after { content: ''; position: absolute; background: currentColor; }
-.auth-probe::before { left: 15px; top: 0; width: 1px; height: 32px; }
-.auth-probe::after { top: 15px; left: 0; height: 1px; width: 32px; }
-.auth-probe span { position: absolute; left: 28px; top: 28px; white-space: nowrap; font: 10px var(--mono); letter-spacing: .5px; }
+.auth-stars { position: fixed; inset: 0; z-index: -1; width: 100%; height: 100%; pointer-events: none; }
 .fleet-settings-dialog { max-width: 960px; height: min(760px, 88dvh); display: flex; flex-direction: column; overflow: hidden; background: var(--settings-elevated); }
 .fleet-settings-dialog { position: relative; }
 .fleet-settings-close { position: absolute; top: 12px; right: 12px; z-index: 1; width: 44px; height: 44px; }
@@ -168,5 +163,5 @@ body:has(#fleet-settings-modal:not([hidden])) .pwa-update { visibility: hidden; 
   .account-auth .account-content { margin-top: 32px; }
 }
 @media (prefers-reduced-motion: reduce), (pointer: coarse) {
-  .auth-probe { display: none; }
+  .auth-stars { display: none; }
 }

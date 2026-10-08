@@ -2,7 +2,7 @@
 
 ## 范围
 
-在独立分支 `codex/settings-copy-cleanup` 完成 Web 前端改动。不改变账号、权限、设备归属、服务鉴权、安装包验证或已安装的客户端；不发布旧生产网关。主工作区的并行登录动效改动未夹带进入本批。
+在独立分支 `codex/settings-copy-cleanup` 完成 Web 前端改动。不改变账号、权限、设备归属、服务鉴权、安装包验证或已安装的客户端；不发布旧生产网关。合并保留 main 上已经提交并上线的登录星光，主工作区未提交的彩带实验未夹带进入本批。
 
 ## 改动清单
 
@@ -23,7 +23,7 @@
 FLEET_SPARKLE_ARCHIVE="$HOME/Library/Caches/fleet-hub/Sparkle-2.10.0.zip" bash scripts/verify.sh
 ```
 
-真实 exit 0，Go、全部 JavaScript、59 项 Swift 及全部 Shell 层通过，无失败。日志：`/private/tmp/fleet-settings-copy-final-verify.log`。并行提交的原生验签修复已经是分支祖先，但本次交付只替换 Web 静态资源，不把源码测试冒充新的原生发行包。
+真实 exit 0，Go、全部 JavaScript、59 项 Swift 及全部 Shell 层通过，无失败。合并已上线星光后再次执行同一命令，真实 exit 0；最终日志：`/private/tmp/fleet-settings-copy-merged-verify.log`。并行提交的原生验签修复已经是分支祖先，但本次交付只替换 Web 静态资源，不把源码测试冒充新的原生发行包。
 
 ## 真实浏览器
 
@@ -34,4 +34,4 @@ FLEET_SPARKLE_ARCHIVE="$HOME/Library/Caches/fleet-hub/Sparkle-2.10.0.zip" bash s
 - 实际点击关闭区域边缘成功关闭，Escape 关闭并恢复入口焦点。账号页的安全表单、恢复码提醒及会话设置的保存入口保留。
 - 添加设备页已无用户指定段落；安装、浏览器授权、Agent 磁盘授权、后台常驻及更新入口仍存在。孤立本地实例没有发行包，正确显示暂不提供下载，未制造假链接。
 
-截图：`/private/tmp/fleet-settings-copy-desktop.png`、`/private/tmp/fleet-settings-copy-mobile.png`、`/private/tmp/fleet-settings-copy-mobile-dark.png`，仅包含合成数据。abj 静态资源部署与真实 HTTPS 验证另外记录，不将本地浏览器测试声称为现网登录验收。
+截图：`/private/tmp/fleet-settings-copy-desktop.png`、`/private/tmp/fleet-settings-copy-mobile.png`、`/private/tmp/fleet-settings-copy-mobile-dark.png`，仅包含合成数据。合并后重新加载桌面并复查添加设备、会话设置，标题行不存在、关闭热区仍为 44×44、指定文案不存在且无横向溢出；最终截图为 `/private/tmp/fleet-settings-copy-merged-desktop.png`。abj 静态资源部署与真实 HTTPS 验证另外记录，不将本地浏览器测试声称为现网登录验收。

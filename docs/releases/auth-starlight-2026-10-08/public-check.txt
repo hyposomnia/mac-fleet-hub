@@ -1,0 +1,18 @@
+HTTPS matches commit: auth.html
+0a681c8108cc06f20dd7a27610ad091b99c4636707972f6d47bb33f3b4ea3d7c  /private/tmp/macfleet-stars-public.rm9dZE/public-auth.html
+HTTPS matches commit: account.css
+13dee60466015ba3eb152107c82f0c018562f22de7ede7dfa357349ca9ffa026  /private/tmp/macfleet-stars-public.rm9dZE/public-account.css
+HTTPS matches commit: auth_effects.js
+dbddceb30d9a8e1ac696d2c0e4f192fa4bbbe2f232ef7c1090ab78d7745a396d  /private/tmp/macfleet-stars-public.rm9dZE/public-auth_effects.js
+HTTP/2 200 
+server: nginx
+date: Thu, 08 Oct 2026 10:19:10 GMT
+content-type: text/html; charset=utf-8
+content-length: 2665
+accept-ranges: bytes
+cache-control: no-store
+last-modified: Thu, 08 Oct 2026 10:18:02 GMT
+referrer-policy: same-origin
+x-content-type-options: nosniff
+
+LOCAL HTTPS VERIFICATION PASSED
