@@ -180,3 +180,9 @@ test('native candidate publication stays behind the unique signing entry and Acc
   assert.ok(native.indexOf('stapler validate') < native.indexOf('scp '));
   assert.doesNotMatch(native, /fleet-agent update|launchctl|git commit/);
 });
+
+test('native notarization uses standard S3 uploads for each complete signed archive', () => {
+  const submissions = read('./lib/native-candidate-release.sh').split('\n').filter(line => line.includes('xcrun notarytool submit'));
+  assert.equal(submissions.length, 3);
+  for (const submission of submissions) assert.match(submission, /--no-s3-acceleration/);
+});
