@@ -6,6 +6,7 @@ import { renderTitaniumCSS } from '../../scripts/titanium-design.mjs';
 
 const design = JSON.parse(await readFile(new URL('./titanium.json', import.meta.url), 'utf8'));
 const css = await readFile(new URL('./titanium.css', import.meta.url), 'utf8');
+const style = await readFile(new URL('./style.css', import.meta.url), 'utf8');
 const appSource = await readFile(new URL('./app.js', import.meta.url), 'utf8');
 const themeSource = await readFile(new URL('./theme.js', import.meta.url), 'utf8');
 
@@ -14,8 +15,16 @@ test('web tokens match the shared native design resource', () => {
   assert.deepEqual(design.radii, { compact: 8, control: 12, card: 16, panel: 20 });
   assert.deepEqual(design.typography, { caption: 11, secondary: 12, body: 13, title: 15, control: 16, display: 17, page: 28 });
   assert.deepEqual(design.navigation, { mobileBreakpoint: 860, compactDesktopBreakpoint: 1180, deviceWidth: 260, sessionWidth: 330, compactDeviceWidth: 220, compactSessionWidth: 310, collapsedDeviceWidth: 72 });
-  assert.equal(design.light.accent, '#2C5D87');
-  assert.equal(design.dark.accent, '#B8D9FF');
+  assert.equal(design.light.accent, '#087F65');
+  assert.equal(design.dark.accent, '#5BD7B7');
+  assert.equal(design.light.highlight, '#D9F23A');
+  assert.equal(design.dark.highlight, '#EDFF52');
+  assert.equal(design.light['session-list-bg'], '#FFFFFF');
+  assert.equal(design.light['session-detail-bg'], '#FFFFFF');
+  assert.equal(design.dark['session-list-bg'], '#000000');
+  assert.equal(design.dark['session-detail-bg'], '#050606');
+  assert.match(style, /#sescol \{ background: var\(--session-list-bg\)/);
+  assert.match(style, /#app\[data-mode="sessions"\] #win \{ background: var\(--session-detail-bg\)/);
   assert.deepEqual(design.deviceColors, {
     steel: { light: '#2466A3', dark: '#72B7F4' },
     teal: { light: '#008A96', dark: '#3DD8E2' },
@@ -56,7 +65,7 @@ test('new clients default to light and explicit theme choices persist', () => {
 test('PWA branding and cache references include the Titanium resources', async () => {
   const manifest = JSON.parse(await readFile(new URL('./manifest.webmanifest', import.meta.url), 'utf8'));
   assert.equal(manifest.background_color, design.light.bg);
-  assert.equal(manifest.theme_color, design.light.surface);
+  assert.equal(manifest.theme_color, design.light.bg);
   const worker = await readFile(new URL('./sw.js', import.meta.url), 'utf8');
   assert.match(worker, /titanium\.css\?v=\d+/);
   assert.match(worker, /icons\/logo\.svg/);

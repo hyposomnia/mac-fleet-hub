@@ -14,6 +14,7 @@ const previewSrc = await readFile(new URL('./preview.js', import.meta.url), 'utf
 const indexHTML = await readFile(new URL('./index.html', import.meta.url), 'utf8');
 const automationGuideHTML = await readFile(new URL('./automation-guide.html', import.meta.url), 'utf8');
 const styleCSS = await readFile(new URL('./style.css', import.meta.url), 'utf8');
+const accountCSS = await readFile(new URL('./account.css', import.meta.url), 'utf8');
 const serviceWorker = await readFile(new URL('./sw.js', import.meta.url), 'utf8');
 const manifest = JSON.parse(await readFile(new URL('./manifest.webmanifest', import.meta.url), 'utf8'));
 const markedSrc = await readFile(new URL('./vendor/marked.min.js', import.meta.url), 'utf8');
@@ -552,7 +553,7 @@ test('settings menu owns archive browsing and session settings', () => {
   );
   assert.deepEqual(
     [...indexHTML.matchAll(/data-theme-choice="([^"]+)"/g)].map((match) => match[1]),
-    ['system', 'light', 'dark', 'system', 'light', 'dark'],
+    ['system', 'light', 'dark', 'system', 'light', 'dark', 'light', 'dark', 'system'],
   );
   assert.equal((indexHTML.match(/role="group" aria-label="外观"/g) || []).length, 2);
   assert.equal((indexHTML.match(/>显示已归档会话</g) || []).length, 2);
@@ -576,6 +577,20 @@ test('session settings expose chat cache without terminal controls', () => {
   assert.match(indexHTML, /id="automation-message-key-filter"/);
   assert.doesNotMatch(indexHTML, /data-settings-tab="terminal"|data-assistant="claude"|id="st-selfdraw"|id="st-dmax"/);
   assert.doesNotMatch(appSrc, /SELF_DRAW_KEY|setSelfDraw|用终端打开/);
+});
+
+test('appearance settings expose four configurable seed colors for light and dark themes', () => {
+  assert.match(indexHTML, /data-settings-page="appearance"/);
+  assert.match(indexHTML, /data-settings-panel="appearance"/);
+  for (const mode of ['light', 'dark']) {
+    for (const field of ['canvas', 'accent', 'highlight', 'text']) {
+      assert.match(indexHTML, new RegExp(`data-palette-color="${mode}\\.${field}"`));
+      assert.match(indexHTML, new RegExp(`data-palette-hex="${mode}\\.${field}"`));
+    }
+  }
+  assert.match(appSrc, /FleetTheme\.setPalette\(readAppearancePalette\(\)\)/);
+  assert.match(appSrc, /FleetTheme\.paletteDefaults/);
+  assert.match(accountCSS, /\.appearance-palette-grid\s*\{[^}]*grid-template-columns:\s*repeat\(2,/s);
 });
 
 test('automation modal links to a concise cached API guide', () => {
@@ -912,8 +927,9 @@ test('special session states use leading dots and never render relative time lab
   const runningStyle = styleCSS.match(/\.session-state-dot\.running,\s*\.chat-subagents \.dot\.running\s*\{([^}]*)\}/)?.[1];
   assert.ok(runningStyle, '会话和 Sub Agent 的进行中标记应共用旋转圈');
   assert.match(runningStyle, /background:\s*transparent/);
-  assert.match(runningStyle, /box-shadow:\s*none/);
-  assert.match(runningStyle, /border:\s*1\.5px solid var\(--text-2\)/);
+  assert.match(runningStyle, /box-shadow:[^;]*var\(--highlight\)/);
+  assert.match(runningStyle, /border:\s*1\.5px solid color-mix\(in srgb, var\(--accent\)/);
+  assert.match(runningStyle, /border-top-color:\s*var\(--accent\)/);
   assert.match(runningStyle, /animation:\s*spin/);
 });
 
@@ -2283,9 +2299,9 @@ test('manual theme selection updates the browser chrome color', () => {
   themeMeta.content = '';
   appSandbox.document.querySelector = (selector) => selector === 'meta[name="theme-color"]' ? themeMeta : null;
   applyTheme('light');
-  assert.equal(themeMeta.content, '#FFFFFF');
+  assert.equal(themeMeta.content, '#FAFAFA');
   applyTheme('dark');
-  assert.equal(themeMeta.content, '#10141B');
+  assert.equal(themeMeta.content, '#000000');
   assert.equal((indexHTML.match(/<meta name="theme-color"/g) || []).length, 1);
 });
 
@@ -2334,7 +2350,7 @@ test('system theme follows OS changes until a manual choice and can be selected 
     prefersLight = true;
     onSystemChange();
     assert.equal(appSandbox.document.documentElement.getAttribute('data-theme'), 'light');
-    assert.equal(themeMeta.content, '#FFFFFF');
+    assert.equal(themeMeta.content, '#FAFAFA');
 
     setThemePreference('dark');
     assert.equal(stored, 'dark');

@@ -1,6 +1,6 @@
 (function (host) {
   'use strict';
-  const labels = { account: '账号设置', 'add-device': '添加设备', automation: '自动化', sessions: '会话设置' };
+  const labels = { account: '账号设置', 'add-device': '添加设备', appearance: '外观', automation: '自动化', sessions: '会话设置' };
   function create({ document, overlay, panels, buttons, title, status, confirm, load, discardPrompt }) {
     let page = null;
     let generation = 0;

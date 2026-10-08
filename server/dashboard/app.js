@@ -407,39 +407,35 @@ function applyTheme(t) { FleetTheme.apply(t); applyTermTheme(); }
 
 // ttyd 把 xterm 实例挂在 iframe 的 window.term 上。这里按 data-theme 给它换肤，
 // 配色取自 style.css 的设计 token，让网页终端与 dashboard 深/浅色统一。
-const XTERM_THEME = {
-  dark: {
-    background: '#10141B', foreground: '#F2F5F9',
-    cursor: '#B8D9FF', cursorAccent: '#10141B', selectionBackground: 'rgba(110,139,255,.28)',
-    black: '#2b3240', brightBlack: '#6b7585',
+function colorChannels(hex) { return hex.slice(1).match(/../g).map(value => parseInt(value, 16)); }
+function colorAlpha(hex, alpha) { return `rgba(${colorChannels(hex).join(',')},${alpha})`; }
+function mixHex(first, second, firstWeight) {
+  const a = colorChannels(first), b = colorChannels(second);
+  return '#' + a.map((value, index) => Math.round(value * firstWeight + b[index] * (1 - firstWeight)).toString(16).padStart(2, '0')).join('');
+}
+function xtermTheme(mode) {
+  const palette = FleetTheme.getPalette()[mode];
+  const dark = mode === 'dark';
+  return {
+    background: dark ? '#000000' : '#FFFFFF', foreground: palette.text,
+    cursor: palette.accent, cursorAccent: dark ? '#000000' : '#FFFFFF', selectionBackground: colorAlpha(palette.accent, dark ? .24 : .16),
+    black: dark ? palette.canvas : palette.text, brightBlack: mixHex(palette.text, palette.canvas, dark ? .58 : .66),
     red: '#ff6b6b', brightRed: '#ff8f8f',
     green: '#46d39a', brightGreen: '#6ee3b4',
     yellow: '#d08a45', brightYellow: '#e8a868',
-    blue: '#B8D9FF', brightBlue: '#93a9ff',
+    blue: palette.accent, brightBlue: mixHex(palette.accent, palette.text, .82),
     magenta: '#b18bff', brightMagenta: '#c9adff',
     cyan: '#5cc8d8', brightCyan: '#82dbe8',
-    white: '#BBC9DB', brightWhite: '#F2F5F9',
-  },
-  light: {
-    background: '#FFFFFF', foreground: '#253446',
-    cursor: '#2C5D87', cursorAccent: '#FFFFFF', selectionBackground: 'rgba(63,92,255,.16)',
-    black: '#2c333f', brightBlack: '#516476',
-    red: '#A23B40', brightRed: '#b32d2d',
-    green: '#386046', brightGreen: '#0c8a55',
-    yellow: '#785319', brightYellow: '#b5762b',
-    blue: '#2C5D87', brightBlue: '#244D70',
-    magenta: '#7c4ddb', brightMagenta: '#6a3fc9',
-    cyan: '#1f8fa6', brightCyan: '#157e94',
-    white: '#e2e6ec', brightWhite: '#ffffff',
-  },
-};
+    white: mixHex(palette.text, palette.canvas, dark ? .82 : .18), brightWhite: palette.text,
+  };
+}
 // 切主题时给池里所有已就绪的终端换肤（新加载的终端在 hookTerm 里首次套用）。
 function applyTermTheme() {
   const mode = document.documentElement.getAttribute('data-theme') === 'light' ? 'light' : 'dark';
   for (const e of state.pool) {
     try {
       const t = e.iframe.contentWindow.term;
-      if (t && t.options) t.options.theme = XTERM_THEME[mode];
+      if (t && t.options) t.options.theme = xtermTheme(mode);
     } catch (_) {}
   }
 }
@@ -718,6 +714,76 @@ async function refreshNames() {
 // ============================================================
 //  dashboard 偏好（终端窗口上限 / 回滚行数，gateway 存，所有浏览器共享）
 // ============================================================
+const APPEARANCE_MODES = ['light', 'dark'];
+const APPEARANCE_FIELDS = ['canvas', 'accent', 'highlight', 'text'];
+function appearanceControl(selector, mode, field) { return $(`[${selector}="${mode}.${field}"]`); }
+function fillAppearancePalette(palette) {
+  for (const mode of APPEARANCE_MODES) {
+    for (const field of APPEARANCE_FIELDS) {
+      const value = palette[mode][field];
+      const color = appearanceControl('data-palette-color', mode, field);
+      const hex = appearanceControl('data-palette-hex', mode, field);
+      color.value = value.toLowerCase();
+      hex.value = value;
+      hex.removeAttribute('aria-invalid');
+    }
+  }
+}
+function prepareAppearanceSettings() {
+  fillAppearancePalette(FleetTheme.getPalette());
+  syncThemeControls();
+}
+function readAppearancePalette() {
+  const palette = { light: {}, dark: {} };
+  let invalid;
+  for (const mode of APPEARANCE_MODES) {
+    for (const field of APPEARANCE_FIELDS) {
+      const input = appearanceControl('data-palette-hex', mode, field);
+      const value = FleetTheme.normalizeColor(input.value);
+      input.setAttribute('aria-invalid', String(!value));
+      if (!value) invalid ||= input;
+      else palette[mode][field] = value;
+    }
+  }
+  if (invalid) {
+    invalid.focus();
+    throw new Error('颜色请使用 #RRGGBB 格式');
+  }
+  return palette;
+}
+function saveAppearanceSettings() {
+  try {
+    const palette = FleetTheme.setPalette(readAppearancePalette());
+    fillAppearancePalette(palette);
+    globalThis.FleetSettingsDialog?.active?.markSaved();
+    closeOverlay('settings-modal');
+    toast('配色已保存', 'ok');
+  } catch (error) { toast(error.message, 'err'); }
+}
+function wireAppearanceSettings() {
+  $$('[data-palette-color]').forEach(input => {
+    input.oninput = () => {
+      const [mode, field] = input.dataset.paletteColor.split('.');
+      const hex = appearanceControl('data-palette-hex', mode, field);
+      hex.value = input.value.toUpperCase();
+      hex.removeAttribute('aria-invalid');
+    };
+  });
+  $$('[data-palette-hex]').forEach(input => {
+    input.oninput = () => {
+      const value = FleetTheme.normalizeColor(input.value);
+      input.setAttribute('aria-invalid', String(!value));
+      if (!value) return;
+      const [mode, field] = input.dataset.paletteHex.split('.');
+      appearanceControl('data-palette-color', mode, field).value = value.toLowerCase();
+    };
+  });
+  $$('#settings-appearance-panel [data-theme-choice]').forEach(button => {
+    button.onclick = () => setThemePreference(button.dataset.themeChoice);
+  });
+  $('#appearance-reset').onclick = () => fillAppearancePalette(FleetTheme.paletteDefaults);
+  $('#appearance-save').onclick = saveAppearanceSettings;
+}
 async function refreshSettings() {
   try {
     const r = await fetch(`${BASE}/api/settings`, { cache: 'no-store' });
@@ -780,6 +846,7 @@ function openUnifiedSettings(page, trigger) {
       title: $('#fleet-settings-title'), status: $('#fleet-settings-status'), confirm: message => window.confirm(message),
       discardPrompt: { container: $('#settings-discard-prompt'), cancel: $('#settings-keep-editing'), discard: $('#settings-discard') },
       load: async (selected, container) => {
+        if (selected === 'appearance') { prepareAppearanceSettings(); return null; }
         if (selected === 'sessions') { prepareSessionSettings(); return null; }
         if (selected === 'automation') { showAutomationTab('keys'); return null; }
         const content = document.createElement('div');
@@ -1921,7 +1988,7 @@ function hookTerm(entry, retries = 30) {
   try { term = entry.iframe.contentWindow.term; } catch (_) { return; }
   if (!term || !term.options) { if (retries > 0) setTimeout(() => hookTerm(entry, retries - 1), 150); return; }
   const mode = document.documentElement.getAttribute('data-theme') === 'light' ? 'light' : 'dark';
-  try { term.options.theme = XTERM_THEME[mode]; } catch (_) {}
+  try { term.options.theme = xtermTheme(mode); } catch (_) {}
   try { term.options.scrollback = poolScrollback(); } catch (_) {}
   if (!term.__fleetHooked) {
     term.__fleetHooked = true;
@@ -7774,6 +7841,7 @@ function init() {
       else if (b.dataset.act === 'logout') doLogout();
     };
   });
+  wireAppearanceSettings();
   $('#st-save').onclick = saveSettings;
   $$('[data-automation-tab]').forEach((b) => { b.onclick = () => showAutomationTab(b.dataset.automationTab); });
   $('#automation-key-create').onclick = () => openAccessKeyForm();

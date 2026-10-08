@@ -16,8 +16,10 @@ final class FleetHubTests: XCTestCase {
     }
 
     func testSharedTitaniumDesignResource() {
-        XCTAssertEqual(TitaniumStyle.design.light["bg"], "#FFFFFF")
-        XCTAssertEqual(TitaniumStyle.design.dark["accent"], "#B8D9FF")
+        XCTAssertEqual(TitaniumStyle.design.light["bg"], "#FAFAFA")
+        XCTAssertEqual(TitaniumStyle.design.light["session-list-bg"], "#FFFFFF")
+        XCTAssertEqual(TitaniumStyle.design.light["session-detail-bg"], "#FFFFFF")
+        XCTAssertEqual(TitaniumStyle.design.dark["accent"], "#5BD7B7")
         XCTAssertEqual(TitaniumStyle.radius("compact"), 8)
         XCTAssertEqual(TitaniumStyle.radius("control"), 12)
         XCTAssertEqual(TitaniumStyle.radius("card"), 16)
