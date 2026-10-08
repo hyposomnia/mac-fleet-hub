@@ -899,16 +899,30 @@ test('special session states use trailing indicators and never render relative t
     sessionId: 'thread-running', macId: 'm1', assistant: 'codex',
     title: 'Working', mtime: fixedAppNowMs, status: 'active',
   });
+  const unread = sessionRow({
+    sessionId: 'thread-unread-trailing', macId: 'm1', assistant: 'codex',
+    title: 'Unread reply', mtime: fixedAppNowMs, status: 'idle', desktopUnread: true,
+  });
+  const previousScope = appState.scope;
+  appState.scope = 'all';
+  const archived = sessionRow({
+    sessionId: 'thread-archived-trailing', macId: 'm1', assistant: 'codex',
+    title: 'Archived thread', mtime: fixedAppNowMs, status: 'idle', desktopUnread: false,
+  });
+  appState.scope = previousScope;
   const waitingDot = nodesWithClass(waiting, 'session-state-dot')[0];
   const runningDot = nodesWithClass(running, 'session-state-dot')[0];
+  const unreadDot = nodesWithClass(unread, 'session-state-dot')[0];
+  const archivedDot = nodesWithClass(archived, 'session-state-dot')[0];
   assert.equal(waitingDot?.attributes['aria-label'], '等待回复');
   assert.equal(runningDot?.attributes['aria-label'], '进行中');
+  assert.equal(unreadDot?.attributes['aria-label'], '未读');
+  assert.equal(archivedDot?.attributes['aria-label'], '已归档');
   assert.ok(String(waitingDot?.className).includes('waiting'));
   assert.ok(String(runningDot?.className).includes('running'));
-  const waitingTop = nodesWithClass(waiting, 'ses-top')[0];
-  const runningTop = nodesWithClass(running, 'ses-top')[0];
-  assert.equal(waitingTop?.children.at(-1), waitingDot);
-  assert.equal(runningTop?.children.at(-1), runningDot);
+  for (const [row, indicator] of [[waiting, waitingDot], [running, runningDot], [unread, unreadDot], [archived, archivedDot]]) {
+    assert.equal(nodesWithClass(row, 'ses-top')[0]?.children.at(-1), indicator);
+  }
   assert.equal(nodesWithClass(waiting, 'ses-time').length, 0);
   assert.equal(nodesWithClass(running, 'ses-time').length, 0);
   assert.doesNotMatch(appSrc, /class:\s*'ses-time'/);
