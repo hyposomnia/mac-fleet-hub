@@ -253,7 +253,7 @@ func (server *Server) ServeHTTP(writer http.ResponseWriter, request *http.Reques
 		server.serveFile(writer, request, "auth.html")
 		return
 	}
-	if path == "/theme.js" || path == "/auth-client.js" || path == "/account.js" || path == "/account.css" || path == "/style.css" || strings.HasPrefix(path, "/icons/") {
+	if path == "/theme.js" || path == "/auth-client.js" || path == "/auth_effects.js" || path == "/account.js" || path == "/account.css" || path == "/style.css" || strings.HasPrefix(path, "/icons/") {
 		server.serveFile(writer, request, path[1:])
 		return
 	}

@@ -22,3 +22,5 @@
 凭据可读后第一次完整发布，在 agent 公证上传阶段返回 `abortedUpload` / `HTTPClientError.deadlineExceeded`，入口 exit 1；abj 客户端和服务指针仍为 build 3，未晋级未公证产物。这不是认证错误或凭据丢失。
 
 `notarytool submit --help` 明确支持 `--no-s3-acceleration`。原生三项公证提交改用官方标准 S3 上传，保留 Developer ID、等待 Accepted、staple、升级签名和真实下载校验的完整链路。包装契约测试先失败，再验证三项提交都使用普通上传；重试仍从最新干净提交走唯一入口，不拆分手工提交或复用失败上传。
+
+使用标准上传的完整唯一入口已 exit 0：agent、主应用和 DMG 三项 Accepted，签名、staple、更新签名、真实下载与 Gatekeeper 均通过。无需重新保存或轮换任何凭据。客户端已发布 build 4；Web 服务首轮校验误将私有 `/app.js` 的正确 303 当作字节不一致，触发恢复旧指针与服务。校验改为确认私有脚本匿名仍返回 303；另单独补齐公开登录动效资源路由，服务从新的服务器修复提交部署，客户端签名源码仍为 `3ba3ea2`，不伪称二者同一提交。
