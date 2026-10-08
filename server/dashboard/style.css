@@ -645,21 +645,19 @@ html.automation-doc-root, html.automation-doc-root body { height: auto; min-heig
 .host:hover .i, .host[aria-current="true"] .i { opacity: 1; }
 .host .i:hover { background: var(--surface-2); color: var(--text); }
 
-[data-device-color="steel"] { --device-ink: #2C5D87; --device-dark: #8BB8E4; }
-[data-device-color="teal"] { --device-ink: #0A727E; --device-dark: #6DD0D6; }
-[data-device-color="green"] { --device-ink: #39734E; --device-dark: #85C79A; }
-[data-device-color="amber"] { --device-ink: #9C6016; --device-dark: #E3B466; }
-[data-device-color="coral"] { --device-ink: #B84B43; --device-dark: #F29287; }
-[data-device-color="violet"] { --device-ink: #7851B0; --device-dark: #B9A0EB; }
-[data-device-color="rose"] { --device-ink: #A5487A; --device-dark: #E391BC; }
+[data-device-color="steel"] { --device-ink: #2466A3; --device-dark: #72B7F4; }
+[data-device-color="teal"] { --device-ink: #008A96; --device-dark: #3DD8E2; }
+[data-device-color="green"] { --device-ink: #2F7D49; --device-dark: #68D18B; }
+[data-device-color="amber"] { --device-ink: #B66A00; --device-dark: #F0AD3D; }
+[data-device-color="coral"] { --device-ink: #CD4038; --device-dark: #FF796E; }
+[data-device-color="violet"] { --device-ink: #7E45C2; --device-dark: #B58AFF; }
+[data-device-color="rose"] { --device-ink: #B33B7A; --device-dark: #EF76B6; }
 [data-device-color="slate"] { --device-ink: #576475; --device-dark: #B5C1D0; }
 [data-theme="dark"] [data-device-color] { --device-ink: var(--device-dark); }
 .device-icon { position: relative; display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; flex: none; color: var(--device-ink); }
 .device-icon svg { width: 100%; height: 100%; }
 .device-icon-all { color: var(--accent-text); }
-.device-icon.is-offline { opacity: .6; }
-.device-status-mark { position: absolute; right: -2px; bottom: 0; width: 5px; height: 5px; border: 0; border-radius: var(--r-pill); background: var(--offline); box-shadow: 0 0 0 2px var(--surface); }
-.is-online .device-status-mark { background: var(--online); }
+.device-icon.is-offline { filter: grayscale(1); opacity: .45; }
 #host-modal .modal { display: flex; flex-direction: column; overflow: hidden; }
 #host-modal .modal-head, #host-modal .modal-foot { flex: none; }
 #host-modal .modal-body { min-height: 0; overflow-y: auto; }
@@ -2228,9 +2226,11 @@ html[data-workspace-tab="true"] .preview-actions .iconbtn { width: 26px; height:
 
 .device-hover-card:hover .host:not([aria-current="true"]) { background: var(--surface-hover); }
 
-.device-icon-letters { font-family: var(--font); font-size: var(--t-title); font-weight: 700; line-height: 1; letter-spacing: -.03em; }
-.device-icon-letters[data-length="2"] { font-size: var(--t-secondary); }
-.device-icon-letters[data-length="3"] { font-family: var(--mono); font-size: var(--t-caption); }
-.device-letter-input { width: 100px; text-transform: uppercase; }
+.device-icon-letters { font-family: var(--font); font-weight: 700; line-height: 1; letter-spacing: -.04em; }
+.device-icon-letters[data-length="1"] { font-size: var(--t-display); }
+.device-icon-letters[data-length="2"] { font-size: var(--t-title); }
+.device-icon-letters[data-length="3"] { font-family: var(--mono); font-size: var(--t-body); }
+.device-icon-letters[data-length="4"] { font-family: var(--mono); font-size: var(--t-caption); letter-spacing: -.08em; transform: scaleX(.9); }
+.device-letter-input { width: 112px; }
 .device-letter-error { color: var(--danger); font-size: var(--t-secondary); }
 #hm-letter-field[hidden], .device-letter-error[hidden] { display: none; }

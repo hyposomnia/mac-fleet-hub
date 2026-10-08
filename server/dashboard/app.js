@@ -502,7 +502,6 @@ function deviceStatusIcon(id) {
   icon.className += online ? ' is-online' : ' is-offline';
   icon.setAttribute('role', 'img');
   icon.setAttribute('aria-label', `${macName(id)}，${online ? '在线' : '离线'}`);
-  icon.appendChild(h('span', { class: 'device-status-mark', 'aria-hidden': 'true' }));
   return icon;
 }
 
