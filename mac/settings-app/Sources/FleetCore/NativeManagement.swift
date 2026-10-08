@@ -53,6 +53,7 @@ public final class NativeManagement: LocalManagement {
 
     public func pairing(_ action: String, state: PairingState?) async throws -> PairingState {
         guard ["pair-start", "pair-confirm", "pair-cancel"].contains(action) else { throw FleetError.message("无效关联操作。") }
+        if action == "pair-start" { try await start() }
         let input = try state.map { try JSONEncoder().encode($0) } ?? Data("{}".utf8)
         return try JSONDecoder().decode(PairingState.self, from: await request(action, input: input))
     }

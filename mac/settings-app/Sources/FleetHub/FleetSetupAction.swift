@@ -17,6 +17,7 @@ enum FleetSetupAction: Equatable {
     }
 
     static func startsAfterInstallation(arguments: [String]) -> Bool { arguments.contains("--fleet-install-and-start") }
+    static func authorizesDiskAfterInstallation(arguments: [String]) -> Bool { arguments.contains("--fleet-authorize-disk") }
     static func installationTitle(installed: Bool) -> String { installed ? "打开已安装应用" : "安装并启动" }
     static func initialOrigin(arguments: [String]) -> String? {
         guard let argument = arguments.first(where: { $0.hasPrefix("--fleet-origin=") }) else { return nil }

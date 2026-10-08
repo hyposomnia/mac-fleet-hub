@@ -4,6 +4,29 @@ import XCTest
 
 @MainActor
 final class NativeRuntimeTests: XCTestCase {
+    func testPairStartDoesNotReuseAnOldBackgroundWhenHostPreparationFails() async throws {
+        let fixture = try NativeRuntimeFixture(running: true, nested: true)
+        defer { fixture.remove() }
+        do {
+            _ = try await fixture.management.pairing("pair-start", state: nil)
+            XCTFail("sent authorization to a background without preparing the installed host")
+        } catch {
+            XCTAssertTrue(error.localizedDescription.contains("请先安装到应用程序"))
+        }
+        XCTAssertFalse(fixture.events.contains("pair-start"))
+        XCTAssertTrue(fixture.running)
+        XCTAssertEqual(fixture.pid, 100)
+    }
+
+    func testPairCancellationDoesNotPrepareOrReplaceTheBackground() async throws {
+        let fixture = try NativeRuntimeFixture(running: true, nested: true)
+        defer { fixture.remove() }
+        _ = try await fixture.management.pairing("pair-cancel", state: nil)
+        XCTAssertEqual(fixture.events, ["pair-cancel"])
+        XCTAssertTrue(fixture.requirements.isEmpty)
+        XCTAssertEqual(fixture.pid, 100)
+    }
+
     func testBackgroundVerificationPassesInlineDeveloperIDRequirement() async throws {
         let fixture = try NativeRuntimeFixture(running: false)
         defer { fixture.remove() }
@@ -164,6 +187,9 @@ private final class NativeRuntimeFixture {
         guard arguments.first == "desktop", running else { throw FleetError.message("offline") }
         let action = arguments[1]
         events.append(action)
+        if ["pair-start", "pair-confirm", "pair-cancel"].contains(action) {
+            return try JSONEncoder().encode(PairingState(phase: "idle", attempt: "fixture", origin: "https://fleet.example.test"))
+        }
         if action == "prepare-stop", busy { throw FleetError.message("active turn") }
         if action != "status" { return Data("{}".utf8) }
         let reported = rejectNew && version == "1.0.0+2" ? "wrong-version" : version

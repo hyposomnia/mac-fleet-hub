@@ -99,6 +99,15 @@ struct SettingsView: View {
                 do { try management.setAutoStart(model.autoStart) }
                 catch { operationError = error.localizedDescription }
             }
+            if FleetSetupAction.authorizesDiskAfterInstallation(arguments: CommandLine.arguments), !updater.recoveryPending {
+                page = .privacy
+                do {
+                    try await diskGuide.authorize(applicationURL: management.layout.backgroundApplication) {
+                        try await management.start()
+                        await model.refresh()
+                    }
+                } catch { operationError = error.localizedDescription }
+            }
             operationBusy = false
             while !Task.isCancelled {
                 try? await Task.sleep(nanoseconds: 2_000_000_000)
@@ -167,10 +176,11 @@ struct SettingsView: View {
                 Toggle("登录后启动后台", isOn: $model.autoStart).toggleStyle(.switch)
                     .disabled(management.layout.requiresInstallation)
                 Text(management.layout.requiresInstallation ? "安装后可设置" : management.autoStartStatus).foregroundStyle(theme.secondaryText)
-                DisclosureGroup("运行详情") {
-                    if let current = model.status { row("版本", current.version); row("进程", String(current.pid)).monospacedDigit() }
+                if let current = model.status {
+                    Text("运行详情").foregroundStyle(theme.secondaryText)
+                    row("版本", current.version)
+                    row("进程", String(current.pid)).monospacedDigit()
                 }
-                .foregroundStyle(theme.secondaryText)
             }
         }
     }
@@ -243,24 +253,25 @@ struct SettingsView: View {
             }
             if let application = DiskAccessApplication(url: management.layout.backgroundApplication), !management.layout.requiresInstallation {
                 card { DiskAccessInstructions(application: application) }
-                HStack {
-                    Button("打开系统设置") {
-                        do { try diskGuide.show(applicationURL: management.layout.backgroundApplication) }
-                        catch { operationError = error.localizedDescription }
+            }
+            HStack {
+                Button("授权磁盘访问") {
+                    if management.layout.requiresInstallation { installApplication(authorizeDisk: true) }
+                    else {
+                        perform {
+                            try await diskGuide.authorize(applicationURL: management.layout.backgroundApplication) {
+                                try await management.start()
+                                await model.refresh()
+                            }
+                        }
                     }
-                    .buttonStyle(FleetButtonStyle(.primary))
-                    if model.diskState != .verified && model.status != nil {
-                        Button("重启并检查") { perform { try await management.restart(); await model.refresh(); await model.recheckDisk() } }
-                    }
-                }
-                Text("仅授权 Fleet Agent，设置应用无需磁盘权限。").foregroundStyle(theme.secondaryText)
-            } else {
-                Button("安装并启动") {
-                    if management.layout.requiresInstallation { installApplication() }
-                    else { perform { try await management.start(); await model.refresh(); try management.setAutoStart(model.autoStart) } }
                 }
                 .buttonStyle(FleetButtonStyle(.primary))
+                if model.diskState != .verified && model.status != nil {
+                    Button("重启并检查") { perform { try await management.restart(); await model.refresh(); await model.recheckDisk() } }
+                }
             }
+            Text("仅授权 Fleet Agent，设置应用无需磁盘权限。").foregroundStyle(theme.secondaryText)
             if let evidence = model.status?.diskAccess, !(evidence.deniedTargets ?? []).isEmpty {
                 DisclosureGroup("检测详情") {
                     Text((evidence.deniedTargets ?? []).joined(separator: "\n"))
@@ -311,13 +322,14 @@ struct SettingsView: View {
             Text(value).textSelection(.enabled)
         }
     }
-    private func installApplication() {
+    private func installApplication(authorizeDisk: Bool = false) {
         perform {
             let installed: URL
             if FileManager.default.fileExists(atPath: "/Applications/Fleet Hub.app") { installed = try await management.installedApplication() }
             else { installed = try await management.install() }
             let configuration = NSWorkspace.OpenConfiguration()
             configuration.arguments = ["--fleet-install-and-start"]
+            if authorizeDisk { configuration.arguments.append("--fleet-authorize-disk") }
             if let origin = try? FleetSettings.validatedOrigin(model.origin) { configuration.arguments.append("--fleet-origin=\(origin)") }
             configuration.createsNewApplicationInstance = true
             _ = try await NSWorkspace.shared.openApplication(at: installed, configuration: configuration)

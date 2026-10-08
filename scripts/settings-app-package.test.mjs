@@ -8,6 +8,24 @@ import assert from 'node:assert/strict';
 
 const read = (relative) => readFileSync(fileURLToPath(new URL(relative, import.meta.url)), 'utf8');
 
+test('disk permissions always offer authorization and prepare the standalone drag target', () => {
+  const view = read('../mac/settings-app/Sources/FleetHub/SettingsView.swift');
+  const privacy = view.slice(view.indexOf('private var privacy:'), view.indexOf('private var about:'));
+  assert.match(privacy, /Button\("授权磁盘访问"\)/);
+  assert.doesNotMatch(privacy, /Button\("安装并启动"\)/);
+  assert.match(privacy, /diskGuide\.authorize\(applicationURL: management\.layout\.backgroundApplication\)/);
+  assert.match(privacy, /management\.start\(\)/);
+});
+
+test('runtime details show version and process without a disclosure control', () => {
+  const view = read('../mac/settings-app/Sources/FleetHub/SettingsView.swift');
+  const overview = view.slice(view.indexOf('private var overview:'), view.indexOf('private var connection:'));
+  assert.doesNotMatch(overview, /DisclosureGroup\("运行详情"\)/);
+  assert.match(overview, /Text\("运行详情"\)/);
+  assert.match(overview, /row\("版本", current\.version\)/);
+  assert.match(overview, /row\("进程", String\(current\.pid\)\)/);
+});
+
 test('SDK preparation replaces a tampered extracted cache from the verified archive', {
   skip: process.platform !== 'darwin' || !process.env.FLEET_SPARKLE_ARCHIVE,
 }, () => {

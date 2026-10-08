@@ -2,6 +2,11 @@ import XCTest
 @testable import FleetHub
 
 final class DesignTests: XCTestCase {
+    func testDiskAuthorizationCanContinueAfterInstallingTheApplication() {
+        XCTAssertFalse(FleetSetupAction.authorizesDiskAfterInstallation(arguments: ["Fleet Hub"]))
+        XCTAssertTrue(FleetSetupAction.authorizesDiskAfterInstallation(arguments: ["Fleet Hub", "--fleet-install-and-start", "--fleet-authorize-disk"]))
+    }
+
     func testTemporaryLaunchCanOpenInstalledAppAndCarryOnlyAValidatedOrigin() throws {
         XCTAssertEqual(FleetSetupAction.installationTitle(installed: true), "打开已安装应用")
         XCTAssertEqual(FleetSetupAction.installationTitle(installed: false), "安装并启动")

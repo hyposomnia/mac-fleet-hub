@@ -1,9 +1,41 @@
 import AppKit
+import FleetCore
 import XCTest
 @testable import FleetHub
 
 @MainActor
 final class DiskAccessGuideTests: XCTestCase {
+    func testAuthorizationPreparesStandaloneAgentBeforeOpeningSettings() async throws {
+        let agent = try fixture().appendingPathComponent("Fleet Agent.app")
+        var events: [String] = []
+        let guide = DiskAccessGuideController(openSettings: { _ in
+            events.append("settings")
+            XCTAssertNotNil(DiskAccessApplication(url: agent))
+            return false
+        })
+        do {
+            try await guide.authorize(applicationURL: agent) {
+                events.append("prepare")
+                try FileManager.default.createDirectory(at: agent, withIntermediateDirectories: true)
+            }
+            XCTFail("ignored settings launch failure")
+        } catch { XCTAssertTrue(error.localizedDescription.contains("无法打开系统设置")) }
+        XCTAssertEqual(events, ["prepare", "settings"])
+        XCTAssertNil(guide.panel)
+    }
+
+    func testFailedBackgroundPreparationDoesNotOpenSystemSettings() async throws {
+        let agent = try fixture().appendingPathComponent("Fleet Agent.app")
+        var opened = false
+        let guide = DiskAccessGuideController(openSettings: { _ in opened = true; return true })
+        do {
+            try await guide.authorize(applicationURL: agent) { throw FleetError.message("busy background") }
+            XCTFail("ignored background preparation failure")
+        } catch { XCTAssertEqual(error.localizedDescription, "busy background") }
+        XCTAssertFalse(opened)
+        XCTAssertNil(guide.panel)
+    }
+
     private func fixture() throws -> URL {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("fleet-drag-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)

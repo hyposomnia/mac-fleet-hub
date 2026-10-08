@@ -89,6 +89,11 @@ final class DiskAccessGuideController: ObservableObject {
 
     init(openSettings: @escaping (URL) -> Bool = { NSWorkspace.shared.open($0) }) { self.openSettings = openSettings }
 
+    func authorize(applicationURL: URL, prepare: () async throws -> Void) async throws {
+        try await prepare()
+        try show(applicationURL: applicationURL)
+    }
+
     func show(applicationURL: URL) throws {
         guard let application = DiskAccessApplication(url: applicationURL) else {
             throw FleetError.message("请先安装后台，再开启完全磁盘访问。")

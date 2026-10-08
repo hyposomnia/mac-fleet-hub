@@ -1,6 +1,6 @@
 # 原生客户端待统一发布修复
 
-用户要求：先修复本次问题，后续问题收齐后统一签名、打包和上线。本轮不发布新 DMG、不修改下载源、不替换本机应用或后台。
+用户最初要求先收集问题、统一发行；追加授权本批改完后重新打包并直接替换本机。范围仅 Fleet Hub 与其独立后台，不变更现有 Tailscale、Codex Desktop 或其他生产 Mac，保留设备关联与设置；实际发行与安装结果另行记录。
 
 ## 1. 后台签名校验误把规则当作文件路径
 
@@ -19,3 +19,17 @@
 日志：`/private/tmp/fleet-inline-requirement-red.log`、`/private/tmp/fleet-inline-requirement-green.log`、`/private/tmp/fleet-inline-requirement-real-verifier.log`、`/private/tmp/fleet-inline-requirement-full-verify.log`。
 
 后续统一包仍须走唯一正式签名公证入口；这次只读签名校验不替代更新包验收、实际后台安装、真实 TCC 或逐用户入网测试。
+
+## 2. 网页授权返回 HTTP 410
+
+- 本机只读 status 确认 Hub 为 `0.1.3+4`，实际后台仍是 `0.1.0+1`、PID `73774`，独立运行副本不存在；旧配对记录存在且未领取 grant。前一项验签错误阻止了后台版本同步，新 Hub 随后把授权请求发给旧后台，继续旧配对而非新 OAuth。
+- `pair-start` 现在先执行完整后台安装/版本同步和健康验证；失败即停止，不向旧后台发送授权。确认与取消不触发版本替换，避免打断进行中的授权。
+- 新后台继续每次新建 OAuth + PKCE，不恢复未领取 grant 的旧配对链接。未输入用户账号、密码或 TOTP，实际账号确认由用户验收。
+
+## 3. 磁盘权限入口与运行详情
+
+- 磁盘权限页始终使用“授权磁盘访问”。点击后先准备独立 Fleet Agent，再打开完全磁盘访问系统设置与可拖拽 Agent 的浮动引导；准备失败不打开系统设置、不伪报权限。
+- 从未安装位置发起时，安装后的新实例继续磁盘授权引导，不把 Hub 或内嵌载荷作为拖拽目标。系统开关由用户操作。
+- 运行详情直接展示后台版本与 PID，不使用折叠控件。
+
+本批先红后绿的原生、磁盘引导及页面契约测试已通过；完整 `bash scripts/verify.sh` exit 0，64 项 Swift、20 项发行测试与其余 Go/JS/Shell 层全部通过，0 fail、0 skip。日志 `/private/tmp/fleet-native-build5-final-verify.log`。准备发行 `0.1.4+5`，签名、公证、下载和本机安装须以实际后续记录为准。
