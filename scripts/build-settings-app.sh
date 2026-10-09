@@ -37,10 +37,11 @@ mkdir -p "$APP/Contents/Library/Helpers"
 install -m 0755 "$SWIFT_BIN/FleetLogin" "$APP/Contents/Library/Helpers/fleet-login-launcher"
 mkdir -p "$APP/Contents/Frameworks"
 ditto "$ROOT/mac/settings-app/Vendor/Sparkle.xcframework/macos-arm64_x86_64/Sparkle.framework" "$APP/Contents/Frameworks/Sparkle.framework"
+DESKTOP_TLS_MODFILE="$(node "$ROOT/scripts/prepare-desktop-tls-module.mjs" "$OUTPUT/tls-module")"
 for arch in arm64 amd64; do
   clang_arch="$arch"
   [[ "$arch" != amd64 ]] || clang_arch=x86_64
-  (cd "$ROOT/mac/fleet-agent" && GOOS=darwin GOARCH="$arch" CGO_ENABLED=1 CGO_CFLAGS="-arch $clang_arch -mmacosx-version-min=13.0" CGO_LDFLAGS="-arch $clang_arch -mmacosx-version-min=13.0" go build -tags fleet_desktop -trimpath -ldflags="-s -w -X main.version=$VERSION+$BUILD" -o "$OUTPUT/agent-$arch" .)
+  (cd "$ROOT/mac/fleet-agent" && GOOS=darwin GOARCH="$arch" CGO_ENABLED=1 CGO_CFLAGS="-arch $clang_arch -mmacosx-version-min=13.0" CGO_LDFLAGS="-arch $clang_arch -mmacosx-version-min=13.0" go build -modfile "$DESKTOP_TLS_MODFILE" -tags fleet_desktop -trimpath -ldflags="-s -w -X main.version=$VERSION+$BUILD" -o "$OUTPUT/agent-$arch" .)
 done
 lipo -create "$OUTPUT/agent-arm64" "$OUTPUT/agent-amd64" -output "$AGENT/Contents/MacOS/fleet-agent"
 mkdir -p "$AGENT/Contents/Resources/bin" "$APP/Contents/Resources/Licenses"

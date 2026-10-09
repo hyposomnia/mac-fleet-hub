@@ -4,7 +4,7 @@
 
 ## 1. 后台签名校验误把规则当作文件路径
 
-状态：源码已修复并验证，等待统一发行；当前安装的 `0.1.3+4` 尚未包含修复。
+状态：已于 2026-10-09 统一发行并通过内置更新器安装 `0.1.4+5`，本机 Hub 与实际独立后台均已包含修复。完整证据见 [build 5 发行记录](native-build5-test-release-2026-10-09.md)。
 
 - 症状：运行状态显示 `No such file or directory / invalid requirement specification`，阻止后台安装或版本同步。
 - 根因：`codesign -R` 的普通字符串参数被解释为规则文件路径；内联规则必须以 `=` 开头。
@@ -32,4 +32,10 @@
 - 从未安装位置发起时，安装后的新实例继续磁盘授权引导，不把 Hub 或内嵌载荷作为拖拽目标。系统开关由用户操作。
 - 运行详情直接展示后台版本与 PID，不使用折叠控件。
 
-本批先红后绿的原生、磁盘引导及页面契约测试已通过；完整 `bash scripts/verify.sh` exit 0，64 项 Swift、20 项发行测试与其余 Go/JS/Shell 层全部通过，0 fail、0 skip。日志 `/private/tmp/fleet-native-build5-final-verify.log`。准备发行 `0.1.4+5`，签名、公证、下载和本机安装须以实际后续记录为准。
+本批先红后绿的原生、磁盘引导及页面契约测试已通过；完整 `bash scripts/verify.sh` exit 0，64 项 Swift、20 项发行测试与其余 Go/JS/Shell 层全部通过，0 fail、0 skip。日志 `/private/tmp/fleet-native-build5-final-verify.log`。当时准备发行 `0.1.4+5`；后续三项 Accepted、真实下载及本机内置更新均已完成，详见发行记录。
+
+## 4. IP 测试入口的组网 TLS 验证
+
+用户在 `0.1.4+5` 完成网页授权后，界面持续显示“正在接入”。后台已取得账号和设备编号，但内置 Tailscale TLS 校验丢失 IP 身份，无法匹配钥匙串中限定该 IP 的 SSL 信任。普通 HTTPS 到同一入口可通过；内置组网仍报证书未知颁发者。
+
+源码已修正为把预期目标 IP 交给原证书校验器，沿用现有系统信任。Tailscale 来源版本和 SHA 固定，通过临时模块副本构建双架构 Agent，未修改模块缓存。回归先失败于主机名丢失，修复后正确 IP 通过，错误 IP 和未受信任证书分别仍返回 HostnameError / UnknownAuthorityError；真实组网 HTTPS 校验已恢复到 200，全量验证 exit 0。正式签名、安装及实际接入以后续发行记录为准。
