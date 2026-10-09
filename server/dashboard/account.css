@@ -42,7 +42,7 @@ body.account-page { display: block; height: auto; min-height: 100dvh; overflow: 
 .account-form label:has(input[type="checkbox"]) { min-height: 44px; }
 .account-form input:not([type="checkbox"]):focus,
 .account-form input:not([type="checkbox"]):focus-visible { outline: none; box-shadow: none; }
-.account-button:focus-visible, .account-page a:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+.account-button:focus-visible, .account-page a:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; box-shadow: 0 0 0 5px color-mix(in srgb, var(--highlight) 24%, transparent); }
 details.account-section.account-disclosure { padding: 0; }
 .account-disclosure > summary { display: flex; align-items: center; justify-content: space-between; gap: 16px; min-height: 56px; padding: 16px 20px; list-style: none; cursor: pointer; font-size: 17px; font-weight: 600; border-radius: var(--radius-card); }
 .account-disclosure > summary::-webkit-details-marker { display: none; }
@@ -107,8 +107,7 @@ details.account-section.account-disclosure { padding: 0; }
 .account-table tbody tr:nth-child(odd) { background: var(--surface-2); }
 .account-table th, .account-table td { padding-left: 12px; }
 
-.account-page, .fleet-settings-dialog { --settings-surface: #F7F9FB; --settings-elevated: #FFFFFF; --settings-input: #E3E9EF; }
-[data-theme="dark"] .account-page, [data-theme="dark"] .fleet-settings-dialog { --settings-surface: #181E28; --settings-elevated: #202836; --settings-input: #273143; }
+.account-page, .fleet-settings-dialog { --settings-surface: var(--surface-1); --settings-elevated: var(--surface); --settings-input: var(--surface-2); }
 .account-form input { background: var(--settings-input); }
 .account-links { gap: 8px; font-size: 13px; color: var(--text-2); }
 .account-links a { padding: 0; background: transparent; color: var(--accent-text); border-radius: 0; }
@@ -154,6 +153,21 @@ body.account-auth { background: var(--surface); isolation: isolate; }
 .fleet-settings-panel .modal-body { padding: 0; }
 .fleet-settings-panel .modal-foot { padding: 20px 0 0; }
 .fleet-settings-panel .input { background: var(--settings-input); }
+.appearance-theme-choice { display: flex; width: min(100%, 360px); }
+.appearance-theme-choice button { flex: 1; min-height: 40px; padding: 0 12px; color: var(--text-1); border-radius: var(--radius-compact); }
+.appearance-theme-choice button[aria-pressed="true"] { background: var(--settings-elevated); color: var(--accent-text); box-shadow: var(--e1); }
+.appearance-palette-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; margin-top: 14px; }
+.appearance-palette-card { min-width: 0; padding: 16px; border: 0; border-radius: var(--radius-card); background: var(--settings-surface); }
+.appearance-palette-card legend { padding: 0 2px; color: var(--text); font-size: var(--t-body); font-weight: 600; }
+.appearance-color-field { display: grid; grid-template-columns: minmax(72px, 1fr) 42px 96px; align-items: center; gap: 8px; min-height: 48px; color: var(--text-1); font-size: var(--t-secondary); }
+.appearance-color-field + .appearance-color-field { margin-top: 5px; }
+.appearance-color-field input[type="color"] { width: 42px; height: 36px; padding: 3px; border: 0; border-radius: var(--radius-compact); background: var(--settings-input); cursor: pointer; }
+.appearance-color-field input[type="color"]::-webkit-color-swatch-wrapper { padding: 2px; }
+.appearance-color-field input[type="color"]::-webkit-color-swatch { border: 0; border-radius: 5px; }
+.appearance-color-field .input { width: 96px; min-height: 36px; padding-inline: 9px; text-transform: uppercase; }
+.appearance-color-field [aria-invalid="true"] { box-shadow: 0 0 0 2px var(--danger-soft); }
+.appearance-settings-footer { display: flex; align-items: center; gap: 8px; }
+.appearance-settings-spacer { flex: 1; }
 #fleet-settings-status, .settings-account-status { color: var(--text-1); margin-bottom: 16px; line-height: 1.6; }
 #fleet-settings-status:empty, .settings-account-status:empty { display: none; }
 .menu-theme-seg { display: flex; gap: 4px; background: transparent; }
@@ -170,6 +184,13 @@ body:has(#fleet-settings-modal:not([hidden])) .pwa-update { visibility: hidden; 
   .fleet-settings-scroll { flex: 1; padding: 20px 16px max(24px, env(safe-area-inset-bottom)); }
   .fleet-settings-panel .account-section { padding: 16px; }
   .fleet-settings-panel .account-content > .account-muted:first-of-type { padding-right: 0; }
+  .appearance-palette-grid { grid-template-columns: 1fr; }
+  .appearance-color-field { grid-template-columns: minmax(88px, 1fr) 44px 106px; min-height: 52px; }
+  .appearance-color-field input[type="color"] { width: 44px; height: 44px; }
+  .appearance-color-field .input { width: 106px; min-height: 44px; }
+  .appearance-settings-footer { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .appearance-settings-footer .appearance-settings-spacer { display: none; }
+  .appearance-settings-footer .btn { width: 100%; min-height: 48px; }
   .automation-panel-tools { min-height: 24px; margin-top: 0; padding-right: 0; }
   .account-auth .account-content { margin-top: 32px; }
 }

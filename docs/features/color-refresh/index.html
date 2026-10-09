@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="zh-CN" data-palette="turquoise" data-theme="light">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#ffffff">
+  <title>Fleet Hub · 色彩方向</title>
+  <link rel="icon" href="../../../server/dashboard/icons/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="palette.css">
+</head>
+<body>
+  <header class="review-bar">
+    <div class="review-title"><strong>Fleet Hub</strong><span>色彩方向</span></div>
+    <div class="palette-switch" role="tablist" aria-label="色彩方向">
+      <button type="button" role="tab" data-palette-choice="clear" aria-selected="false">
+        <i aria-hidden="true"><span></span><span></span><span></span></i><b>01 澄蓝</b><small>最偏蓝</small>
+      </button>
+      <button type="button" role="tab" data-palette-choice="bay" aria-selected="false">
+        <i aria-hidden="true"><span></span><span></span><span></span></i><b>02 海湾蓝</b><small>清亮蓝</small>
+      </button>
+      <button type="button" role="tab" data-palette-choice="ocean" aria-selected="false">
+        <i aria-hidden="true"><span></span><span></span><span></span></i><b>03 青海蓝</b><small>蓝绿平衡</small>
+      </button>
+      <button type="button" role="tab" data-palette-choice="peacock" aria-selected="false">
+        <i aria-hidden="true"><span></span><span></span><span></span></i><b>04 孔雀蓝</b><small>明显偏绿</small>
+      </button>
+      <button type="button" role="tab" data-palette-choice="turquoise" aria-selected="true">
+        <i aria-hidden="true"><span></span><span></span><span></span></i><b>05 绿松蓝</b><small>浅色增绿 / 已选</small>
+      </button>
+    </div>
+    <button id="theme-toggle" class="theme-toggle" type="button" aria-pressed="false">深色</button>
+  </header>
+
+  <main class="preview-shell">
+    <section class="workspace" aria-label="Fleet Hub 配色预览">
+      <aside class="rail">
+        <div class="brand">
+          <img src="../../../server/dashboard/icons/logo.svg" alt="">
+          <strong>fleet hub</strong>
+        </div>
+        <nav class="mode-nav" aria-label="主要功能">
+          <button class="active" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>会话</button>
+          <button type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6.5A2.5 2.5 0 0 1 5.5 4H9l2 2h9a1 1 0 0 1 1 1v10.5a2.5 2.5 0 0 1-2.5 2.5h-13A2.5 2.5 0 0 1 3 17.5Z"/></svg>文件</button>
+        </nav>
+        <div class="section-label">主机</div>
+        <nav class="device-list" aria-label="主机">
+          <button class="selected" type="button"><span class="device-mark all">全</span><span>全部设备</span><small>8</small></button>
+          <button type="button"><span class="device-mark studio">MS</span><span>Mac Studio</span><small>5</small></button>
+          <button type="button"><span class="device-mark book">MB</span><span>MacBook Pro</span><small>3</small></button>
+        </nav>
+        <button class="account" type="button"><span class="account-mark">H</span><span>外观与账户</span><svg viewBox="0 0 24 24" aria-hidden="true"><polyline points="6 9 12 15 18 9"/></svg></button>
+      </aside>
+
+      <section class="sessions">
+        <header class="sessions-head">
+          <div class="sessions-title"><strong>ChatGPT</strong><button type="button" aria-label="新建会话">＋</button></div>
+          <label class="search"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><line x1="16.5" y1="16.5" x2="21" y2="21"/></svg><input aria-label="搜索会话" placeholder="搜索全部未归档会话"></label>
+        </header>
+        <div class="session-scroll">
+          <div class="group-title"><span>mac-fleet-hub</span><small>5</small></div>
+          <button class="session selected" type="button"><span><i class="state running"></i><strong>优化 Web 端颜色</strong></span><small>Mac Studio · 刚刚</small></button>
+          <button class="session" type="button"><span><i class="state unread"></i><strong>检查共享会话连接</strong></span><small>Mac Studio · 12 分钟</small></button>
+          <button class="session" type="button"><span><i class="state read"></i><strong>整理品牌设计令牌</strong></span><small>MacBook Pro · 36 分钟</small></button>
+          <button class="session" type="button"><span><i class="state waiting"></i><strong>部署前验证</strong></span><small>Mac Studio · 1 小时</small></button>
+          <button class="session" type="button"><span><i class="state read"></i><strong>校对项目文档</strong></span><small>MacBook Pro · 昨天</small></button>
+        </div>
+      </section>
+
+      <section class="chat">
+        <header class="chat-head">
+          <button class="mobile-back" type="button" aria-label="返回">‹</button>
+          <div><strong>优化 Web 端颜色</strong><small>Mac Studio · mac-fleet-hub</small></div>
+          <button class="head-action" type="button" aria-label="会话操作">•••</button>
+        </header>
+        <div class="messages">
+          <div class="message user">现在 web 端的颜色我觉得太灰了，整体优化一下吧，要克制，但是也不要沉闷。</div>
+          <article class="message assistant">
+            <p>我会保留 Titanium 的单一画布与无边框层级，只调整色温和强调色的分配。</p>
+            <p>这三个方向使用完全相同的结构。当前选中、运行状态和关键动作是主要的色彩落点，其余区域只用带色相的浅层表面区分。</p>
+          </article>
+          <button class="tool-row" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4h14v16H5z"/><path d="m9 9 2 2-2 2m4 0h3"/></svg><span>读取现有设计令牌</span><small>完成</small><b>⌄</b></button>
+          <article class="message assistant final-message">
+            <p><strong class="palette-name">05 绿松蓝</strong>保持接近纯白 / 纯黑的画布。浅色主题进一步向绿色移动，深色主题保持原值；酸性荧光黄仍只围绕运行状态形成一圈很小的辅助提示。</p>
+          </article>
+        </div>
+        <div class="composer-wrap">
+          <div class="composer">
+            <textarea aria-label="消息" rows="2" placeholder="继续讨论这个方向"></textarea>
+            <div class="composer-actions"><button type="button" aria-label="添加附件">＋</button><span>本地</span><button class="send" type="button" aria-label="发送"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 19V5m0 0-5 5m5-5 5 5"/></svg></button></div>
+          </div>
+        </div>
+      </section>
+    </section>
+    <footer class="palette-note" aria-live="polite">
+      <strong id="palette-note-title">05 绿松蓝</strong>
+      <span id="palette-note-copy">已选方向：白底主题色增绿至 #087F65，黑底主题色保持 #5BD7B7。</span>
+    </footer>
+  </main>
+  <script src="preview.js"></script>
+</body>
+</html>

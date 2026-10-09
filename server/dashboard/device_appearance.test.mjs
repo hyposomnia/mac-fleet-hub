@@ -4,6 +4,9 @@ import vm from 'node:vm';
 import {readFile} from 'node:fs/promises';
 
 const source = await readFile(new URL('./device_appearance.js', import.meta.url), 'utf8').catch(() => '');
+const appSource = await readFile(new URL('./app.js', import.meta.url), 'utf8');
+const indexHTML = await readFile(new URL('./index.html', import.meta.url), 'utf8');
+const styleCSS = await readFile(new URL('./style.css', import.meta.url), 'utf8');
 function setup(initial = '{}', blocked = false) {
   let stored = initial;
   const element = tag => ({tag, attributes:{}, children:[], setAttribute(k,v){this.attributes[k]=v;}, appendChild(n){this.children.push(n);}});
@@ -45,12 +48,12 @@ test('all six icon choices have SVG geometry and eight colors are distinct', () 
   for (const choice of api.icons) assert.ok(api.createIcon({icon:choice.id}).children[0].children.length);
   assert.equal(new Set(api.colors.map(color=>color.id)).size,8);
 });
-test('one to three ASCII letters or digits preserve case and leading zeros and reject invalid text', () => {
+test('one to four ASCII letters or digits preserve case and leading zeros and reject invalid text', () => {
   const {api}=setup();
-  for(const [text,expected] of [['m','m'],['mb','mb'],[' A ','A'],[' aB ','aB'],['4','4'],['04','04'],['a1','a1'],['1b','1b'],['mbp','mbp'],['MbP','MbP'],['009','009'],['a1b','a1b'],['A1b','A1b']]) {
+  for(const [text,expected] of [['m','m'],['mb','mb'],[' A ','A'],[' aB ','aB'],['4','4'],['04','04'],['a1','a1'],['1b','1b'],['mbp','mbp'],['MbP','MbP'],['009','009'],['a1b','a1b'],['A1b','A1b'],['home','home'],['Mac4','Mac4'],['0009','0009']]) {
     assert.deepEqual(JSON.parse(JSON.stringify(api.normalize({icon:'text',text,color:'violet'}))), {icon:'text',text:expected,color:'violet'});
   }
-  for(const text of ['', 'ABCD', '1234', 'M?', 'A 1', '中', '<', 'é', 'ß', 'ſ', 'ı', '４', '٤']) assert.equal(api.normalize({icon:'text',text}).icon,'monitor');
+  for(const text of ['', 'ABCDE', '12345', 'M?', 'A 1', '中', '<', 'é', 'ß', 'ſ', 'ı', '４', '٤']) assert.equal(api.normalize({icon:'text',text}).icon,'monitor');
 });
 test('letter icons persist per device, invalid saves retain prior preference and SVG selection clears text',()=>{
   const {api,stored}=setup();
@@ -75,11 +78,26 @@ test('alphanumeric icons persist per device and keep their text when recoloured'
 });
 test('alphanumeric previews are plain text in the same coloured icon container and do not mutate preferences',()=>{
   const {api}=setup();
-  for(const [text,expected] of [['ab','ab'],['4','4'],['04','04'],['a1','a1'],['www','www'],['WWW','WWW'],['009','009'],['a1b','a1b'],['A1b','A1b']]) {
+  for(const [text,expected] of [['ab','ab'],['4','4'],['04','04'],['a1','a1'],['www','www'],['WWW','WWW'],['009','009'],['a1b','a1b'],['A1b','A1b'],['home','home'],['Mac4','Mac4']]) {
     const icon=api.createIcon({icon:'text',text,color:'coral'});
     assert.equal(icon.children.length,0);assert.equal(icon.textContent,expected);
     assert.equal(icon.attributes['data-device-color'],'coral');
     assert.match(icon.className,/device-icon-letters/);assert.equal(icon.attributes['data-length'],String(expected.length));
   }
   assert.equal(api.get('m1').icon,'monitor');
+});
+
+test('letter editor shows entered case, accepts four characters, and sizes all lengths without forced uppercase', () => {
+  assert.match(indexHTML, /id="hm-letter-input"[^>]*maxlength="4"[^>]*pattern="\[A-Za-z0-9\]\{1,4\}"/);
+  assert.match(indexHTML, /1–4 个英文字母或数字，保留输入的大小写。/);
+  assert.doesNotMatch(styleCSS, /\.device-letter-input\s*\{[^}]*text-transform:\s*uppercase/);
+  for (const length of [1, 2, 3, 4]) assert.match(styleCSS, new RegExp(`\\.device-icon-letters\\[data-length="${length}"\\]`));
+});
+
+test('device connectivity uses original colour online and conspicuous grayscale offline without corner dots', () => {
+  assert.doesNotMatch(appSource, /device-status-mark/);
+  assert.doesNotMatch(styleCSS, /\.device-status-mark/);
+  const offlineRule = styleCSS.match(/\.device-icon\.is-offline\s*\{([^}]*)\}/)?.[1] || '';
+  assert.match(offlineRule, /filter:\s*grayscale\(1\)/);
+  assert.match(offlineRule, /opacity:\s*\.4[0-9]/);
 });

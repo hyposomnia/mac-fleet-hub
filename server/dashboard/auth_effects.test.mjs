@@ -22,7 +22,7 @@ function fixture({ fine = true, reduced = false, random = .4 } = {}) {
   let observer;
   const target = {
     Math: Object.assign(Object.create(Math), { random: () => random }),
-    document, innerWidth: 1440, innerHeight: 900, devicePixelRatio: 2, accent: '#2C5D87',
+    document, innerWidth: 1440, innerHeight: 900, devicePixelRatio: 2, accent: '#087F65',
     performance: { now: () => now },
     getComputedStyle: () => ({ getPropertyValue: () => target.accent }),
     matchMedia: query => media[query.includes('reduced') ? 1 : 0],
@@ -121,9 +121,9 @@ test('changed pointer or motion preferences cancel animation immediately', () =>
 
 test('theme changes update the star color and teardown removes all active work', () => {
   const current = fixture();
-  current.target.accent = '#B8D9FF'; current.observer.callback();
+  current.target.accent = '#5BD7B7'; current.observer.callback();
   current.move(200, 200); current.move(300, 240); current.flush();
-  assert.match(current.fills.find(fill => typeof fill === 'string'), /^rgba\(184,217,255,/);
+  assert.match(current.fills.find(fill => typeof fill === 'string'), /^rgba\(91,215,183,/);
   current.effect.destroy();
   assert.equal(current.frames.size, 0);
   assert.equal(current.listeners.has('pointermove'), false);

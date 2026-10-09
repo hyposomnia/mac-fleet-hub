@@ -28,7 +28,7 @@ function fixture(load = async () => null, confirm = () => true, inline = false) 
   assert.ok(source, 'unified settings controller missing');
   const sandbox = {};
   vm.runInNewContext(source, sandbox);
-  const pages = ['account', 'add-device', 'automation', 'sessions'];
+  const pages = ['account', 'add-device', 'automation', 'sessions', 'appearance'];
   const panels = pages.map(page => element({ settingsPanel: page }));
   const buttons = pages.map(page => element({ settingsPage: page }));
   const overlay = element();
@@ -43,7 +43,7 @@ test('all settings share one overlay and select only the requested panel', async
   const current = fixture();
   await current.dialog.open('add-device');
   assert.equal(current.overlay.hidden, false);
-  assert.deepEqual(current.panels.map(panel => panel.hidden), [true, false, true, true]);
+  assert.deepEqual(current.panels.map(panel => panel.hidden), [true, false, true, true, true]);
   assert.equal(current.buttons[1].attributes['aria-selected'], 'true');
   assert.equal(current.dialog.close(), true);
   assert.equal(current.overlay.hidden, true);

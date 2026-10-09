@@ -128,11 +128,14 @@
   root.FleetAuth = { createClient };
   if (root.document && root.location) {
     if (root.document.documentElement.classList.contains('account-root')) {
-      let theme;
-      try { theme = root.localStorage.getItem('fleet-theme'); } catch (_) {}
-      if (!['light', 'dark'].includes(theme)) theme = root.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
-      root.document.documentElement.dataset.theme = theme;
-      root.document.querySelector('meta[name="theme-color"]').content = theme === 'light' ? '#f6f7f9' : '#090c12';
+      if (root.FleetTheme) root.FleetTheme.refresh();
+      else {
+        let theme;
+        try { theme = root.localStorage.getItem('fleet-theme'); } catch (_) {}
+        if (!['light', 'dark'].includes(theme)) theme = root.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
+        root.document.documentElement.dataset.theme = theme;
+        root.document.querySelector('meta[name="theme-color"]').content = theme === 'light' ? '#FAFAFA' : '#000000';
+      }
     }
     const nativeFetch = root.fetch.bind(root);
     const client = createClient({ fetch: nativeFetch, location: root.location,
