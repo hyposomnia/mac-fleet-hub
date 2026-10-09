@@ -857,8 +857,8 @@ html.automation-doc-root, html.automation-doc-root body { height: auto; min-heig
 #frames { position: absolute; inset: 0; pointer-events: none; }
 .term-frame { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; background: var(--bg); visibility: hidden; }
 .term-frame.show { visibility: visible; z-index: 1; pointer-events: auto; }
-.empty-state { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; color: var(--text-2); text-align: center; padding: 0 30px; background: var(--surface-1); pointer-events: none; }
-.empty-state .g { width: 62px; height: 62px; border-radius: 17px; display: grid; place-items: center; font-size: var(--t-display); background: var(--surface-1); border: 0; color: var(--text-1); }
+.empty-state { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; color: var(--text-2); text-align: center; padding: 0 30px; background: var(--bg); pointer-events: none; }
+.empty-state .g { width: 62px; height: 62px; border-radius: 17px; display: grid; place-items: center; font-size: var(--t-display); background: transparent; border: 0; color: var(--text-1); }
 .empty-state b { color: var(--text-1); }
 
 /* Codex 自绘会话：仅在实验开关开启时替换右侧 ttyd 窗口区域 */
@@ -1360,7 +1360,7 @@ html[data-workspace-tab="true"] .preview-actions .iconbtn { width: 26px; height:
 .workspace-tab-preview-text { display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden; margin-top: 8px; color: var(--text-1); font-size: var(--t-secondary); line-height: 1.6; white-space: pre-line; overflow-wrap: anywhere; }
 .workspace-tab-preview-path { margin-top: 8px; color: var(--text-3); font-size: var(--t-caption); line-height: 1.5; overflow-wrap: anywhere; }
 .workspace-tab-preview-text[hidden], .workspace-tab-preview-path[hidden] { display: none; }
-#workspace-preview { position: absolute; z-index: 12; inset: 0 0 var(--workspace-composer-height, 0px); background: var(--surface-1); }
+#workspace-preview { position: absolute; z-index: 12; inset: 0 0 var(--workspace-composer-height, 0px); background: var(--bg); }
 .workspace-preview-frame { width: 100%; height: 100%; border: 0; display: block; }
 .workspace-preview-frame[hidden] { display: none; }
 #win[data-workspace-preview="true"] .win-body > :not(#workspace-preview):not(#chat-pane) { visibility: hidden; pointer-events: none; }
