@@ -42,6 +42,29 @@ cpSync(module.Dir, staged, { recursive: true });
 const patched = join(staged, 'net/dnscache/dnscache.go');
 chmodSync(patched, 0o600);
 writeFileSync(patched, source.replace(before, after));
+// DERP uses tls.Client directly and does not pass through dnscache.
+// Apply the same identity preservation after its CertName verifier selection.
+const relayRelative = 'derp/derphttp/derphttp_client.go';
+const relaySource = readFileSync(join(module.Dir, relayRelative), 'utf8');
+if (createHash('sha256').update(relaySource).digest('hex') !==
+    'a6711c986564297a85621586ef7eb0acacd9a645989ffa4fbdd5ad29d420a531') {
+  throw new Error('Tailscale DERP TLS source changed; review the patch before building.');
+}
+const relayBefore = '\treturn tls.Client(nc, tlsConf)';
+const relayAfter = `\tif net.ParseIP(tlsConf.ServerName) != nil && tlsConf.VerifyConnection != nil {
+\t\texpectedHost, verify := tlsConf.ServerName, tlsConf.VerifyConnection
+\t\ttlsConf.VerifyConnection = func(state tls.ConnectionState) error {
+\t\t\tif state.ServerName == "" {
+\t\t\t\tstate.ServerName = expectedHost
+\t\t\t}
+\t\t\treturn verify(state)
+\t\t}
+\t}
+${relayBefore}`;
+if (relaySource.split(relayBefore).length !== 2) throw new Error('Unexpected DERP TLS patch location.');
+const relayPatched = join(staged, relayRelative);
+chmodSync(relayPatched, 0o600);
+writeFileSync(relayPatched, relaySource.replace(relayBefore, relayAfter));
 const modfile = join(directory, 'desktop.mod');
 writeFileSync(modfile, readFileSync(join(root, 'mac/fleet-agent/go.mod'), 'utf8') +
   `\nreplace tailscale.com => ${JSON.stringify(staged)}\n`, { mode: 0o600 });

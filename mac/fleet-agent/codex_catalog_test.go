@@ -613,3 +613,29 @@ func TestCodexPinStatePersistsOutsideAppServer(t *testing.T) {
 		t.Fatal("thread pin was not removed")
 	}
 }
+
+func TestNativeMissingCodexDoesNotRestartDeviceAndCanReconnect(t *testing.T) {
+	t.Setenv("FLEET_DESKTOP_MANAGED", "1")
+	connects, restarts := 0, 0
+	rpc := newFakeRPCConn()
+	rpc.reply["thread/list"] = json.RawMessage(`{"data":[{"id":"available","cwd":"/repo","preview":"Available"}]}`)
+	backend := newCodexChatBackend(func(context.Context) (codexRPCConn, func(), error) {
+		connects++
+		if connects == 1 {
+			return nil, nil, errors.New("shared listener missing")
+		}
+		return rpc, func() {}, nil
+	})
+	defer backend.resetRPC()
+	backend.restart = func(error) { restarts++ }
+	if _, err := backend.ListThreads(context.Background(), codexThreadListOptions{}); !errors.Is(err, errAppServerUnavailable) {
+		t.Fatalf("missing Codex must remain a chat failure: %v", err)
+	}
+	if restarts != 0 {
+		t.Fatal("chat dependency restarted the entire native device")
+	}
+	page, err := backend.ListThreads(context.Background(), codexThreadListOptions{})
+	if err != nil || len(page.Sessions) != 1 || page.Sessions[0].SessionID != "available" || connects != 2 {
+		t.Fatalf("did not reconnect without restarting the device: %+v, %v", page, err)
+	}
+}

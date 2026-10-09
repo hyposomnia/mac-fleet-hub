@@ -1,8 +1,16 @@
+import Foundation
 import XCTest
 @testable import FleetCore
 
 @MainActor
 final class SettingsTests: XCTestCase {
+    func testBindingUsesServerNameAndDecodesOlderStatuses() throws {
+        let legacy = Data(#"{"device_id":"m2","owner_email":"owner@example.test","origin":"https://fleet.example.test","complete":true,"locked":false}"#.utf8)
+        let current = Data(#"{"device_id":"m2","device_name":"Office Mac","owner_email":"owner@example.test","origin":"https://fleet.example.test","complete":true,"locked":false}"#.utf8)
+        XCTAssertEqual(try JSONDecoder().decode(BindingStatus.self, from: current).displayName, "Office Mac")
+        XCTAssertEqual(try JSONDecoder().decode(BindingStatus.self, from: legacy).displayName, "m2")
+    }
+
     func testBareServerAddressesUseHTTPSAndEmptySettingsCannotAuthorize() throws {
         XCTAssertEqual(try FleetSettings.validatedOrigin(" fleet.example.test:7443/ "), "https://fleet.example.test:7443")
         XCTAssertEqual(try FleetSettings.validatedOrigin("192.0.2.10:7443"), "https://192.0.2.10:7443")

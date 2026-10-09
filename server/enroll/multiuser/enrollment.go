@@ -120,8 +120,8 @@ func (server *Server) handleEnrollment(writer http.ResponseWriter, request *http
 		reject(writer, 403, "账号当前不能绑定设备")
 		return
 	}
-	var deviceStatus string
-	if err = server.db.QueryRow("SELECT status FROM devices WHERE device_index=?", index.Int64).Scan(&deviceStatus); err != nil || deviceStatus == "revoked" {
+	var deviceStatus, deviceName string
+	if err = server.db.QueryRow("SELECT status,name FROM devices WHERE device_index=?", index.Int64).Scan(&deviceStatus, &deviceName); err != nil || deviceStatus == "revoked" {
 		reject(writer, 410, "设备授权已撤销")
 		return
 	}
@@ -159,7 +159,7 @@ func (server *Server) handleEnrollment(writer http.ResponseWriter, request *http
 			server.failure(writer, err)
 			return
 		}
-		respond(writer, 200, map[string]any{"authKey": key, "loginServer": server.options.LoginServer, "index": intString(index.Int64), "state": "issued", "device_id": "m" + intString(index.Int64), "owner_email": current.Email, "device_token": token, "proxy_token": proxy, "agent_port": server.options.AgentPort, "terminal_port": server.options.TerminalPort, "files_port": server.options.FilesPort})
+		respond(writer, 200, map[string]any{"authKey": key, "loginServer": server.options.LoginServer, "index": intString(index.Int64), "state": "issued", "device_id": "m" + intString(index.Int64), "device_name": deviceName, "owner_email": current.Email, "device_token": token, "proxy_token": proxy, "agent_port": server.options.AgentPort, "terminal_port": server.options.TerminalPort, "files_port": server.options.FilesPort})
 		return
 	}
 	if path != "complete" || grantID == "" {

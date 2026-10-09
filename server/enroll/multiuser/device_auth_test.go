@@ -147,7 +147,7 @@ func TestDeviceCredentialsAreScopedPrivateAndRetryable(t *testing.T) {
 	json.Unmarshal(response.Body.Bytes(), &grant)
 	token, tokenOK := grant["device_token"].(string)
 	proxyToken, proxyOK := grant["proxy_token"].(string)
-	if response.Code != 200 || !tokenOK || !proxyOK || len(token) < 40 || token == proxyToken || grant["owner_email"] != user.Email {
+	if response.Code != 200 || !tokenOK || !proxyOK || len(token) < 40 || token == proxyToken || grant["owner_email"] != user.Email || grant["device_name"] != "Private Mac" {
 		t.Fatal("claim lacks separate scoped credentials")
 	}
 	response = installer.request("POST", "/api/enrollment/claim", claim)
@@ -166,7 +166,7 @@ func TestDeviceCredentialsAreScopedPrivateAndRetryable(t *testing.T) {
 		t.Fatalf("complete %d", response.Code)
 	}
 	response = deviceRequest(server, "GET", "/api/device/status", token)
-	if response.Code != 200 || !strings.Contains(response.Body.String(), user.Email) {
+	if response.Code != 200 || !strings.Contains(response.Body.String(), user.Email) || !strings.Contains(response.Body.String(), `"device_name":"Private Mac"`) {
 		t.Fatalf("device status %d", response.Code)
 	}
 	for _, path := range []string{"/api/devices", "/api/auth/me"} {

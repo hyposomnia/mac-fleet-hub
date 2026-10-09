@@ -10,11 +10,15 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
 
+	"tailscale.com/derp/derphttp"
 	"tailscale.com/net/dnscache"
+	"tailscale.com/net/netmon"
+	"tailscale.com/tailcfg"
 )
 
 func TestDesktopTLSIPKeepsVerificationHost(t *testing.T) {
@@ -74,6 +78,53 @@ func TestDesktopTLSIPKeepsVerificationHost(t *testing.T) {
 			}
 			if base.ServerName != test.expectedHost {
 				t.Fatal("mutated shared TLS configuration")
+			}
+		})
+	}
+}
+
+func TestDesktopTLSDERPIPKeepsVerificationHost(t *testing.T) {
+	server := httptest.NewTLSServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
+	defer server.Close()
+	host, portText, err := net.SplitHostPort(strings.TrimPrefix(server.URL, "https://"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	port, _ := strconv.Atoi(portText)
+	trusted := x509.NewCertPool()
+	trusted.AddCert(server.Certificate())
+	monitor := netmon.NewStatic()
+	defer monitor.Close()
+	for _, test := range []struct {
+		name, identity string
+		roots          *x509.CertPool
+		wantError      bool
+	}{
+		{"trusted relay", host, trusted, false},
+		{"wrong relay IP", "192.0.2.10", trusted, true},
+		{"untrusted relay", host, x509.NewCertPool(), true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			client := derphttp.NewNetcheckClient(t.Logf, monitor)
+			client.TLSConfig = &tls.Config{RootCAs: test.roots, MinVersion: tls.VersionTLS12}
+			region := &tailcfg.DERPRegion{RegionID: 998, Nodes: []*tailcfg.DERPNode{{Name: "relay", RegionID: 998, HostName: test.identity, IPv4: host, IPv6: "none", DERPPort: port}}}
+			ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+			defer cancel()
+			connection, closer, _, err := client.DialRegionTLS(ctx, region)
+			if closer != nil {
+				closer.Close()
+			}
+			if connection != nil {
+				connection.Close()
+			}
+			if (err != nil) != test.wantError {
+				t.Fatalf("error = %v; want error = %v", err, test.wantError)
+			}
+			if test.name == "untrusted relay" {
+				var trustError x509.UnknownAuthorityError
+				if !errors.As(err, &trustError) {
+					t.Fatalf("not a trust rejection: %v", err)
+				}
 			}
 		})
 	}

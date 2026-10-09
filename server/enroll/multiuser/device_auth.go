@@ -113,7 +113,7 @@ func (server *Server) handleDeviceAuth(writer http.ResponseWriter, request *http
 			status = 200
 			lease = server.now().Add(45 * time.Second).Unix()
 		}
-		respond(writer, status, map[string]any{"device_id": device.ID, "owner_email": user.Email, "state": device.Status, "lease_until": lease, "idleSec": 1800})
+		respond(writer, status, map[string]any{"device_id": device.ID, "device_name": device.Name, "owner_email": user.Email, "state": device.Status, "lease_until": lease, "idleSec": 1800})
 		return
 	}
 	reject(writer, 401, "设备凭据无效")

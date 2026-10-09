@@ -66,6 +66,11 @@ public struct DiskAccess: Codable, Equatable, Sendable {
 
 public struct BindingStatus: Codable, Equatable, Sendable {
     public var deviceID: String
+    public var deviceName: String? = nil
+    public var displayName: String {
+        let name = deviceName?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return name.isEmpty ? deviceID : name
+    }
     public var ownerEmail: String
     public var origin: String
     public var complete: Bool
@@ -73,6 +78,7 @@ public struct BindingStatus: Codable, Equatable, Sendable {
     enum CodingKeys: String, CodingKey {
         case origin, complete, locked
         case deviceID = "device_id"
+        case deviceName = "device_name"
         case ownerEmail = "owner_email"
     }
 }

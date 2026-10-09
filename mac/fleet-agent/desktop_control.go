@@ -27,6 +27,7 @@ type desktopDiskAccess struct {
 
 type desktopBindingStatus struct {
 	DeviceID   string `json:"device_id"`
+	DeviceName string `json:"device_name,omitempty"`
 	OwnerEmail string `json:"owner_email"`
 	Origin     string `json:"origin"`
 	Complete   bool   `json:"complete"`
@@ -76,7 +77,7 @@ func saveDesktopSettings(path string, settings desktopSettings) error {
 }
 
 func desktopPublicBinding(binding deviceBinding) desktopBindingStatus {
-	return desktopBindingStatus{DeviceID: binding.DeviceID, OwnerEmail: binding.OwnerEmail, Origin: binding.Origin, Complete: binding.Complete, Locked: binding.Locked}
+	return desktopBindingStatus{DeviceID: binding.DeviceID, DeviceName: binding.DeviceName, OwnerEmail: binding.OwnerEmail, Origin: binding.Origin, Complete: binding.Complete, Locked: binding.Locked}
 }
 
 func probeDesktopDiskAccess(targets []string, probe func(string) error) desktopDiskAccess {

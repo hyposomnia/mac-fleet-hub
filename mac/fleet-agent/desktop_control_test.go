@@ -163,7 +163,7 @@ func TestDesktopFullDiskAccessRequiresProtectedDatabaseNotOtherFilePermissions(t
 }
 
 func TestDesktopStatusDoesNotExposeDeviceSecrets(t *testing.T) {
-	binding := deviceBinding{DeviceID: "m12", OwnerEmail: "owner@example.test", DeviceToken: strings.Repeat("device-private", 5), ProxyToken: strings.Repeat("proxy-private", 5), Origin: "https://fleet.example.test", Complete: true}
+	binding := deviceBinding{DeviceID: "m12", DeviceName: "Office Mac", OwnerEmail: "owner@example.test", DeviceToken: strings.Repeat("device-private", 5), ProxyToken: strings.Repeat("proxy-private", 5), Origin: "https://fleet.example.test", Complete: true}
 	status := desktopPublicBinding(binding)
 	bytes, err := json.Marshal(status)
 	if err != nil {
@@ -172,7 +172,7 @@ func TestDesktopStatusDoesNotExposeDeviceSecrets(t *testing.T) {
 	if strings.Contains(string(bytes), "private") || strings.Contains(string(bytes), "token") {
 		t.Fatalf("leaked credentials: %s", bytes)
 	}
-	if status.DeviceID != "m12" || status.OwnerEmail != binding.OwnerEmail {
+	if status.DeviceID != "m12" || status.OwnerEmail != binding.OwnerEmail || status.DeviceName != binding.DeviceName {
 		t.Fatal("missing public ownership metadata")
 	}
 }

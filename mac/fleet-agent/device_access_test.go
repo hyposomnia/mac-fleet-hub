@@ -192,3 +192,43 @@ func TestInstallationCompletionKeepsExistingLease(t *testing.T) {
 		t.Fatal("completion flag unnecessarily invalidated authorization")
 	}
 }
+
+func TestDeviceNameFollowsValidatedLeaseWithoutChangingAuthorization(t *testing.T) {
+	name, id := "Office Mac", "m1"
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		json.NewEncoder(writer).Encode(map[string]any{"device_id": id, "device_name": name, "owner_email": "owner@example.test", "lease_until": time.Now().Add(40 * time.Second).Unix()})
+	}))
+	defer server.Close()
+	path := filepath.Join(t.TempDir(), "private", "binding.json")
+	binding := deviceBinding{Origin: server.URL, DeviceID: "m1", OwnerEmail: "owner@example.test", DeviceToken: strings.Repeat("a", 43), ProxyToken: strings.Repeat("b", 43), Complete: true}
+	if err := writePrivateJSON(path, binding); err != nil {
+		t.Fatal(err)
+	}
+	access := newDeviceAccess(path)
+	defer access.close()
+	access.refresh(context.Background())
+	current, err := readDeviceBinding(path)
+	if err != nil || current.DeviceName != name || !sameDeviceAuthorization(binding, current) {
+		t.Fatal("name not synchronized without changing authorization", err)
+	}
+	originalScope := access.scope
+	name = "Renamed Mac"
+	access.refresh(context.Background())
+	current, _ = readDeviceBinding(path)
+	if current.DeviceName != name || access.scope != originalScope || originalScope.Err() != nil {
+		t.Fatal("rename interrupted an authorized stream")
+	}
+	// Older servers omit the name; retain the last authoritative name.
+	name = ""
+	access.refresh(context.Background())
+	current, _ = readDeviceBinding(path)
+	if current.DeviceName != "Renamed Mac" {
+		t.Fatal("old server erased cached name")
+	}
+	name, id = "Wrong device", "m2"
+	access.refresh(context.Background())
+	current, _ = readDeviceBinding(path)
+	if current.DeviceName != "Renamed Mac" || originalScope.Err() == nil {
+		t.Fatal("unverified identity updated metadata or retained access")
+	}
+}

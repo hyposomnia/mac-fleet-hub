@@ -29,8 +29,8 @@ func (r *recoveringCodexRPC) call(ctx context.Context, method string, params int
 
 	replacement, recoveryErr := r.backend.replaceFailedRPC(r, err)
 	if recoveryErr != nil {
-		r.backend.scheduleSelfRestart(recoveryErr)
-		return nil, fmt.Errorf("%w: %s: %v", errAgentRestarting, method, recoveryErr)
+		failure := r.backend.scheduleSelfRestart(recoveryErr)
+		return nil, fmt.Errorf("%w: %s: %v", failure, method, recoveryErr)
 	}
 	if !codexRPCMethodSafeToRetry(method) {
 		return nil, fmt.Errorf("%w: %s", errAppServerRecovered, method)
@@ -62,8 +62,8 @@ func (r *recoveringCodexRPC) call(ctx context.Context, method string, params int
 		}
 	}
 	r.backend.resetRPCIf(failedRPC)
-	r.backend.scheduleSelfRestart(err)
-	return nil, fmt.Errorf("%w: %s: %v", errAgentRestarting, method, err)
+	failure := r.backend.scheduleSelfRestart(err)
+	return nil, fmt.Errorf("%w: %s: %v", failure, method, err)
 }
 
 func (r *recoveringCodexRPC) callOnce(ctx context.Context, method string, params interface{}) (json.RawMessage, error) {
@@ -93,8 +93,8 @@ func (r *recoveringCodexRPC) recoverWriteFailure(method string, err error) error
 		return err
 	}
 	if _, recoveryErr := r.backend.replaceFailedRPC(r, err); recoveryErr != nil {
-		r.backend.scheduleSelfRestart(recoveryErr)
-		return fmt.Errorf("%w: %s: %v", errAgentRestarting, method, recoveryErr)
+		failure := r.backend.scheduleSelfRestart(recoveryErr)
+		return fmt.Errorf("%w: %s: %v", failure, method, recoveryErr)
 	}
 	return fmt.Errorf("%w: %s", errAppServerRecovered, method)
 }
@@ -204,10 +204,15 @@ func (b *codexChatBackend) resetRPCIf(failed codexRPCConn) {
 	}
 }
 
-func (b *codexChatBackend) scheduleSelfRestart(reason error) {
-	b.restartOnce.Do(func() {
-		b.restart(reason)
-	})
+func (b *codexChatBackend) scheduleSelfRestart(reason error) error {
+	// A missing chat dependency must not repeatedly tear down native mesh,
+	// terminal, files and local management. Later requests reconnect through ensure.
+	if !desktopMayConfigureEnvironment() {
+		b.restartOnce.Do(func() { log.Printf("Codex unavailable; native device services remain running: %v", reason) })
+		return errAppServerUnavailable
+	}
+	b.restartOnce.Do(func() { b.restart(reason) })
+	return errAgentRestarting
 }
 
 func scheduleFleetAgentRestart(reason error) {

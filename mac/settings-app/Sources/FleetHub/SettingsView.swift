@@ -152,7 +152,7 @@ struct SettingsView: View {
             if let binding = model.status?.binding {
                 card {
                     row("账号", binding.ownerEmail)
-                    row("设备编号", binding.deviceID)
+                    row("设备名称", binding.displayName)
                     if binding.locked { Text("授权已锁定").foregroundStyle(theme.warning) }
                 }
             } else {
@@ -230,7 +230,7 @@ struct SettingsView: View {
             if let binding = model.status?.binding {
                 card {
                     row("账号", binding.ownerEmail)
-                    row("设备编号", binding.deviceID)
+                    row("设备名称", binding.displayName)
                     Button("解除关联") { confirmLogout = true }.buttonStyle(FleetButtonStyle(.danger)).disabled(updater.sessionActive)
                 }
             }

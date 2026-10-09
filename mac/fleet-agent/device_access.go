@@ -34,6 +34,8 @@ func newDeviceAccess(path string) *deviceAccess {
 func sameDeviceAuthorization(first, second deviceBinding) bool {
 	first.Complete = false
 	second.Complete = false
+	first.DeviceName = ""
+	second.DeviceName = ""
 	return first == second
 }
 
@@ -78,6 +80,7 @@ func (access *deviceAccess) refresh(ctx context.Context) {
 	var status struct {
 		ID    string `json:"device_id"`
 		Email string `json:"owner_email"`
+		Name  string `json:"device_name"`
 		Lease int64  `json:"lease_until"`
 	}
 	err = json.NewDecoder(http.MaxBytesReader(nil, response.Body, 16<<10)).Decode(&status)
@@ -89,6 +92,12 @@ func (access *deviceAccess) refresh(ctx context.Context) {
 	if response.StatusCode != 200 || err != nil || status.ID != binding.DeviceID || status.Email != binding.OwnerEmail || status.Lease <= time.Now().Unix() || status.Lease > time.Now().Add(46*time.Second).Unix() {
 		access.deny()
 		return
+	}
+	// Names are presentation metadata, never part of the authorization identity.
+	// Synchronize only after validating the device, owner and lease.
+	if status.Name != "" {
+		syncDeviceName(access.path, binding, status.Name)
+		access.binding.DeviceName = status.Name
 	}
 	if access.scope == nil || access.scope.Err() != nil {
 		access.scope, access.cancel = context.WithCancel(context.Background())
@@ -186,4 +195,20 @@ func registerDeviceServices(mux *http.ServeMux, binding deviceBinding) {
 	}
 	mux.Handle("/"+binding.DeviceID+"/term/", localServiceProxy(terminalPort))
 	mux.Handle("/"+binding.DeviceID+"/files/", localServiceProxy(filesPort))
+}
+
+// Re-read under the existing login/logout lock so metadata cannot overwrite a
+// concurrent revocation, new association, or installation completion.
+func syncDeviceName(path string, expected deviceBinding, name string) {
+	lock, err := lockDeviceState(path)
+	if err != nil {
+		return
+	}
+	defer lock.Close()
+	current, err := readDeviceBinding(path)
+	if err != nil || !sameDeviceAuthorization(current, expected) || current.DeviceName == name {
+		return
+	}
+	current.DeviceName = name
+	_ = writePrivateJSON(path, current)
 }

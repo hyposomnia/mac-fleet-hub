@@ -195,8 +195,8 @@ func (b *codexChatBackend) ensure(ctx context.Context) (codexRPCConn, error) {
 	if err != nil {
 		if ctx.Err() == nil {
 			wrapped := fmt.Errorf("Codex app-server initialization failed: %w", err)
-			b.scheduleSelfRestart(wrapped)
-			return nil, fmt.Errorf("%w: %v", errAgentRestarting, wrapped)
+			failure := b.scheduleSelfRestart(wrapped)
+			return nil, fmt.Errorf("%w: %v", failure, wrapped)
 		}
 		return nil, errAppServerUnavailable
 	}

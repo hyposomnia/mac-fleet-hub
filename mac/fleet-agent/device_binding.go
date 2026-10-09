@@ -16,6 +16,7 @@ import (
 type deviceBinding struct {
 	Origin       string `json:"origin"`
 	DeviceID     string `json:"device_id"`
+	DeviceName   string `json:"device_name,omitempty"`
 	OwnerEmail   string `json:"owner_email"`
 	DeviceToken  string `json:"device_token"`
 	ProxyToken   string `json:"proxy_token"`
