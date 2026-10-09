@@ -803,9 +803,12 @@ html.automation-doc-root, html.automation-doc-root body { height: auto; min-heig
 .ses-actions { display: flex; align-items: center; gap: 2px; flex: none; }
 .ses-menu-wrap { position: relative; flex: none; }
 .ses-menu-trigger, .ses-archive-trigger { width: 25px; height: 25px; border: 0; border-radius: var(--radius-compact); background: transparent; opacity: 0; }
+.ses-archive-trigger { width: 23px; height: 23px; color: var(--text-3); }
 .ses:hover .ses-actions .iconbtn, .ses:focus-within .ses-actions .iconbtn,
 .ses-actions:has(.ses-menu:not([hidden])) .iconbtn { opacity: 1; }
-.ses-menu-trigger .ic, .ses-archive-trigger .ic { width: 15px; height: 15px; }
+.ses-menu-trigger .ic { width: 15px; height: 15px; }
+.ses-archive-trigger .ic { width: 13px; height: 13px; }
+.ses-archive-trigger:hover { color: var(--text-2); }
 .ses-menu { position: absolute; top: calc(100% + 3px); right: 0; z-index: 20; min-width: 132px; padding: 5px; border: 0; border-radius: var(--radius-card); background: var(--surface); box-shadow: var(--e2); }
 .ses-menu button { display: block; width: 100%; padding: 7px 9px; border-radius: var(--radius-compact); color: var(--text); font-size: var(--t-secondary); text-align: left; }
 .ses-menu button:hover { background: var(--surface-hover); }
@@ -2113,7 +2116,8 @@ html[data-workspace-tab="true"] .preview-actions .iconbtn { width: 26px; height:
   .grp-h .gpath { width: 34px; height: 34px; }
   .ses { min-height: 40px; padding: 2px 8px; justify-content: center; }
   .ses-top .t { font-size: var(--t-title); line-height: 1.25; }
-  .ses-menu-trigger, .ses-archive-trigger { width: 44px; height: 44px; border-radius: var(--radius-control); opacity: 1; }
+  .ses-menu-trigger { width: 44px; height: 44px; border-radius: var(--radius-control); opacity: 1; }
+  .ses-archive-trigger { display: none; }
   .ses-meta { margin-top: 1px; font-size: var(--t-secondary); }
   #app[data-mode="files"] #win { display: flex; flex: 1; min-height: 0; }
   #file-browser { width: 100%; }

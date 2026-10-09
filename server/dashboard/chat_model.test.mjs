@@ -2565,6 +2565,15 @@ test('mobile session rows center single-line content vertically', () => {
   );
 });
 
+test('session archive shortcut is subtle on desktop and hidden on mobile', () => {
+  assert.match(styleCSS, /\.ses-archive-trigger\s*\{[^}]*width:\s*23px;[^}]*height:\s*23px;[^}]*color:\s*var\(--text-3\);/s);
+  assert.match(styleCSS, /\.ses-archive-trigger \.ic\s*\{[^}]*width:\s*13px;[^}]*height:\s*13px;/s);
+  assert.match(styleCSS, /\.ses-archive-trigger:hover\s*\{[^}]*color:\s*var\(--text-2\);/s);
+  const mobileRules = styleCSS.match(/@media \(max-width:\s*860px\)[\s\S]*$/)?.[0] || '';
+  assert.match(mobileRules, /\.ses-archive-trigger\s*\{\s*display:\s*none;\s*\}/);
+  assert.match(mobileRules, /\.ses-menu-trigger\s*\{[^}]*width:\s*44px;[^}]*height:\s*44px;[^}]*opacity:\s*1;/s);
+});
+
 test('mobile title switch emphasizes only the selected mode', () => {
   assert.match(styleCSS, /\.mobile-title-switch button\s*\{[^}]*border:\s*0;[^}]*color:\s*var\(--text\);[^}]*font-weight:\s*500;/s);
   assert.match(styleCSS, /\.mobile-title-switch button\[aria-selected="true"\]\s*\{[^}]*[^}]*color:\s*var\(--accent\);[^}]*font-weight:\s*700;/s);
@@ -3744,7 +3753,7 @@ test('chat send keeps textarea focus through pointerdown on mobile keyboards', (
   assert.match(appSrc, /\$\('#chat-send'\)\.addEventListener\('pointerdown',[\s\S]*?document\.activeElement === \$\('#chat-input'\)[\s\S]*?e\.preventDefault\(\)/);
 });
 
-test('session archive is a first-level action beside the shared menu and respects native capabilities', () => {
+test('session archive stays in the shared menu and has a desktop shortcut when supported', () => {
   const previousInfo = appState.assistantInfo, previousScope = appState.scope;
   try {
     appState.assistantInfo = {m1: {dsh: {enabled: true, degraded: false,
@@ -3753,7 +3762,7 @@ test('session archive is a first-level action beside the shared menu and respect
     appState.scope = 'active';
     let menu = nodesWithClass(sessionRow(session), 'ses-menu')[0];
     assert.ok(menu, 'DeepSeek row must have the shared … menu');
-    assert.deepEqual(menu.children.map(nodeText), ['置顶', '重命名', '删除']);
+    assert.deepEqual(menu.children.map(nodeText), ['置顶', '重命名', '归档', '删除']);
     const row = sessionRow(session);
     const controls = nodesWithClass(row, 'ses-actions')[0];
     assert.equal(controls.children[0].attributes['aria-label'], '归档会话');
@@ -3762,7 +3771,7 @@ test('session archive is a first-level action beside the shared menu and respect
     menu = nodesWithClass(sessionRow(session), 'ses-menu')[0];
     assert.deepEqual(menu.children.map(nodeText), ['置顶', '重命名', '删除']);
     const codexMenu = nodesWithClass(sessionRow({...session, assistant: 'codex'}), 'ses-menu')[0];
-    assert.deepEqual(codexMenu.children.map(nodeText), ['置顶', '重命名', '删除']);
+    assert.deepEqual(codexMenu.children.map(nodeText), ['置顶', '重命名', '移回当前', '删除']);
     assert.equal(nodesWithClass(sessionRow(session), 'ses-archive-trigger').length, 0, 'DeepSeek does not support unarchive');
     assert.equal(nodesWithClass(sessionRow({...session, assistant: 'codex'}), 'ses-archive-trigger')[0].attributes['aria-label'], '移回当前会话');
     appState.assistantInfo = {m1: {dsh: {enabled: true, degraded: false}}};
@@ -3786,10 +3795,12 @@ test('DeepSeek menu clicks keep the row assistant and source Mac', async () => {
     await nodesWithClass(row, 'ses-archive-trigger')[0].onclick({stopPropagation() { stopped = true; }});
     assert.equal(stopped, true, 'archive must not activate the row');
     assert.deepEqual(JSON.parse(JSON.stringify(appSandbox.__menuCalls)), [{macId:'m2', path:'sessions/action', body:{assistant:'dsh',sessionId:'session-menu',action:'archive',value:''}}]);
+    await menu.children.find(button => nodeText(button) === '归档').onclick({stopPropagation() {}});
+    assert.deepEqual(JSON.parse(JSON.stringify(appSandbox.__menuCalls[1])), {macId:'m2', path:'sessions/action', body:{assistant:'dsh',sessionId:'session-menu',action:'archive',value:''}});
     appState.scope = 'all';
     const archived = sessionRow({assistant: 'codex', macId: 'm3', sessionId: 'archived-session', title: 'Archived'});
     await nodesWithClass(archived, 'ses-archive-trigger')[0].onclick({stopPropagation() {}});
-    assert.deepEqual(JSON.parse(JSON.stringify(appSandbox.__menuCalls[1])), {macId:'m3', path:'sessions/action', body:{assistant:'codex',sessionId:'archived-session',action:'unarchive',value:''}});
+    assert.deepEqual(JSON.parse(JSON.stringify(appSandbox.__menuCalls[2])), {macId:'m3', path:'sessions/action', body:{assistant:'codex',sessionId:'archived-session',action:'unarchive',value:''}});
   } finally {
     vm.runInContext('({api, loadSessions, toast, renderSessionResults} = __menuOriginals);', appSandbox);
     appState.assistantInfo = previousInfo; appState.scope = previousScope;

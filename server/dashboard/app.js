@@ -1910,6 +1910,7 @@ function renderSessionMenu(session) {
   const actions = sessionMenuActions(session);
   if (!actions.length) return null;
   const pinAction = session.pinned ? 'unpin' : 'pin';
+  const archiveAction = state.scope === 'all' ? 'unarchive' : 'archive';
   const menu = h('div', { class: 'ses-menu-wrap' },
     h('button', { type: 'button', class: 'iconbtn bare ses-menu-trigger', title: '会话操作', 'aria-label': '会话操作',
       onclick: (event) => {
@@ -1928,6 +1929,8 @@ function renderSessionMenu(session) {
       actions.includes(pinAction) && h('button', { type: 'button', onclick: (event) => { event.stopPropagation(); return mutateSession(session, pinAction); } },
         session.pinned ? '取消置顶' : '置顶'),
       actions.includes('rename') && h('button', { type: 'button', onclick: (event) => { event.stopPropagation(); return renameSession(session); } }, '重命名'),
+      actions.includes(archiveAction) && h('button', { type: 'button', onclick: (event) => { event.stopPropagation(); return mutateSession(session, archiveAction); } },
+        archiveAction === 'archive' ? '归档' : '移回当前'),
       actions.includes('delete') && h('button', { type: 'button', class: 'danger', onclick: (event) => { event.stopPropagation(); return deleteSession(session); } }, '删除')));
   return menu;
 }
