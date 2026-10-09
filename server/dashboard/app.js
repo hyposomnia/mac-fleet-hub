@@ -7845,7 +7845,6 @@ function init() {
     }
   }});
   window.FleetSidebarLayout?.init();
-  window.FleetDeviceHover?.init({onSelect: selectMac, onSettings: openHostModal});
   mountDeviceScopeButtons();
   initUIState();
   initSessionListPreferences();

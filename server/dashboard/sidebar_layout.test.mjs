@@ -116,3 +116,13 @@ test('展开列表不注册浮层关闭交互，页面与样式移除悬浮列�
   assert.match(css, /#win\s*\{\s*grid-column:\s*3;/);
   assert.match(css, /#app\[data-mode="files"\] #win\s*\{\s*grid-column:\s*2;/);
 });
+
+test('收起的设备栏图标不再创建 hover 展开卡片', async () => {
+  const [app, html, css, sw] = await Promise.all(
+    ['app.js', 'index.html', 'style.css', 'sw.js'].map(name => readFile(new URL('./'+name, import.meta.url), 'utf8')),
+  );
+  assert.doesNotMatch(app, /FleetDeviceHover/);
+  assert.doesNotMatch(html, /device_hover\.js/);
+  assert.doesNotMatch(css, /device-hover-(?:card|row|settings)/);
+  assert.doesNotMatch(sw, /device_hover\.js/);
+});
