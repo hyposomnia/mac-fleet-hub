@@ -3524,7 +3524,20 @@ function chatToolIcon(kind) {
   ]);
 }
 
-function renderChatToolSurface(item, extraClass = '') {
+function chatActivityDetails(props, key, expanded, ...children) {
+  return h('details', {
+    ...props, open: key && expanded?.has(key) ? '' : null,
+    ontoggle: (event) => {
+      const details = event.currentTarget;
+      // Replaced nodes can still have a queued toggle event.
+      if (!key || !expanded || details.isConnected === false) return;
+      if (details.open) expanded.add(key);
+      else expanded.delete(key);
+    },
+  }, ...children);
+}
+
+function renderChatToolSurface(item, extraClass = '', itemID = '', expanded = null) {
   const status = chatToolStatus(item.status);
   const duration = chatToolDuration(item.durationMs);
   const hasBody = chatToolHasExpandableBody(item);
@@ -3549,14 +3562,14 @@ function renderChatToolSurface(item, extraClass = '') {
         item.output || '',
       ].filter(Boolean).join('\n') })) : null,
     item.exitCode !== undefined ? h('div', { class: 'chat-tool-exit tnum', text: `退出码 ${item.exitCode}` }) : null);
-  return h('details', { class: cls }, h('summary', {}, header), body);
+  return chatActivityDetails({ class: cls }, itemID ? `item:${itemID}` : '', expanded, h('summary', {}, header), body);
 }
 
-function renderChatTool(item) {
-  return chatRow(renderChatToolSurface(item), 'tool');
+function renderChatTool(item, itemID = '', expanded = null) {
+  return chatRow(renderChatToolSurface(item, '', itemID, expanded), 'tool');
 }
 
-function renderChatDiffSurface(item, extraClass = '') {
+function renderChatDiffSurface(item, extraClass = '', itemID = '', expanded = null) {
   const files = item.files || [];
   const header = h('span', { class: 'chat-tool-summary' },
     h('span', { class: 'chat-tool-icon' }, chatToolIcon('fileChange')),
@@ -3564,7 +3577,7 @@ function renderChatDiffSurface(item, extraClass = '') {
     h('span', { class: 'chat-tool-aside' }, files.length ? svgIcon('chat-tool-chevron', 'M6 9l6 6 6-6') : null));
   const cls = ['chat-tool chat-diff compact', extraClass].filter(Boolean).join(' ');
   if (!files.length) return h('div', { class: cls }, header);
-  return h('details', { class: cls },
+  return chatActivityDetails({ class: cls }, itemID ? `item:${itemID}` : '', expanded,
     h('summary', {}, header),
     h('div', { class: 'chat-diff-files' }, files.map((file) => h('div', { class: 'chat-diff-file' },
       h('span', { class: 'chat-diff-path mono', text: file.path }),
@@ -3573,8 +3586,8 @@ function renderChatDiffSurface(item, extraClass = '') {
         h('span', { class: 'chat-diff-del', text: `-${file.deletions || 0}` }))))));
 }
 
-function renderChatDiff(item) {
-  return chatRow(renderChatDiffSurface(item), 'diff');
+function renderChatDiff(item, itemID = '', expanded = null) {
+  return chatRow(renderChatDiffSurface(item, '', itemID, expanded), 'diff');
 }
 
 function chatActivitySourceLabel(item) {
@@ -3695,36 +3708,32 @@ function chatActivityGroupIconKind(items) {
   return items[0]?.kind || 'tool';
 }
 
-function renderChatActivityGroup(items, groupKey = '', expandedGroups = null) {
+function renderChatActivityGroup(items, groupKey = '', expandedGroups = null, itemIDs = []) {
   const segments = chatActivityActiveSummarySegments(chatActivityActiveItem(items)) || chatActivityGroupSummarySegments(items);
   const header = h('span', { class: 'chat-tool-summary chat-activity-group-summary' },
     h('span', { class: 'chat-tool-icon' }, chatToolIcon(chatActivityGroupIconKind(items))),
     h('span', { class: 'chat-tool-label' }, segments.map((segment) => h('span', { class: 'chat-tool-verb', text: segment }))),
     h('span', { class: 'chat-tool-aside' }, svgIcon('chat-tool-chevron', 'M6 9l6 6 6-6')));
-  const expanded = !!groupKey && expandedGroups?.has(groupKey);
-  const details = h('details', {
-    class: 'chat-activity-group chat-tool compact', open: expanded ? '' : null,
-    ontoggle: (event) => {
-      if (!groupKey || !expandedGroups) return;
-      if (event.currentTarget.open) expandedGroups.add(groupKey);
-      else expandedGroups.delete(groupKey);
-    },
-  },
+  const details = chatActivityDetails({ class: 'chat-activity-group chat-tool compact' }, groupKey, expandedGroups,
     h('summary', {}, header),
-    h('div', { class: 'chat-activity-group-body' }, items.map((item) => (
-      item.type === 'diff' ? renderChatDiffSurface(item, 'grouped') : renderChatToolSurface(item, 'grouped')
+    h('div', { class: 'chat-activity-group-body' }, items.map((item, index) => (
+      item.type === 'diff'
+        ? renderChatDiffSurface(item, 'grouped', itemIDs[index], expandedGroups)
+        : renderChatToolSurface(item, 'grouped', itemIDs[index], expandedGroups)
     ))));
   return chatRow(details,
   'tool activity-group');
 }
 
 function renderChatActivityRun(items, itemIDs = [], expandedGroups = null) {
-  const visibleItems = items.filter((item) => item.type !== 'reasoning');
+  const visibleEntries = items.map((item, index) => ({ item, id: itemIDs[index] })).filter(({ item }) => item.type !== 'reasoning');
+  const visibleItems = visibleEntries.map(({ item }) => item);
+  const visibleIDs = visibleEntries.map(({ id }) => id);
   const rows = [];
   for (let i = 0; i < visibleItems.length; i += 1) {
     const item = visibleItems[i];
     if (!isChatActivityItem(item)) {
-      rows.push(renderChatItem(item, false));
+      rows.push(renderChatItem(item, false, visibleIDs[i], expandedGroups));
       continue;
     }
     const group = [item];
@@ -3735,8 +3744,10 @@ function renderChatActivityRun(items, itemIDs = [], expandedGroups = null) {
     const groupEnd = i;
     const groupStart = groupEnd - group.length + 1;
     // The group grows while a turn streams, so its first item ID is the stable identity.
-    const groupKey = group.length > 1 ? (itemIDs[groupStart] || '') : '';
-    rows.push(group.length > 1 ? renderChatActivityGroup(group, groupKey, expandedGroups) : renderChatItem(item, false));
+    const groupKey = group.length > 1 ? (visibleIDs[groupStart] || '') : '';
+    rows.push(group.length > 1
+      ? renderChatActivityGroup(group, groupKey, expandedGroups, visibleIDs.slice(groupStart, groupEnd + 1))
+      : renderChatItem(item, false, visibleIDs[i], expandedGroups));
   }
   return rows.filter(Boolean);
 }
@@ -4007,7 +4018,7 @@ function renderChatMessageAttachment(att) {
   return href ? h('a', { class: 'chat-file-link', href, download: att.name || '附件', title: `下载 ${att.name || '附件'}` }, card) : card;
 }
 
-function renderChatItem(item, showMeta = true) {
+function renderChatItem(item, showMeta = true, itemID = '', expanded = null) {
   if (item.type === 'user') {
     const parts = [];
     if (item.text) parts.push(h('div', { text: item.text }));
@@ -4054,11 +4065,11 @@ function renderChatItem(item, showMeta = true) {
     return chatRow(h('div', { class: 'chat-context-note', text: '上下文已自动压缩' }), 'context');
   }
   if (item.type === 'review') return null;
-  if (item.type === 'tool') return renderChatTool(item);
+  if (item.type === 'tool') return renderChatTool(item, itemID, expanded);
   if (item.type === 'approval') return renderChatApprovalRequest(item);
   if (item.type === 'request_user_input') return renderChatUserInputRequest(item);
   if (item.type === 'elicitation') return renderChatElicitationRequest(item);
-  if (item.type === 'diff') return renderChatDiff(item);
+  if (item.type === 'diff') return renderChatDiff(item, itemID, expanded);
   return chatRow(h('div', { class: 'chat-card muted', text: JSON.stringify(item) }));
 }
 

@@ -2840,6 +2840,67 @@ test('manually expanded activity groups stay open across live rerenders', () => 
   assert.equal(expanded.has('tool-1'), false);
 });
 
+test('standalone tool details preserve manual open and closed states across updates', () => {
+  const item = { type: 'tool', kind: 'mcpToolCall', title: 'cua_repl · js', detail: 'request', status: 'inProgress' };
+  const expanded = new Set();
+  const render = (value = item, state = expanded) => nodesWithClass(renderChatActivityRun([value], ['call-1'], state)[0], 'chat-tool')[0];
+  const details = render();
+  assert.equal(details.attributes.open, undefined);
+  assert.equal(typeof details.ontoggle, 'function');
+  details.open = true;
+  details.ontoggle({ currentTarget: details });
+  const updated = render({ ...item, output: 'response', status: 'completed' });
+  assert.equal(updated.attributes.open, '');
+  assert.match(nodeText(updated), /response/);
+  assert.equal(render(item, new Set()).attributes.open, undefined, 'another session has independent disclosure state');
+  updated.open = false;
+  updated.ontoggle({ currentTarget: updated });
+  assert.equal(render().attributes.open, undefined);
+});
+
+test('group growth preserves individual tool and diff details independently', () => {
+  const first = { type: 'tool', kind: 'commandExecution', summary: 'pwd', status: 'completed' };
+  const diff = { type: 'diff', files: [{ path: 'app.js' }], status: 'completed' };
+  const expanded = new Set();
+  const standalone = nodesWithClass(renderChatActivityRun([first], ['call-1'], expanded)[0], 'chat-tool')[0];
+  assert.equal(typeof standalone.ontoggle, 'function');
+  standalone.open = true;
+  standalone.ontoggle({ currentTarget: standalone });
+  const grouped = renderChatActivityRun([first, diff], ['call-1', 'diff-1'], expanded)[0];
+  const parent = nodesWithClass(grouped, 'chat-activity-group')[0];
+  assert.equal(parent.attributes.open, undefined, 'a leaf must not expand its parent');
+  const children = nodesWithClass(grouped, 'grouped');
+  assert.equal(children[0].attributes.open, '', 'standalone to grouped keeps the same item identity');
+  assert.equal(children[1].attributes.open, undefined);
+  parent.open = true;
+  parent.ontoggle({ currentTarget: parent });
+  children[1].open = true;
+  children[1].ontoggle({ currentTarget: children[1] });
+  const grown = renderChatActivityRun([first, diff, { ...first, summary: 'ls' }], ['call-1', 'diff-1', 'call-2'], expanded)[0];
+  assert.equal(nodesWithClass(grown, 'chat-activity-group')[0].attributes.open, '');
+  const grownChildren = nodesWithClass(grown, 'grouped');
+  assert.equal(grownChildren[0].attributes.open, '');
+  assert.equal(grownChildren[1].attributes.open, '');
+  assert.equal(grownChildren[2].attributes.open, undefined);
+  children[1].isConnected = false;
+  children[1].open = false;
+  children[1].ontoggle({ currentTarget: children[1] });
+  const rerendered = renderChatActivityRun([first, diff], ['call-1', 'diff-1'], expanded)[0];
+  assert.equal(nodesWithClass(rerendered, 'grouped')[1].attributes.open, '', 'a detached old node cannot erase current state');
+});
+
+test('hidden reasoning does not shift disclosure identities', () => {
+  const tool = { type: 'tool', kind: 'commandExecution', summary: 'pwd', status: 'completed' };
+  const expanded = new Set();
+  const row = renderChatActivityRun([{ type: 'reasoning' }, tool], ['reason-1', 'call-1'], expanded)[0];
+  const details = nodesWithClass(row, 'chat-tool')[0];
+  assert.equal(typeof details.ontoggle, 'function');
+  details.open = true;
+  details.ontoggle({ currentTarget: details });
+  const rerendered = renderChatActivityRun([tool], ['call-1'], expanded)[0];
+  assert.equal(nodesWithClass(rerendered, 'chat-tool')[0].attributes.open, '');
+});
+
 test('Codex activity traces omit internal reasoning items', () => {
   assert.equal(typeof isChatTraceItem, 'function');
   assert.equal(isChatTraceItem({ type: 'reasoning' }), false);
