@@ -1,5 +1,5 @@
 // PWA 外壳缓存。终端、API 与用户文件必须实时，明确不进入 Cache Storage。
-const CACHE = 'fleet-shell-v194';
+const CACHE = 'fleet-shell-v195';
 const FILE_TYPE_ICONS = [
   'audio', 'c', 'console', 'cpp', 'csharp', 'css', 'dart', 'database', 'docker',
   'document', 'exe', 'font', 'git', 'go', 'html', 'image', 'java', 'javascript',
@@ -14,13 +14,13 @@ const CODEMIRROR_ASSETS = [
   'javascript', 'xml', 'jsx', 'css', 'go', 'python', 'ruby', 'shell', 'yaml', 'toml', 'properties',
 ].map((name, index) => index < 2 ? name : `/vendor/codemirror/mode/${name}/${name}.js?v=5.65.20`);
 const SHELL = [
-  '/', '/index.html', '/automation-guide.html', '/theme.js?v=194', '/device_appearance.js?v=191', '/style.css?v=194', '/account.css?v=194', '/auth-client.js?v=194',
+  '/', '/index.html', '/automation-guide.html', '/theme.js?v=195', '/device_appearance.js?v=191', '/style.css?v=195', '/account.css?v=195', '/auth-client.js?v=195',
   '/vendor/purify.min.js?v=3.2.6', '/vendor/marked.min.js?v=15.0.12',
   ...CODEMIRROR_ASSETS,
-  "/fleet_core.js?v=188", "/workspace.js?v=188", "/native_bridge.js?v=188", "/native.css?v=188", "/titanium.css?v=194", "/icons/logo.svg?v=194",
-  '/markdown.js?v=194', '/preview.js?v=194', '/chat_model.js?v=194',
-  '/account.js?v=190', '/settings_dialog.js?v=194', '/auth_effects.js?v=188',
-  '/upload_model.js?v=194', '/sidebar_layout.js?v=188', '/device_hover.js?v=188', '/workspace_tabs.js?v=188', '/compact_composer.js?v=188', '/app.js?v=194',
+  "/fleet_core.js?v=188", "/workspace.js?v=188", "/native_bridge.js?v=188", "/native.css?v=188", "/titanium.css?v=195", "/icons/logo.svg?v=195",
+  '/markdown.js?v=195', '/preview.js?v=195', '/chat_model.js?v=195',
+  '/account.js?v=190', '/settings_dialog.js?v=195', '/auth_effects.js?v=188',
+  '/upload_model.js?v=195', '/sidebar_layout.js?v=188', '/device_hover.js?v=188', '/workspace_tabs.js?v=188', '/compact_composer.js?v=188', '/app.js?v=195',
   '/manifest.webmanifest', '/icons/icon.svg?v=192', '/icons/favicon.svg?v=192', '/icons/icon-180.png?v=192', '/icons/icon-192.png?v=192',
   '/icons/icon-512.png?v=192', '/icons/icon-maskable-512.png?v=192',
   ...FILE_TYPE_ICONS,
