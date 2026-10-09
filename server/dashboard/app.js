@@ -11,6 +11,7 @@ let macNames = {};      // id -> 自定义显示名
 let sessionLoadSeq = 0; // 会话列表请求序号：切主机/切筛选时丢弃旧响应，避免慢请求回写旧列表
 let fileLoadSeq = 0;    // 文件目录请求序号：切设备/目录时丢弃旧响应
 let fileColumnLoadSeq = 0; // 分栏子目录请求序号：切列/视图时丢弃旧响应
+let fileColumnAncestorLoadSeq = 0; // 重建根目录链路；逐层展开子目录不会取消上级列加载
 let sessionSearchTimer = null;
 
 // ============================================================
@@ -593,6 +594,7 @@ function setFileDevice(id) {
   state.fileSelectedPath = '';
   if (changed) {
     fileColumnLoadSeq++;
+    fileColumnAncestorLoadSeq++;
     state.fileColumns = [];
     closeFilePreview();
   }
@@ -6145,11 +6147,11 @@ function fileColumnRequestCurrent(request) {
     column?.selectedPath === request.path;
 }
 
-async function fetchFileDirectory(macId, path = '') {
+async function fetchFileDirectory(macId, path = '', options) {
   const query = new URLSearchParams();
   if (path) query.set('path', path);
   const queryString = query.toString();
-  return api(macId, `file/list${queryString ? '?' + queryString : ''}`);
+  return api(macId, `file/list${queryString ? '?' + queryString : ''}`, options);
 }
 
 function applyFileDirectoryData(data, macId, { resetColumns = true, selectedPath = '' } = {}) {
@@ -6160,7 +6162,10 @@ function applyFileDirectoryData(data, macId, { resetColumns = true, selectedPath
   state.fileLocations = data.locations || [];
   state.filePaths[macId] = state.filePath;
   state.fileSelectedPath = selectedPath;
-  if (resetColumns) state.fileColumns = [fileColumnFromData(data)];
+  if (resetColumns) {
+    if (state.fileView === 'columns') restoreFileColumnPath();
+    else state.fileColumns = [fileColumnFromData(data)];
+  }
 }
 
 function syncFileStateFromColumn(column, selectedPath = '') {
@@ -6208,6 +6213,7 @@ async function loadFileDirectory(path = '', opts = {}) {
   if (!fileBackAwaitingHistory) resetFileBackGesture();
   const req = ++fileLoadSeq;
   fileColumnLoadSeq++;
+  fileColumnAncestorLoadSeq++;
   const macId = state.fileMacId;
   const replacePreviewHistory = opts.pushHistory && !!history.state?.fleet && !!history.state.filePreviewPath;
   if (replacePreviewHistory) closeFilePreview();
@@ -6408,16 +6414,68 @@ function syncFileViewUI() {
   syncFileSortUI();
 }
 
+function fileColumnPaths(root, path) {
+  const base = String(root || '').replace(/\/+$/, '') || (root === '/' ? '/' : '');
+  const target = String(path || '').replace(/\/+$/, '') || (path === '/' ? '/' : '');
+  if (!base.startsWith('/') || !target.startsWith('/')) return [];
+  if (target === base) return [base];
+  if (base !== '/' && !target.startsWith(base + '/')) return [];
+  const parts = target.slice(base === '/' ? 1 : base.length + 1).split('/').filter(Boolean);
+  if (parts.some((part) => part === '.' || part === '..')) return [];
+  const paths = [base];
+  let current = base === '/' ? '' : base;
+  for (const part of parts) {
+    current += '/' + part;
+    paths.push(current);
+  }
+  return paths;
+}
+
+async function restoreFileColumnPath() {
+  const paths = fileColumnPaths(state.fileRoot, state.filePath);
+  if (!paths.length) return;
+  const macId = state.fileMacId;
+  const seq = ++fileColumnAncestorLoadSeq;
+  const cached = new Map(state.fileColumns.map((column) => [column.path, column]));
+  state.fileColumns = paths.map((path, index) => {
+    const last = index === paths.length - 1;
+    const existing = cached.get(path);
+    const column = last
+      ? { path, parent: state.fileParent, entries: state.fileEntries, loading: false, error: '' }
+      : (existing && !existing.loading && !existing.error ? existing : {
+        path, parent: paths[index - 1] || '', entries: [], loading: true, error: '',
+      });
+    return { ...column, selectedPath: paths[index + 1] || state.fileSelectedPath || '' };
+  });
+  scrollFileColumnsToStart();
+  await Promise.allSettled(state.fileColumns.filter((column) => column.loading).map(async (column) => {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 15000);
+    let loaded;
+    try {
+      loaded = fileColumnFromData(await fetchFileDirectory(macId, column.path, { signal: controller.signal, cache: 'no-store' }));
+    } catch (error) {
+      loaded = { ...column, loading: false, error: controller.signal.aborted ? '读取文件夹超时。' : error.message };
+    } finally {
+      clearTimeout(timer);
+    }
+    if (seq !== fileColumnAncestorLoadSeq || state.fileMacId !== macId || state.mode !== 'files' || state.fileView !== 'columns') return;
+    // 用户可能已在一个上级列切换到其它子目录；只填充仍保留的列，不恢复旧分支。
+    const index = state.fileColumns.findIndex((current) => current.path === column.path);
+    if (index < 0) return;
+    state.fileColumns[index] = { ...loaded, selectedPath: state.fileColumns[index].selectedPath };
+    renderFileEntries();
+  }));
+}
+
 function ensureFileColumns() {
-  if (state.fileColumns.length || !state.filePath) return;
-  state.fileColumns = [{
-    path: state.filePath,
-    parent: state.fileParent,
-    entries: state.fileEntries,
-    selectedPath: '',
-    loading: false,
-    error: '',
-  }];
+  if (!state.fileColumns.length && state.filePath) restoreFileColumnPath();
+}
+
+function scrollFileColumnsToStart() {
+  const wrap = $('#file-list');
+  if (!wrap || state.fileView !== 'columns') return;
+  requestAnimationFrame(() => { if (state.fileView === 'columns') wrap.scrollLeft = 0; });
 }
 
 function scrollFileColumnsToEnd() {
@@ -6447,17 +6505,15 @@ function setFileView(view) {
     return;
   }
   fileColumnLoadSeq++;
+  fileColumnAncestorLoadSeq++;
   while (state.fileColumns[state.fileColumns.length - 1]?.loading) state.fileColumns.pop();
   state.fileView = next;
   if (next === 'columns') {
-    const last = state.fileColumns[state.fileColumns.length - 1];
-    if (!last || last.path !== state.filePath) state.fileColumns = [];
-    ensureFileColumns();
+    restoreFileColumnPath();
   }
   closeFileMenus();
   persistUIState();
   renderFileEntries();
-  if (next === 'columns') scrollFileColumnsToEnd();
 }
 
 function fileEntryMenu(entry, columnIndex = null) {
@@ -7944,7 +8000,6 @@ function init() {
     resetFileBackGesture();
     if (state.mode === 'sessions' && state.termSid) $('#mobile-input').hidden = !isMobile();
     if (!$('#file-settings-menu').hidden) positionFileSettings(fileSettingsTrigger);
-    if (state.mode === 'files' && state.fileView === 'columns') scrollFileColumnsToEnd();
     if (!$('#chat-image-viewer').hidden) syncChatImageViewerLayout();
     syncChatTurnPin();
   });

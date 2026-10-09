@@ -1696,6 +1696,149 @@ test('column view truncates stale descendants and rejects stale async responses'
   }
 });
 
+test('column directory paths include the configured root and every ancestor', () => {
+  const paths = vm.runInContext("typeof fileColumnPaths === 'function' ? fileColumnPaths : null", appSandbox);
+  assert.equal(typeof paths, 'function');
+  const plain = (root, path) => Array.from(paths(root, path));
+  assert.deepEqual(plain('/Users/demo', '/Users/demo/Downloads/CrossOver.app/Contents'), [
+    '/Users/demo', '/Users/demo/Downloads', '/Users/demo/Downloads/CrossOver.app', '/Users/demo/Downloads/CrossOver.app/Contents',
+  ]);
+  assert.deepEqual(plain('/Users/demo/', '/Users/demo/'), ['/Users/demo']);
+  assert.deepEqual(plain('/', '/Users/demo'), ['/', '/Users', '/Users/demo']);
+  assert.deepEqual(plain('/Users/demo', '/Users/demo2/private'), []);
+  assert.deepEqual(plain('', '/Users/demo'), []);
+});
+
+function fileColumnRestoreHarness() {
+  const context = {
+    document: { ...appSandbox.document },
+    FleetChatModel: sandbox.globalThis.FleetChatModel,
+    FleetUploadModel: uploadSandbox.globalThis.FleetUploadModel,
+    AbortController, setTimeout, clearTimeout, requestAnimationFrame: (callback) => callback(),
+  };
+  vm.createContext(context);
+  vm.runInContext(appSrc, context);
+  vm.runInContext(`globalThis.testColumns = {
+    state,
+    restore: typeof restoreFileColumnPath === 'function' ? restoreFileColumnPath : null,
+    apply: applyFileDirectoryData,
+    setView: setFileView,
+    select: truncateFileColumns,
+    renderCount: 0,
+    pending: [],
+    scrollLeft: 400,
+    invalidate: () => { fileColumnAncestorLoadSeq++; },
+  };
+  renderFileEntries = () => { testColumns.renderCount++; };
+  fetchFileDirectory = (macId, path) => new Promise((resolve, reject) => testColumns.pending.push({ macId, path, resolve, reject }));
+  `, context);
+  context.document.querySelector = (selector) => selector === '#file-list' ? context.testColumns : null;
+  Object.assign(context.testColumns.state, {
+    mode: 'files', fileMacId: 'm4', fileView: 'columns', fileRoot: '/Users/demo',
+    filePath: '/Users/demo/Downloads/app/Contents', fileParent: '/Users/demo/Downloads/app',
+    fileEntries: [{ name: 'file.txt', path: '/Users/demo/Downloads/app/Contents/file.txt', kind: 'file' }],
+    fileColumns: [], fileSelectedPath: '',
+  });
+  return context.testColumns;
+}
+
+test('opening a deep directory restores root columns, selections and the initial root viewport', async () => {
+  const h = fileColumnRestoreHarness();
+  assert.equal(typeof h.restore, 'function');
+  const pending = h.restore();
+  assert.deepEqual(Array.from(h.state.fileColumns, (column) => column.path), [
+    '/Users/demo', '/Users/demo/Downloads', '/Users/demo/Downloads/app', '/Users/demo/Downloads/app/Contents',
+  ]);
+  assert.deepEqual(Array.from(h.state.fileColumns, (column) => column.selectedPath), [
+    '/Users/demo/Downloads', '/Users/demo/Downloads/app', '/Users/demo/Downloads/app/Contents', '',
+  ]);
+  assert.equal(h.scrollLeft, 0);
+  assert.equal(h.pending.length, 3, 'the already fetched current directory is reused');
+  for (const request of h.pending) request.resolve({ path: request.path, entries: [{ name: 'loaded', path: request.path + '/loaded' }] });
+  await pending;
+  assert.ok(h.state.fileColumns.every((column) => !column.loading));
+  assert.equal(h.state.fileColumns.at(-1).entries[0].name, 'file.txt');
+});
+
+test('ancestor loading preserves a newer folder selection and keeps failures in their own column', async () => {
+  const h = fileColumnRestoreHarness();
+  assert.equal(typeof h.restore, 'function');
+  const pending = h.restore();
+  h.state.fileColumns = h.select(h.state.fileColumns, 1, '/Users/demo/Downloads/other');
+  h.state.fileColumns.push({ path: '/Users/demo/Downloads/other', entries: [], selectedPath: '', loading: false });
+  h.pending[0].reject(new Error('permission denied'));
+  h.pending[1].resolve({ path: '/Users/demo/Downloads', entries: [{ name: 'other', path: '/Users/demo/Downloads/other' }] });
+  h.pending[2].resolve({ path: '/Users/demo/Downloads/app', entries: [] });
+  await pending;
+  assert.equal(h.state.fileColumns[0].error, 'permission denied');
+  assert.equal(h.state.fileColumns[0].loading, false);
+  assert.equal(h.state.fileColumns[1].selectedPath, '/Users/demo/Downloads/other');
+  assert.equal(h.state.fileColumns.at(-1).path, '/Users/demo/Downloads/other');
+  assert.equal(h.state.fileColumns.length, 3, 'discarded descendants are not restored by old requests');
+});
+
+test('changing directory, device or view rejects stale ancestor responses', async () => {
+  for (const change of [
+    (h) => h.invalidate(),
+    (h) => { h.state.fileMacId = 'm1'; },
+    (h) => { h.state.fileView = 'list'; },
+    (h) => { h.state.mode = 'sessions'; },
+  ]) {
+    const h = fileColumnRestoreHarness();
+    assert.equal(typeof h.restore, 'function');
+    const pending = h.restore();
+    change(h);
+    for (const request of h.pending) request.resolve({ path: request.path, entries: [{ name: 'stale' }] });
+    await pending;
+    assert.equal(h.renderCount, 0);
+    assert.ok(h.state.fileColumns.slice(0, -1).every((column) => !column.entries.length));
+  }
+});
+
+test('refreshing a deep column directory keeps its ancestry while replacing the current listing', async () => {
+  const h = fileColumnRestoreHarness();
+  h.apply({ root: '/Users/demo', path: '/Users/demo/Downloads/app/Contents', parent: '/Users/demo/Downloads/app', entries: [{ name: 'new.txt' }] }, 'm4');
+  assert.equal(h.state.fileColumns[0].path, '/Users/demo');
+  assert.equal(h.state.fileColumns.at(-1).entries[0].name, 'new.txt');
+  for (const request of h.pending) request.resolve({ path: request.path, entries: [] });
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.ok(h.state.fileColumns.every((column) => !column.loading));
+});
+
+test('restoring columns reuses loaded ancestors and loads nothing extra at the root', async () => {
+  const h = fileColumnRestoreHarness();
+  assert.equal(typeof h.restore, 'function');
+  h.state.fileColumns = [
+    { path: '/Users/demo', entries: [{ name: 'Downloads' }], loading: false, error: '' },
+    { path: '/Users/demo/Downloads', entries: [{ name: 'app' }], loading: false, error: '' },
+    { path: '/Users/demo/Downloads/app', entries: [{ name: 'Contents' }], loading: false, error: '' },
+  ];
+  await h.restore();
+  assert.equal(h.pending.length, 0);
+  assert.equal(h.state.fileColumns.length, 4);
+  assert.equal(h.state.fileColumns[1].entries[0].name, 'app');
+  h.state.filePath = h.state.fileRoot;
+  h.state.fileParent = '';
+  h.state.fileEntries = [{ name: 'fresh folder' }];
+  await h.restore();
+  assert.equal(h.state.fileColumns.length, 1);
+  assert.equal(h.state.fileColumns[0].entries[0].name, 'fresh folder');
+  assert.equal(h.pending.length, 0);
+});
+
+test('switching from list to columns restores the entire root path', async () => {
+  const h = fileColumnRestoreHarness();
+  h.state.fileView = 'list';
+  h.state.fileColumns = [{ path: h.state.filePath, entries: h.state.fileEntries }];
+  h.setView('columns');
+  assert.equal(h.state.fileColumns[0].path, '/Users/demo');
+  assert.equal(h.state.fileColumns.length, 4);
+  assert.equal(h.scrollLeft, 0);
+  for (const request of h.pending) request.resolve({ path: request.path, entries: [] });
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.ok(h.state.fileColumns.every((column) => !column.loading));
+});
+
 test('hidden files stay muted in icon and column views', () => {
   assert.match(appSrc, /class:\s*`file-icon-item\$\{entry\.hidden \? ' is-hidden' : ''\}`/);
   assert.match(appSrc, /class:\s*`file-column-row\$\{entry\.hidden \? ' is-hidden' : ''\}`/);
