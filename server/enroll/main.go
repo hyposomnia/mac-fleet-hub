@@ -481,7 +481,18 @@ func saveSettingsLocked(s dashSettings) error {
 func handleSettings(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
-		writeJSON(w, 200, loadSettings())
+		appearance, err := loadDeviceAppearance()
+		if err != nil {
+			log.Printf("读取设备外观失败: %v", err)
+			writeErr(w, 500, "设备外观读取失败")
+			return
+		}
+		writeJSON(w, 200, struct {
+			dashSettings
+			DeviceAppearance map[string]deviceAppearance `json:"deviceAppearance"`
+		}{loadSettings(), appearance})
+	case http.MethodPatch:
+		handleDeviceAppearance(w, r)
 	case http.MethodPost:
 		var req dashSettings
 		if json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<12)).Decode(&req) != nil {

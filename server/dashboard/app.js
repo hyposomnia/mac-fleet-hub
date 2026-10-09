@@ -812,9 +812,18 @@ function wireAppearanceSettings() {
 async function refreshSettings() {
   try {
     const r = await fetch(`${BASE}/api/settings`, { cache: 'no-store' });
-    if (r.ok) { state.settings = { ...SETTINGS_DEFAULT, ...(await r.json()) }; evictChatCache(); return; }
+    if (r.ok) {
+      const {deviceAppearance, ...settings} = await r.json();
+      state.settings = { ...SETTINGS_DEFAULT, ...settings }; evictChatCache(); return;
+    }
   } catch (_) {}
   if (!state.settings) state.settings = { ...SETTINGS_DEFAULT }; // 拉取失败：用默认，不阻塞
+}
+async function refreshDeviceAppearance() {
+  try {
+    await FleetDeviceAppearance.refresh(`${BASE}/api/settings`);
+    renderHosts();
+  } catch (_) {} // 离线保留缓存，下一次刷新重试；保存失败由保存按钮明确报告。
 }
 function openSettings() {
   const s = state.settings || SETTINGS_DEFAULT;
@@ -7278,7 +7287,13 @@ async function saveHost() {
   }
   const btn = $('#hm-save'); btn.disabled = true; btn.textContent = '保存中…';
 
-  const appearanceSaved = FleetDeviceAppearance.set(id, state.hostAppearanceDraft);
+  try {
+    await FleetDeviceAppearance.save(id, state.hostAppearanceDraft, `${BASE}/api/settings`);
+  } catch (error) {
+    btn.disabled = false; btn.textContent = '保存';
+    toast('设备外观未保存到服务器：' + error.message, 'err');
+    return;
+  }
   renderHosts();
   // 只写入用户实际修改的显示名与代理；改外观无需设备在线。
   if ($('#hm-name').value.trim() !== state.hostOriginalName) try {
@@ -7301,7 +7316,7 @@ async function saveHost() {
   btn.disabled = false; btn.textContent = '保存';
   if (proxyErr) { toast('外观已应用；代理未保存（' + macName(id) + ' 可能离线）：' + proxyErr, 'err'); return; }
   closeOverlay('host-modal');
-  toast(appearanceSaved ? '已保存' : '外观已应用；浏览器未允许记住设置，刷新后会恢复默认', appearanceSaved ? 'ok' : 'err');
+  toast('已保存到服务器', 'ok');
 }
 
 // ============================================================
@@ -7599,6 +7614,9 @@ function init() {
   renderHosts();
   refreshNames();
   refreshSettings();
+  refreshDeviceAppearance();
+  setInterval(refreshDeviceAppearance, 30000);
+  addEventListener('focus', refreshDeviceAppearance);
   refreshNodes(); setInterval(refreshNodes, 30000);
   setInterval(refreshSessionsSoft, 5000); // 轻量轮询 waiting / Codex 进行中状态（函数自带 mode/macId guard）
   wireMobileInput();

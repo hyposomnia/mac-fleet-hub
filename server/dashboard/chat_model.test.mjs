@@ -3473,7 +3473,11 @@ test('saving only device appearance does not rewrite its name or proxy', async (
   const fields={'#hm-save':testElement('button'),'#hm-name':{value:'Mac Seven'},'#hm-http':{value:'http://localhost:7897'},'#hm-https':{value:'http://localhost:7897'},'#hm-proxy-on':{checked:true},'#hm-title':testElement('span')};
   appSandbox.document.querySelector=selector=>fields[selector] || null;
   appSandbox.__appearanceNetworkCalls=[];
-  appSandbox.fetch=async (...args)=>{appSandbox.__appearanceNetworkCalls.push(args);return {ok:true,json:async()=>({})};};
+  appSandbox.fetch=async (...args)=>{
+    appSandbox.__appearanceNetworkCalls.push(args);
+    const {id,appearance}=JSON.parse(args[1].body);
+    return {ok:true,json:async()=>({deviceAppearance:{[id]:appearance}})};
+  };
   appSandbox.localStorage={setItem(){}};
   vm.runInContext('globalThis.__appearanceOriginals={api,renderHosts,closeOverlay,toast}; api=async (...args)=>{__appearanceNetworkCalls.push(args);}; renderHosts=()=>{}; closeOverlay=()=>{}; toast=()=>{};',appSandbox);
   try {
@@ -3481,13 +3485,42 @@ test('saving only device appearance does not rewrite its name or proxy', async (
     appState.hostOriginalProxy={enabled:true,http:'http://localhost:7897',https:'http://localhost:7897'};
     appState.hostAppearanceDraft={icon:'laptop',color:'rose'};
     await vm.runInContext('saveHost()',appSandbox);
-    assert.equal(appSandbox.__appearanceNetworkCalls.length,0);
+    assert.equal(appSandbox.__appearanceNetworkCalls.length,1);
+    const [url,options]=appSandbox.__appearanceNetworkCalls[0];
+    assert.equal(url,'/api/settings');
+    assert.equal(options.method,'PATCH');
+    assert.deepEqual(JSON.parse(options.body),{id:'m7',appearance:{icon:'laptop',color:'rose'}});
     assert.equal(appSandbox.FleetDeviceAppearance.get('m7').icon,'laptop');
     assert.equal(appSandbox.FleetDeviceAppearance.get('m7').color,'rose');
   } finally {
     vm.runInContext('({api,renderHosts,closeOverlay,toast}=__appearanceOriginals);',appSandbox);
     appSandbox.document.querySelector=previousQuery;appSandbox.fetch=previousFetch;appSandbox.localStorage=previousStorage;
     Object.assign(appState,{hostModalMac:previousState.id,hostAppearanceDraft:previousState.draft,hostOriginalName:previousState.name,hostOriginalProxy:previousState.proxy});
+  }
+});
+
+test('a failed device appearance save keeps the editor open and does not report success', async () => {
+  const previousQuery=appSandbox.document.querySelector, previousFetch=appSandbox.fetch;
+  const previousState={id:appState.hostModalMac,draft:appState.hostAppearanceDraft};
+  const button=testElement('button');
+  appSandbox.document.querySelector=selector=>selector==='#hm-save'?button:null;
+  appSandbox.fetch=async()=>({ok:false,status:500});
+  appSandbox.__appearanceClosed=false;appSandbox.__appearanceToasts=[];
+  vm.runInContext('globalThis.__appearanceFailureOriginals={closeOverlay,toast}; closeOverlay=()=>{__appearanceClosed=true;}; toast=(message,kind)=>__appearanceToasts.push({message,kind});',appSandbox);
+  try {
+    appState.hostModalMac='m7';appState.hostAppearanceDraft={icon:'text',text:'New',color:'teal'};
+    const previous=appSandbox.FleetDeviceAppearance.get('m7');
+    await vm.runInContext('saveHost()',appSandbox);
+    assert.equal(appSandbox.__appearanceClosed,false);
+    assert.equal(button.disabled,false);
+    assert.equal(button.textContent,'保存');
+    assert.deepEqual(appSandbox.FleetDeviceAppearance.get('m7'),previous);
+    assert.equal(appSandbox.__appearanceToasts[0].kind,'err');
+    assert.match(appSandbox.__appearanceToasts[0].message,/未保存到服务器/);
+  } finally {
+    vm.runInContext('({closeOverlay,toast}=__appearanceFailureOriginals);',appSandbox);
+    appSandbox.document.querySelector=previousQuery;appSandbox.fetch=previousFetch;
+    Object.assign(appState,{hostModalMac:previousState.id,hostAppearanceDraft:previousState.draft});
   }
 });
 

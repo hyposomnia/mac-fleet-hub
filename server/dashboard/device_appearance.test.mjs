@@ -7,10 +7,10 @@ const source = await readFile(new URL('./device_appearance.js', import.meta.url)
 const appSource = await readFile(new URL('./app.js', import.meta.url), 'utf8');
 const indexHTML = await readFile(new URL('./index.html', import.meta.url), 'utf8');
 const styleCSS = await readFile(new URL('./style.css', import.meta.url), 'utf8');
-function setup(initial = '{}', blocked = false) {
+function setup(initial = '{}', blocked = false, fetch) {
   let stored = initial;
   const element = tag => ({tag, attributes:{}, children:[], setAttribute(k,v){this.attributes[k]=v;}, appendChild(n){this.children.push(n);}});
-  const target = {document:{createElement:element, createElementNS:(_,tag)=>element(tag)},
+  const target = {document:{createElement:element, createElementNS:(_,tag)=>element(tag)}, fetch, AbortController, setTimeout, clearTimeout,
     localStorage:{getItem(){if(blocked) throw Error('blocked'); return stored;},setItem(k,v){if(blocked) throw Error('blocked'); stored=v;}}};
   vm.createContext(target); vm.runInContext(source,target);
   return {api:target.FleetDeviceAppearance, stored:()=>stored};
@@ -100,4 +100,100 @@ test('device connectivity uses original colour online and conspicuous grayscale 
   const offlineRule = styleCSS.match(/\.device-icon\.is-offline\s*\{([^}]*)\}/)?.[1] || '';
   assert.match(offlineRule, /filter:\s*grayscale\(1\)/);
   assert.match(offlineRule, /opacity:\s*\.4[0-9]/);
+});
+
+function appearanceServer(initial = {}) {
+  let data = structuredClone(initial);
+  const calls = [];
+  const fetch = async (url, options = {}) => {
+    calls.push({url, ...options});
+    if (options.method === 'PATCH') {
+      const {id, appearance, ifAbsent} = JSON.parse(options.body);
+      if (!ifAbsent || !Object.hasOwn(data, id)) data[id] = appearance;
+    }
+    const result = structuredClone(data);
+    return {ok:true, status:200, json:async()=>({deviceAppearance:result})};
+  };
+  return {fetch, calls, data:()=>data};
+}
+
+test('device appearance saved to the server restores in a browser with empty local storage', async () => {
+  const server = appearanceServer();
+  const first = setup('{}', false, server.fetch).api;
+  assert.equal(typeof first.save, 'function');
+  await first.save('m1', {icon:'text', text:'aB04', color:'violet'});
+  const second = setup('{}', false, server.fetch).api;
+  await second.refresh();
+  assert.equal(second.get('m1').text, 'aB04');
+  assert.equal(second.get('m1').color, 'violet');
+  assert.equal(server.calls[0].method, 'PATCH');
+  assert.equal(server.calls[0].url, '/api/settings');
+});
+
+test('legacy local appearances migrate only when a server value is absent', async () => {
+  const server = appearanceServer({m1:{icon:'text',text:'A',color:'violet'}});
+  const {api,stored} = setup(JSON.stringify({m1:{icon:'mini',color:'coral'},m2:{icon:'text',text:'0009',color:'teal'}}), false, server.fetch);
+  await api.refresh();
+  assert.equal(api.get('m1').text, 'A');
+  assert.equal(server.data().m2.text, '0009');
+  const patch = server.calls.filter(call=>call.method==='PATCH');
+  assert.equal(patch.length, 1);
+  assert.equal(JSON.parse(patch[0].body).ifAbsent, true);
+  assert.equal(JSON.parse(stored()).m1.text, 'A');
+});
+
+test('failed server saves do not change the saved icon or claim local persistence', async () => {
+  const initial = JSON.stringify({m1:{icon:'text',text:'A',color:'violet'}});
+  const {api,stored} = setup(initial, false, async()=>({ok:false,status:500}));
+  await assert.rejects(api.save('m1',{icon:'mini',color:'coral'}), /500/);
+  assert.equal(api.get('m1').text, 'A');
+  assert.equal(stored(), initial);
+});
+
+test('blocked local storage cannot prevent server persistence and restoration', async () => {
+  const server = appearanceServer();
+  const {api} = setup('{}', true, server.fetch);
+  await api.save('m1', {icon:'text',text:'Mac4',color:'teal'});
+  const second = setup('{}', true, server.fetch).api;
+  await second.refresh();
+  assert.equal(second.get('m1').text, 'Mac4');
+});
+
+test('refresh failures preserve cached appearance and later retry imports remaining devices', async () => {
+  const server = appearanceServer();
+  let fail = true;
+  const {api} = setup(JSON.stringify({m2:{icon:'text',text:'009',color:'teal'}}), false, async (...args)=> {
+    if (fail) throw new Error('offline');
+    return server.fetch(...args);
+  });
+  await assert.rejects(api.refresh(), /offline/);
+  assert.equal(api.get('m2').text, '009');
+  fail = false;
+  await api.refresh();
+  assert.equal(server.data().m2.text, '009');
+});
+
+test('saved defaults remain authoritative over stale browser overrides', async () => {
+  const server = appearanceServer({m1:{icon:'monitor',color:'steel'}});
+  const {api} = setup(JSON.stringify({m1:{icon:'text',text:'Old',color:'violet'}}), false, server.fetch);
+  await api.refresh();
+  assert.equal(api.get('m1').icon, 'monitor');
+  assert.equal(server.calls.length, 1);
+});
+
+test('saving one device retains other legacy appearances until they can migrate', async () => {
+  const server = appearanceServer();
+  const {api} = setup(JSON.stringify({m2:{icon:'text',text:'009',color:'teal'}}), false, server.fetch);
+  await api.save('m1',{icon:'mini',color:'violet'});
+  assert.equal(api.get('m2').text,'009');
+  await api.refresh();
+  assert.equal(server.data().m2.text,'009');
+});
+
+test('the host editor awaits server persistence and explains the shared storage', () => {
+  const saveHost = appSource.match(/async function saveHost\(\)[\s\S]*?\n}\n/)?.[0] || '';
+  assert.match(saveHost, /await FleetDeviceAppearance\.save\(id,/);
+  assert.doesNotMatch(saveHost, /FleetDeviceAppearance\.set\(/);
+  assert.match(saveHost, /设备外观未保存到服务器/);
+  assert.match(indexHTML, /图标、文字与颜色保存在服务器，不同浏览器共享/);
 });

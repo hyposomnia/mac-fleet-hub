@@ -1,4 +1,4 @@
-/* Browser-local device identity. Predefined icons, ASCII alphanumeric marks and colors are accepted. */
+/* Server-backed device identity, with a browser cache and legacy preference import. */
 (function (host) {
   'use strict';
   const key = 'fleet-device-appearance-v1';
@@ -39,6 +39,56 @@
     preferences[id]=normalize(value);
     try { host.localStorage.setItem(key,JSON.stringify(preferences)); return true; } catch (_) { return false; }
   }
+  function replace(values) {
+    preferences = Object.create(null);
+    for (const [id,value] of Object.entries(values)) if (/^m[1-9]\d*$/.test(id)) preferences[id]=normalize(value);
+    try { host.localStorage.setItem(key,JSON.stringify(preferences)); } catch (_) {}
+    return preferences;
+  }
+  let operations = Promise.resolve(), refreshTask;
+  function enqueue(operation) {
+    const task = operations.then(operation);
+    operations = task.catch(()=>{});
+    return task;
+  }
+  async function request(url, update) {
+    const controller = new host.AbortController();
+    const timeout = host.setTimeout(()=>controller.abort(), 10000);
+    try {
+      const response = await host.fetch(url, {
+        cache:'no-store', signal:controller.signal,
+        ...(update ? {method:'PATCH',headers:{'content-type':'application/json'},body:JSON.stringify(update)} : {}),
+      });
+      if (!response.ok) throw new Error('HTTP ' + response.status);
+      const data = (await response.json()).deviceAppearance;
+      if (!data || typeof data !== 'object' || Array.isArray(data)) throw new Error('服务器未返回设备外观');
+      return data;
+    } finally { host.clearTimeout(timeout); }
+  }
+  function save(id, value, url = '/api/settings') {
+    if (!/^m[1-9]\d*$/.test(id) || (value?.icon === 'text' && !letterText(value.text))) {
+      return Promise.reject(new Error('设备外观格式错误'));
+    }
+    const appearance = normalize(value);
+    return enqueue(async()=>replace({...preferences,...await request(url, {id,appearance})}));
+  }
+  function refresh(url = '/api/settings') {
+    if (refreshTask) return refreshTask;
+    refreshTask = enqueue(async()=>{
+      const local = {...preferences};
+      let server = await request(url);
+      try {
+        for (const [id,appearance] of Object.entries(local)) {
+          if (!Object.hasOwn(server,id)) server = await request(url, {id,appearance,ifAbsent:true});
+        }
+      } catch (error) {
+        replace({...local,...server});
+        throw error;
+      }
+      return replace(server);
+    }).finally(()=>{refreshTask=undefined;});
+    return refreshTask;
+  }
   function createIcon(value) {
     const preference=normalize(value), ns='http://www.w3.org/2000/svg';
     const wrapper=host.document.createElement('span');
@@ -54,5 +104,5 @@
     path.setAttribute('d',icons.find(i=>i.id===preference.icon).path);
     svg.appendChild(path); wrapper.appendChild(svg); return wrapper;
   }
-  host.FleetDeviceAppearance={key,icons,colors,letterText,normalize,get,set,createIcon};
+  host.FleetDeviceAppearance={key,icons,colors,letterText,normalize,get,set,save,refresh,createIcon};
 })(globalThis);
