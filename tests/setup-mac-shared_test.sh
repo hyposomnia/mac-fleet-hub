@@ -30,6 +30,15 @@ bash -n "$SETUP"
 /usr/bin/plutil -lint "$SHARED_APPSERVER_PLIST" >/dev/null
 /usr/bin/plutil -lint "$DESKTOP_ENV_PLIST" >/dev/null
 bash -n "$DESKTOP_ENV_HELPER"
+# Exercise the real parser with macOS's system sed, without changing launchd.
+eval "$(awk '/^readyz_url\(\)/ { capture=1 } capture { print } capture && /^}/ { exit }' "$DESKTOP_ENV_HELPER")"
+for endpoint in 'ws://127.0.0.1:47682/rpc' 'ws://localhost:47682' 'ws://[::1]:47682/rpc'; do
+  probe="$(PATH=/usr/bin:/bin readyz_url "$endpoint")" || fail "readyz parser rejected $endpoint"
+  [[ "$probe" == 'http://127.0.0.1:47682/readyz' ]] || fail "incorrect readyz target: $probe"
+done
+for endpoint in 'ws://example.test:47682/rpc' 'ws://127.0.0.1:476821/rpc' 'ws://127.0.0.1:0/rpc'; do
+  if PATH=/usr/bin:/bin readyz_url "$endpoint" >/dev/null; then fail "readyz parser accepted $endpoint"; fi
+done
 bash -n "$MIGRATE" "$RELEASE" "$CONFIG_DEPLOY"
 bash -n "$RESOLVER" "$KEEPER_LAUNCHER" "$UNINSTALL"
 if [[ -x /Applications/ChatGPT.app/Contents/Resources/cua_node/bin/node ]]; then

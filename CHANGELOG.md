@@ -6,6 +6,8 @@
 
 ## Unreleased
 
+- 原生 shared 环境补齐原有 Aqua LaunchAgent，避免 Sparkle 重开后仅修改 user 会话域；分别备份与还原 user/Aqua 环境，兼容旧快照并验证实际 GUI 地址。修复原有 Desktop helper 的 macOS BSD sed 端口解析，保留 loopback 与就绪守卫。真实 launchd 写入及双域还原通过，正式包与本机替换结果另行记录。
+
 - 原生客户端补齐原有 Codex shared 接入：原样携带 keeper、监督包装、解析器、Desktop 环境脚本、空闲守卫和 launchd 模板，接入正常启动、登录启动及升级恢复；移除共享关闭配置与独立进程草案。已有共享服务直接复用，新服务就绪后再设置 Desktop 环境，失败回滚、卸载还原环境并保护活动任务。本次仅源码、验证与推送，未替换当前 Mac。
 
 - 修复原生设备名称显示不一致：后台通过现有设备授权状态同步服务器名称，Fleet Hub 两处改为“设备名称”；改名不改变凭据或打断授权流，兼容旧状态响应。补齐 DERP 按 IP 连接时的 TLS 目标身份，保留证书及地址拒绝条件。原生模式的 Codex 初始化/恢复失败只返回聊天不可用，不再反复退出整个设备后台，后续请求仍可重连。源码回归与完整验证记录见 docs/native-device-connectivity-2026-10-09.md；本次未发布、未替换本机。现有服务验证确认 Desktop Codex 正通过 stdio 运行，Fleet 配置的 shared 端点未启动；实际网页 info/projects 为 200、sessions 为 503，网关设备 health 返回 200。正式客户端发行与真实共享聊天验收仍待完成。

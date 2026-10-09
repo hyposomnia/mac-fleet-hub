@@ -14,8 +14,9 @@ endpoint=${2:-}
 
 readyz_url() {
   # 从 ws://127.0.0.1:<port>[/path] 提取端口，拼出就绪探针地址。
-  port=$(printf '%s' "$1" | sed -n 's#^ws://\(127\.0\.0\.1\|localhost\|\[::1\]\):\([0-9]\{1,5\}\).*#\2#p')
+  port=$(printf '%s' "$1" | sed -En 's#^ws://(127\.0\.0\.1|localhost|\[::1\]):([0-9]{1,5})(/.*)?$#\2#p')
   [ -n "$port" ] || return 1
+  [ "$port" -ge 1 ] && [ "$port" -le 65535 ] || return 1
   printf 'http://127.0.0.1:%s/readyz' "$port"
 }
 
