@@ -2863,6 +2863,8 @@ function syncChatTurnPin() {
     if (pin) pin.hidden = true;
     return;
   }
+  const scrollbarWidth = Math.max(0, sc.offsetWidth - sc.clientWidth);
+  pin.style.setProperty('--chat-scrollbar-width', `${scrollbarWidth}px`);
   const text = chatTurnPinText(sc.querySelectorAll('.chat-row.user[data-chat-turn-pin]'), sc.getBoundingClientRect().top);
   textEl.textContent = text;
   pin.hidden = !text;
