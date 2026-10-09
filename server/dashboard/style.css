@@ -211,11 +211,11 @@ body {
 .preview-title { overflow: hidden; color: var(--text); font-size: var(--t-title); font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
 .preview-path { margin-top: 2px; overflow: hidden; color: var(--text-2); font-size: var(--t-caption); text-overflow: ellipsis; white-space: nowrap; }
 .preview-actions { display: flex; align-items: center; gap: 8px; }
-.preview-stage { position: relative; flex: 1; min-height: 0; overflow: hidden; background: var(--surface-1); }
+.preview-stage { position: relative; flex: 1; min-height: 0; overflow: hidden; background: var(--bg); }
 .preview-state { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; gap: 9px; padding: 24px; color: var(--text-2); text-align: center; }
 .preview-spinner { width: 14px; height: 14px; border: 2px solid var(--text-3); border-right-color: var(--accent); border-radius: 50%; animation: spin .8s linear infinite; }
 .preview-error { color: var(--danger); }
-.preview-markdown { position: absolute; inset: 0; overflow: auto; background: var(--surface-1); }
+.preview-markdown { position: absolute; inset: 0; overflow: auto; background: var(--bg); }
 .preview-markdown > .chat-markdown { width: min(100%, 920px); min-height: 100%; margin: 0 auto; padding: 38px 42px 72px; color: var(--text); font-size: var(--t-body); line-height: 1.7; }
 .preview-markdown .chat-markdown h1, .preview-markdown .chat-markdown h2, .preview-markdown .chat-markdown h3,
 .preview-markdown .chat-markdown h4, .preview-markdown .chat-markdown h5, .preview-markdown .chat-markdown h6 { color: var(--text); }
@@ -226,16 +226,16 @@ body {
 .preview-markdown .chat-markdown th, .preview-markdown .chat-markdown td {  }
 .preview-text {
   position: absolute; inset: 0; overflow: hidden; border: 0;
-  background: var(--surface-1); color: var(--text); font-size: var(--t-body); line-height: 1.65;
+  background: var(--bg); color: var(--text); font-size: var(--t-body); line-height: 1.65;
 }
 .preview-text > textarea {
   width: 100%; height: 100%; resize: none; overflow: auto; padding: 28px 32px 64px;
-  border: 0; outline: 0; background: var(--surface-1); color: var(--text);
+  border: 0; outline: 0; background: var(--bg); color: var(--text);
   font: inherit; line-height: inherit; white-space: pre; tab-size: 2;
 }
 .preview-text.is-wrapped > textarea { white-space: pre-wrap; overflow-wrap: anywhere; }
 .preview-text .CodeMirror {
-  width: 100%; height: 100%; background: var(--surface-1); color: var(--text);
+  width: 100%; height: 100%; background: var(--bg); color: var(--text);
   font-family: var(--mono); font-size: var(--t-body); line-height: 1.65;
 }
 .preview-text .CodeMirror-scroll { overscroll-behavior: contain; }
@@ -243,7 +243,7 @@ body {
 .preview-text .CodeMirror pre.CodeMirror-line,
 .preview-text .CodeMirror pre.CodeMirror-line-like { padding: 0 28px 0 16px; }
 .preview-text .CodeMirror-gutters {
-  border: 0; background: var(--surface-1); padding-left: 8px;
+  border: 0; background: var(--bg); padding-left: 8px;
 }
 .preview-text .CodeMirror-linenumber { padding: 0 10px 0 4px; color: var(--text-3); }
 .preview-text .CodeMirror-selected { background: var(--accent-soft); }
@@ -261,13 +261,13 @@ body {
 .preview-text .cm-s-default .cm-attribute, .preview-text .cm-s-default .cm-builtin { color: var(--syntax-attribute); }
 .preview-text .cm-s-default .cm-meta, .preview-text .cm-s-default .cm-qualifier { color: var(--syntax-meta); }
 .preview-text .cm-s-default .cm-error { color: var(--danger); text-decoration: underline; }
-.preview-html, .preview-pdf { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; background: #fff; }
+.preview-html, .preview-pdf { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; background: var(--bg); }
 html[data-preview-embed="true"] .preview-head { display: none; }
 .preview-media { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; padding: 24px; overflow: auto; background: var(--bg); }
 .preview-media img { display: block; max-width: 100%; max-height: 100%; object-fit: contain; }
 .preview-media video { display: block; width: min(100%, 1280px); max-height: 100%; background: #000; }
 .preview-media audio { display: block; width: min(100%, 680px); }
-.preview-audio { background: var(--surface-1); }
+.preview-audio { background: var(--bg); }
 button, input, textarea, select { font: inherit; color: inherit; }
 button { cursor: pointer; border: 0; background: none; }
 .mono { font-family: var(--mono); }
@@ -1899,18 +1899,18 @@ html[data-workspace-tab="true"] .preview-actions .iconbtn { width: 26px; height:
 .file-setting-option input:checked {  background: var(--accent); }
 .file-setting-option input:checked::after { transform: translateX(16px); background: #fff; }
 .file-setting-option input:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; box-shadow: none; }
-.file-preview-panel { display: flex; flex-direction: column; min-width: 0; min-height: 0; border: 0; background: var(--surface); }
+.file-preview-panel { display: flex; flex-direction: column; min-width: 0; min-height: 0; border: 0; background: var(--bg); }
 .file-preview-head { display: flex; align-items: center; gap: 8px; min-height: 58px; padding: 8px 9px 8px 13px; border: 0; }
 .file-preview-head > div { min-width: 0; flex: 1; }
 .file-preview-head strong, .file-preview-head span { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .file-preview-head strong { color: var(--text); font-size: var(--t-body); font-weight: 600; }
 .file-preview-head span { margin-top: 2px; color: var(--text-2); font-size: var(--t-caption); }
 .file-preview-mobile-back { display: none; }
-.file-preview-stage { flex: 1 1 auto; min-width: 0; min-height: 180px; overflow: hidden; background: var(--surface-1); }
-#file-preview-frame { display: block; width: 100%; height: 100%; border: 0; background: var(--surface-1); }
+.file-preview-stage { flex: 1 1 auto; min-width: 0; min-height: 180px; overflow: hidden; background: var(--bg); }
+#file-preview-frame { display: block; width: 100%; height: 100%; border: 0; background: var(--bg); }
 .file-preview-info {
   flex: 0 1 auto; min-height: 0; max-height: 42%; overflow-y: auto; padding: 15px 16px 16px;
-  border: 0; background: var(--surface);
+  border: 0; background: var(--bg);
 }
 .file-preview-info h2 { margin: 0 0 13px; color: var(--text); font-size: var(--t-body); font-weight: 600; }
 .file-preview-info dl { display: grid; gap: 9px; margin: 0; }
