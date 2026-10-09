@@ -1,5 +1,13 @@
 #!/usr/bin/env bash
 
+native_notary_upload_option() {
+  case "${FLEET_NOTARY_S3_ACCELERATION:-0}" in
+    0) printf '%s\n' '--no-s3-acceleration' ;;
+    1) printf '%s\n' '--s3-acceleration' ;;
+    *) printf '%s\n' 'FLEET_NOTARY_S3_ACCELERATION 必须为 0 或 1。' >&2; return 2 ;;
+  esac
+}
+
 native_candidate_preflight() {
   : "${FLEET_CMAKE:?}" "${FLEET_SETTINGS_VERSION:?}" "${FLEET_SETTINGS_BUILD:?}"
   : "${FLEET_CODESIGN_IDENTITY:?指定唯一 Developer ID Application 的 SHA-1 identity}"
@@ -8,6 +16,7 @@ native_candidate_preflight() {
   [[ "$FLEET_CANDIDATE_NGINX_CONFIG" =~ ^/[a-zA-Z0-9_./-]+$ ]] || die 'nginx 配置路径无效。'
   [[ "$FLEET_SETTINGS_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ && "$FLEET_SETTINGS_BUILD" =~ ^[1-9][0-9]*$ ]] || die '原生应用版本或构建号无效。'
   [[ "$FLEET_CODESIGN_IDENTITY" =~ ^[A-Fa-f0-9]{40}$ ]] || die '签名身份必须使用明确的 SHA-1。'
+  native_notary_upload_option >/dev/null
   security find-identity -v -p codesigning | grep -i "$FLEET_CODESIGN_IDENTITY" | grep 'Developer ID Application:' >/dev/null || die '指定证书不是 Developer ID Application。'
   [[ -x "$FLEET_CMAKE" ]] || die '缺少 CMake 构建工具。'
   bash "$ROOT/scripts/prepare-settings-sdk.sh"
@@ -18,7 +27,8 @@ native_candidate_preflight() {
 }
 
 run_native_candidate_release() {
-  local work app agent framework component revision signature remote_input
+  local work app agent framework component revision signature remote_input notary_upload_option
+  notary_upload_option="$(native_notary_upload_option)"
   work="$(mktemp -d /private/tmp/fleet-native-release.XXXXXX)"
   chmod 0700 "$work"
   revision="$(git -C "$ROOT" rev-parse HEAD)"
@@ -41,7 +51,7 @@ run_native_candidate_release() {
   codesign --force --options runtime --timestamp --sign "$FLEET_CODESIGN_IDENTITY" --identifier com.macfleet.fleet-agent "$agent"
   codesign --verify --deep --strict "$agent"
   ditto -c -k --keepParent "$agent" "$work/notarize-agent.zip"
-  xcrun notarytool submit "$work/notarize-agent.zip" --keychain-profile "$NOTARY_PROFILE" --no-s3-acceleration --wait --timeout 60m --output-format json | tee "$work/agent-notary.json"
+  xcrun notarytool submit "$work/notarize-agent.zip" --keychain-profile "$NOTARY_PROFILE" "$notary_upload_option" --wait --timeout 60m --output-format json | tee "$work/agent-notary.json"
   node -e 'if(JSON.parse(require("fs").readFileSync(process.argv[1])).status!=="Accepted")process.exit(1)' "$work/agent-notary.json"
   xcrun stapler staple "$agent"
   xcrun stapler validate "$agent"
@@ -53,7 +63,7 @@ run_native_candidate_release() {
   codesign --force --options runtime --timestamp --sign "$FLEET_CODESIGN_IDENTITY" --identifier com.macfleet.fleet-hub "$app"
   codesign --verify --deep --strict "$app"
   ditto -c -k --keepParent "$app" "$work/notarize-app.zip"
-  xcrun notarytool submit "$work/notarize-app.zip" --keychain-profile "$NOTARY_PROFILE" --no-s3-acceleration --wait --timeout 60m --output-format json | tee "$work/app-notary.json"
+  xcrun notarytool submit "$work/notarize-app.zip" --keychain-profile "$NOTARY_PROFILE" "$notary_upload_option" --wait --timeout 60m --output-format json | tee "$work/app-notary.json"
   node -e 'if(JSON.parse(require("fs").readFileSync(process.argv[1])).status!=="Accepted")process.exit(1)' "$work/app-notary.json"
   xcrun stapler staple "$app"
   xcrun stapler validate "$app"
@@ -66,7 +76,7 @@ run_native_candidate_release() {
   ln -s /Applications "$work/dmg/Applications"
   hdiutil create -volname 'Fleet Hub' -srcfolder "$work/dmg" -format UDZO "$work/distribution/Fleet-Hub.dmg"
   codesign --force --timestamp --sign "$FLEET_CODESIGN_IDENTITY" "$work/distribution/Fleet-Hub.dmg"
-  xcrun notarytool submit "$work/distribution/Fleet-Hub.dmg" --keychain-profile "$NOTARY_PROFILE" --no-s3-acceleration --wait --timeout 60m --output-format json | tee "$work/dmg-notary.json"
+  xcrun notarytool submit "$work/distribution/Fleet-Hub.dmg" --keychain-profile "$NOTARY_PROFILE" "$notary_upload_option" --wait --timeout 60m --output-format json | tee "$work/dmg-notary.json"
   node -e 'if(JSON.parse(require("fs").readFileSync(process.argv[1])).status!=="Accepted")process.exit(1)' "$work/dmg-notary.json"
   xcrun stapler staple "$work/distribution/Fleet-Hub.dmg"
   xcrun stapler validate "$work/distribution/Fleet-Hub.dmg"

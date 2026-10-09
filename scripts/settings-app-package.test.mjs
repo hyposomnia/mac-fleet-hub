@@ -199,8 +199,36 @@ test('native candidate publication stays behind the unique signing entry and Acc
   assert.doesNotMatch(native, /fleet-agent update|launchctl|git commit/);
 });
 
-test('native notarization uses standard S3 uploads for each complete signed archive', () => {
+function nativeUploadOption(value) {
+  const script = fileURLToPath(new URL('./lib/native-candidate-release.sh', import.meta.url));
+  const env = { ...process.env };
+  delete env.FLEET_NOTARY_S3_ACCELERATION;
+  if (value !== undefined) env.FLEET_NOTARY_S3_ACCELERATION = value;
+  return spawnSync('bash', ['-c', 'set -euo pipefail; source "$1"; native_notary_upload_option', 'fixture', script], {
+    encoding: 'utf8', env,
+  });
+}
+
+test('native notarization defaults to standard S3 for each complete signed archive', () => {
+  for (const value of [undefined, '0']) {
+    const result = nativeUploadOption(value);
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(result.stdout.trim(), '--no-s3-acceleration');
+  }
   const submissions = read('./lib/native-candidate-release.sh').split('\n').filter(line => line.includes('xcrun notarytool submit'));
   assert.equal(submissions.length, 3);
-  for (const submission of submissions) assert.match(submission, /--no-s3-acceleration/);
+  for (const submission of submissions) assert.match(submission, /"\$notary_upload_option"/);
+});
+
+test('native notarization can explicitly select the official accelerated upload', () => {
+  const result = nativeUploadOption('1');
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(result.stdout.trim(), '--s3-acceleration');
+});
+
+test('native notarization rejects an invalid upload mode before submission', () => {
+  const result = nativeUploadOption('yes');
+  assert.equal(result.status, 2);
+  assert.equal(result.stdout, '');
+  assert.match(result.stderr, /FLEET_NOTARY_S3_ACCELERATION/);
 });
