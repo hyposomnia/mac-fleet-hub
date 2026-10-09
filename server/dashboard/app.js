@@ -567,7 +567,12 @@ function activateConcreteMac(id) {
 
 function setSessionDevice(id) {
   if (id !== 'all' && !MACS.some((m) => m.id === id)) return;
-  if (state.sessionMacId === id) { closeOverlay('device-modal'); return; }
+  const fileDeviceChanged = id !== 'all' && rememberFileDevice(id);
+  if (state.sessionMacId === id) {
+    if (fileDeviceChanged) persistUIState();
+    closeOverlay('device-modal');
+    return;
+  }
   state.sessionMacId = id;
   if (id !== 'all') state.macId = id;
   backToList();
@@ -584,20 +589,27 @@ function setSessionDevice(id) {
   showEmpty();
 }
 
-function setFileDevice(id) {
-  if (!MACS.some((m) => m.id === id)) return;
+// fileMacId also remembers the last concrete device selected in either mode.
+// Opening a conversation in all-device scope must not change this preference.
+function rememberFileDevice(id) {
   const changed = state.fileMacId !== id;
-  const hadPreviewHistory = changed && !!history.state?.fleet && !!history.state.filePreviewPath;
+  if (!changed) return false;
   state.fileMacId = id;
-  state.macId = id;
   state.filePath = state.filePaths[id] || '';
   state.fileSelectedPath = '';
-  if (changed) {
-    fileColumnLoadSeq++;
-    fileColumnAncestorLoadSeq++;
-    state.fileColumns = [];
-    closeFilePreview();
-  }
+  fileColumnLoadSeq++;
+  fileColumnAncestorLoadSeq++;
+  state.fileColumns = [];
+  closeFilePreview();
+  return true;
+}
+
+function setFileDevice(id) {
+  if (!MACS.some((m) => m.id === id)) return;
+  const hadPreviewHistory = state.fileMacId !== id && !!history.state?.fleet && !!history.state.filePreviewPath;
+  const changed = rememberFileDevice(id);
+  state.macId = id;
+  state.fileSelectedPath = '';
   renderHosts();
   updateDeviceScopeUI();
   persistUIState();
@@ -1280,8 +1292,23 @@ function applyScrollbackToPool() {
 //  模式切换（会话 / 文件）
 // ============================================================
 function setMode(mode) {
-  state.mode = mode === 'files' ? 'files' : 'sessions';
-  mode = state.mode;
+  mode = mode === 'files' ? 'files' : 'sessions';
+  let sessionDeviceChanged = false;
+  if (mode !== state.mode) {
+    if (mode === 'files' && state.sessionMacId !== 'all') {
+      rememberFileDevice(state.sessionMacId);
+    } else if (mode === 'sessions' && state.sessionMacId !== 'all' && state.fileMacId && state.sessionMacId !== state.fileMacId) {
+      state.sessionMacId = state.fileMacId;
+      state.sessionResults = [];
+      state.sessionCursors = {};
+      sessionDeviceChanged = true;
+      if (state.selectedSessionMacId !== state.fileMacId) {
+        state.selectedSid = null;
+        state.selectedSessionMacId = null;
+      }
+    }
+  }
+  state.mode = mode;
   $('#app').dataset.mode = mode;
   window.FleetSidebarLayout?.sync();
   updateSettingsMenus();
@@ -1296,7 +1323,7 @@ function setMode(mode) {
     loadFiles();
   } else {
     $('#file-browser').hidden = true;
-    loadSessions();
+    loadSessions({ clear: sessionDeviceChanged });
     restoreTermOrEmpty();
   }
 }

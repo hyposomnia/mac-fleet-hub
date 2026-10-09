@@ -3587,6 +3587,7 @@ function sessionNavigationFixture() {
   };
   const context = {document, FleetUploadModel: uploadSandbox.globalThis.FleetUploadModel,
     FleetChatModel: sandbox.globalThis.FleetChatModel, matchMedia: () => ({matches: false}),
+    history: {state: null},
     window: {FleetWorkspaceTabs: {showChat() {}}}};
   vm.createContext(context);
   vm.runInContext(appSrc, context);
@@ -3605,10 +3606,73 @@ function sessionNavigationFixture() {
       showChatPane(state.chat.title, state.chat.cwd);
       $('#chat-input').value = state.chat.draft || '';
     };
-    globalThis.navigation = {state, setMode, restoreTermOrEmpty};
+    MACS = ['m1', 'm2', 'm3', 'm4'].map(id => ({id}));
+    globalThis.navigation = {state, setMode, setSessionDevice, setFileDevice, restoreTermOrEmpty};
   `, context);
   return {...context.navigation, elements, opened: context.opened};
 }
+
+test('switching modes keeps the concrete device selected in the source mode', () => {
+  const {state, setMode, setFileDevice} = sessionNavigationFixture();
+  Object.assign(state, {sessionMacId: 'm2', fileMacId: 'm1', macId: 'm2',
+    filePath: '/Users/one/Downloads', filePaths: {m1: '/Users/one/Downloads', m2: '/Users/two/Documents', m3: '/Users/three'},
+    fileColumns: [{path: '/Users/one'}], filePreviewPath: '/Users/one/Downloads/old.png'});
+  setMode('files');
+  assert.equal(state.fileMacId, 'm2');
+  assert.equal(state.filePath, '/Users/two/Documents');
+  assert.equal(state.filePreviewPath, '');
+  assert.equal(state.fileColumns.length, 0);
+  setFileDevice('m3');
+  state.selectedSid = 'old-chat';
+  state.selectedSessionMacId = 'm2';
+  state.sessionResults = [{macId: 'm2', sessionId: 'old-chat'}];
+  setMode('sessions');
+  assert.equal(state.sessionMacId, 'm3');
+  assert.equal(state.selectedSid, null, 'a conversation from another device must not be reopened');
+  assert.equal(state.sessionResults.length, 0);
+  setMode('files');
+  assert.equal(state.fileMacId, 'm3');
+});
+
+test('all-device sessions use the last explicitly selected device for files', () => {
+  const {state, setMode, setSessionDevice, setFileDevice} = sessionNavigationFixture();
+  Object.assign(state, {sessionMacId: 'm1', fileMacId: 'm4', macId: 'm1'});
+  setSessionDevice('m2');
+  setSessionDevice('all');
+  state.macId = 'm3'; // Opening a conversation in all-device scope is not a device selection.
+  setMode('files');
+  assert.equal(state.fileMacId, 'm2');
+  setMode('sessions');
+  assert.equal(state.sessionMacId, 'all');
+  setMode('files');
+  setFileDevice('m4');
+  setMode('sessions');
+  assert.equal(state.sessionMacId, 'all');
+  setMode('files');
+  assert.equal(state.fileMacId, 'm4');
+});
+
+test('reselecting a saved concrete session device updates the file fallback before choosing all', () => {
+  const {state, setMode, setSessionDevice} = sessionNavigationFixture();
+  Object.assign(state, {sessionMacId: 'm2', fileMacId: 'm1'});
+  setSessionDevice('m2');
+  setSessionDevice('all');
+  setMode('files');
+  assert.equal(state.fileMacId, 'm2');
+});
+
+test('mode switches keep the same device directory and columns even while offline', () => {
+  const {state, setMode} = sessionNavigationFixture();
+  const columns = [{path: '/Users/two'}, {path: '/Users/two/Documents'}];
+  Object.assign(state, {sessionMacId: 'm2', fileMacId: 'm2', nodes: {m1: true, m2: false},
+    filePath: '/Users/two/Documents', filePaths: {m2: '/Users/two/Documents'}, fileColumns: columns});
+  setMode('files');
+  assert.equal(state.fileMacId, 'm2');
+  assert.equal(state.filePath, '/Users/two/Documents');
+  assert.equal(state.fileColumns, columns);
+  setMode('sessions');
+  assert.equal(state.sessionMacId, 'm2');
+});
 
 test('returning from files restores the selected cached conversation and its saved draft', () => {
   const fixture = sessionNavigationFixture(), {state, setMode, elements, opened} = fixture;
