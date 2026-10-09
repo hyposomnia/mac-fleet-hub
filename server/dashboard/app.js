@@ -2892,6 +2892,102 @@ function chatRenderUnits(entries) {
   return units;
 }
 
+function chatRenderSignature(value) {
+  let text;
+  try { text = JSON.stringify(value); } catch (_) { text = String(value || ''); }
+  let hash = 2166136261;
+  for (let index = 0; index < text.length; index += 1) {
+    hash ^= text.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return `${text.length}:${(hash >>> 0).toString(36)}`;
+}
+
+function tagChatRenderNode(node, key, value) {
+  if (!node) return node;
+  node.dataset.chatRenderKey = key;
+  node.dataset.chatRenderSignature = chatRenderSignature(value);
+  return node;
+}
+
+function tagChatItemNode(node, key, value) {
+  if (!node) return node;
+  node.dataset.chatItemKey = key;
+  node.dataset.chatItemSignature = chatRenderSignature(value);
+  return node;
+}
+
+function chatActivityScrollTop(scrollTop, scrollHeight, clientHeight, nextScrollHeight) {
+  const wasAtBottom = scrollHeight - scrollTop - clientHeight <= 2;
+  return wasAtBottom ? Math.max(0, nextScrollHeight - clientHeight) : scrollTop;
+}
+
+function reconcileChatActivityItems(currentBody, nextBody) {
+  const existing = new Map([...currentBody.children]
+    .filter((node) => node.dataset.chatItemKey)
+    .map((node) => [node.dataset.chatItemKey, node]));
+  [...nextBody.children].forEach((next, index) => {
+    const key = next.dataset.chatItemKey;
+    const previous = key ? existing.get(key) : null;
+    let node = next;
+    if (previous) {
+      existing.delete(key);
+      if (previous.dataset.chatItemSignature === next.dataset.chatItemSignature) node = previous;
+    }
+    const position = currentBody.children[index];
+    if (position !== node) currentBody.insertBefore(node, position || null);
+    if (previous && previous !== node) previous.remove();
+  });
+  for (const stale of existing.values()) stale.remove();
+}
+
+function reconcileChatActivityGroup(current, next) {
+  const currentDetails = current.firstElementChild;
+  const nextDetails = next.firstElementChild;
+  const currentBody = currentDetails?.querySelector(':scope > .chat-activity-group-body');
+  const nextBody = nextDetails?.querySelector(':scope > .chat-activity-group-body');
+  if (!currentDetails || !nextDetails || !currentBody || !nextBody) return false;
+  const previousTop = currentBody.scrollTop;
+  const previousHeight = currentBody.scrollHeight;
+  const clientHeight = currentBody.clientHeight;
+  const currentSummary = currentDetails.querySelector(':scope > summary');
+  const nextSummary = nextDetails.querySelector(':scope > summary');
+  if (currentSummary && nextSummary) currentSummary.replaceWith(nextSummary);
+  reconcileChatActivityItems(currentBody, nextBody);
+  currentBody.scrollTop = chatActivityScrollTop(previousTop, previousHeight, clientHeight, currentBody.scrollHeight);
+  current.dataset.chatRenderSignature = next.dataset.chatRenderSignature;
+  return true;
+}
+
+function reconcileChatStack(sc, nextStack) {
+  const current = sc.firstElementChild?.classList?.contains('chat-stack') ? sc.firstElementChild : null;
+  if (!current) {
+    sc.replaceChildren(nextStack);
+    return;
+  }
+  const existing = new Map([...current.children]
+    .filter((node) => node.dataset.chatRenderKey)
+    .map((node) => [node.dataset.chatRenderKey, node]));
+  [...nextStack.children].forEach((next, index) => {
+    const key = next.dataset.chatRenderKey;
+    const previous = key ? existing.get(key) : null;
+    let node = next;
+    if (previous) {
+      existing.delete(key);
+      if (previous.dataset.chatRenderSignature === next.dataset.chatRenderSignature) {
+        node = previous;
+      } else if (previous.classList.contains('activity-group') && next.classList.contains('activity-group') &&
+          reconcileChatActivityGroup(previous, next)) {
+        node = previous;
+      }
+    }
+    const position = current.children[index];
+    if (position !== node) current.insertBefore(node, position || null);
+    if (previous && previous !== node) previous.remove();
+  });
+  for (const stale of existing.values()) stale.remove();
+}
+
 const CHAT_SUBAGENT_POLL_MS = 2500;
 const CHAT_SUBAGENT_HISTORY_PAGES = 5;
 
@@ -3181,19 +3277,22 @@ function renderChat({ preserveScroll = false, forceBottom = false } = {}) {
   const stack = h('div', { class: 'chat-stack' });
   renderChatSubagents(chat);
   if (chat.historyReady && chat.historyLoading) {
-    stack.append(h('div', { class: 'chat-history-state', text: '正在加载更早记录…' }));
+    stack.append(tagChatRenderNode(h('div', { class: 'chat-history-state', text: '正在加载更早记录…' }), 'state:history', true));
   }
-  if (chat.loading) stack.append(chatRow(h('div', { class: 'chat-card muted', text: assistantConnectingText() })));
+  if (chat.loading) stack.append(tagChatRenderNode(
+    chatRow(h('div', { class: 'chat-card muted', text: assistantConnectingText() })), 'state:loading', assistantConnectingText(),
+  ));
   const model = chat.model || FleetChatModel.createChatState();
   renderChatPendingInteraction(chat);
   renderChatOwnershipHead(chat);
   if (isDesktopChatOwned(chat)) {
     const running = isDesktopChatRunning(chat);
-    stack.append(h('div', { class: 'chat-desktop-running' },
+    stack.append(tagChatRenderNode(h('div', { class: 'chat-desktop-running' },
       h('strong', { text: running ? 'ChatGPT 桌面端正在输出' : 'ChatGPT 桌面端已打开此会话' }),
       h('span', { text: running
         ? 'Fleet 会保持同步。现在提交的内容会排队等待 Desktop 释放会话，Desktop 始终优先。'
-        : 'Fleet 当前保持只读。提交内容需再次确认，并会在 Desktop 切换或关闭此会话后自动发送。' })));
+        : 'Fleet 当前保持只读。提交内容需再次确认，并会在 Desktop 切换或关闭此会话后自动发送。' })),
+    'state:desktop', running));
   }
   const metaVisible = chatMessageMetaVisibility(model);
   const entries = model.messages
@@ -3206,25 +3305,29 @@ function renderChat({ preserveScroll = false, forceBottom = false } = {}) {
         unit.entries.map((entry) => entry.id),
         chat.expandedActivityGroups,
       )
-      : [renderChatItem(unit.entries[0].item,
-        unit.entries[0].item.type === 'user' && metaVisible.has(unit.entries[0].id))];
+      : [tagChatRenderNode(renderChatItem(unit.entries[0].item,
+        unit.entries[0].item.type === 'user' && metaVisible.has(unit.entries[0].id)),
+      `item:${unit.entries[0].id}`, [unit.entries[0].item, metaVisible.has(unit.entries[0].id)])];
     for (const row of rows) {
       if (row) stack.append(row);
     }
     if (unit.entries.length === 1 && unit.entries[0].item.type === 'user') {
       const queued = (chat.followups || []).find((item) => item.clientMessageId === unit.entries[0].id);
       if (queued && queued.status !== 'sent' && !isFleetQueueFollowup(queued)) {
-        stack.append(chatRow(queueStatusCard(queued), 'user queue-status-row'));
+        stack.append(tagChatRenderNode(chatRow(queueStatusCard(queued), 'user queue-status-row'),
+          `queue:${queued.id || unit.entries[0].id}`, queued));
       }
     }
     const lastId = unit.entries[unit.entries.length - 1].id;
     const turnMeta = metaVisible.get(lastId);
-    if (turnMeta?.type === 'assistant') stack.append(renderChatTurnMeta(turnMeta));
+    if (turnMeta?.type === 'assistant') stack.append(tagChatRenderNode(
+      renderChatTurnMeta(turnMeta), `meta:${lastId}`, turnMeta,
+    ));
   }
   const progress = renderChatTurnProgress(FleetChatModel.chatTurnProgress(model));
-  if (progress) stack.append(progress);
-  if (model.error) stack.append(renderChatError(model.error));
-  clear(sc); sc.append(stack);
+  if (progress) stack.append(tagChatRenderNode(progress, 'state:progress', FleetChatModel.chatTurnProgress(model)));
+  if (model.error) stack.append(tagChatRenderNode(renderChatError(model.error), 'state:error', model.error));
+  reconcileChatStack(sc, stack);
   syncCompactComposer();
   if (preserveScroll) sc.scrollTop = oldTop + (sc.scrollHeight - oldHeight);
   else if (forceBottom || stick) sc.scrollTop = sc.scrollHeight;
@@ -3581,7 +3684,7 @@ function renderChatToolSurface(item, extraClass = '', itemID = '', expanded = nu
     h('span', { class: 'chat-tool-aside' },
       hasBody ? svgIcon('chat-tool-chevron', 'M6 9l6 6 6-6') : null));
   const cls = ['chat-tool compact', extraClass].filter(Boolean).join(' ');
-  if (!hasBody) return h('div', { class: cls }, header);
+  if (!hasBody) return tagChatItemNode(h('div', { class: cls }, header), `item:${itemID}`, item);
   const body = h('div', { class: 'chat-tool-body' },
     item.mediaPath ? chatImagePreview(chatMediaSrc(item.mediaPath), item.summary || `${assistantLabel()} 图片`, 'chat-tool-media', 'chat-tool-media-preview') : null,
     item.progress ? h('div', { class: 'chat-tool-progress', text: item.progress }) : null,
@@ -3594,7 +3697,10 @@ function renderChatToolSurface(item, extraClass = '', itemID = '', expanded = nu
         item.output || '',
       ].filter(Boolean).join('\n') })) : null,
     item.exitCode !== undefined ? h('div', { class: 'chat-tool-exit tnum', text: `退出码 ${item.exitCode}` }) : null);
-  return chatActivityDetails({ class: cls }, itemID ? `item:${itemID}` : '', expanded, h('summary', {}, header), body);
+  return tagChatItemNode(
+    chatActivityDetails({ class: cls }, itemID ? `item:${itemID}` : '', expanded, h('summary', {}, header), body),
+    `item:${itemID}`, item,
+  );
 }
 
 function renderChatTool(item, itemID = '', expanded = null) {
@@ -3608,14 +3714,14 @@ function renderChatDiffSurface(item, extraClass = '', itemID = '', expanded = nu
     h('span', { class: 'chat-tool-label' }, h('span', { class: 'chat-tool-verb', text: '已编辑' }), h('span', { class: 'chat-tool-muted', text: '文件' })),
     h('span', { class: 'chat-tool-aside' }, files.length ? svgIcon('chat-tool-chevron', 'M6 9l6 6 6-6') : null));
   const cls = ['chat-tool chat-diff compact', extraClass].filter(Boolean).join(' ');
-  if (!files.length) return h('div', { class: cls }, header);
-  return chatActivityDetails({ class: cls }, itemID ? `item:${itemID}` : '', expanded,
+  if (!files.length) return tagChatItemNode(h('div', { class: cls }, header), `item:${itemID}`, item);
+  return tagChatItemNode(chatActivityDetails({ class: cls }, itemID ? `item:${itemID}` : '', expanded,
     h('summary', {}, header),
     h('div', { class: 'chat-diff-files' }, files.map((file) => h('div', { class: 'chat-diff-file' },
       h('span', { class: 'chat-diff-path mono', text: file.path }),
       h('span', { class: 'chat-diff-stats tnum' },
         h('span', { class: 'chat-diff-add', text: `+${file.additions || 0}` }),
-        h('span', { class: 'chat-diff-del', text: `-${file.deletions || 0}` }))))));
+        h('span', { class: 'chat-diff-del', text: `-${file.deletions || 0}` })))))), `item:${itemID}`, item);
 }
 
 function renderChatDiff(item, itemID = '', expanded = null) {
@@ -3765,7 +3871,8 @@ function renderChatActivityRun(items, itemIDs = [], expandedGroups = null) {
   for (let i = 0; i < visibleItems.length; i += 1) {
     const item = visibleItems[i];
     if (!isChatActivityItem(item)) {
-      rows.push(renderChatItem(item, false, visibleIDs[i], expandedGroups));
+      rows.push(tagChatRenderNode(renderChatItem(item, false, visibleIDs[i], expandedGroups),
+        `item:${visibleIDs[i] || i}`, item));
       continue;
     }
     const group = [item];
@@ -3777,9 +3884,10 @@ function renderChatActivityRun(items, itemIDs = [], expandedGroups = null) {
     const groupStart = groupEnd - group.length + 1;
     // The group grows while a turn streams, so its first item ID is the stable identity.
     const groupKey = group.length > 1 ? (visibleIDs[groupStart] || '') : '';
-    rows.push(group.length > 1
+    const row = group.length > 1
       ? renderChatActivityGroup(group, groupKey, expandedGroups, visibleIDs.slice(groupStart, groupEnd + 1))
-      : renderChatItem(item, false, visibleIDs[i], expandedGroups));
+      : renderChatItem(item, false, visibleIDs[i], expandedGroups);
+    rows.push(tagChatRenderNode(row, `activity:${visibleIDs[groupStart] || groupStart}`, group));
   }
   return rows.filter(Boolean);
 }

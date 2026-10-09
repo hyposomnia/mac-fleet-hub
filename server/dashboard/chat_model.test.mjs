@@ -109,6 +109,11 @@ vm.runInContext('globalThis.__chatApprovalCapabilityTest = { assistantCapabiliti
 const { assistantCapabilities, chatTurnOptions } = appSandbox.__chatApprovalCapabilityTest;
 vm.runInContext('globalThis.__chatEventsTest = { startChatEvents };', appSandbox);
 const { startChatEvents } = appSandbox.__chatEventsTest;
+vm.runInContext(`globalThis.__chatIncrementalTest = {
+  chatActivityScrollTop: typeof chatActivityScrollTop === 'function' ? chatActivityScrollTop : null,
+  reconcileChatActivityItems: typeof reconcileChatActivityItems === 'function' ? reconcileChatActivityItems : null,
+};`, appSandbox);
+const { chatActivityScrollTop, reconcileChatActivityItems } = appSandbox.__chatIncrementalTest;
 function toolLabelText(item) {
   const status = chatToolStatus(item.status);
   return chatToolActivityLabel(item, status, chatToolDuration(item.durationMs)).map(nodeText).join('');
@@ -2886,6 +2891,52 @@ test('manually expanded activity groups stay open across live rerenders', () => 
   details.open = false;
   details.ontoggle({ currentTarget: details });
   assert.equal(expanded.has('tool-1'), false);
+});
+
+test('live chat refresh reconciles keyed rows instead of rebuilding the transcript', () => {
+  const source = appSrc.match(/function renderChat\(\{ preserveScroll = false, forceBottom = false \} = \{\}\) \{[\s\S]*?\n\}/)?.[0] || '';
+  assert.match(source, /reconcileChatStack\(sc, stack\)/);
+  assert.doesNotMatch(source, /clear\(sc\);\s*sc\.append\(stack\)/);
+  assert.match(appSrc, /node\.dataset\.chatItemKey\s*=\s*key/);
+});
+
+test('activity group background updates preserve reading position and follow the bottom only when already there', () => {
+  assert.equal(typeof chatActivityScrollTop, 'function');
+  assert.equal(chatActivityScrollTop(72, 420, 180, 520), 72);
+  assert.equal(chatActivityScrollTop(238, 420, 180, 520), 340);
+  assert.equal(chatActivityScrollTop(240, 420, 180, 520), 340);
+});
+
+test('activity group reconciliation reuses unchanged tools and appends only new frontend nodes', () => {
+  const item = (key, signature) => ({
+    dataset: { chatItemKey: key, chatItemSignature: signature }, parent: null,
+    remove() {
+      const index = this.parent?.children.indexOf(this) ?? -1;
+      if (index >= 0) this.parent.children.splice(index, 1);
+      this.parent = null;
+    },
+  });
+  const body = (children) => {
+    const container = {
+      children,
+      insertBefore(node, position) {
+        if (node.parent) node.remove();
+        const index = position ? this.children.indexOf(position) : this.children.length;
+        this.children.splice(index < 0 ? this.children.length : index, 0, node);
+        node.parent = this;
+      },
+    };
+    children.forEach((node) => { node.parent = container; });
+    return container;
+  };
+  const unchanged = item('item:a', 'same');
+  const replaced = item('item:b', 'old');
+  const current = body([unchanged, replaced]);
+  const nextUnchanged = item('item:a', 'same');
+  const nextReplaced = item('item:b', 'new');
+  const appended = item('item:c', 'new');
+  reconcileChatActivityItems(current, body([nextUnchanged, nextReplaced, appended]));
+  assert.deepEqual(current.children, [unchanged, nextReplaced, appended]);
 });
 
 test('standalone tool details preserve manual open and closed states across updates', () => {
