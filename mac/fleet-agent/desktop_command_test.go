@@ -40,12 +40,12 @@ func TestDesktopCommandOnlyReadsBackgroundEvidence(t *testing.T) {
 	}
 }
 
-func TestDesktopManagedConfigurationDoesNotClaimSharedDesktop(t *testing.T) {
+func TestNativeAgentLeavesInitialDesktopEnvironmentToVerifiedInstaller(t *testing.T) {
 	t.Setenv("FLEET_DESKTOP_MANAGED", "1")
 	t.Setenv("FLEET_CODEX_APPSERVER_MODE", "shared")
 	t.Setenv("FLEET_CODEX_DESKTOP_SHARED_DAEMON", "1")
 	if desktopMayConfigureEnvironment() {
-		t.Fatal("new settings application may not change an existing Desktop environment")
+		t.Fatal("native Agent must leave initial GUI configuration to the verified shared installer")
 	}
 	t.Setenv("FLEET_DESKTOP_MANAGED", "")
 	if !desktopMayConfigureEnvironment() {

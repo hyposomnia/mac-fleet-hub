@@ -110,10 +110,13 @@ public final class NativeManagement: LocalManagement {
 
     public func uninstall(removeSettings: Bool) async throws {
         guard !layout.requiresInstallation else { throw FleetError.message("当前应用不在安装位置。") }
+        let sharedRuntime = CodexSharedRuntime(layout: layout, execute: execute)
+        try await sharedRuntime.prepareForRemoval()
         let current = try await UninstallPreparation.prepare(status: { try await self.status() },
                                                              start: { try await self.start() },
                                                              checkIdle: { try await self.prepareForStop() })
         do {
+            try await sharedRuntime.remove()
             if current.binding != nil { _ = try await request("logout") }
             try setAutoStart(false)
             _ = try await launchctl(["bootout", target])
@@ -131,12 +134,14 @@ public final class NativeManagement: LocalManagement {
     public func start() async throws {
         try await validateInstallation()
         try await synchronizeBackground(launch: true)
+        try await ensureCodexSharedRuntime()
     }
 
     public func prepareRuntime() async throws {
         try await validateInstallation()
         let running = (try? await launchctl(["print", target])) != nil
         try await synchronizeBackground(launch: running)
+        if running { try await ensureCodexSharedRuntime() }
         if loginService.status == .enabled { try setAutoStart(true) }
     }
 
@@ -149,6 +154,12 @@ public final class NativeManagement: LocalManagement {
         }
         try PrivateRuntime.ensureDirectory(layout.home.appendingPathComponent(".macfleet"))
         try PrivateRuntime.ensureDirectory(layout.state)
+    }
+
+    private func ensureCodexSharedRuntime() async throws {
+        try await BackgroundRuntimeInstaller.withLock(directory: layout.runtimeDirectory) {
+            try await CodexSharedRuntime(layout: layout, execute: execute).start()
+        }
     }
 
     func synchronizeBackground(launch: Bool) async throws {

@@ -59,7 +59,9 @@ public struct RuntimeLayout: Sendable {
                 "FLEET_DESKTOP_MANAGED": "1",
                 "FLEET_BINDING_FILE": state.appendingPathComponent("binding.json").path,
                 "FLEET_TMUX_CONF": state.appendingPathComponent("tmux.conf").path,
-                "FLEET_CODEX_DESKTOP_SHARED_DAEMON": "0",
+                "FLEET_CODEX_APPSERVER_MODE": "shared",
+                "FLEET_CODEX_APPSERVER_SOCK": home.appendingPathComponent(".macfleet/codex-app-server.sock").path,
+                "FLEET_CODEX_DESKTOP_SHARED_DAEMON": "1",
                 "FLEET_AUTO_CMDR": "0"
             ]
         ]

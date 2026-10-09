@@ -139,6 +139,18 @@ test('native packaging requires verified bundled runtime instead of developer Ho
   assert.match(script, /GOARCH/);
 });
 
+test('native packaging and lifecycle use the original shared Codex components', () => {
+  const script = read('./build-settings-app.sh');
+  for (const file of ['codex-keeper-launch.sh', 'codex-bin-resolve.sh', 'codex-shared-app-server.mjs', 'codex-desktop-env.sh', 'check-codex-idle.sh', 'com.macfleet.codex-shared-app-server.plist']) {
+    assert.ok(script.includes(file), `missing original component ${file}`);
+  }
+  const management = read('../mac/settings-app/Sources/FleetCore/NativeManagement.swift');
+  assert.match(management, /CodexSharedRuntime\(layout: layout, execute: execute\)/);
+  assert.match(management, /sharedRuntime\.prepareForRemoval\(\)/);
+  assert.match(management, /sharedRuntime\.remove\(\)/);
+  assert.match(management, /ensureCodexSharedRuntime\(\)/);
+});
+
 test('native privacy instructions identify the background bundle and do not promise universal permission', () => {
   const view = read('../mac/settings-app/Sources/FleetHub/SettingsView.swift');
   const guide = read('../mac/settings-app/Sources/FleetHub/DiskAccessGuide.swift');

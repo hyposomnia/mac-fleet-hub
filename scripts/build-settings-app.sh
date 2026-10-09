@@ -47,6 +47,11 @@ lipo -create "$OUTPUT/agent-arm64" "$OUTPUT/agent-amd64" -output "$AGENT/Content
 mkdir -p "$AGENT/Contents/Resources/bin" "$APP/Contents/Resources/Licenses"
 ditto "$FLEET_SETTINGS_RUNTIME/universal/bin" "$AGENT/Contents/Resources/bin"
 ditto "$FLEET_SETTINGS_RUNTIME/licenses" "$APP/Contents/Resources/Licenses"
+mkdir -p "$AGENT/Contents/Resources/codex"
+# Carry the proven shared runtime unchanged; the native installer owns only its lifecycle.
+for file in codex-keeper-launch.sh codex-bin-resolve.sh codex-shared-app-server.mjs codex-desktop-env.sh check-codex-idle.sh com.macfleet.codex-shared-app-server.plist; do
+  install -m 0644 "$ROOT/mac/$file" "$AGENT/Contents/Resources/codex/$file"
+done
 install -m 0644 "$ROOT/mac/settings-app/Resources/com.macfleet.desktop-login.plist" "$APP/Contents/Library/LaunchAgents/com.macfleet.desktop-login.plist"
 cat > "$APP/Contents/Info.plist" <<'PLIST'
 <?xml version="1.0" encoding="UTF-8"?>

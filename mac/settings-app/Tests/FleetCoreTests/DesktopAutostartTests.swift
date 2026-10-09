@@ -9,9 +9,14 @@ final class DesktopAutostartTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: fixture.home) }
         var verified = false
         var commands: [[String]] = []
+        var sharedStarted = false
         try await DesktopAutostart.start(layout: fixture, verify: { application in
             XCTAssertEqual(application, fixture.backgroundApplication)
             verified = true
+        }, prepareCodex: {
+            XCTAssertTrue(verified)
+            XCTAssertEqual(commands.last?.first, "bootstrap")
+            sharedStarted = true
         }, launch: { arguments in
             commands.append(arguments)
             if arguments[0] == "print" { throw FleetError.message("not loaded") }
@@ -19,6 +24,18 @@ final class DesktopAutostartTests: XCTestCase {
         })
         XCTAssertEqual(commands.last, ["bootstrap", "gui/\(getuid())", fixture.runtimePlist.path])
         XCTAssertEqual(commands.count, 3)
+        XCTAssertTrue(sharedStarted)
+    }
+
+    func testLauncherPreparesSharedCodexWhenAgentIsAlreadyLoaded() async throws {
+        let fixture = try fixture()
+        defer { try? FileManager.default.removeItem(at: fixture.home) }
+        var sharedStarted = false
+        try await DesktopAutostart.start(layout: fixture, verify: { _ in }, prepareCodex: { sharedStarted = true }, launch: { arguments in
+            if arguments.last?.hasSuffix("/com.macfleet.fleet-agent") == true { throw FleetError.message("not loaded") }
+            XCTAssertEqual(arguments.first, "print")
+        })
+        XCTAssertTrue(sharedStarted)
     }
 
     func testLauncherRejectsLegacyNestedAndForeignProgramDefinitions() async throws {

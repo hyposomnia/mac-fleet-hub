@@ -3,6 +3,7 @@ import Foundation
 @MainActor
 public enum DesktopAutostart {
     public static func start(layout: RuntimeLayout, verify: (URL) async throws -> Void,
+                             prepareCodex: (() async throws -> Void)? = nil,
                              launch: ([String]) async throws -> Void) async throws {
         try PrivateRuntime.ensureDirectory(layout.home.appendingPathComponent(".macfleet"))
         try PrivateRuntime.ensureDirectory(layout.state)
@@ -17,8 +18,11 @@ public enum DesktopAutostart {
             if (try? await launch(["print", domain + "/com.macfleet.fleet-agent"])) != nil {
                 throw FleetError.message("检测到旧版 Fleet 后台，未启动新服务。")
             }
-            if (try? await launch(["print", domain + "/com.macfleet.desktop-agent"])) != nil { return }
-            try await launch(["bootstrap", domain, layout.runtimePlist.path])
+            if (try? await launch(["print", domain + "/com.macfleet.desktop-agent"])) == nil {
+                try await launch(["bootstrap", domain, layout.runtimePlist.path])
+            }
+            if let prepareCodex { try await prepareCodex() }
+            else { try await CodexSharedRuntime(layout: layout).start() }
         }
     }
 }
