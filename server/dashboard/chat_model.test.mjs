@@ -132,7 +132,7 @@ const previewSandbox = {
 };
 vm.createContext(previewSandbox);
 vm.runInContext(previewSrc, previewSandbox);
-const { resolveLocalLink, resourceURL, fileEndpoint, isPreviewRoute, previewRequest, isTextPreviewPath, textPreviewMode } = previewSandbox.globalThis.FleetPreview;
+const { resolveLocalLink, resourceURL, fileEndpoint, isPreviewRoute, previewRequest, previewPathSegments, isTextPreviewPath, textPreviewMode } = previewSandbox.globalThis.FleetPreview;
 
 test('chat model and app use the same versioned shell URLs', () => {
   const styleURL = indexHTML.match(/style\.css\?v=([a-zA-Z0-9_-]+)/);
@@ -199,6 +199,32 @@ test('preview helpers build protected media URLs and parse only /view routes', (
     { macId: 'm2', path: '/Users/test/plan.md', cwd: '/repo', embed: false },
   );
   assert.equal(previewRequest('?mac=m2&path=%2Ftmp%2Fnote.txt&embed=1').embed, true);
+});
+
+test('preview path exposes every directory segment and the final file as file-manager targets', () => {
+  assert.deepEqual(
+    JSON.parse(JSON.stringify(previewPathSegments('/Users/hjc/Git_Repositories/photo-cleaner/docs/README.md'))),
+    [
+      { label: '/', path: '/', kind: 'folder' },
+      { label: 'Users', path: '/Users', kind: 'folder' },
+      { label: 'hjc', path: '/Users/hjc', kind: 'folder' },
+      { label: 'Git_Repositories', path: '/Users/hjc/Git_Repositories', kind: 'folder' },
+      { label: 'photo-cleaner', path: '/Users/hjc/Git_Repositories/photo-cleaner', kind: 'folder' },
+      { label: 'docs', path: '/Users/hjc/Git_Repositories/photo-cleaner/docs', kind: 'folder' },
+      { label: 'README.md', path: '/Users/hjc/Git_Repositories/photo-cleaner/docs/README.md', kind: 'file' },
+    ],
+  );
+  assert.deepEqual(JSON.parse(JSON.stringify(previewPathSegments('docs/README.md'))), [
+    { label: 'docs', path: 'docs', kind: 'folder' },
+    { label: 'README.md', path: 'docs/README.md', kind: 'file' },
+  ]);
+});
+
+test('embedded preview breadcrumbs hand navigation to the main file manager', () => {
+  assert.match(previewSrc, /FleetWorkspaceTabs\?\.revealFile\?\.\(\{\s*macId:\s*request\.macId,\s*path:\s*segment\.path,\s*kind:\s*segment\.kind/s);
+  assert.match(appSrc, /FleetWorkspaceTabs\?\.init\(\{[\s\S]*?onRevealFile:\s*revealWorkspaceFile/);
+  assert.match(appSrc, /applyFileDirectoryData\(data, macId, \{\s*selectedPath:\s*opts\.selectedPath\s*\|\|\s*''\s*\}\)/);
+  assert.match(styleCSS, /\.preview-path-segment\s*\{[^}]*cursor:\s*pointer;/s);
 });
 
 function imagePreviewHarness(name, options = {}) {

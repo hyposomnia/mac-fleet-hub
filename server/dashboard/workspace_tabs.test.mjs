@@ -4,7 +4,7 @@ import vm from 'node:vm';
 import {readFile} from 'node:fs/promises';
 const source = await readFile(new URL('./workspace_tabs.js', import.meta.url), 'utf8');
 const preview = await readFile(new URL('./preview.js', import.meta.url), 'utf8');
-function setup({onSelectChat = () => {}} = {}) {
+function setup({onSelectChat = () => {}, onRevealFile = () => false} = {}) {
   class Node {
     constructor() { this.dataset = {}; this.attrs = {}; this.children = []; this.events = {}; this.hidden = false; this.inert = false; this.style = {}; }
     setAttribute(key, value) { this.attrs[key] = value; }
@@ -29,7 +29,7 @@ function setup({onSelectChat = () => {}} = {}) {
   }};
   vm.createContext(context); vm.runInContext(preview, context); vm.runInContext(source, context);
   let opened = 0, closed = 0;
-  context.FleetWorkspaceTabs.init({onSelectChat, onOpen() { opened++; }, onCloseChat() { closed++; elements['chat-pane'].hidden = true; }});
+  context.FleetWorkspaceTabs.init({onSelectChat, onRevealFile, onOpen() { opened++; }, onCloseChat() { closed++; elements['chat-pane'].hidden = true; }});
   return {api: context.FleetWorkspaceTabs, elements, body: context.document.body, flush() { const pending = [...timers.values()]; timers.clear(); pending.forEach(fn => fn()); }, get opened() { return opened; }, get closed() { return closed; }};
 }
 const url = (path, mac = 'm1', cwd = '/repo') => `/view?${new URLSearchParams({mac, path, cwd})}`;
@@ -109,6 +109,14 @@ test('ordinary file links are intercepted but external links, downloads and modi
   const external = clickLink('https://example.test'); handler(external); assert.equal(external.prevented, false);
   assert.equal(e['workspace-preview'].children.length, 1);
   api.reset(); assert.equal(e['workspace-preview'].children.length, 0);
+});
+
+test('preview breadcrumb targets are delegated to the dashboard file manager', () => {
+  let revealed;
+  const {api} = setup({onRevealFile(target) { revealed = target; return true; }});
+  const target = {macId: 'm2', path: '/Users/demo/project/docs', kind: 'folder'};
+  assert.equal(api.revealFile(target), true);
+  assert.deepEqual(revealed, target);
 });
 
 test('file-browser full preview keeps native browser opening without creating a conversation tab', async () => {

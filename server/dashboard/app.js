@@ -5972,6 +5972,31 @@ function fileBaseName(path) {
   return parts.pop() || '文件';
 }
 
+function fileParentPath(path) {
+  const value = String(path || '').replace(/\/+$/, '') || '/';
+  const slash = value.lastIndexOf('/');
+  return slash > 0 ? value.slice(0, slash) : '/';
+}
+
+function revealWorkspaceFile(target = {}) {
+  const macId = String(target.macId || '');
+  const path = String(target.path || '').trim();
+  if (!/^m\d+$/.test(macId) || !path.startsWith('/')) return false;
+  const selectedPath = target.kind === 'file' ? path : '';
+  const directory = selectedPath ? fileParentPath(path) : (path.replace(/\/+$/, '') || '/');
+  if (state.mode !== 'files') setMode('files');
+  rememberFileDevice(macId);
+  state.macId = macId;
+  state.fileSearch = '';
+  const search = $('#file-search');
+  if (search) search.value = '';
+  renderHosts();
+  updateDeviceScopeUI();
+  persistUIState();
+  loadFileDirectory(directory, { pushHistory: true, fallback: false, selectedPath });
+  return true;
+}
+
 function formatFileTime(ms) {
   const value = Number(ms);
   if (!value) return '—';
@@ -6269,10 +6294,16 @@ async function loadFileDirectory(path = '', opts = {}) {
   try {
     const data = await fetchFileDirectory(macId, path);
     if (req !== fileLoadSeq || state.fileMacId !== macId || state.mode !== 'files') return;
-    applyFileDirectoryData(data, macId);
+    applyFileDirectoryData(data, macId, { selectedPath: opts.selectedPath || '' });
     state.fileLoading = false;
     persistUIState();
     renderFileBrowser();
+    if (opts.selectedPath) {
+      requestAnimationFrame(() => {
+        const selected = $$('#file-list [aria-selected="true"]');
+        selected[selected.length - 1]?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+      });
+    }
     if (opts.pushHistory) {
       const historyState = { mode: 'files', fileMacId: macId, filePath: state.filePath, filePreviewPath: '' };
       if (replacePreviewHistory) replaceFleetHistory(historyState);
@@ -7694,7 +7725,7 @@ function init() {
       pushFleetHistory({ mode: 'sessions', term: true });
       $('#app').classList.add('term-open');
     }
-  }, onSelectChat: restoreTermOrEmpty, onCloseChat: ({hasFiles}) => {
+  }, onRevealFile: revealWorkspaceFile, onSelectChat: restoreTermOrEmpty, onCloseChat: ({hasFiles}) => {
     state.selectedSid = state.selectedSessionMacId = null;
     showEmpty();
     if (hasFiles) $('#fullscreen-btn').hidden = false;

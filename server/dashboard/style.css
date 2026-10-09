@@ -211,7 +211,11 @@ body {
 }
 .preview-file-info { min-width: 0; }
 .preview-title { overflow: hidden; color: var(--text); font-size: var(--t-title); font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
-.preview-path { margin-top: 2px; overflow: hidden; color: var(--text-2); font-size: var(--t-caption); text-overflow: ellipsis; white-space: nowrap; }
+.preview-path { display: flex; align-items: center; gap: 2px; margin-top: 2px; overflow-x: auto; color: var(--text-2); font-size: var(--t-caption); white-space: nowrap; scrollbar-width: none; }
+.preview-path::-webkit-scrollbar { display: none; }
+.preview-path-segment { flex: none; padding: 0; border: 0; background: transparent; color: inherit; font: inherit; cursor: pointer; }
+.preview-path-segment:hover, .preview-path-segment:focus-visible { color: var(--accent-text); text-decoration: underline; text-underline-offset: 2px; }
+.preview-path-separator { flex: none; opacity: .48; user-select: none; }
 .preview-actions { display: flex; align-items: center; gap: 8px; }
 .preview-stage { position: relative; flex: 1; min-height: 0; overflow: hidden; background: var(--bg); }
 .preview-state { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; gap: 9px; padding: 24px; color: var(--text-2); text-align: center; }

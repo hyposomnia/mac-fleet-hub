@@ -239,6 +239,29 @@
     return slash > 0 ? value.slice(0, slash) : '/';
   }
 
+  function previewPathSegments(path) {
+    const value = String(path || '').trim();
+    if (!value) return [];
+    const absolute = value.startsWith('/');
+    const parts = [];
+    for (const part of value.split('/')) {
+      if (!part || part === '.') continue;
+      if (part === '..') parts.pop();
+      else parts.push(part);
+    }
+    const segments = absolute ? [{ label: '/', path: '/', kind: 'folder' }] : [];
+    let current = '';
+    parts.forEach((part, index) => {
+      current = absolute ? `${current}/${part}` : (current ? `${current}/${part}` : part);
+      segments.push({
+        label: part,
+        path: current,
+        kind: index === parts.length - 1 ? 'file' : 'folder',
+      });
+    });
+    return segments;
+  }
+
   function resourceURL(source, context = {}) {
     const value = String(source || '').trim();
     if (/^(?:data:|blob:)/i.test(value)) return value;
@@ -362,13 +385,47 @@
     return '<!doctype html>\n' + doc.documentElement.outerHTML;
   }
 
+  function renderPreviewPath(node, value, request) {
+    if (!node) return;
+    const segments = previewPathSegments(value);
+    const revealFile = request.embed && root.parent !== root
+      ? root.parent?.FleetWorkspaceTabs?.revealFile
+      : null;
+    if (!segments.length || typeof revealFile !== 'function' || typeof node.replaceChildren !== 'function') {
+      node.textContent = value;
+      return;
+    }
+    node.replaceChildren();
+    segments.forEach((segment, index) => {
+      if (index > 0 && segments[index - 1].path !== '/') {
+        const separator = document.createElement('span');
+        separator.className = 'preview-path-separator';
+        separator.setAttribute('aria-hidden', 'true');
+        separator.textContent = '/';
+        node.append(separator);
+      }
+      const button = document.createElement('button');
+      const action = segment.kind === 'file' ? '选中' : '打开';
+      button.type = 'button';
+      button.className = 'preview-path-segment';
+      button.textContent = segment.label;
+      button.title = `在文件管理器中${action} ${segment.path}`;
+      button.setAttribute('aria-label', button.title);
+      button.onclick = () => root.parent.FleetWorkspaceTabs?.revealFile?.({
+        macId: request.macId, path: segment.path, kind: segment.kind,
+      });
+      node.append(button);
+    });
+    root.requestAnimationFrame?.(() => { node.scrollLeft = node.scrollWidth; });
+  }
+
   function renderPreview(meta, request) {
     clearImagePreview();
     const title = document.querySelector('#preview-title');
     const path = document.querySelector('#preview-path');
     const download = document.querySelector('#preview-download');
     if (title) title.textContent = meta.name || '文件预览';
-    if (path) path.textContent = meta.path || request.path;
+    renderPreviewPath(path, meta.path || request.path, request);
     document.title = `${meta.name || '文件'} - fleet hub`;
     if (download) {
       download.href = fileEndpoint('content', request.macId, meta.path, { download: true });
@@ -451,7 +508,7 @@
   }
 
   root.FleetPreview = {
-    resolveLocalLink, resourceURL, fileEndpoint, formatBytes, isPreviewRoute, previewRequest,
+    resolveLocalLink, resourceURL, fileEndpoint, formatBytes, isPreviewRoute, previewRequest, previewPathSegments,
     safeHTMLDocument, rewriteCSSURLs, isTextPreviewPath, textPreviewMode, textWrapEnabled,
     updateTextWrapButton, setTextWrap, initRoute,
   };
