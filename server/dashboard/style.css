@@ -1771,6 +1771,9 @@ html[data-workspace-tab="true"] .preview-actions .iconbtn { width: 26px; height:
   display: flex; align-items: stretch; padding: 0; overflow-x: auto; overflow-y: hidden;
   scroll-snap-type: x proximity; scrollbar-width: thin;
 }
+@media (hover: hover) {
+  .file-list-columns { scroll-snap-type: none; }
+}
 .file-column {
   display: flex; flex: 0 0 clamp(220px, 27vw, 292px); flex-direction: column; min-width: 0; min-height: 0;
   border: 0; background: var(--bg); scroll-snap-align: end;

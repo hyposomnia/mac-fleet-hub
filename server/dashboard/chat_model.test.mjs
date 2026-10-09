@@ -1495,6 +1495,11 @@ test('column view routes Shift+wheel to horizontal scrolling and preserves other
   }
 });
 
+test('column view allows small mouse-wheel movements without snapping while retaining touch snapping', () => {
+  assert.match(styleCSS, /\.file-list-columns\s*\{[^}]*scroll-snap-type:\s*x proximity;/s);
+  assert.match(styleCSS, /@media\s*\(hover:\s*hover\)\s*\{\s*\.file-list-columns\s*\{\s*scroll-snap-type:\s*none;/s);
+});
+
 test('file browser highlights only the most specific matching location', () => {
   const locations = [
     { id: 'home', path: '/Users/demo' },
