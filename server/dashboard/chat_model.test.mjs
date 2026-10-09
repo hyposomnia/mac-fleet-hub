@@ -1443,6 +1443,58 @@ test('file browser supports persistent icon, list, and column views', () => {
   assert.doesNotMatch(styleCSS, /\.file-view-switch\s*\{[^}]*order:\s*3/);
 });
 
+test('column view routes Shift+wheel to horizontal scrolling and preserves other wheel gestures', () => {
+  const handleWheel = vm.runInContext(
+    "typeof handleFileColumnsWheel === 'function' ? handleFileColumnsWheel : null", appSandbox,
+  );
+  assert.equal(typeof handleWheel, 'function');
+  const previousView = appState.fileView;
+  const wrap = { scrollLeft: 200, scrollWidth: 1600, clientWidth: 600, scrollTop: 0 };
+  const body = { scrollTop: 120 };
+  const wheel = (options = {}) => {
+    const event = {
+      currentTarget: wrap, target: body, shiftKey: true, deltaX: 0, deltaY: 80, deltaMode: 0,
+      ctrlKey: false, metaKey: false, defaultPrevented: false,
+      preventDefault() { this.defaultPrevented = true; }, ...options,
+    };
+    handleWheel(event);
+    return event;
+  };
+  try {
+    appState.fileView = 'columns';
+    assert.equal(wheel().defaultPrevented, true);
+    assert.equal(wrap.scrollLeft, 280);
+    wheel({ deltaY: -60 });
+    assert.equal(wrap.scrollLeft, 220);
+    wheel({ deltaX: 50, deltaY: 50 });
+    assert.equal(wrap.scrollLeft, 270, 'native horizontal delta is applied only once');
+    wheel({ deltaX: -30, deltaY: 0 });
+    assert.equal(wrap.scrollLeft, 240);
+    wheel({ deltaY: 3, deltaMode: 1 });
+    assert.equal(wrap.scrollLeft, 288);
+    wheel({ deltaY: 1, deltaMode: 2 });
+    assert.equal(wrap.scrollLeft, 888);
+    assert.equal(wrap.scrollTop, 0);
+    assert.equal(body.scrollTop, 120, 'Shift+wheel does not move the nested column vertically');
+
+    for (const options of [{ shiftKey: false }, { ctrlKey: true }, { metaKey: true }, { deltaY: 0 }]) {
+      assert.equal(wheel(options).defaultPrevented, false);
+      assert.equal(wrap.scrollLeft, 888);
+    }
+    for (const view of ['list', 'icons']) {
+      appState.fileView = view;
+      assert.equal(wheel().defaultPrevented, false);
+      assert.equal(wrap.scrollLeft, 888);
+    }
+    appState.fileView = 'columns';
+    wrap.scrollWidth = wrap.clientWidth;
+    assert.equal(wheel().defaultPrevented, false);
+    assert.equal(wrap.scrollLeft, 888);
+  } finally {
+    appState.fileView = previousView;
+  }
+});
+
 test('file browser highlights only the most specific matching location', () => {
   const locations = [
     { id: 'home', path: '/Users/demo' },

@@ -6419,6 +6419,18 @@ function scrollFileColumnsToEnd() {
   });
 }
 
+function handleFileColumnsWheel(event) {
+  const wrap = event.currentTarget;
+  if (state.fileView !== 'columns' || !event.shiftKey || event.ctrlKey || event.metaKey ||
+      wrap.scrollWidth <= wrap.clientWidth) return;
+  // Some browsers already translate Shift+wheel to deltaX; apply only one axis.
+  const delta = Math.abs(event.deltaX) > Math.abs(event.deltaY) ? event.deltaX : event.deltaY;
+  if (!delta) return;
+  const unit = event.deltaMode === 1 ? 16 : (event.deltaMode === 2 ? wrap.clientWidth : 1);
+  event.preventDefault();
+  wrap.scrollLeft += delta * unit;
+}
+
 function setFileView(view) {
   const next = normalizeFileView(view);
   if (next === state.fileView) {
@@ -7619,6 +7631,7 @@ function init() {
     button.onclick = openDshNativeUI;
   });
   // 自绘文件浏览器
+  $('#file-list').addEventListener('wheel', handleFileColumnsWheel, { passive: false });
   $('#file-search').oninput = (event) => { state.fileSearch = event.target.value.trim(); renderFileEntries(); };
   $$('[data-file-view]').forEach((button) => {
     button.onclick = () => setFileView(button.dataset.fileView);
