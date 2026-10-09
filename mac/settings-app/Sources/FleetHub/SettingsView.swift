@@ -75,8 +75,6 @@ struct SettingsView: View {
         .font(.system(size: 13)).foregroundStyle(theme.text).background(theme.background).tint(theme.accent)
         .buttonStyle(FleetButtonStyle())
         .disabled(model.isBusy || operationBusy || updater.busy)
-        .onDisappear { diskGuide.close() }
-        .onChange(of: page) { selected in if selected != .privacy { diskGuide.close() } }
         .onChange(of: model.origin) { _ in queueSave() }
         .onChange(of: model.autoStart) { _ in queueSave() }
         .task {
@@ -120,12 +118,12 @@ struct SettingsView: View {
             Button("取消", role: .cancel) {}
             Button("解除关联", role: .destructive) { perform { try await management.logout(); await model.refresh() } }
         } message: { Text("撤销当前设备授权后，才能关联其他账号。") }
-        .alert("卸载 Fleet Hub？", isPresented: $confirmUninstall) {
+        .alert("卸载 Fleet Hub 和 Fleet Agent？", isPresented: $confirmUninstall) {
             Button("取消", role: .cancel) {}
             Button("卸载", role: .destructive) {
                 perform { try await management.uninstall(removeSettings: removeSettings); NSApplication.shared.terminate(nil) }
             }
-        } message: { Text("撤销设备授权、停止后台并将应用移入废纸篓。你的文件与聊天会话保留。") }
+        } message: { Text("撤销设备授权、停止后台并卸载两个程序。你的文件与聊天会话保留。") }
     }
 
     private var overview: some View {
@@ -154,7 +152,7 @@ struct SettingsView: View {
             if let binding = model.status?.binding {
                 card {
                     row("账号", binding.ownerEmail)
-                    row("设备", binding.deviceID)
+                    row("设备编号", binding.deviceID)
                     if binding.locked { Text("授权已锁定").foregroundStyle(theme.warning) }
                 }
             } else {
@@ -175,9 +173,12 @@ struct SettingsView: View {
             card {
                 Toggle("登录后启动后台", isOn: $model.autoStart).toggleStyle(.switch)
                     .disabled(management.layout.requiresInstallation)
-                Text(management.layout.requiresInstallation ? "安装后可设置" : management.autoStartStatus).foregroundStyle(theme.secondaryText)
+                if management.layout.requiresInstallation {
+                    Text("安装后可设置").foregroundStyle(theme.secondaryText)
+                } else if management.autoStartStatus != "已启用" && management.autoStartStatus != "未启用" {
+                    Text(management.autoStartStatus).foregroundStyle(theme.warning)
+                }
                 if let current = model.status {
-                    Text("运行详情").foregroundStyle(theme.secondaryText)
                     row("版本", current.version)
                     row("进程", String(current.pid)).monospacedDigit()
                 }
@@ -229,7 +230,7 @@ struct SettingsView: View {
             if let binding = model.status?.binding {
                 card {
                     row("账号", binding.ownerEmail)
-                    row("设备", binding.deviceID)
+                    row("设备编号", binding.deviceID)
                     Button("解除关联") { confirmLogout = true }.buttonStyle(FleetButtonStyle(.danger)).disabled(updater.sessionActive)
                 }
             }
@@ -271,7 +272,6 @@ struct SettingsView: View {
                     Button("重启并检查") { perform { try await management.restart(); await model.refresh(); await model.recheckDisk() } }
                 }
             }
-            Text("仅授权 Fleet Agent，设置应用无需磁盘权限。").foregroundStyle(theme.secondaryText)
             if let evidence = model.status?.diskAccess, !(evidence.deniedTargets ?? []).isEmpty {
                 DisclosureGroup("检测详情") {
                     Text((evidence.deniedTargets ?? []).joined(separator: "\n"))
@@ -304,7 +304,8 @@ struct SettingsView: View {
             } else {
                 DisclosureGroup("卸载") {
                     Toggle("同时移除本机设置", isOn: $removeSettings)
-                    Button("卸载 Fleet Hub") { confirmUninstall = true }.buttonStyle(FleetButtonStyle(.danger)).disabled(updater.sessionActive)
+                    Button("卸载 Fleet Hub 和 Fleet Agent") { confirmUninstall = true }
+                        .buttonStyle(.link).foregroundStyle(theme.warning).disabled(updater.sessionActive)
                 }
                 .foregroundStyle(theme.secondaryText)
             }

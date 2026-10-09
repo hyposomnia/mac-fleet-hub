@@ -21,7 +21,6 @@ final class DiskAccessGuideTests: XCTestCase {
             XCTFail("ignored settings launch failure")
         } catch { XCTAssertTrue(error.localizedDescription.contains("无法打开系统设置")) }
         XCTAssertEqual(events, ["prepare", "settings"])
-        XCTAssertNil(guide.panel)
     }
 
     func testFailedBackgroundPreparationDoesNotOpenSystemSettings() async throws {
@@ -33,7 +32,6 @@ final class DiskAccessGuideTests: XCTestCase {
             XCTFail("ignored background preparation failure")
         } catch { XCTAssertEqual(error.localizedDescription, "busy background") }
         XCTAssertFalse(opened)
-        XCTAssertNil(guide.panel)
     }
 
     private func fixture() throws -> URL {
@@ -74,18 +72,14 @@ final class DiskAccessGuideTests: XCTestCase {
         XCTAssertNil(pasteboard.data(forType: .png))
     }
 
-    func testGuidanceRemainsVisibleAboveSettingsWithoutTakingActivation() throws {
+    func testAuthorizationOpensSystemSettingsForTheExistingPageDragTarget() throws {
         let agent = try fixture().appendingPathComponent("Fleet Agent.app")
         try FileManager.default.createDirectory(at: agent, withIntermediateDirectories: true)
-        let application = try XCTUnwrap(DiskAccessApplication(url: agent))
-        let panel = DiskAccessGuideController.makePanel(application: application)
-        defer { panel.close() }
-        XCTAssertTrue(panel.isFloatingPanel)
-        XCTAssertFalse(panel.hidesOnDeactivate)
-        XCTAssertTrue(panel.becomesKeyOnlyIfNeeded)
-        XCTAssertTrue(panel.styleMask.contains(.nonactivatingPanel))
-        XCTAssertEqual(panel.level, .floating)
-        XCTAssertFalse(panel.isVisible)
+        var opened: [URL] = []
+        let guide = DiskAccessGuideController(openSettings: { opened.append($0); return true })
+        try guide.show(applicationURL: agent)
+        XCTAssertEqual(opened.map(\.absoluteString), ["x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles"])
+        XCTAssertNotNil(DiskAccessApplication(url: agent))
     }
 
     func testFailedSettingsLaunchDoesNotShowGuidanceOrClaimPermission() throws {
@@ -95,6 +89,5 @@ final class DiskAccessGuideTests: XCTestCase {
         let guide = DiskAccessGuideController(openSettings: { opened.append($0); return false })
         XCTAssertThrowsError(try guide.show(applicationURL: agent))
         XCTAssertEqual(opened.map(\.absoluteString), ["x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles"])
-        XCTAssertNil(guide.panel)
     }
 }

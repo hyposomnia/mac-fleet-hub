@@ -85,7 +85,6 @@ struct DiskAccessInstructions: View {
 @MainActor
 final class DiskAccessGuideController: ObservableObject {
     private let openSettings: (URL) -> Bool
-    private(set) var panel: NSPanel?
 
     init(openSettings: @escaping (URL) -> Bool = { NSWorkspace.shared.open($0) }) { self.openSettings = openSettings }
 
@@ -95,49 +94,10 @@ final class DiskAccessGuideController: ObservableObject {
     }
 
     func show(applicationURL: URL) throws {
-        guard let application = DiskAccessApplication(url: applicationURL) else {
+        guard DiskAccessApplication(url: applicationURL) != nil else {
             throw FleetError.message("请先安装后台，再开启完全磁盘访问。")
         }
         let settings = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles")!
         guard openSettings(settings) else { throw FleetError.message("无法打开系统设置，请手动进入隐私与安全性 → 完全磁盘访问。") }
-        if panel == nil { panel = Self.makePanel(application: application) }
-        guard let panel else { return }
-        if let screen = NSScreen.main {
-            let visible = screen.visibleFrame
-            panel.setFrameOrigin(NSPoint(x: visible.minX + 24, y: max(visible.minY + 24, visible.midY - panel.frame.height / 2)))
-        }
-        panel.orderFrontRegardless()
-    }
-
-    static func makePanel(application: DiskAccessApplication) -> NSPanel {
-        let panel = NSPanel(contentRect: NSRect(x: 0, y: 0, width: 308, height: 330),
-                            styleMask: [.titled, .closable, .utilityWindow, .nonactivatingPanel], backing: .buffered, defer: false)
-        panel.title = "完全磁盘访问"
-        panel.isFloatingPanel = true
-        panel.level = .floating
-        panel.hidesOnDeactivate = false
-        panel.becomesKeyOnlyIfNeeded = true
-        panel.isReleasedWhenClosed = false
-        panel.collectionBehavior = [.moveToActiveSpace, .fullScreenAuxiliary]
-        panel.contentView = NSHostingView(rootView: DiskAccessGuidePanel(application: application))
-        return panel
-    }
-
-    func close() { panel?.close(); panel = nil }
-}
-
-private struct DiskAccessGuidePanel: View {
-    let application: DiskAccessApplication
-    @Environment(\.colorScheme) private var scheme
-
-    var body: some View {
-        VStack(spacing: 16) {
-            DiskAccessInstructions(application: application)
-            Text("无需授权 Fleet Hub。完成后返回应用，重启并检查。")
-                .font(.system(size: 12)).foregroundStyle(FleetTheme(scheme: scheme).secondaryText)
-                .multilineTextAlignment(.center)
-        }
-        .padding(24).frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(FleetTheme(scheme: scheme).background)
     }
 }

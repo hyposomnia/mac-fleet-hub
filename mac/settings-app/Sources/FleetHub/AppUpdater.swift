@@ -18,11 +18,15 @@ final class AppUpdater: NSObject, ObservableObject, SPUUpdaterDelegate {
     private var installHandler: (() -> Void)?
     private var recovery: Recovery?
 
-    private struct Recovery: Codable {
+    struct Recovery: Codable {
         var directory: UUID
         var previousBuild: Int64
         var expectedBuild: Int64
         var previousPID: Int
+
+        func accepts(installedBuild: Int64) -> Bool {
+            expectedBuild > previousBuild && (installedBuild == previousBuild || installedBuild >= expectedBuild)
+        }
     }
 
     init(management: NativeManagement) { self.management = management }
@@ -160,25 +164,28 @@ final class AppUpdater: NSObject, ObservableObject, SPUUpdaterDelegate {
         defer { busy = false }
         do {
             let record = try JSONDecoder().decode(Recovery.self, from: PrivateRuntime.read(journal))
-            guard [record.previousBuild, record.expectedBuild].contains(currentBuild), record.expectedBuild > record.previousBuild else {
+            guard record.accepts(installedBuild: currentBuild) else {
                 throw FleetError.message("升级恢复记录与当前版本不一致，未修改应用。")
             }
+            let installedUpgrade = currentBuild >= record.expectedBuild
             try? await management.start()
             for _ in 0..<150 {
                 if let status = try? await management.status(),
                    status.isHealthyAfterUpdate(version: currentVersion, build: currentBuild,
-                                               replacingPID: currentBuild == record.expectedBuild ? record.previousPID : nil) {
+                                               replacingPID: installedUpgrade ? record.previousPID : nil) {
                     try FileManager.default.removeItem(at: journal)
                     recovery = nil
                     preparation = UpdatePreparation()
                     installing = false
                     installHandler = nil
-                    message = currentBuild == record.expectedBuild ? "升级完成，新的后台进程已通过健康检查。" : "已恢复原版本后台；升级未完成。"
+                    message = installedUpgrade ?
+                        (status.binding?.complete == false ? "升级完成，请重新完成设备关联。" : "升级完成。") :
+                        "已恢复原版本后台；升级未完成。"
                     return
                 }
                 try await Task.sleep(nanoseconds: 200_000_000)
             }
-            guard currentBuild == record.expectedBuild else { throw FleetError.message("原版本后台未通过健康检查，已保留恢复记录。") }
+            guard installedUpgrade else { throw FleetError.message("原版本后台未通过健康检查，已保留恢复记录。") }
             if (try? await management.status()) != nil { try await management.stop() }
             let backup = backupURL(record)
             try await verify(backup)

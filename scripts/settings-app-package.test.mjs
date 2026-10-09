@@ -21,7 +21,7 @@ test('runtime details show version and process without a disclosure control', ()
   const view = read('../mac/settings-app/Sources/FleetHub/SettingsView.swift');
   const overview = view.slice(view.indexOf('private var overview:'), view.indexOf('private var connection:'));
   assert.doesNotMatch(overview, /DisclosureGroup\("运行详情"\)/);
-  assert.match(overview, /Text\("运行详情"\)/);
+  assert.doesNotMatch(overview, /Text\("运行详情"\)/);
   assert.match(overview, /row\("版本", current\.version\)/);
   assert.match(overview, /row\("进程", String\(current\.pid\)\)/);
 });
@@ -147,7 +147,7 @@ test('native privacy instructions identify the background bundle and do not prom
   assert.match(view, /applicationURL: management\.layout\.backgroundApplication/);
   assert.match(guide, /NSDraggingItem\(pasteboardWriter: url as NSURL\)/);
   assert.match(guide, /activateFileViewerSelecting\(\[application\.url\]\)/);
-  assert.match(guide, /无需授权 Fleet Hub/);
+  assert.doesNotMatch(view + guide, /仅授权 Fleet Agent|无需授权 Fleet Hub|NSPanel|DiskAccessGuidePanel/);
   assert.match(guide, /打开开关/);
   assert.match(view, /accessibilityLabel\("重新检查后台权限"\)/);
   assert.match(view, /ACL/);

@@ -332,7 +332,7 @@ test('add device offers a native DMG and explains fresh browser OAuth and backgr
   assert.match(text(add), /Fleet Agent.app/);
   assert.match(text(add), /内置 Fleet Agent.*无需另行下载/);
   assert.match(text(add), /安装并启动/);
-  assert.match(text(add), /浮动引导窗.*拖入.*打开开关/);
+  assert.match(text(add), /页面中.*拖入.*打开开关/);
   assert.doesNotMatch(text(add), /开启 Fleet Hub\.app/);
   assert.match(text(add), /关闭.*后台.*运行/);
   assert.match(text(add), /检查更新/);
@@ -348,7 +348,7 @@ test('login and device setup omit redundant introductory copy without dropping a
   await addition.start();
   assert.doesNotMatch(text(addition.content), /安装 Fleet Hub，使用当前账号关联这台 Mac|授权请求由/);
   assert.match(text(addition.content), /Fleet Hub.*检查更新/);
-  assert.match(text(addition.content), /Fleet Hub.*无需磁盘权限/);
+  assert.doesNotMatch(text(addition.content), /Fleet Hub.*无需磁盘权限/);
   const account = harness({ page: 'account', embedded: true });
   await account.start();
   assert.match(text(account.content), /one@example.com/);

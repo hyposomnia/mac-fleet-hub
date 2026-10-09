@@ -5,6 +5,16 @@ import Sparkle
 
 @MainActor
 final class UpdaterDelegateTests: XCTestCase {
+    func testNewerSignedReplacementCanRecoverAnInterruptedOlderUpdate() {
+        let record = AppUpdater.Recovery(directory: UUID(), previousBuild: 5, expectedBuild: 6, previousPID: 10)
+        XCTAssertTrue(record.accepts(installedBuild: 5))
+        XCTAssertTrue(record.accepts(installedBuild: 6))
+        XCTAssertTrue(record.accepts(installedBuild: 7))
+        XCTAssertFalse(record.accepts(installedBuild: 4))
+        let invalid = AppUpdater.Recovery(directory: UUID(), previousBuild: 6, expectedBuild: 5, previousPID: 10)
+        XCTAssertFalse(invalid.accepts(installedBuild: 7))
+    }
+
     func testSparklePreservesManifestFieldsUsedBySafetyCallback() throws {
         let signature = Data(repeating: 1, count: 64).base64EncodedString()
         let url = "https://fleet.example.test/enroll/clients/2/Fleet-Hub-update.zip"

@@ -21,6 +21,24 @@ final class UpdateHealthTests: XCTestCase {
         XCTAssertFalse(status.isHealthyAfterUpdate(version: "1.0.0", build: 2, replacingPID: 10))
     }
 
+    func testIncompleteBindingCanBeManagedAfterUpdateWithoutClaimingConnectivity() throws {
+        var status = try fixture()
+        status.binding = BindingStatus(deviceID: "m1", ownerEmail: "owner@example.test", origin: "https://fleet.example.test", complete: false, locked: false)
+        status.pairing = PairingState(phase: "idle", attempt: "", origin: "https://fleet.example.test")
+        XCTAssertTrue(status.isHealthyAfterUpdate(version: "1.0.0", build: 2, replacingPID: 10))
+        XCTAssertEqual(status.runtime?.phase, "unbound")
+        XCTAssertFalse(status.binding!.complete)
+        status.pairing?.phase = "joining"
+        XCTAssertFalse(status.isHealthyAfterUpdate(version: "1.0.0", build: 2, replacingPID: 10))
+        status.pairing?.phase = "failed"
+        XCTAssertTrue(status.isHealthyAfterUpdate(version: "1.0.0", build: 2, replacingPID: 10))
+        status.binding?.locked = true
+        XCTAssertFalse(status.isHealthyAfterUpdate(version: "1.0.0", build: 2, replacingPID: 10))
+        status.binding?.locked = false
+        status.runtime?.phase = "failed"
+        XCTAssertFalse(status.isHealthyAfterUpdate(version: "1.0.0", build: 2, replacingPID: 10))
+    }
+
     private func fixture() throws -> AgentStatus {
         try JSONDecoder().decode(AgentStatus.self, from: Data("""
         {"schema":1,"pid":20,"version":"1.0.0+2","settings":{"schema":1,"origin":"https://fleet.example.test","auto_start":true},"disk_access":{"state":"unknown","source":"background","checked_at":0,"verified_targets":0},"runtime":{"phase":"unbound"}}

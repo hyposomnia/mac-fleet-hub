@@ -226,9 +226,7 @@ public final class NativeManagement: LocalManagement {
                 guard current.schema == 1, current.settings.schema == 1, current.version == expectedVersion else {
                     throw FleetError.message("新后台协议或版本不匹配，恢复原后台。")
                 }
-                if current.pid > 0, current.pid != replacingPID,
-                   current.runtime?.phase == "unbound" && current.binding == nil ||
-                   current.runtime?.phase == "running" && current.binding?.complete == true && current.binding?.locked == false { return }
+                if current.pid > 0, current.isReadyForManagement { return }
                 if current.runtime?.phase == "failed" { throw FleetError.message(current.runtime?.error ?? "后台服务启动失败。") }
             }
             try await Task.sleep(nanoseconds: 200_000_000)

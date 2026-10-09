@@ -96,6 +96,21 @@ final class NativeRuntimeTests: XCTestCase {
         XCTAssertEqual(fixture.pid, 200)
     }
 
+    func testUpgradePreservesIncompleteBindingAndStartsItsManagementService() async throws {
+        let fixture = try NativeRuntimeFixture(running: true)
+        defer { fixture.remove() }
+        fixture.incompleteBinding = true
+        try await fixture.management.synchronizeBackground(launch: true)
+        XCTAssertTrue(fixture.running)
+        XCTAssertEqual(fixture.pid, 200)
+        XCTAssertEqual(fixture.version, "1.0.0+2")
+        let status = try await fixture.management.status()
+        XCTAssertEqual(status.binding?.deviceID, "m1")
+        XCTAssertEqual(status.binding?.complete, false)
+        XCTAssertEqual(status.runtime?.phase, "unbound")
+        XCTAssertFalse(fixture.events.contains("logout"))
+    }
+
     func testMatchingVersionSymlinkCannotRemainRunningInsideHub() async throws {
         let fixture = try NativeRuntimeFixture(running: false)
         defer { fixture.remove() }
@@ -118,6 +133,7 @@ private final class NativeRuntimeFixture {
     var version: String
     var busy = false
     var rejectNew = false
+    var incompleteBinding = false
     var events: [String] = []
     var requirements: [String] = []
     lazy var management = NativeManagement(layout: layout, execute: { [unowned self] executable, arguments, _, _ in
@@ -195,6 +211,7 @@ private final class NativeRuntimeFixture {
         let reported = rejectNew && version == "1.0.0+2" ? "wrong-version" : version
         let current = AgentStatus(schema: 1, pid: pid, version: reported,
             settings: FleetSettings(schema: 1, origin: "https://fleet.example.test", autoStart: true),
+            binding: incompleteBinding ? BindingStatus(deviceID: "m1", ownerEmail: "owner@example.test", origin: "https://fleet.example.test", complete: false, locked: false) : nil,
             diskAccess: DiskAccess(state: "unknown", source: "background", checkedAt: 1, verifiedTargets: 0),
             runtime: RuntimeState(phase: "unbound"))
         return try JSONEncoder().encode(current)
