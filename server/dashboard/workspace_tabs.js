@@ -236,7 +236,6 @@
       if (open(link.href)) event.preventDefault();
     }
     doc.querySelector('#chat-scroll')?.addEventListener('click', intercept);
-    doc.querySelector('#file-preview-open')?.addEventListener('click', intercept);
     Object.assign(root.FleetWorkspaceTabs, {
       open, showChat: () => { model.select('chat'); render(); },
       reset: () => { for (const frame of frames.values()) { pause(frame); frame.remove(); }

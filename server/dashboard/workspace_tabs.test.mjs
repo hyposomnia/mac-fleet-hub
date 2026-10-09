@@ -107,10 +107,22 @@ test('ordinary file links are intercepted but external links, downloads and modi
     const event = clickLink(url('b.md'), extra); handler(event); assert.equal(event.prevented, false);
   }
   const external = clickLink('https://example.test'); handler(external); assert.equal(external.prevented, false);
-  const full = clickLink(url('/tmp/c.txt')); e['file-preview-open'].events.click(full);
-  assert.equal(full.prevented, true);
-  assert.equal(e['workspace-preview'].children.length, 2);
+  assert.equal(e['workspace-preview'].children.length, 1);
   api.reset(); assert.equal(e['workspace-preview'].children.length, 0);
+});
+
+test('file-browser full preview keeps native browser opening without creating a conversation tab', async () => {
+  const state = setup(), e = state.elements;
+  const full = clickLink(url('/tmp/c.txt'));
+  e['file-preview-open'].events.click?.(full);
+  assert.equal(full.prevented, false);
+  assert.equal(state.opened, 0);
+  assert.equal(e['workspace-preview'].children.length, 0);
+  assert.equal(e.win.dataset.workspacePreview, 'false');
+  const html = await readFile(new URL('./index.html', import.meta.url), 'utf8');
+  const link = html.match(/<a\b[^>]*id="file-preview-open"[^>]*>/)?.[0];
+  assert.match(link, /target="_blank"/);
+  assert.match(link, /rel="noopener"/);
 });
 
 test('tabs support keyboard selection and deleting a file restores the conversation tab', () => {
