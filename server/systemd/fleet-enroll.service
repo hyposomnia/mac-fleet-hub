@@ -1,30 +1,21 @@
 [Unit]
-Description=mac-fleet-hub unified multiuser server
-After=network-online.target headscale.service
+Description=mac-fleet-hub 自助入网服务（TOTP 校验 → Headscale 一次性 preauthkey）
+After=network.target headscale.service
 Wants=headscale.service
 
 [Service]
+# 需要调用 headscale CLI（访问其 socket，默认属 root）。服务仅绑 127.0.0.1，
+# 且所有 headscale 命令参数固定、无用户输入进入命令行，故以 root 运行可接受。
 ExecStart=/usr/local/bin/fleet-enroll
 EnvironmentFile=/etc/fleet-enroll/env
 Restart=on-failure
 RestartSec=3
-User=fleet-enroll
-Group=fleet-enroll
-UMask=0077
-StateDirectory=fleet-enroll
-StateDirectoryMode=0700
-ReadWritePaths=/var/lib/fleet-enroll /etc/fleet-enroll/encryption.key
+User=root
+# 加固
 NoNewPrivileges=true
-ProtectSystem=strict
+ProtectSystem=full
 ProtectHome=true
 PrivateTmp=true
-PrivateDevices=true
-ProtectKernelTunables=true
-ProtectKernelModules=true
-ProtectControlGroups=true
-RestrictSUIDSGID=true
-CapabilityBoundingSet=
-RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
 
 [Install]
 WantedBy=multi-user.target

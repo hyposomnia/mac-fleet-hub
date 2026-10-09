@@ -22,12 +22,6 @@
         <string>__TS_IP__:__AGENT_PORT__</string>
         <key>FLEET_MAC_INDEX</key>
         <string>__MAC_INDEX__</string>
-        <key>FLEET_BINDING_FILE</key>
-        <string>__BINDING_FILE__</string>
-        <key>FLEET_TERMINAL_PORT</key>
-        <string>__TTYD_PORT__</string>
-        <key>FLEET_FILES_PORT</key>
-        <string>__FB_PORT__</string>
         <key>FLEET_FILE_ROOT</key>
         <string>__ROOT__</string>
         <key>FLEET_CLAUDE_BIN</key>
@@ -74,8 +68,8 @@
     <key>KeepAlive</key>
     <true/>
     <key>StandardOutPath</key>
-    <string>__FLEET_LOG_DIR__/agent.log</string>
+    <string>/tmp/macfleet-agent.log</string>
     <key>StandardErrorPath</key>
-    <string>__FLEET_LOG_DIR__/agent.err</string>
+    <string>/tmp/macfleet-agent.err</string>
 </dict>
 </plist>

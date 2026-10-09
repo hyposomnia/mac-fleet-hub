@@ -174,9 +174,6 @@ func (a *messageAPI) run(ctx context.Context) {
 	ticker := time.NewTicker(time.Second)
 	defer ticker.Stop()
 	for {
-		if ctx.Err() != nil {
-			return
-		}
 		a.schedule()
 		select {
 		case <-ctx.Done():
@@ -189,10 +186,6 @@ func (a *messageAPI) run(ctx context.Context) {
 
 func (a *messageAPI) schedule() {
 	a.mu.Lock()
-	if a.baseContext != nil && a.baseContext.Err() != nil {
-		a.mu.Unlock()
-		return
-	}
 	now := time.Now()
 	dirty := false
 	for id, job := range a.jobs {
@@ -268,38 +261,11 @@ func (a *messageAPI) schedule() {
 	}
 	a.mu.Unlock()
 	for _, id := range executeIDs {
-		a.workers.Add(1)
-		go func(id string) {
-			defer a.workers.Done()
-			a.executeJob(id)
-		}(id)
+		go a.executeJob(id)
 	}
 	for _, id := range callbackIDs {
-		a.workers.Add(1)
-		go func(id string) {
-			defer a.workers.Done()
-			a.deliverCallback(id)
-		}(id)
+		go a.deliverCallback(id)
 	}
-}
-
-func (a *messageAPI) workerContext() context.Context {
-	if a.baseContext != nil {
-		return a.baseContext
-	}
-	return context.Background()
-}
-
-func (a *messageAPI) jobJSON(ctx context.Context, job *messageJob, method, path string, input, output interface{}) error {
-	if a.scopeJob != nil {
-		scoped, cancel, err := a.scopeJob(ctx, job)
-		if err != nil {
-			return err
-		}
-		defer cancel()
-		ctx = scoped
-	}
-	return a.agentJSON(ctx, job.DeviceIP, method, path, input, output)
 }
 
 func (a *messageAPI) executeJob(id string) {
@@ -315,22 +281,13 @@ func (a *messageAPI) executeJob(id string) {
 	if job == nil || job.Status != messageQueued {
 		return
 	}
-	ctx, cancel := context.WithTimeout(a.workerContext(), 2*time.Hour)
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Hour)
 	defer cancel()
-	if a.scopeJob != nil {
-		scoped, release, err := a.scopeJob(ctx, job)
-		if err != nil {
-			a.failJob(id, "device_not_found", "目标设备已撤销或不属于当前用户", false)
-			return
-		}
-		defer release()
-		ctx = scoped
-	}
 	if job.SessionID == "" {
 		var started struct {
 			SessionID string `json:"sessionId"`
 		}
-		err := a.jobJSON(ctx, job, http.MethodPost, "chat/start", map[string]string{
+		err := a.agentJSON(ctx, job.DeviceIP, http.MethodPost, "chat/start", map[string]string{
 			"assistant": job.Assistant, "cwd": job.ProjectPath, "mode": "default",
 		}, &started)
 		if err != nil || started.SessionID == "" {
@@ -344,7 +301,7 @@ func (a *messageAPI) executeJob(id string) {
 		})
 	} else {
 		var resumed map[string]interface{}
-		if err := a.jobJSON(ctx, job, http.MethodPost, "chat/resume", map[string]string{
+		if err := a.agentJSON(ctx, job.DeviceIP, http.MethodPost, "chat/resume", map[string]string{
 			"assistant": job.Assistant, "sessionId": job.SessionID, "mode": "default",
 		}, &resumed); err != nil {
 			a.failJob(id, "ai_client_unavailable", err.Error(), true)
@@ -352,7 +309,7 @@ func (a *messageAPI) executeJob(id string) {
 		}
 	}
 	var queued agentQueueItem
-	if err := a.jobJSON(ctx, job, http.MethodPost, "chat/queue", map[string]interface{}{
+	if err := a.agentJSON(ctx, job.DeviceIP, http.MethodPost, "chat/queue", map[string]interface{}{
 		"assistant": job.Assistant, "sessionId": job.SessionID, "clientMessageId": job.ID,
 		"cwd": job.ProjectPath, "text": job.Message, "deliveryMode": "auto",
 	}, &queued); err != nil {
@@ -370,11 +327,7 @@ func (a *messageAPI) executeJob(id string) {
 	for {
 		select {
 		case <-ctx.Done():
-			if ctx.Err() == context.DeadlineExceeded {
-				a.failJob(id, "execution_timeout", "单次执行超过 2 小时", true)
-			} else {
-				a.failJob(id, "execution_cancelled", "执行已取消或授权已撤销", false)
-			}
+			a.failJob(id, "execution_timeout", "单次执行超过 2 小时", true)
 			return
 		case event, ok := <-events:
 			if ok {
@@ -480,7 +433,7 @@ func (a *messageAPI) pollAgentQueue(ctx context.Context, job *messageJob, queueI
 	var control struct {
 		Items []agentQueueItem `json:"items"`
 	}
-	if err := a.jobJSON(ctx, job, http.MethodGet, "chat/queue?"+query.Encode(), nil, &control); err != nil {
+	if err := a.agentJSON(ctx, job.DeviceIP, http.MethodGet, "chat/queue?"+query.Encode(), nil, &control); err != nil {
 		return agentQueueItem{}, err
 	}
 	for _, item := range control.Items {
@@ -496,14 +449,14 @@ func (a *messageAPI) pollAgentQueue(ctx context.Context, job *messageJob, queueI
 
 func (a *messageAPI) chooseQueueWait(ctx context.Context, job *messageJob, item agentQueueItem) error {
 	var ignored map[string]interface{}
-	return a.jobJSON(ctx, job, http.MethodPost, "chat/queue/decision", map[string]interface{}{
+	return a.agentJSON(ctx, job.DeviceIP, http.MethodPost, "chat/queue/decision", map[string]interface{}{
 		"id": item.ID, "action": "wait", "stateVersion": item.StateVersion,
 	}, &ignored)
 }
 
 func (a *messageAPI) interruptJob(ctx context.Context, job *messageJob) error {
 	var ignored map[string]interface{}
-	return a.jobJSON(ctx, job, http.MethodPost, "chat/interrupt", map[string]string{
+	return a.agentJSON(ctx, job.DeviceIP, http.MethodPost, "chat/interrupt", map[string]string{
 		"assistant": job.Assistant, "sessionId": job.SessionID,
 	}, &ignored)
 }
@@ -513,7 +466,7 @@ func (a *messageAPI) fetchHistory(ctx context.Context, job *messageJob) ([]gatew
 	var page struct {
 		Events []gatewayChatEvent `json:"events"`
 	}
-	if err := a.jobJSON(ctx, job, http.MethodGet, "chat/history?"+query.Encode(), nil, &page); err != nil {
+	if err := a.agentJSON(ctx, job.DeviceIP, http.MethodGet, "chat/history?"+query.Encode(), nil, &page); err != nil {
 		return nil, err
 	}
 	return page.Events, nil
@@ -521,18 +474,8 @@ func (a *messageAPI) fetchHistory(ctx context.Context, job *messageJob) ([]gatew
 
 func (a *messageAPI) streamEvents(ctx context.Context, job *messageJob) <-chan gatewayChatEvent {
 	out := make(chan gatewayChatEvent, 64)
-	a.workers.Add(1)
 	go func() {
-		defer a.workers.Done()
 		defer close(out)
-		if a.scopeJob != nil {
-			scoped, cancel, err := a.scopeJob(ctx, job)
-			if err != nil {
-				return
-			}
-			defer cancel()
-			ctx = scoped
-		}
 		query := url.Values{"assistant": {job.Assistant}, "sessionId": {job.SessionID}}
 		endpoint := fmt.Sprintf("http://%s:%d/api/chat/events?%s", job.DeviceIP, a.agentPort, query.Encode())
 		req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
@@ -540,10 +483,6 @@ func (a *messageAPI) streamEvents(ctx context.Context, job *messageJob) <-chan g
 			return
 		}
 		client := &http.Client{}
-		if a.client != nil {
-			client.Transport = a.client.Transport
-			client.CheckRedirect = a.client.CheckRedirect
-		}
 		resp, err := client.Do(req)
 		if err != nil {
 			return
@@ -631,17 +570,7 @@ func (a *messageAPI) deliverCallback(id string) {
 	}
 	payload["event"] = event
 	body, _ := json.Marshal(payload)
-	ctx, cancel := context.WithTimeout(a.workerContext(), 10*time.Second)
-	defer cancel()
-	if a.scopeCallback != nil {
-		scoped, release, err := a.scopeCallback(ctx)
-		if err != nil {
-			a.recordCallbackFailure(id, "回调用户已禁用或授权已撤销")
-			return
-		}
-		defer release()
-		ctx = scoped
-	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	client, problem := safeCallbackClient(ctx, job.CallbackURL)
 	if problem != nil {
 		cancel()

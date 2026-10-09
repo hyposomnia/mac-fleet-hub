@@ -264,7 +264,6 @@ const appSandbox = {
   FleetUploadModel: M,
 };
 vm.createContext(appSandbox);
-vm.runInContext(await readFile(new URL('./fleet_core.js', import.meta.url), 'utf8'), appSandbox);
 vm.runInContext(`${appSrc}
 ;globalThis.__uploadQueueTest = { enqueueFileUploads, renderFileUploadQueue, pumpFileUploads, state, scheduleFileUploadPanelHide: typeof scheduleFileUploadPanelHide === 'function' ? scheduleFileUploadPanelHide : null };`,
 appSandbox);

@@ -1,9 +1,0 @@
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0"><dict>
-    <key>Label</key><string>com.macfleet.desktop-login</string>
-    <key>BundleProgram</key><string>Contents/Library/Helpers/fleet-login-launcher</string>
-    <key>ProgramArguments</key><array><string>fleet-login-launcher</string><string>autostart-start</string></array>
-    <key>RunAtLoad</key><true/>
-    <key>ProcessType</key><string>Background</string>
-</dict></plist>

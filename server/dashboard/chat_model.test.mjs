@@ -7,7 +7,6 @@ const src = await readFile(new URL('./chat_model.js', import.meta.url), 'utf8');
 const uploadModelSrc = await readFile(new URL('./upload_model.js', import.meta.url), 'utf8');
 const deviceAppearanceSrc = await readFile(new URL('./device_appearance.js', import.meta.url), 'utf8');
 const themeSrc = await readFile(new URL('./theme.js', import.meta.url), 'utf8');
-const fleetCoreSrc = await readFile(new URL('./fleet_core.js', import.meta.url), 'utf8');
 const appSrc = await readFile(new URL('./app.js', import.meta.url), 'utf8');
 const markdownSrc = await readFile(new URL('./markdown.js', import.meta.url), 'utf8');
 const previewSrc = await readFile(new URL('./preview.js', import.meta.url), 'utf8');
@@ -98,7 +97,6 @@ const appSandbox = {
 vm.createContext(appSandbox);
 vm.runInContext(themeSrc, appSandbox);
 vm.runInContext(deviceAppearanceSrc, appSandbox);
-vm.runInContext(fleetCoreSrc, appSandbox);
 vm.runInContext(`${appSrc}\n;globalThis.__chatCacheTest = { chatCacheVictim, isChatConnectionKept, isSessionRunning, updateChatUpdatedAt, formatChatDate, chatAssistantMetaText, chatUserMetaText, chatMessageMetaVisibility, applyChatMetadataDefaults, normalizeChatDraft, isNoActiveTurnError, createDeviceScopeButton, chatSkillTriggerAt, parseChatSkillInput, chatSkillTokenNames, mergeChatComposerText, mergeChatAttachments, chatComposerAction: typeof chatComposerAction === 'function' ? chatComposerAction : null, isNewerChatControlSnapshot: typeof isNewerChatControlSnapshot === 'function' ? isNewerChatControlSnapshot : null, isCompleteChatControlSnapshot: typeof isCompleteChatControlSnapshot === 'function' ? isCompleteChatControlSnapshot : null, applyChatControlSnapshot: typeof applyChatControlSnapshot === 'function' ? applyChatControlSnapshot : null, isChatControlFresh: typeof isChatControlFresh === 'function' ? isChatControlFresh : null, markChatControlSyncFailure: typeof markChatControlSyncFailure === 'function' ? markChatControlSyncFailure : null, chatOwnershipPresentation: typeof chatOwnershipPresentation === 'function' ? chatOwnershipPresentation : null, chatImageSrc, chatImageDownloadName: typeof chatImageDownloadName === 'function' ? chatImageDownloadName : null, clampChatImageViewerZoom: typeof clampChatImageViewerZoom === 'function' ? clampChatImageViewerZoom : null, chatImageViewerFitScale: typeof chatImageViewerFitScale === 'function' ? chatImageViewerFitScale : null, chatImageViewerWheelZoom: typeof chatImageViewerWheelZoom === 'function' ? chatImageViewerWheelZoom : null, chatImageViewerPinchZoom: typeof chatImageViewerPinchZoom === 'function' ? chatImageViewerPinchZoom : null, chatImageViewerViewportAnchor: typeof chatImageViewerViewportAnchor === 'function' ? chatImageViewerViewportAnchor : null, chatImageViewerViewportCenter: typeof chatImageViewerViewportCenter === 'function' ? chatImageViewerViewportCenter : null, openChatImageViewer: typeof openChatImageViewer === 'function' ? openChatImageViewer : null, closeChatImageViewer: typeof closeChatImageViewer === 'function' ? closeChatImageViewer : null, setChatImageViewerZoom: typeof setChatImageViewerZoom === 'function' ? setChatImageViewerZoom : null, handleChatImageViewerKeydown: typeof handleChatImageViewerKeydown === 'function' ? handleChatImageViewerKeydown : null, chatToolStatus, chatToolDuration, chatToolActivityLabel, chatToolHasExpandableBody, isChatActivityItem, isChatTraceItem: typeof isChatTraceItem === 'function' ? isChatTraceItem : null, chatRenderUnits: typeof chatRenderUnits === 'function' ? chatRenderUnits : null, renderChatTurnProgress: typeof renderChatTurnProgress === 'function' ? renderChatTurnProgress : null, chatActivityGroupSummaryText, chatActivityActiveSummarySegments, chatActivityGroupIconKind, renderChatActivityGroup, renderChatActivityRun: typeof renderChatActivityRun === 'function' ? renderChatActivityRun : null, renderChatItem: typeof renderChatItem === 'function' ? renderChatItem : null, sessionProjectInfo: typeof sessionProjectInfo === 'function' ? sessionProjectInfo : null, groupSessionsByProject: typeof groupSessionsByProject === 'function' ? groupSessionsByProject : null, sessionRow, sessionStatus, observeSessionActivity, filterFileEntries, sortFileEntries: typeof sortFileEntries === 'function' ? sortFileEntries : null, normalizeFileView: typeof normalizeFileView === 'function' ? normalizeFileView : null, truncateFileColumns: typeof truncateFileColumns === 'function' ? truncateFileColumns : null, fileColumnRequestCurrent: typeof fileColumnRequestCurrent === 'function' ? fileColumnRequestCurrent : null, fileIconName: typeof fileIconName === 'function' ? fileIconName : null, activeFileLocationID: typeof activeFileLocationID === 'function' ? activeFileLocationID : null, applyTheme: typeof applyTheme === 'function' ? applyTheme : null, visualKeyboardInset: typeof visualKeyboardInset === 'function' ? visualKeyboardInset : null, sessionBackDragOffset: typeof sessionBackDragOffset === 'function' ? sessionBackDragOffset : null, isSessionBackSwipe: typeof isSessionBackSwipe === 'function' ? isSessionBackSwipe : null, ensurePendingChatStarted: typeof ensurePendingChatStarted === 'function' ? ensurePendingChatStarted : null, filePreviewTypeLabel, filePreviewLocation, chatTurnPinText: typeof chatTurnPinText === 'function' ? chatTurnPinText : () => '', isInternalChatTool: typeof isInternalChatTool === 'function' ? isInternalChatTool : () => false, chatSubagentStatus: typeof chatSubagentStatus === 'function' ? chatSubagentStatus : null, chatSubagentMeta: typeof chatSubagentMeta === 'function' ? chatSubagentMeta : null, chatSubagentShouldShow: typeof chatSubagentShouldShow === 'function' ? chatSubagentShouldShow : null, chatSubagentShouldRefreshDetail: typeof chatSubagentShouldRefreshDetail === 'function' ? chatSubagentShouldRefreshDetail : null, ensureChatSubagentState: typeof ensureChatSubagentState === 'function' ? ensureChatSubagentState : null, state };`, appSandbox);
 const { chatCacheVictim, isChatConnectionKept, isSessionRunning, updateChatUpdatedAt, formatChatDate, chatAssistantMetaText, chatUserMetaText, chatMessageMetaVisibility, applyChatMetadataDefaults, normalizeChatDraft, isNoActiveTurnError, createDeviceScopeButton, chatSkillTriggerAt, parseChatSkillInput, chatSkillTokenNames, mergeChatComposerText, mergeChatAttachments, chatComposerAction, isNewerChatControlSnapshot, isCompleteChatControlSnapshot, applyChatControlSnapshot, isChatControlFresh, markChatControlSyncFailure, chatOwnershipPresentation, chatImageSrc, chatImageDownloadName, clampChatImageViewerZoom, chatImageViewerFitScale, chatImageViewerWheelZoom, chatImageViewerPinchZoom, chatImageViewerViewportAnchor, chatImageViewerViewportCenter, openChatImageViewer, closeChatImageViewer, setChatImageViewerZoom, handleChatImageViewerKeydown, chatToolStatus, chatToolDuration, chatToolActivityLabel, chatToolHasExpandableBody, isChatActivityItem, isChatTraceItem, chatRenderUnits, renderChatTurnProgress, chatActivityGroupSummaryText, chatActivityActiveSummarySegments, chatActivityGroupIconKind, renderChatActivityGroup, renderChatActivityRun, renderChatItem, sessionProjectInfo, groupSessionsByProject, sessionRow, sessionStatus, observeSessionActivity, filterFileEntries, sortFileEntries, normalizeFileView, truncateFileColumns, fileColumnRequestCurrent, fileIconName, activeFileLocationID, applyTheme, visualKeyboardInset, sessionBackDragOffset, isSessionBackSwipe, ensurePendingChatStarted, filePreviewTypeLabel, filePreviewLocation, chatTurnPinText, isInternalChatTool, chatSubagentStatus, chatSubagentMeta, chatSubagentShouldShow, chatSubagentShouldRefreshDetail, ensureChatSubagentState, state: appState } = appSandbox.__chatCacheTest;
 vm.runInContext('globalThis.__updateChatSkillMenuTest = updateChatSkillMenu;', appSandbox);
@@ -547,12 +545,12 @@ test('settings menu owns archive browsing and session settings', () => {
   assert.match(indexHTML, /id="user-name">设置</);
   assert.deepEqual(
     [...indexHTML.matchAll(/<button data-act="([^"]+)"/g)].map((match) => match[1]),
-    ['account', 'admin', 'add-device', 'archive', 'automation', 'settings', 'logout',
-      'account', 'admin', 'add-device', 'archive', 'automation', 'settings', 'logout'],
+    ['appearance', 'archive', 'automation', 'settings', 'logout',
+      'appearance', 'archive', 'automation', 'settings', 'logout'],
   );
   assert.deepEqual(
     [...indexHTML.matchAll(/data-theme-choice="([^"]+)"/g)].map((match) => match[1]),
-    ['system', 'light', 'dark', 'system', 'light', 'dark'],
+    ['system', 'light', 'dark', 'system', 'light', 'dark', 'light', 'dark', 'system'],
   );
   assert.equal((indexHTML.match(/role="group" aria-label="外观"/g) || []).length, 2);
   assert.equal((indexHTML.match(/>显示已归档会话</g) || []).length, 2);
@@ -568,14 +566,27 @@ test('settings menu owns archive browsing and session settings', () => {
 
 test('session settings expose chat cache without terminal controls', () => {
   assert.match(indexHTML, /id="st-chat-cache-max"/);
-  assert.doesNotMatch(indexHTML, /data-settings-tab/);
-  assert.match(indexHTML, /data-settings-panel="sessions"/);
+  assert.doesNotMatch(indexHTML, /data-settings-tab|data-settings-panel/);
   assert.match(indexHTML, /id="automation-modal"/);
   assert.match(indexHTML, /data-automation-tab="keys"/);
   assert.match(indexHTML, /data-automation-tab="messages"/);
   assert.match(indexHTML, /id="automation-message-key-filter"/);
   assert.doesNotMatch(indexHTML, /data-settings-tab="terminal"|data-assistant="claude"|id="st-selfdraw"|id="st-dmax"/);
   assert.doesNotMatch(appSrc, /SELF_DRAW_KEY|setSelfDraw|用终端打开/);
+});
+
+test('appearance settings expose four configurable seed colors for light and dark themes', () => {
+  assert.match(indexHTML, /id="appearance-modal"/);
+  assert.equal((indexHTML.match(/data-act="appearance"/g) || []).length, 2);
+  for (const mode of ['light', 'dark']) {
+    for (const field of ['canvas', 'accent', 'highlight', 'text']) {
+      assert.match(indexHTML, new RegExp(`data-palette-color="${mode}\\.${field}"`));
+      assert.match(indexHTML, new RegExp(`data-palette-hex="${mode}\\.${field}"`));
+    }
+  }
+  assert.match(appSrc, /FleetTheme\.setPalette\(readAppearancePalette\(\)\)/);
+  assert.match(appSrc, /FleetTheme\.paletteDefaults/);
+  assert.match(styleCSS, /\.appearance-palette-grid\s*\{[^}]*grid-template-columns:\s*repeat\(2,/s);
 });
 
 test('automation modal links to a concise cached API guide', () => {
@@ -1154,8 +1165,8 @@ test('queue transcript cards render exactly the actions permitted by the state m
 });
 
 test('external writer messages use the agent queue and render takeover actions below the user message', () => {
-  // 队列按缓存会话的 (assistant, sessionId) 分区。
-  assert.match(appSrc, /chat\/queue\?assistant=\$\{chat\.assistant\}/);
+  // 队列按 (assistant, sessionId) 分区：assistant 随当前自绘助手走（原断言写死 codex）
+  assert.match(appSrc, /chat\/queue\?assistant=\$\{state\.assistant\}/);
   assert.match(appSrc, /chat\/queue\/decision/);
   assert.match(appSrc, /enqueueServerChatMessage/);
   assert.match(appSrc, /中断全部并接管/);
@@ -1520,8 +1531,8 @@ test('jump-to-bottom control uses an accessible inline SVG icon', () => {
   assert.doesNotMatch(indexHTML, />跳到底部<\/button>/);
 });
 
-test('floating summaries and jump control use a visibly translucent surface independently of user bubbles', () => {
-  assert.ok(/--chat-floating-bg:\s*color-mix\(in srgb, var\(--chat-surface-2\) 35%, transparent\)/.test(styleCSS), 'floating surface stays translucent enough for the backdrop blur to remain visible');
+test('floating summaries and jump control share a translucent surface independently of user bubbles', () => {
+  assert.ok(/--chat-floating-bg:\s*color-mix\(in srgb, var\(--chat-surface-2\) 50%, transparent\)/.test(styleCSS), 'floating surface retains a 50% alpha channel');
   for (const selector of ['.chat-turn-pin-card', '#chat-jump', '#win[data-workspace-preview="true"] #chat-preview-output:not([hidden])']) {
     const block = styleCSS.split(selector + ' {')[1]?.split('}')[0] || '';
     assert.match(block, /background:\s*var\(--chat-floating-bg\)/, selector);
@@ -2305,9 +2316,9 @@ test('manual theme selection updates the browser chrome color', () => {
   themeMeta.content = '';
   appSandbox.document.querySelector = (selector) => selector === 'meta[name="theme-color"]' ? themeMeta : null;
   applyTheme('light');
-  assert.equal(themeMeta.content, '#FFFFFF');
+  assert.equal(themeMeta.content, '#FAFAFA');
   applyTheme('dark');
-  assert.equal(themeMeta.content, '#10141B');
+  assert.equal(themeMeta.content, '#000000');
   assert.equal((indexHTML.match(/<meta name="theme-color"/g) || []).length, 1);
 });
 
@@ -2356,7 +2367,7 @@ test('system theme follows OS changes until a manual choice and can be selected 
     prefersLight = true;
     onSystemChange();
     assert.equal(appSandbox.document.documentElement.getAttribute('data-theme'), 'light');
-    assert.equal(themeMeta.content, '#FFFFFF');
+    assert.equal(themeMeta.content, '#FAFAFA');
 
     setThemePreference('dark');
     assert.equal(stored, 'dark');
@@ -3433,7 +3444,7 @@ test('editing device letters or digits preserves case and draft when changing co
     appState.hostAppearanceDraft={icon:'text',text:'A',color:'steel'};
     vm.runInContext('renderHostAppearanceChoices()',appSandbox);
     const input=fields['#hm-letter-input'];
-    for(const [text,expected] of [['mb','mb'],['4','4'],['04','04'],['a1','a1'],['mbp','mbp'],['MbP','MbP'],['MBP','MBP'],['009','009'],['a1b','a1b'],['A1b','A1b']]) {
+    for(const [text,expected] of [['mb','mb'],['4','4'],['04','04'],['a1','a1'],['mbp','mbp'],['MbP','MbP'],['MBP','MBP'],['009','009'],['a1b','a1b'],['A1b','A1b'],['home','home'],['Mac4','Mac4'],['0009','0009']]) {
       input.value=text;input.oninput();
       assert.equal(input.value,expected);assert.equal(fields['#hm-save'].disabled,false);
       assert.equal(fields['#hm-letter-error'].hidden,true);
@@ -3457,30 +3468,4 @@ test('invalid device letters block saving and focus the field without changing s
     assert.equal(fields['#hm-save'].disabled,true);assert.equal(fields['#hm-letter-error'].hidden,false);
     assert.equal(fields['#hm-letter-input'].focused,true);assert.equal(appSandbox.FleetDeviceAppearance.get('m8').icon,'monitor');
   } finally {appSandbox.document.querySelector=previousQuery;appState.hostAppearanceDraft=previousDraft;appState.hostModalMac=previousId;}
-});
-
-test('cached chat queue keeps its assistant when native navigation switches to Claude', async () => {
-  vm.runInContext(`globalThis.__cachedAssistantOriginals = {
-    api, beginChatControlRequest, applyChatControlSnapshot, assistant: state.assistant, chat: state.chat
-  };
-  globalThis.__cachedAssistantCalls = [];
-  state.assistant = 'claude'; state.chat = null;
-  api = async (macId, endpoint) => { __cachedAssistantCalls.push({macId, endpoint}); return {}; };
-  beginChatControlRequest = () => 1;
-  applyChatControlSnapshot = () => true;`, appSandbox);
-  try {
-    await vm.runInContext("loadServerChatQueue({assistant:'codex', macId:'m1', sessionId:'cached-codex'})", appSandbox);
-    await vm.runInContext("loadServerChatQueue({assistant:'dsh', macId:'m2', sessionId:'cached-dsh'})", appSandbox);
-    assert.equal(appSandbox.__cachedAssistantCalls[0].endpoint, 'chat/queue?assistant=codex&sessionId=cached-codex');
-    assert.equal(appSandbox.__cachedAssistantCalls[1].endpoint, 'chat/queue?assistant=dsh&sessionId=cached-dsh');
-    for (const name of ['loadChatSkills', 'uploadChatFile', 'loadOlderChatHistory', 'startChatEvents',
-      'ensurePendingChatStarted', 'saveServerChatQueueItem', 'restoreChatAfterForeground']) {
-      const source = vm.runInContext(`typeof ${name} === 'function' ? ${name}.toString() : ''`, appSandbox);
-      assert.ok(source, `${name} must exist`);
-      assert.doesNotMatch(source, /assistant: state\.assistant|assistant=\$\{state\.assistant\}|append\('assistant', state\.assistant\)/);
-    }
-  } finally {
-    vm.runInContext(`({api, beginChatControlRequest, applyChatControlSnapshot} = __cachedAssistantOriginals);
-      state.assistant = __cachedAssistantOriginals.assistant; state.chat = __cachedAssistantOriginals.chat;`, appSandbox);
-  }
 });

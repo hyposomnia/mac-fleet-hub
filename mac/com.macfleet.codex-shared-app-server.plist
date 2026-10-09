@@ -4,41 +4,23 @@
 <dict>
     <key>Label</key>
     <string>com.macfleet.codex-app-server</string>
-    <!-- 经监督包装启动：每次重新解析 codex 路径（App 更新后自愈）、就绪探针、
-         退避重试与熔断、有界带时间戳日志（见 mac/codex-keeper-launch.sh）。 -->
     <key>ProgramArguments</key>
     <array>
-        <string>/bin/bash</string>
-        <string>__CODEX_KEEPER_LAUNCHER__</string>
+        <string>__CODEX_KEEPER_NODE__</string>
+        <string>__CODEX_KEEPER_SCRIPT__</string>
     </array>
     <key>EnvironmentVariables</key>
     <dict>
         <key>CODEX_HOME</key>
         <string>__CODEX_HOME__</string>
-        <key>FLEET_CODEX_DESKTOP_APP_PATH</key>
-        <string>/Applications/ChatGPT.app</string>
-        <key>FLEET_CODEX_RESOLVER</key>
-        <string>__CODEX_RESOLVER__</string>
-        <key>FLEET_CODEX_KEEPER_LAUNCHER</key>
-        <string>__CODEX_KEEPER_LAUNCHER__</string>
-        <key>FLEET_CODEX_KEEPER_NODE</key>
-        <string>__CODEX_KEEPER_NODE__</string>
-        <key>FLEET_CODEX_KEEPER_SCRIPT</key>
-        <string>__CODEX_KEEPER_SCRIPT__</string>
         <key>FLEET_CODEX_BIN</key>
         <string>__CODEX_BIN__</string>
         <key>FLEET_CODEX_APPSERVER_LISTEN</key>
         <string>__CODEX_APPSERVER_LISTEN__</string>
         <key>FLEET_CODEX_APPSERVER_PROXY_SOCK</key>
         <string>__CODEX_APPSERVER_SOCK__</string>
-        <key>FLEET_CODEX_APPSERVER_LABEL</key>
-        <string>com.macfleet.codex-app-server</string>
-        <key>FLEET_LOG_DIR</key>
-        <string>__FLEET_LOG_DIR__</string>
-        <key>FLEET_STATE_DIR</key>
-        <string>__FLEET_STATE_DIR__</string>
-        <key>FLEET_CODEX_KEEPER_LOG</key>
-        <string>__FLEET_LOG_DIR__/codex-app-server.log</string>
+        <key>FLEET_CODEX_DESKTOP_APP_PATH</key>
+        <string>/Applications/ChatGPT.app</string>
         <key>LANG</key>
         <string>en_US.UTF-8</string>
         <key>LC_ALL</key>
@@ -48,17 +30,13 @@
     </dict>
     <key>RunAtLoad</key>
     <true/>
-    <!-- 只在异常退出时重启：熔断时包装器以 0 退出，launchd 不再拉起（避免无限崩溃循环）。 -->
     <key>KeepAlive</key>
-    <dict>
-        <key>SuccessfulExit</key>
-        <false/>
-    </dict>
+    <true/>
     <key>ThrottleInterval</key>
-    <integer>10</integer>
+    <integer>2</integer>
     <key>StandardOutPath</key>
-    <string>__FLEET_LOG_DIR__/codex-app-server.launchd.log</string>
+    <string>/tmp/macfleet-codex-app-server.log</string>
     <key>StandardErrorPath</key>
-    <string>__FLEET_LOG_DIR__/codex-app-server.launchd.log</string>
+    <string>/tmp/macfleet-codex-app-server.err</string>
 </dict>
 </plist>

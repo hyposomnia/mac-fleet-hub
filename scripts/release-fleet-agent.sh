@@ -13,19 +13,11 @@ MODE="release"
 case "${1:-}" in
   "") ;;
   --check) MODE="check" ;;
-  --candidate) MODE="candidate" ;;
-  --candidate-check) MODE="candidate-check" ;;
-  --native-candidate) MODE="candidate"; FLEET_NATIVE_CANDIDATE=1 ;;
-  --native-candidate-check) MODE="candidate-check"; FLEET_NATIVE_CANDIDATE=1 ;;
   -h|--help)
     cat <<'EOF'
 用法：
   bash scripts/release-fleet-agent.sh --check  # 只检查签名机、配置、SSH 与当前服务
   bash scripts/release-fleet-agent.sh          # 发布签名二进制并逐台自更新
-  bash scripts/release-fleet-agent.sh --candidate-check # 独立验收发布预检
-  bash scripts/release-fleet-agent.sh --candidate       # 仅向专属验收实例发布，不更新现有 Mac
-  bash scripts/release-fleet-agent.sh --native-candidate-check # 原生应用签名发布预检
-  bash scripts/release-fleet-agent.sh --native-candidate       # 原生应用签名、公证、DMG 与整包升级分发
 
 正式发布：pull --ff-only → verify → build/sign/notarize → commit/push → gateway dist → Macs update。
 EOF
@@ -48,23 +40,21 @@ ssh_note() { echo ">>> ssh $1 — $2"; }
 # "已签名但未公证"的产物；它们不能被分发，只能人工 git checkout 还原。所以这里
 # 先探一次，把失败提前到不产生任何副作用的位置。
 #
+# 两种失败要分开对待：钥匙串里确实没有该条目 → 明确失败；当前会话访问不到钥匙串
+# （例如从 SSH 运行时）→ 无法判定，只告警不阻塞，否则会把正常的发布流程卡死。
 require_notary_credentials() {
-  local out result
-  if out="$(xcrun notarytool history --keychain-profile "$NOTARY_PROFILE" 2>&1)"; then
-    echo "公证凭据 profile「${NOTARY_PROFILE}」可用。"
-    return 0
-  else
-    result=$?
-  fi
+  local out
+  out="$(xcrun notarytool history --keychain-profile "$NOTARY_PROFILE" 2>&1 || true)"
   if grep -q "No Keychain password item found" <<<"$out"; then
-    die "当前执行会话读取不到公证 profile「${NOTARY_PROFILE}」，不代表已有凭据被删除。先在本机图形终端检查：
-    xcrun notarytool history --keychain-profile $NOTARY_PROFILE
-    若终端可用，请从该图形会话运行发布；不要删除或重新创建已有凭据。"
+    die "钥匙串中没有公证凭据 profile「${NOTARY_PROFILE}」，无法提交 Apple 公证。先在图形会话的终端里执行：
+    xcrun notarytool store-credentials $NOTARY_PROFILE --apple-id <Apple ID> --team-id <Team ID> --password <App 专用密码>"
   fi
   if grep -qi "keychainLocked\|User interaction is not allowed" <<<"$out"; then
-    die "当前会话访问不到公证钥匙串；请在签名机图形终端解锁或允许访问，再重新检查。未确认凭据可用，不继续发布。"
+    [[ "$MODE" == "check" ]] || die "当前会话访问不到公证钥匙串；请在签名机的图形终端执行正式发布。"
+    echo "⚠️  当前会话访问不到钥匙串，跳过公证凭据预检；请在图形会话的终端里执行正式发布。"
+    return 0
   fi
-  die "公证凭据检查失败（exit=${result}），未确认 profile「${NOTARY_PROFILE}」可用。请在本机终端检查 notarytool history 的认证或网络错误，不继续发布。"
+  echo "公证凭据 profile「${NOTARY_PROFILE}」可用。"
 }
 
 ssh_retry() { # port target description command
@@ -85,13 +75,6 @@ ssh_retry() { # port target description command
 [[ -r "$CONFIG_FILE" ]] || die "缺少私有配置：${CONFIG_FILE}（参考 scripts/release-fleet-agent.env.example）。"
 # shellcheck disable=SC1090
 source "$CONFIG_FILE"
-NOTARY_PROFILE="${FLEET_NOTARY_PROFILE:-mac-fleet-hub-notary}"
-
-if [[ "$MODE" == candidate || "$MODE" == candidate-check ]]; then
-  source "$ROOT/scripts/lib/candidate-release.sh"
-  run_candidate_release
-  exit 0
-fi
 
 : "${FLEET_RELEASE_BUILDER_IP:?配置 FLEET_RELEASE_BUILDER_IP}"
 : "${FLEET_RELEASE_WEB_BASE:?配置 FLEET_RELEASE_WEB_BASE}"

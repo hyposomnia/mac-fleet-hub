@@ -13,9 +13,7 @@
 #   - 不修改系统「远程登录/屏幕共享」开关（mac↔mac 的 SSH/VNC 请自行在系统设置开启）。
 set -euo pipefail
 
-MAC_INDEX="${MAC_INDEX:?请先执行 fleet-agent login，由服务器分配编号}"
-FLEET_BINDING_FILE="${FLEET_BINDING_FILE:-$HOME/.macfleet/binding.json}"
-[[ -f "$FLEET_BINDING_FILE" && ! -L "$FLEET_BINDING_FILE" ]] || { echo '缺少设备授权，请先执行 install.sh。' >&2; exit 1; }
+MAC_INDEX="${MAC_INDEX:?请设置 MAC_INDEX=1|2|3}"
 TTYD_PORT="${TTYD_PORT:-7681}"
 FB_PORT="${FB_PORT:-8080}"
 AGENT_PORT="${AGENT_PORT:-7682}"
@@ -26,22 +24,11 @@ FB_BASE="/m${MAC_INDEX}/files"
 BIN_DIR="$HOME/.local/bin"
 CODEX_KEEPER_DIR="$HOME/.local/lib/macfleet"
 CODEX_KEEPER_SCRIPT="$CODEX_KEEPER_DIR/codex-shared-app-server.mjs"
-CODEX_KEEPER_LAUNCHER="$CODEX_KEEPER_DIR/codex-keeper-launch.sh"
-CODEX_RESOLVER="$CODEX_KEEPER_DIR/codex-bin-resolve.sh"
+CODEX_KEEPER_NODE="/Applications/ChatGPT.app/Contents/Resources/cua_node/bin/node"
 CODEX_DESKTOP_ENV_HELPER="$CODEX_KEEPER_DIR/codex-desktop-env.sh"
 CODEX_DESKTOP_ENV_MODE="clear"
 CODEX_DESKTOP_ENV_URL=""
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-# shellcheck source=mac/codex-bin-resolve.sh
-source "$SCRIPT_DIR/codex-bin-resolve.sh"
-
-# 稳定路径（不再放 /tmp，见风险点 R3/R9）：日志与状态可被 `fleet-agent doctor` 直接读到。
-FLEET_SUPPORT_DIR="$HOME/Library/Application Support/macfleet"
-FLEET_STATE_DIR="$FLEET_SUPPORT_DIR/state"
-FLEET_LOG_DIR="$HOME/Library/Logs/macfleet"
-FLEET_MANIFEST="$FLEET_SUPPORT_DIR/manifest.json"
-FLEET_CODEX_APP_PATH="${FLEET_CODEX_DESKTOP_APP_PATH:-/Applications/ChatGPT.app}"
-BACKUP_KEEP="${FLEET_BACKUP_KEEP:-3}"
 
 # --- 0. Homebrew ---
 command -v brew >/dev/null 2>&1 || { echo "未找到 Homebrew，请先装：https://brew.sh" >&2; exit 1; }
@@ -62,15 +49,8 @@ case "$CODEX_DESKTOP_SHARED_DAEMON" in
   *) echo "非法 FLEET_CODEX_DESKTOP_SHARED_DAEMON=${CODEX_DESKTOP_SHARED_DAEMON}（应为 0/1）" >&2; exit 1 ;;
 esac
 if [[ "$CODEX_APPSERVER_MODE" == "shared" ]]; then
-  # ChatGPT 自带的签名 Node 是 keeper 的运行载体；路径同样由解析器给出，避免写死（R2）。
-  CODEX_KEEPER_NODE="${FLEET_CODEX_KEEPER_NODE:-}"
-  if [[ -z "$CODEX_KEEPER_NODE" || ! -x "$CODEX_KEEPER_NODE" ]]; then
-    CODEX_KEEPER_NODE="$(FLEET_CODEX_DESKTOP_APP_PATH="$FLEET_CODEX_APP_PATH" fleet_resolve_keeper_node 2>/dev/null || true)"
-  fi
-  [[ -n "$CODEX_KEEPER_NODE" && -x "$CODEX_KEEPER_NODE" ]] || {
-    echo "shared 模式需要 ChatGPT 自带的签名 Node，但未能解析到。" >&2
-    echo "  已尝试：FLEET_CODEX_KEEPER_NODE、${FLEET_CODEX_APP_PATH}/Contents/Resources/cua_node/bin/node，以及 Resources 下的 node 兜底扫描。" >&2
-    echo "  修复：确认 ChatGPT.app 完整（App 更新可能改变内部布局），或显式指定 FLEET_CODEX_KEEPER_NODE=<node 路径>。" >&2
+  [[ -x "$CODEX_KEEPER_NODE" ]] || {
+    echo "shared 模式需要 ChatGPT 自带的签名 Node：${CODEX_KEEPER_NODE}" >&2
     exit 1
   }
   [[ -f "$SCRIPT_DIR/codex-shared-app-server.mjs" ]] || {
@@ -114,36 +94,29 @@ if [[ "$CODEX_APPSERVER_MODE" == "shared" && "$CODEX_DESKTOP_SHARED_DAEMON" == "
   CODEX_DESKTOP_ENV_URL="$CODEX_DESKTOP_WS_URL"
 fi
 
-# Codex 可执行文件解析（风险点 R2）：唯一解析器 mac/codex-bin-resolve.sh 负责
-# 「App 自述布局 → 新版固定位置 → 旧版固定位置 → Fleet 托管版本 → PATH」的候选顺序与
-# 「真实存在 / 可执行 / 软链不悬空」校验。显式指定的路径有效时优先，失效时自动回退，
-# 从而避免 App 自动更新后写死的旧路径继续把 app-server 拖进崩溃循环。
-FLEET_CODEX_BIN_EXPLICIT="${FLEET_CODEX_BIN:-${CODEX_BIN:-}}"
-if [[ -n "$FLEET_CODEX_BIN_EXPLICIT" ]]; then
-  export FLEET_CODEX_BIN="$FLEET_CODEX_BIN_EXPLICIT"
-fi
-CODEX_BIN=""
-CODEX_BIN_SOURCE=""
-if bin_line="$(FLEET_CODEX_DESKTOP_APP_PATH="$FLEET_CODEX_APP_PATH" fleet_resolve_codex_bin)"; then
-  CODEX_BIN="${bin_line%%$'\t'*}"
-  CODEX_BIN_SOURCE="${bin_line##*$'\t'}"
-  if [[ -n "$FLEET_CODEX_BIN_EXPLICIT" && "$CODEX_BIN" != "$FLEET_CODEX_BIN_EXPLICIT" ]]; then
-    echo "警告：显式指定的 Codex 路径不可用（${FLEET_CODEX_BIN_EXPLICIT}），已自动回退到 ${CODEX_BIN}（来源 ${CODEX_BIN_SOURCE}）。" >&2
-  else
-    echo "Codex 可执行文件：${CODEX_BIN}（来源 ${CODEX_BIN_SOURCE}）"
-  fi
-elif [[ -x "$BREW_PREFIX/bin/codex" ]]; then
-  # 兼容旧行为：解析器候选里没有 brew 前缀时，仍允许它兜底。
-  CODEX_BIN="$BREW_PREFIX/bin/codex"
-  CODEX_BIN_SOURCE="brew"
-  echo "Codex 可执行文件：${CODEX_BIN}（来源 ${CODEX_BIN_SOURCE}）"
+# 显式指定的 Codex 路径始终优先。默认 shared 模式必须优先使用当前
+# ChatGPT.app 自带的 Codex，避免新版 Desktop 连接到旧 PATH CLI 刷新的 daemon。
+if [[ -n "${FLEET_CODEX_BIN:-}" ]]; then
+  CODEX_BIN="$FLEET_CODEX_BIN"
+elif [[ -n "${CODEX_BIN:-}" ]]; then
+  CODEX_BIN="$CODEX_BIN"
+elif [[ ( "$CODEX_APPSERVER_MODE" == "shared" || "$CODEX_APPSERVER_MODE" == "daemon" ) && \
+        -x "/Applications/ChatGPT.app/Contents/Resources/codex" ]]; then
+  CODEX_BIN="/Applications/ChatGPT.app/Contents/Resources/codex"
+elif command -v codex >/dev/null 2>&1; then
+  CODEX_BIN="$(command -v codex)"
+elif [[ -x "/Applications/ChatGPT.app/Contents/Resources/codex" ]]; then
+  CODEX_BIN="/Applications/ChatGPT.app/Contents/Resources/codex"
 else
-  echo "未能解析 Codex 可执行文件。" >&2
-  FLEET_CODEX_DESKTOP_APP_PATH="$FLEET_CODEX_APP_PATH" fleet_codex_bin_explain_failure >&2 || true
+  CODEX_BIN="$BREW_PREFIX/bin/codex"
 fi
 
 # --- 1. Tailscale 客户端 + （可选）入网 Headscale ---
 TS_BIN="$(command -v tailscale || echo /Applications/Tailscale.app/Contents/MacOS/Tailscale)"
+if [[ -n "${LOGIN_SERVER:-}" && -n "${AUTHKEY:-}" ]]; then
+  echo "入网 Headscale: $LOGIN_SERVER ..."
+  "$TS_BIN" up --login-server="$LOGIN_SERVER" --authkey="$AUTHKEY" --hostname="mac${MAC_INDEX}" --accept-dns=false
+fi
 TS_IP="$("$TS_BIN" ip -4 2>/dev/null | head -n1 || true)"
 [[ -n "${TS_IP}" ]] || { echo "拿不到 Tailscale/Headscale IP，请确认已入网。" >&2; exit 1; }
 echo "本机 mesh IP: $TS_IP  (mac${MAC_INDEX})"
@@ -650,39 +623,30 @@ fi
 # shared 默认让 Codex Desktop 与 Fleet 显式连接同一个 loopback WebSocket。
 # launchctl 环境记录供 launchd 子进程使用；从 Dock/Finder 手工重开时 macOS
 # 不保证继承它，因此收尾同时给出 open --env 的确定性启动命令。
-#
-# 风险点 R1/R5：这里只**快照**原值（用于回滚与卸载还原），真正注入推迟到 shared
-# app-server 通过就绪检查之后（见 apply_desktop_env）——绝不在服务还没监听时先
-# 把桌面端劫持到一个死端口。
 CODEX_DESKTOP_REOPEN_REQUIRED=0
 PREVIOUS_CODEX_APP_SERVER_WS_URL="$(launchctl getenv CODEX_APP_SERVER_WS_URL 2>/dev/null || true)"
 PREVIOUS_CODEX_APP_SERVER_USE_LOCAL_DAEMON="$(launchctl getenv CODEX_APP_SERVER_USE_LOCAL_DAEMON 2>/dev/null || true)"
-
-apply_desktop_env() {
-  if [[ "$CODEX_APPSERVER_MODE" == "shared" ]]; then
-    GUI_ENV_TOUCHED=1
-    if ! launchctl unsetenv CODEX_APP_SERVER_USE_LOCAL_DAEMON; then
-      echo "无法取消 Codex Desktop 旧 local-daemon 环境开关。" >&2
-      return 1
-    fi
-    if [[ "$CODEX_DESKTOP_SHARED_DAEMON" == "1" ]]; then
-      if ! launchctl setenv CODEX_APP_SERVER_WS_URL "$CODEX_DESKTOP_WS_URL"; then
-        echo "无法写入 Codex Desktop shared WebSocket 地址。" >&2
-        return 1
-      fi
-      CODEX_DESKTOP_REOPEN_REQUIRED=1
-      echo "shared app-server 已就绪；GUI 域 Codex Desktop 地址记录为 ${CODEX_DESKTOP_WS_URL}。"
-      echo "注意：本脚本不会自动中断正在运行的 ChatGPT.app；安装完成后需用下方命令确定性重开。"
-    else
-      launchctl unsetenv CODEX_APP_SERVER_WS_URL 2>/dev/null || true
-    fi
-  else
-    GUI_ENV_TOUCHED=1
-    launchctl unsetenv CODEX_APP_SERVER_WS_URL 2>/dev/null || true
-    launchctl unsetenv CODEX_APP_SERVER_USE_LOCAL_DAEMON 2>/dev/null || true
+if [[ "$CODEX_APPSERVER_MODE" == "shared" ]]; then
+  GUI_ENV_TOUCHED=1
+  if ! launchctl unsetenv CODEX_APP_SERVER_USE_LOCAL_DAEMON; then
+    echo "无法取消 Codex Desktop 旧 local-daemon 环境开关。" >&2
+    exit 1
   fi
-  return 0
-}
+  if [[ "$CODEX_DESKTOP_SHARED_DAEMON" == "1" ]]; then
+    if ! launchctl setenv CODEX_APP_SERVER_WS_URL "$CODEX_DESKTOP_WS_URL"; then
+      echo "无法写入 Codex Desktop shared WebSocket 地址。" >&2
+      exit 1
+    fi
+    CODEX_DESKTOP_REOPEN_REQUIRED=1
+    echo "ChatGPT.app 的 shared WebSocket 地址已记录为 ${CODEX_DESKTOP_WS_URL}。"
+    echo "注意：本脚本不会自动中断正在运行的 ChatGPT.app；安装完成后需用下方命令确定性重开。"
+  else
+    launchctl unsetenv CODEX_APP_SERVER_WS_URL 2>/dev/null || true
+  fi
+else
+  launchctl unsetenv CODEX_APP_SERVER_WS_URL 2>/dev/null || true
+  launchctl unsetenv CODEX_APP_SERVER_USE_LOCAL_DAEMON 2>/dev/null || true
+fi
 
 # --- 3. 安装 fleet-agent / filebrowser 二进制 + ttyd 附着脚本 ---
 if [[ "$MANAGED_MIGRATION_ACTIVE" == "1" ]]; then
@@ -690,15 +654,10 @@ if [[ "$MANAGED_MIGRATION_ACTIVE" == "1" ]]; then
 fi
 mkdir -p "$BIN_DIR"
 install -d -m 0700 "$CODEX_KEEPER_DIR"
-# 日志/状态目录必须在 launchctl load 之前存在：StandardOutPath 的父目录缺失会让
-# launchd 拒绝加载 job。改到稳定路径后不再随重启丢失（R3/R9）。
-install -d -m 0700 "$FLEET_SUPPORT_DIR" "$FLEET_STATE_DIR" "$FLEET_LOG_DIR"
 ARCH="$(uname -m)"; [[ "$ARCH" == "arm64" ]] && AB="arm64" || AB="amd64"
 install -m 0755 "$SCRIPT_DIR/fleet-agent/dist/fleet-agent-darwin-${AB}" "$BIN_DIR/fleet-agent"
 install -m 0755 "$SCRIPT_DIR/fleet-agent/fleet-attach.sh" "$BIN_DIR/fleet-attach"
 install -m 0700 "$SCRIPT_DIR/codex-desktop-env.sh" "$CODEX_DESKTOP_ENV_HELPER"
-install -m 0700 "$SCRIPT_DIR/codex-bin-resolve.sh" "$CODEX_RESOLVER"
-install -m 0700 "$SCRIPT_DIR/codex-keeper-launch.sh" "$CODEX_KEEPER_LAUNCHER"
 if [[ "$CODEX_APPSERVER_MODE" == "shared" ]]; then
   install -m 0700 "$SCRIPT_DIR/codex-shared-app-server.mjs" "$CODEX_KEEPER_SCRIPT"
 fi
@@ -796,9 +755,6 @@ render() { # src dst
       -e "s#__FLEET_ATTACH__#${FLEET_ATTACH}#g" \
       -e "s#__AGENT_BIN__#${AGENT_BIN}#g" \
       -e "s#__AGENT_PORT__#${AGENT_PORT}#g" \
-      -e "s#__BINDING_FILE__#${FLEET_BINDING_FILE}#g" \
-      -e "s#__TTYD_PORT__#${TTYD_PORT}#g" \
-      -e "s#__FB_PORT__#${FB_PORT}#g" \
       -e "s#__MAC_INDEX__#${MAC_INDEX}#g" \
       -e "s#__CLAUDE_BIN__#${CLAUDE_BIN}#g" \
       -e "s#__CODEX_BIN__#${CODEX_BIN}#g" \
@@ -809,10 +765,6 @@ render() { # src dst
       -e "s#__CODEX_APPSERVER_LISTEN__#${CODEX_APPSERVER_LISTEN}#g" \
       -e "s#__CODEX_KEEPER_NODE__#${CODEX_KEEPER_NODE}#g" \
       -e "s#__CODEX_KEEPER_SCRIPT__#${CODEX_KEEPER_SCRIPT}#g" \
-      -e "s#__CODEX_KEEPER_LAUNCHER__#${CODEX_KEEPER_LAUNCHER}#g" \
-      -e "s#__CODEX_RESOLVER__#${CODEX_RESOLVER}#g" \
-      -e "s#__FLEET_LOG_DIR__#${FLEET_LOG_DIR}#g" \
-      -e "s#__FLEET_STATE_DIR__#${FLEET_STATE_DIR}#g" \
       -e "s#__CODEX_DESKTOP_ENV_HELPER__#${CODEX_DESKTOP_ENV_HELPER}#g" \
       -e "s#__CODEX_DESKTOP_ENV_MODE__#${CODEX_DESKTOP_ENV_MODE}#g" \
       -e "s#__CODEX_DESKTOP_WS_URL__#${CODEX_DESKTOP_WS_URL}#g" \
@@ -862,13 +814,6 @@ if [[ "$CODEX_APPSERVER_MODE" == "shared" ]]; then
     exit 1
   fi
 fi
-# R5：只有 shared app-server 真的通过就绪检查之后，才把 Desktop 指向它。
-# 顺序上「先起服务、后注入环境变量」，避免服务起不来时把桌面端劫持到死端口。
-if ! apply_desktop_env; then
-  rollback_shared_migration || true
-  echo "写入 Codex Desktop GUI 环境失败；已回滚 shared 迁移。" >&2
-  exit 1
-fi
 GUI_DOMAIN="gui/$(id -u)"
 if launchctl print "$GUI_DOMAIN" >/dev/null 2>&1; then
   launchctl bootout "$GUI_DOMAIN/com.macfleet.codex-desktop-env" >/dev/null 2>&1 || true
@@ -882,111 +827,6 @@ if [[ "$CODEX_APPSERVER_MODE" == "shared" && "$MANAGED_MIGRATION_ACTIVE" == "1" 
   commit_shared_migration
   echo "shared app-server 已就绪：Fleet=${CODEX_APPSERVER_SOCK} Desktop=${CODEX_DESKTOP_WS_URL}"
 fi
-
-# --- 5.5 安装清单（风险点 R1/R3）---
-# 卸载不再靠人工反推：清单记录「fleet 创建了哪些文件/目录、改过哪些全局状态、
-# GUI 域变量原值是什么」，uninstall.sh 按它精确清理并还原。
-json_escape() {
-  local s="$1"
-  s="${s//\\/\\\\}"
-  s="${s//\"/\\\"}"
-  s="${s//$'\n'/\\n}"
-  s="${s//$'\t'/\\t}"
-  printf '%s' "$s"
-}
-# 从 stdin 逐行读路径，输出 JSON 数组元素（逗号分隔，末项无逗号）。
-json_array_from_lines() {
-  local first=1 line
-  while IFS= read -r line; do
-    [[ -n "$line" ]] || continue
-    if [[ "$first" == "1" ]]; then first=0; else printf ',\n'; fi
-    printf '    "%s"' "$(json_escape "$line")"
-  done
-  printf '\n'
-}
-write_install_manifest() {
-  local tmp="$FLEET_MANIFEST.$$" labels labels_json
-  install -d -m 0700 "$FLEET_SUPPORT_DIR" "$FLEET_STATE_DIR" "$FLEET_LOG_DIR" || return 1
-  labels=("com.macfleet.ttyd" "com.macfleet.filebrowser" "com.macfleet.fleet-agent" "com.macfleet.codex-desktop-env")
-  if [[ "$CODEX_APPSERVER_PLIST_RENDERED" == "1" ]]; then
-    labels+=("com.macfleet.codex-app-server")
-  fi
-  labels_json="$(printf '%s\n' "${labels[@]}" | json_array_from_lines)"
-  {
-    printf '{\n'
-    printf '  "schema": 1,\n'
-    printf '  "installedAt": "%s",\n' "$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
-    printf '  "macIndex": "%s",\n' "$(json_escape "$MAC_INDEX")"
-    printf '  "appPath": "%s",\n' "$(json_escape "$FLEET_CODEX_APP_PATH")"
-    printf '  "codexBin": "%s",\n' "$(json_escape "$CODEX_BIN")"
-    printf '  "codexBinSource": "%s",\n' "$(json_escape "${CODEX_BIN_SOURCE:-}")"
-    printf '  "codexMode": "%s",\n' "$(json_escape "$CODEX_APPSERVER_MODE")"
-    printf '  "desktopWsUrl": "%s",\n' "$(json_escape "$CODEX_DESKTOP_WS_URL")"
-    printf '  "appServerPort": "%s",\n' "$(json_escape "${CODEX_APPSERVER_PORT:-}")"
-    printf '  "logDir": "%s",\n' "$(json_escape "$FLEET_LOG_DIR")"
-    printf '  "stateDir": "%s",\n' "$(json_escape "$FLEET_STATE_DIR")"
-    printf '  "guiEnvPrevious": {\n'
-    printf '    "CODEX_APP_SERVER_WS_URL": {"wasSet": %s, "value": "%s"},\n' \
-      "$([[ -n "$PREVIOUS_CODEX_APP_SERVER_WS_URL" ]] && echo true || echo false)" \
-      "$(json_escape "$PREVIOUS_CODEX_APP_SERVER_WS_URL")"
-    printf '    "CODEX_APP_SERVER_USE_LOCAL_DAEMON": {"wasSet": %s, "value": "%s"}\n' \
-      "$([[ -n "$PREVIOUS_CODEX_APP_SERVER_USE_LOCAL_DAEMON" ]] && echo true || echo false)" \
-      "$(json_escape "$PREVIOUS_CODEX_APP_SERVER_USE_LOCAL_DAEMON")"
-    printf '  },\n'
-    printf '  "paths": [\n'
-    {
-      printf '%s\n' "$LA/com.macfleet.ttyd.plist" "$LA/com.macfleet.filebrowser.plist" \
-        "$LA/com.macfleet.fleet-agent.plist" "$LA/com.macfleet.codex-desktop-env.plist"
-      if [[ "$CODEX_APPSERVER_PLIST_RENDERED" == "1" ]]; then
-        printf '%s\n' "$LA/com.macfleet.codex-app-server.plist"
-      fi
-      printf '%s\n' "$BIN_DIR/fleet-agent" "$BIN_DIR/fleet-attach" "$FB_BIN" \
-        "$CODEX_DESKTOP_ENV_HELPER" "$CODEX_RESOLVER" "$CODEX_KEEPER_LAUNCHER" "$FB_DB" \
-        "$HOME/.macfleet-proxy.json" "$HOME/.macfleet-tmux.conf" "$FLEET_BINDING_FILE" "$HOME/.macfleet/pairing.json"
-      if [[ "$CODEX_APPSERVER_MODE" == "shared" ]]; then
-        printf '%s\n' "$CODEX_KEEPER_SCRIPT"
-      fi
-    } | json_array_from_lines
-    printf '  ],\n'
-    printf '  "dirs": [\n'
-    # 注意：日志目录不放进 dirs —— 默认卸载保留日志用于事后排查，只有 --purge 才删。
-    printf '%s\n' "$CODEX_KEEPER_DIR" "$FLEET_SUPPORT_DIR" "$HOME/.macfleet" | json_array_from_lines
-    printf '  ],\n'
-    printf '  "backupGlobs": [\n'
-    printf '%s\n' "$LA/com.macfleet.*.bak*" "$LA/com.macfleet.*.backup-*" \
-      "$BIN_DIR/fleet-agent.bak*" "$BIN_DIR/.fleet-agent-release-*" "$BIN_DIR/fleet-agent.[0-9]*" \
-      "$HOME/.macfleet/migration-backups/*" | json_array_from_lines
-    printf '  ],\n'
-    printf '  "labels": [\n%s\n  ]\n' "$labels_json"
-    printf '}\n'
-  } > "$tmp" && mv -f "$tmp" "$FLEET_MANIFEST"
-}
-write_install_manifest || echo "警告：安装清单写入失败（${FLEET_MANIFEST}），卸载将退回已知路径清单。" >&2
-echo "安装清单：${FLEET_MANIFEST}"
-
-# --- 5.6 备份保留策略（风险点 R3，默认每类保留 3 份）---
-prune_backups() { # <dir> <keep> <pattern...>
-  local dir="$1" keep="$2"
-  shift 2
-  [[ -d "$dir" ]] || return 0
-  local -a matches=() sorted=()
-  local pattern line i
-  shopt -s nullglob
-  for pattern in "$@"; do
-    matches+=("$dir"/$pattern)
-  done
-  shopt -u nullglob
-  (( ${#matches[@]} > keep )) || return 0
-  while IFS= read -r line; do
-    [[ -n "$line" ]] && sorted+=("$line")
-  done < <(/bin/ls -1dt "${matches[@]}" 2>/dev/null)
-  for ((i = keep; i < ${#sorted[@]}; i++)); do
-    rm -rf -- "${sorted[$i]}" 2>/dev/null && echo "  清理历史备份：${sorted[$i]}"
-  done
-}
-prune_backups "$BIN_DIR" "$BACKUP_KEEP" 'fleet-agent.bak*' '.fleet-agent-release-*' 'fleet-agent.[0-9]*'
-prune_backups "$HOME/.macfleet/migration-backups" "$BACKUP_KEEP" '*'
-prune_backups "$LA" "$BACKUP_KEEP" 'com.macfleet.*.bak*' 'com.macfleet.*.backup-*'
 
 # fleet-agent 自更新源：写进 ~/.zshrc 受管块，使交互式 `fleet-agent update` 开箱即用
 # （update 是手动 CLI，读交互 shell 环境变量，不读 launchd plist）。幂等：先删旧块再追加。
@@ -1002,13 +842,13 @@ fi
 cat <<EOF
 
 ✅ 完成（mac${MAC_INDEX}，仅 mesh 内网可达）：
-   网页终端    127.0.0.1:${TTYD_PORT}${TTYD_BASE}（仅经已授权 agent 访问）
-   文件管理    127.0.0.1:${FB_PORT}${FB_BASE}（仅经已授权 agent 访问）
+   网页终端    http://${TS_IP}:${TTYD_PORT}${TTYD_BASE}   (经 fleet-agent 选会话)
+   文件管理    http://${TS_IP}:${FB_PORT}${FB_BASE}        (整个 home, noauth)
    会话服务    http://${TS_IP}:${AGENT_PORT}/api/health
 
-设备归属与网络路由由服务自动登记，无需手填网关设备 IP；打开服务网页查看设备。
+下一步（在网关）：把本机 mesh IP ${TS_IP} 按顺序填到 server/.env 的 MAC_IPS（第 ${MAC_INDEX} 台 = 第 ${MAC_INDEX} 个），再跑 setup-server.sh。
 提醒：mac↔mac 的 SSH/VNC 需你自行在「系统设置 > 通用 > 共享」开启（本脚本不动这些开关）。
-日志：${FLEET_LOG_DIR}/（ttyd / filebrowser / agent / codex-app-server）
+日志：/tmp/macfleet-ttyd.* /tmp/macfleet-filebrowser.* /tmp/macfleet-agent.*
 EOF
 
 if [[ "$CODEX_DESKTOP_REOPEN_REQUIRED" == "1" ]]; then

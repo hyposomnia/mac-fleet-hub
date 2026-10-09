@@ -29,7 +29,6 @@ import (
 	"fmt"
 	"io"
 	"log"
-	"net"
 	"net/http"
 	"os"
 	"os/exec"
@@ -1997,62 +1996,14 @@ func main() {
 	if len(os.Args) > 1 {
 		os.Exit(runSelfCommand(os.Args[1:]))
 	}
-	if os.Getenv("FLEET_DESKTOP_MANAGED") == "1" {
-		if err := runDesktopDaemon(); err != nil {
-			log.Fatal(err)
-		}
-		return
-	}
 	runServer()
 }
 
 func runServer() {
-	log.Fatal(serveAgent(nil, nil))
-}
-
-func serveAgent(listener net.Listener, ready func()) error {
 	cfg = loadConfig()
-	access := newDeviceAccess(bindingPath())
-	access.refresh(context.Background())
-	go access.run(context.Background())
-	binding, bindingErr := readDeviceBinding(bindingPath())
-	if bindingErr == nil {
-		cfg.MacIndex = strings.TrimPrefix(binding.DeviceID, "m")
-	}
 	home, _ := os.UserHomeDir()
-
-	// R2：ChatGPT.app 自动更新会改内部 codex 路径（Contents/Resources/codex →
-	// codex-cli/bin/codex），plist 里写死的 FLEET_CODEX_BIN 会失效。这里按
-	// manifest/新布局动态解析；解析失败只告警，其他功能（会话/文件/Claude）必须继续可用。
-	switch normalizeCodexAppServerMode(cfg.CodexMode) {
-	case codexAppServerModeShared, codexAppServerModeDaemon, codexAppServerModeAuto:
-		appPath := strings.TrimSpace(os.Getenv("FLEET_CODEX_DESKTOP_APP_PATH"))
-		if appPath == "" {
-			appPath = defaultCodexDesktopApp
-		}
-		resolved, source, err := resolveCodexBin(cfg.CodexBin, appPath, cfg.CodexHome)
-		if err != nil {
-			log.Printf("Codex 可执行文件动态解析失败，继续使用配置值 %q：%v", cfg.CodexBin, err)
-		} else {
-			if resolved != cfg.CodexBin {
-				log.Printf("Codex 可执行文件已自愈：%q → %s（来源 %s）", cfg.CodexBin, resolved, source)
-			}
-			cfg.CodexBin = resolved
-		}
-	}
-
-	// R5：shared 模式下看门狗兜底——shared app-server 挂了就摘掉 GUI 域注入的
-	// CODEX_APP_SERVER_WS_URL，避免 Desktop 被指向死端口后启动即 ECONNREFUSED；
-	// 恢复后只补回一次。
-	if desktopMayConfigureEnvironment() && normalizeCodexAppServerMode(cfg.CodexMode) == codexAppServerModeShared && cfg.CodexDesktopShare {
-		watchdog := newDesktopEnvWatchdog(cfg.CodexDesktopURL, appServerStatePath())
-		go watchdog.Run(context.Background())
-	}
-
-	if desktopMayConfigureEnvironment() {
-		if err := configureCodexDesktopSharedDaemon(cfg, home, runtime.GOOS); err != nil {
-			log.Printf("配置 Codex.app app-server 连接策略失败；重启 App 后连接模式可能未更新：%v", err)
-		}
+	if err := configureCodexDesktopSharedDaemon(cfg, home, runtime.GOOS); err != nil {
+		log.Printf("配置 Codex.app app-server 连接策略失败；重启 App 后连接模式可能未更新：%v", err)
 	}
 	agentChatBackend = newAgentChatBackend()
 	var err error
@@ -2066,9 +2017,6 @@ func serveAgent(listener net.Listener, ready func()) error {
 	loadProxy()
 	writeTmuxConf()
 	mux := http.NewServeMux()
-	if bindingErr == nil {
-		registerDeviceServices(mux, binding)
-	}
 	mux.HandleFunc("/api/sessions", handleSessions)
 	mux.HandleFunc("/api/sessions/action", handleSessionAction)
 	mux.HandleFunc("/api/sessions/read", handleSessionRead)
@@ -2113,12 +2061,5 @@ func serveAgent(listener net.Listener, ready func()) error {
 	go configSync()
 	go reaper()
 	log.Printf("fleet-agent listening on %s (mac index %s, idle %ds)", cfg.Listen, cfg.MacIndex, cfg.IdleSec)
-	if ready != nil {
-		ready()
-	}
-	handler := access.handler(desktopMaintenance.Handler(mux))
-	if listener != nil {
-		return http.Serve(listener, handler)
-	}
-	return http.ListenAndServe(cfg.Listen, handler)
+	log.Fatal(http.ListenAndServe(cfg.Listen, mux))
 }

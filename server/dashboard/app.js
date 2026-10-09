@@ -12,7 +12,6 @@ let sessionLoadSeq = 0; // 会话列表请求序号：切主机/切筛选时丢�
 let fileLoadSeq = 0;    // 文件目录请求序号：切设备/目录时丢弃旧响应
 let fileColumnLoadSeq = 0; // 分栏子目录请求序号：切列/视图时丢弃旧响应
 let sessionSearchTimer = null;
-let authenticatedPollTimers = [];
 
 // ============================================================
 const $ = (s, r = document) => r.querySelector(s);
@@ -123,7 +122,7 @@ function svgStop() {
   return svg;
 }
 
-let SESSION_READ_KEY = 'fleet-session-read-v2';
+const SESSION_READ_KEY = 'fleet-session-read-v2';
 
 function loadSessionReadState() {
   try {
@@ -169,7 +168,7 @@ const state = {
   sessionSearch: '',
   sessionResults: [],
   sessionProjects: [],
-  sessionReadAt: new Map(),
+  sessionReadAt: loadSessionReadState(), // key -> 最后已读的会话活动时间（毫秒）
   sessionCursors: {},    // macId -> Codex nextCursor
   sessionErrors: {},
   sessionsLoadingMore: false,
@@ -238,13 +237,46 @@ function releaseVisualKeyboard() {
 }
 function projName(cwd) { return cwd ? cwd.split('/').filter(Boolean).pop() : '(未知项目)'; }
 function projFull(cwd) { return (cwd || '(未知路径)').replace(/^\/Users\/[^/]+/, '~'); }
-function sessionProjectInfo(session) { return FleetCore.projectInfo(session); }
-function groupSessionsByProject(sessions, projects = [], search = '') { return FleetCore.groupSessions(sessions, projects, search); }
+function sessionProjectInfo(session) {
+  const projectless = !!session?.projectless;
+  const cwd = projectless ? '' : (session?.projectCwd || session?.cwd || '');
+  const projectId = session?.projectId || '';
+  return {
+    key: projectless ? 'projectless:' : (cwd ? `cwd:${cwd}` : (projectId ? `id:${projectId}` : 'unknown:')),
+    name: projectless ? '无项目' : (session?.projectName || projName(cwd)),
+    cwd,
+    projectless,
+  };
+}
+function groupSessionsByProject(sessions, projects = [], search = '') {
+  const groups = new Map();
+  for (const session of sessions || []) {
+    const project = sessionProjectInfo(session);
+    let group = groups.get(project.key);
+    if (!group) {
+      group = { ...project, arr: [] };
+      groups.set(project.key, group);
+    }
+    group.arr.push(session);
+  }
+  const needle = search.toLocaleLowerCase();
+  for (const project of projects || []) {
+    if (!project.cwd || (needle && !`${project.name || ''}\n${project.cwd}`.toLocaleLowerCase().includes(needle))) continue;
+    const key = `cwd:${project.cwd}`;
+    if (groups.has(key)) {
+      groups.get(key).name = project.name || groups.get(key).name;
+    } else {
+      groups.set(key, { key, name: project.name || projName(project.cwd), cwd: project.cwd,
+        macId: project.macId, projectless: false, arr: [] });
+    }
+  }
+  return [...groups.values()];
+}
 function macName(id) { return macNames[id] || ('Mac ' + id.slice(1)); }
 // 助手白名单：localStorage/会话快照回读时用它校验，非法值（旧数据、手改）一律回退 codex。
-const ASSISTANTS = ['codex', 'dsh', ...(globalThis.__fleetNativeVersion === 1 ? ['claude'] : [])];
+const ASSISTANTS = ['codex', 'dsh'];
 function normalizeAssistant(a) { return ASSISTANTS.includes(a) ? a : 'codex'; }
-const ASSISTANT_LABELS = { codex: 'ChatGPT', dsh: 'DeepSeek', claude: 'Claude' };
+const ASSISTANT_LABELS = { codex: 'ChatGPT', dsh: 'DeepSeek' };
 function assistantLabel(a = state.assistant) { return ASSISTANT_LABELS[normalizeAssistant(a)]; }
 // 自绘对话的"连接中"文案。Codex 连的是 app-server，DSH 连的是 Desktop 已启动的
 // harness host——术语不同，不能共用一句，否则 DeepSeek tab 上会写"正在连接 ChatGPT…"。
@@ -274,8 +306,8 @@ async function api(id, path, opts) {
   return r.json();
 }
 
-let SESSION_ARCHIVE_KEY = 'fleet-show-archived-sessions';
-let UI_STATE_KEY = 'fleet-ui-state-v1';
+const SESSION_ARCHIVE_KEY = 'fleet-show-archived-sessions';
+const UI_STATE_KEY = 'fleet-ui-state-v1';
 let chatIMEComposing = false;
 let mobileIMEComposing = false;
 
@@ -312,7 +344,6 @@ function initUIState() {
 }
 
 function persistUIState() {
-  if (globalThis.FleetAuth && !FleetAuth.user) return;
   try {
     localStorage.setItem(UI_STATE_KEY, JSON.stringify({
       mode: state.mode,
@@ -407,39 +438,35 @@ function applyTheme(t) { FleetTheme.apply(t); applyTermTheme(); }
 
 // ttyd 把 xterm 实例挂在 iframe 的 window.term 上。这里按 data-theme 给它换肤，
 // 配色取自 style.css 的设计 token，让网页终端与 dashboard 深/浅色统一。
-const XTERM_THEME = {
-  dark: {
-    background: '#10141B', foreground: '#F2F5F9',
-    cursor: '#B8D9FF', cursorAccent: '#10141B', selectionBackground: 'rgba(110,139,255,.28)',
-    black: '#2b3240', brightBlack: '#6b7585',
+function colorChannels(hex) { return hex.slice(1).match(/../g).map(value => parseInt(value, 16)); }
+function colorAlpha(hex, alpha) { return `rgba(${colorChannels(hex).join(',')},${alpha})`; }
+function mixHex(first, second, firstWeight) {
+  const a = colorChannels(first), b = colorChannels(second);
+  return '#' + a.map((value, index) => Math.round(value * firstWeight + b[index] * (1 - firstWeight)).toString(16).padStart(2, '0')).join('');
+}
+function xtermTheme(mode) {
+  const palette = FleetTheme.getPalette()[mode];
+  const dark = mode === 'dark';
+  return {
+    background: dark ? '#000000' : '#FFFFFF', foreground: palette.text,
+    cursor: palette.accent, cursorAccent: dark ? '#000000' : '#FFFFFF', selectionBackground: colorAlpha(palette.accent, dark ? .24 : .16),
+    black: dark ? palette.canvas : palette.text, brightBlack: mixHex(palette.text, palette.canvas, dark ? .58 : .66),
     red: '#ff6b6b', brightRed: '#ff8f8f',
     green: '#46d39a', brightGreen: '#6ee3b4',
     yellow: '#d08a45', brightYellow: '#e8a868',
-    blue: '#B8D9FF', brightBlue: '#93a9ff',
+    blue: palette.accent, brightBlue: mixHex(palette.accent, palette.text, .82),
     magenta: '#b18bff', brightMagenta: '#c9adff',
     cyan: '#5cc8d8', brightCyan: '#82dbe8',
-    white: '#BBC9DB', brightWhite: '#F2F5F9',
-  },
-  light: {
-    background: '#FFFFFF', foreground: '#253446',
-    cursor: '#2C5D87', cursorAccent: '#FFFFFF', selectionBackground: 'rgba(63,92,255,.16)',
-    black: '#2c333f', brightBlack: '#516476',
-    red: '#A23B40', brightRed: '#b32d2d',
-    green: '#386046', brightGreen: '#0c8a55',
-    yellow: '#785319', brightYellow: '#b5762b',
-    blue: '#2C5D87', brightBlue: '#244D70',
-    magenta: '#7c4ddb', brightMagenta: '#6a3fc9',
-    cyan: '#1f8fa6', brightCyan: '#157e94',
-    white: '#e2e6ec', brightWhite: '#ffffff',
-  },
-};
+    white: mixHex(palette.text, palette.canvas, dark ? .82 : .18), brightWhite: palette.text,
+  };
+}
 // 切主题时给池里所有已就绪的终端换肤（新加载的终端在 hookTerm 里首次套用）。
 function applyTermTheme() {
   const mode = document.documentElement.getAttribute('data-theme') === 'light' ? 'light' : 'dark';
   for (const e of state.pool) {
     try {
       const t = e.iframe.contentWindow.term;
-      if (t && t.options) t.options.theme = XTERM_THEME[mode];
+      if (t && t.options) t.options.theme = xtermTheme(mode);
     } catch (_) {}
   }
 }
@@ -471,7 +498,6 @@ function deviceStatusIcon(id) {
   icon.className += online ? ' is-online' : ' is-offline';
   icon.setAttribute('role', 'img');
   icon.setAttribute('aria-label', `${macName(id)}，${online ? '在线' : '离线'}`);
-  icon.appendChild(h('span', { class: 'device-status-mark', 'aria-hidden': 'true' }));
   return icon;
 }
 
@@ -489,22 +515,11 @@ function renderHosts() {
       nav.append(h('div', { class: 'empty empty-down' },
         h('div', { class: 'ed-t', text: '⚠ 无法连接服务器' }),
         h('div', { class: 'ed-s', text: '网关暂时不可用，设备列表取不到。' }),
-        h('div', { class: 'ed-s', text: '这不代表没有设备入网。' }),
+        h('div', { class: 'ed-s', text: '这不代表没有 Mac 入网。' }),
         retry,
       ));
     } else {
-      const addIcon = svgIcon('ic empty-add-device-icon', 'M12 5v14M5 12h14');
-      addIcon.setAttribute('aria-hidden', 'true');
-      addIcon.setAttribute('focusable', 'false');
-      const addDevice = h('a', { class: 'btn empty-add-device', href: '/account#add-device', 'aria-label': '添加设备', title: '添加设备' },
-        addIcon,
-        h('span', { class: 'empty-add-device-label', text: '添加设备' }),
-      );
-      addDevice.onclick = event => { event.preventDefault(); openUnifiedSettings('add-device', addDevice); };
-      nav.append(h('div', { class: 'empty empty-devices' },
-        h('div', { class: 'empty-device-message', text: '暂无已入网的设备' }),
-        addDevice,
-      ));
+      nav.append(h('div', { class: 'empty', text: '暂无已入网的 Mac' }));
     }
     return;
   }
@@ -595,19 +610,24 @@ function setFileDevice(id) {
 // ============================================================
 async function refreshNodes() {
   try {
-    const r = await fetch(`${BASE}/api/devices`, { cache: 'no-store' });
+    const r = await fetch(`${BASE}/api/nodes.json`, { cache: 'no-store' });
+    // 拉不到节点清单 = 网关这一层有问题，**不等于**「一台 Mac 都没入网」。
+    // 两者都会让 MACS 为空、左栏都显示空态，所以必须分开记状态：
+    // 不然后端挂了却被读成「车队是空的」，用户会去查终端/设备，白跑一趟。
+    // （/api/nodes.json 由网关的 fleet-nodes.timer 每 30s 调 headscale 写出；网关一死它必然拿不到。）
     if (!r.ok) { markGatewayUnreachable(`HTTP ${r.status}`); return; }
     const list = await r.json();
     // 解析成功即证明网关这一层是活的（后面若因数据形状抛错，不该被误判成「连不上」）。
     markGatewayReachable();
     const online = {};
     const ids = [];
-    for (const device of (list.devices || [])) {
-      const id = String(device.id || '');
-      if (!/^m\d+$/.test(id)) continue;
+    for (const n of (Array.isArray(list) ? list : (list.nodes || []))) {
+      // 入网节点名固定为 mac<N>（setup-mac.sh --hostname=mac$MAC_INDEX）；gateway 等非 Mac 节点跳过。
+      const mm = String(n.givenName || n.name || '').toLowerCase().match(/^mac(\d+)$/);
+      if (!mm) continue;
+      const id = 'm' + mm[1];
       if (!ids.includes(id)) ids.push(id);
-      online[id] = device.online === true;
-      if (device.name) macNames[id] = device.name;
+      online[id] = n.online === true || n.online === 'true';
     }
     ids.sort((a, b) => (+a.slice(1)) - (+b.slice(1)));
     const previousIDs = MACS.map((m) => m.id).join(',');
@@ -719,6 +739,76 @@ async function refreshNames() {
 // ============================================================
 //  dashboard 偏好（终端窗口上限 / 回滚行数，gateway 存，所有浏览器共享）
 // ============================================================
+const APPEARANCE_MODES = ['light', 'dark'];
+const APPEARANCE_FIELDS = ['canvas', 'accent', 'highlight', 'text'];
+function appearanceControl(selector, mode, field) { return $(`[${selector}="${mode}.${field}"]`); }
+function fillAppearancePalette(palette) {
+  for (const mode of APPEARANCE_MODES) {
+    for (const field of APPEARANCE_FIELDS) {
+      const value = palette[mode][field];
+      const color = appearanceControl('data-palette-color', mode, field);
+      const hex = appearanceControl('data-palette-hex', mode, field);
+      color.value = value.toLowerCase();
+      hex.value = value;
+      hex.removeAttribute('aria-invalid');
+    }
+  }
+}
+function openAppearanceSettings() {
+  fillAppearancePalette(FleetTheme.getPalette());
+  syncThemeControls();
+  openOverlay('appearance-modal');
+}
+function readAppearancePalette() {
+  const palette = { light: {}, dark: {} };
+  let invalid;
+  for (const mode of APPEARANCE_MODES) {
+    for (const field of APPEARANCE_FIELDS) {
+      const input = appearanceControl('data-palette-hex', mode, field);
+      const value = FleetTheme.normalizeColor(input.value);
+      input.setAttribute('aria-invalid', String(!value));
+      if (!value) invalid ||= input;
+      else palette[mode][field] = value;
+    }
+  }
+  if (invalid) {
+    invalid.focus();
+    throw new Error('颜色请使用 #RRGGBB 格式');
+  }
+  return palette;
+}
+function saveAppearanceSettings() {
+  try {
+    const palette = FleetTheme.setPalette(readAppearancePalette());
+    fillAppearancePalette(palette);
+    closeOverlay('appearance-modal');
+    toast('配色已保存', 'ok');
+  } catch (error) { toast(error.message, 'err'); }
+}
+function wireAppearanceSettings() {
+  $$('[data-palette-color]').forEach(input => {
+    input.oninput = () => {
+      const [mode, field] = input.dataset.paletteColor.split('.');
+      const hex = appearanceControl('data-palette-hex', mode, field);
+      hex.value = input.value.toUpperCase();
+      hex.removeAttribute('aria-invalid');
+    };
+  });
+  $$('[data-palette-hex]').forEach(input => {
+    input.oninput = () => {
+      const value = FleetTheme.normalizeColor(input.value);
+      input.setAttribute('aria-invalid', String(!value));
+      if (!value) return;
+      const [mode, field] = input.dataset.paletteHex.split('.');
+      appearanceControl('data-palette-color', mode, field).value = value.toLowerCase();
+    };
+  });
+  $$('#appearance-modal [data-theme-choice]').forEach(button => {
+    button.onclick = () => setThemePreference(button.dataset.themeChoice);
+  });
+  $('#appearance-reset').onclick = () => fillAppearancePalette(FleetTheme.paletteDefaults);
+  $('#appearance-save').onclick = saveAppearanceSettings;
+}
 async function refreshSettings() {
   try {
     const r = await fetch(`${BASE}/api/settings`, { cache: 'no-store' });
@@ -727,12 +817,10 @@ async function refreshSettings() {
   if (!state.settings) state.settings = { ...SETTINGS_DEFAULT }; // 拉取失败：用默认，不阻塞
 }
 function openSettings() {
-  return openUnifiedSettings('sessions');
-}
-function prepareSessionSettings() {
   const s = state.settings || SETTINGS_DEFAULT;
   $('#st-chat-cache-max').value = s.chatCacheMaxSessions;
   renderChatCacheStats();
+  openOverlay('settings-modal');
 }
 async function saveSettings() {
   const body = {
@@ -745,7 +833,6 @@ async function saveSettings() {
     });
     if (!r.ok) throw new Error('HTTP ' + r.status);
     state.settings = { ...SETTINGS_DEFAULT, ...(await r.json()) };
-    globalThis.FleetSettingsDialog?.active?.markSaved();
     closeOverlay('settings-modal');
     toast('设置已保存', 'ok');
     evictChatCache();
@@ -772,32 +859,8 @@ async function settingsJSON(url, options) {
 }
 
 function openAutomation() {
-  return openUnifiedSettings('automation');
-}
-function openUnifiedSettings(page, trigger) {
-  if (!FleetSettingsDialog.active) {
-    FleetSettingsDialog.active = FleetSettingsDialog.create({
-      document, overlay: $('#fleet-settings-modal'), panels: $$('[data-settings-panel]'), buttons: $$('[data-settings-page]'),
-      title: $('#fleet-settings-title'), status: $('#fleet-settings-status'), confirm: message => window.confirm(message),
-      discardPrompt: { container: $('#settings-discard-prompt'), cancel: $('#settings-keep-editing'), discard: $('#settings-discard') },
-      load: async (selected, container) => {
-        if (selected === 'sessions') { prepareSessionSettings(); return null; }
-        if (selected === 'automation') { showAutomationTab('keys'); return null; }
-        const content = document.createElement('div');
-        content.className = 'account-content';
-        const status = document.createElement('p');
-        status.className = 'settings-account-status';
-        status.setAttribute('role', 'status');
-        const nav = document.createElement('nav');
-        container.append(status, content);
-        const pages = FleetAccountPages.createPages({ document, auth: FleetAuth, location, history,
-          confirm: message => window.confirm(message), content, status, nav });
-        await pages.start(selected);
-        return pages;
-      },
-    });
-  }
-  return FleetSettingsDialog.active.open(page, trigger);
+  showAutomationTab('keys');
+  openOverlay('automation-modal');
 }
 function showAutomationTab(tab) {
   const key = tab === 'messages' ? 'messages' : 'keys';
@@ -1281,7 +1344,6 @@ function updateSettingsMenus() {
 }
 
 function toggleArchivedSessions() {
-  if (globalThis.FleetAuth && !FleetAuth.user) return;
   if (state.mode === 'files') return;
   state.scope = state.scope === 'all' ? 'active' : 'all';
   try { localStorage.setItem(SESSION_ARCHIVE_KEY, state.scope === 'all' ? '1' : '0'); } catch (_) {}
@@ -1301,7 +1363,6 @@ function sessionActivityAt(session) {
 }
 
 function persistSessionReadState() {
-  if (globalThis.FleetAuth && !FleetAuth.user) return;
   try {
     if (typeof localStorage === 'undefined') return;
     const newest = [...state.sessionReadAt.entries()].sort((left, right) => right[1] - left[1]).slice(0, 1000);
@@ -1456,7 +1517,10 @@ function renderSessionResults(opts = {}) {
   } else if (state.sessionView === 'recent') {
     wrap.append(h('div', { class: 'recent-session-list' }, ...sessions.map(sessionRow)));
   } else {
-    const ordered = FleetCore.orderedSessionGroups(sessions, state.sessionProjects, state.sessionSearch);
+    const ordered = groupSessionsByProject(sessions, state.sessionProjects, state.sessionSearch).map((group) => {
+      group.arr.sort((a, b) => (Number(b.pinned) - Number(a.pinned)) || (b.live - a.live) || (b.mtime - a.mtime));
+      return { ...group, pinned: group.arr.some((session) => session.pinned), last: Math.max(0, ...group.arr.map((s) => s.mtime)) };
+    }).sort((a, b) => (Number(b.pinned) - Number(a.pinned)) || (b.last - a.last));
 
     for (const g of ordered) {
       const collapsed = state.collapsed.has(g.key);
@@ -1830,7 +1894,7 @@ function renderSessionMenu(session) {
   return menu;
 }
 
-async function mutateSession(session, action, value = '', { throwOnError = false } = {}) {
+async function mutateSession(session, action, value = '') {
   try {
     await api(session.macId, 'sessions/action', {
       method: 'POST', headers: { 'content-type': 'application/json' },
@@ -1852,7 +1916,6 @@ async function mutateSession(session, action, value = '', { throwOnError = false
       await loadSessions();
     }
   } catch (error) {
-    if (throwOnError) throw error;
     toast('会话操作失败：' + error.message, 'err');
   }
 }
@@ -1897,12 +1960,11 @@ function poolFind(macId, sessionId, assistant = state.assistant) {
   return state.pool.find((e) => e.macId === macId && e.assistant === assistant && e.sessionId === sessionId) || null;
 }
 
-let POOL_SNAP_KEY = 'fleet-pool';
+const POOL_SNAP_KEY = 'fleet-pool';
 // 把当前池序列化成最小重建标识存 sessionStorage（刷新/崩溃恢复用，关标签即清）。
 // 只存重建所需：macId/assistant/sessionId/permMode/title/cwd——sid/url 是 attach 时新生成的，不存。
 // 池条目按 (macId,assistant,sessionId) 唯一，故 assistant 必带；cur 同样带 assistant 以精确定位焦点窗口。
 function savePoolSnapshot() {
-  if (globalThis.FleetAuth && !FleetAuth.user) return;
   try {
     const snap = {
       macId: state.macId,
@@ -1922,7 +1984,7 @@ function hookTerm(entry, retries = 30) {
   try { term = entry.iframe.contentWindow.term; } catch (_) { return; }
   if (!term || !term.options) { if (retries > 0) setTimeout(() => hookTerm(entry, retries - 1), 150); return; }
   const mode = document.documentElement.getAttribute('data-theme') === 'light' ? 'light' : 'dark';
-  try { term.options.theme = XTERM_THEME[mode]; } catch (_) {}
+  try { term.options.theme = xtermTheme(mode); } catch (_) {}
   try { term.options.scrollback = poolScrollback(); } catch (_) {}
   if (!term.__fleetHooked) {
     term.__fleetHooked = true;
@@ -2181,7 +2243,7 @@ async function loadChatSkills(chat) {
   if (chat.skillsPromise) return chat.skillsPromise;
   const request = api(chat.macId, 'chat/skills', {
     method: 'POST', headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ assistant: chat.assistant, cwd }),
+    body: JSON.stringify({ assistant: state.assistant, cwd }),
   });
   const task = request.then((response) => {
     if (state.chatCache.get(chat.cacheKey) !== chat) return [];
@@ -2438,7 +2500,7 @@ async function loadServerChatQueue(chat) {
   if (!chat || chat.pendingStart) return;
   const requestSeq = beginChatControlRequest(chat);
   try {
-    const result = await api(chat.macId, `chat/queue?assistant=${chat.assistant}&sessionId=${encodeURIComponent(chat.sessionId)}`);
+    const result = await api(chat.macId, `chat/queue?assistant=${state.assistant}&sessionId=${encodeURIComponent(chat.sessionId)}`);
     if (!applyChatControlSnapshot(chat, result, requestSeq)) {
       if (markChatControlSyncFailure(chat) && state.chat === chat) {
         renderChatOwnershipHead(chat);
@@ -4405,8 +4467,8 @@ function resizeChatInput() {
     return;
   }
   input.style.height = 'auto';
-  input.style.height = (input.value ? Math.min(input.scrollHeight, 180) : 0) + 'px';
-  input.style.overflowY = input.value && input.scrollHeight > 180 ? 'auto' : 'hidden';
+  input.style.height = Math.min(input.scrollHeight, 180) + 'px';
+  input.style.overflowY = input.scrollHeight > 180 ? 'auto' : 'hidden';
 }
 
 function chatComposerAction(chat, hasContent) {
@@ -4587,7 +4649,7 @@ async function addChatFiles(files) {
 async function uploadChatFile(chat, att, file) {
   try {
     const fd = new FormData();
-    fd.append('assistant', chat.assistant);
+    fd.append('assistant', state.assistant);
     fd.append('sessionId', chat.sessionId);
     fd.append('file', file, file.name || 'attachment');
     const r = await fetch(`${apiBase(chat.macId)}/api/chat/upload`, { method: 'POST', body: fd });
@@ -4720,7 +4782,7 @@ async function openChatSession(s) {
     const controlRequestSeq = beginChatControlRequest(chat);
     chat.resumePromise = api(chat.macId, 'chat/resume', {
       method: 'POST', headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ assistant: chat.assistant, sessionId: chat.sessionId, mode: 'default' }),
+      body: JSON.stringify({ assistant: state.assistant, sessionId: chat.sessionId, mode: 'default' }),
     });
     const resumed = await chat.resumePromise;
     if (state.chatCache.get(chat.cacheKey) === chat) {
@@ -4913,7 +4975,7 @@ async function selectChatApprovalMode(value) {
   const previousUpdate = chat.approvalUpdateChain || Promise.resolve();
   const update = previousUpdate.catch(() => {}).then(() => api(chat.macId, 'chat/settings', {
     method: 'POST', headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ assistant: chat.assistant, sessionId: chat.sessionId, approvalMode }),
+    body: JSON.stringify({ assistant: state.assistant, sessionId: chat.sessionId, approvalMode }),
   }));
   chat.approvalUpdateChain = update;
   try {
@@ -5096,7 +5158,7 @@ async function loadOlderChatHistory() {
   chat.historyLoading = true;
   renderChat({ preserveScroll: true });
   try {
-    const page = await api(chat.macId, `chat/history?assistant=${chat.assistant}&sessionId=${encodeURIComponent(chat.sessionId)}&cursor=${encodeURIComponent(chat.historyCursor)}`);
+    const page = await api(chat.macId, `chat/history?assistant=${state.assistant}&sessionId=${encodeURIComponent(chat.sessionId)}&cursor=${encodeURIComponent(chat.historyCursor)}`);
     if (state.chat !== chat) return;
     chat.model = FleetChatModel.prependHistory(chat.model, page.events || []);
     applyChatMetadataDefaults(chat);
@@ -5114,7 +5176,7 @@ async function loadOlderChatHistory() {
 function startChatEvents(chat = state.chat) {
   if (!chat) return;
   if (chat.events && chat.events.readyState !== EventSource.CLOSED) return;
-  const url = `${apiBase(chat.macId)}/api/chat/events?assistant=${chat.assistant}&sessionId=${encodeURIComponent(chat.sessionId)}`;
+  const url = `${apiBase(chat.macId)}/api/chat/events?assistant=${state.assistant}&sessionId=${encodeURIComponent(chat.sessionId)}`;
   const es = new EventSource(url);
   chat.events = es;
   syncSessionRuntimeIndicators();
@@ -5178,7 +5240,7 @@ async function restoreChatAfterForeground(chat = state.chat) {
       const controlRequestSeq = beginChatControlRequest(chat);
       const resumed = await api(chat.macId, 'chat/resume', {
         method: 'POST', headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ assistant: chat.assistant, sessionId: chat.sessionId, mode: 'default' }),
+        body: JSON.stringify({ assistant: state.assistant, sessionId: chat.sessionId, mode: 'default' }),
       });
       if (state.chatCache.get(chat.cacheKey) !== chat) return;
       chat.model = FleetChatModel.prependHistory(chat.model, resumed.history?.events || []);
@@ -5245,7 +5307,7 @@ async function ensurePendingChatStarted(chat) {
     const controlRequestSeq = beginChatControlRequest(chat);
     const started = await api(chat.macId, 'chat/start', {
       method: 'POST', headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ assistant: chat.assistant, cwd, mode: 'default' }),
+      body: JSON.stringify({ assistant: state.assistant, cwd, mode: 'default' }),
     });
     const sessionId = String(started.sessionId || '').trim();
     if (!sessionId) throw new Error(`${assistantLabel()} 未返回有效的会话 ID`);
@@ -5270,7 +5332,7 @@ async function ensurePendingChatStarted(chat) {
     state.chatCache.set(newKey, chat);
     state.selectedSid = sessionId;
     state.selectedSessionMacId = chat.macId;
-    state.selectedSessionAssistant = chat.assistant;
+    state.selectedSessionAssistant = state.assistant;
     startChatEvents(chat);
     startChatSubagentSync(chat);
     if (preferredApproval !== chat.approvalConfirmedMode) {
@@ -5279,7 +5341,7 @@ async function ensurePendingChatStarted(chat) {
       try {
         const control = await api(chat.macId, 'chat/settings', {
           method: 'POST', headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ assistant: chat.assistant, sessionId: chat.sessionId, approvalMode: preferredApproval }),
+          body: JSON.stringify({ assistant: state.assistant, sessionId: chat.sessionId, approvalMode: preferredApproval }),
         });
         chat.approvalUpdatePending = false;
         if (!applyChatControlSnapshot(chat, control, settingsRequestSeq)) throw new Error('服务端返回了无效的权限状态');
@@ -5399,7 +5461,7 @@ async function saveServerChatQueueItem(chat, item, deliveryMode) {
     return await api(chat.macId, 'chat/queue', {
       method: 'POST', headers: { 'content-type': 'application/json' },
       body: JSON.stringify({
-        assistant: chat.assistant, sessionId: chat.sessionId, clientMessageId: item.id,
+        assistant: state.assistant, sessionId: chat.sessionId, clientMessageId: item.id,
         cwd: chat.cwd || '', text: item.text, displayText: item.displayText,
         deliveryMode: deliveryMode === 'auto' ? 'auto' : 'next',
         skills: item.skills || [], images: item.images.map(({ id, name, mime, size, url }) => ({ id, name, mime, size, url })),
@@ -5433,7 +5495,7 @@ async function interruptChat() {
   try {
     await api(chat.macId, 'chat/interrupt', {
       method: 'POST', headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ assistant: chat.assistant, sessionId: chat.sessionId }),
+      body: JSON.stringify({ assistant: state.assistant, sessionId: chat.sessionId }),
     });
   } catch (e) {
     if (isNoActiveTurnError(e)) {
@@ -5459,7 +5521,7 @@ async function releaseChatWriter() {
     const controlRequestSeq = beginChatControlRequest(chat);
     const control = await api(chat.macId, 'chat/access', {
       method: 'POST', headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ assistant: chat.assistant, sessionId: chat.sessionId, action: 'release' }),
+      body: JSON.stringify({ assistant: state.assistant, sessionId: chat.sessionId, action: 'release' }),
     });
     if (!isCompleteChatControlSnapshot(control?.control || control)) throw new Error('服务端返回了无效的会话控制状态');
     applyChatControlSnapshot(chat, control, controlRequestSeq);
@@ -5493,7 +5555,7 @@ async function enableChatWriter() {
     const controlRequestSeq = beginChatControlRequest(chat);
     const control = await api(chat.macId, 'chat/access', {
       method: 'POST', headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ assistant: chat.assistant, sessionId: chat.sessionId, action: 'enable-write' }),
+      body: JSON.stringify({ assistant: state.assistant, sessionId: chat.sessionId, action: 'enable-write' }),
     });
     if (!isCompleteChatControlSnapshot(control?.control || control)) throw new Error('服务端返回了无效的会话控制状态');
     applyChatControlSnapshot(chat, control, controlRequestSeq);
@@ -5519,7 +5581,7 @@ async function respondChatRequest(requestId, response) {
   try {
     await api(chat.macId, 'chat/respond', {
       method: 'POST', headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ assistant: chat.assistant, sessionId: chat.sessionId, requestId, response }),
+      body: JSON.stringify({ assistant: state.assistant, sessionId: chat.sessionId, requestId, response }),
     });
     chat.model = FleetChatModel.reduceChatEvent(chat.model, { type: 'interaction_resolved', data: { requestId, response } });
     renderChat();
@@ -6959,17 +7021,12 @@ function sendFileUpload(item) {
     body.append('file', item.file, item.name);
     const xhr = new XMLHttpRequest();
     xhr.open('POST', `${apiBase(item.macId)}/api/file/upload?path=${encodeURIComponent(item.path)}`);
-    if (globalThis.FleetAuth) {
-      if (!FleetAuth.user || !FleetAuth.csrfToken) { resolve({ ok: false, message: '请重新登录。' }); return; }
-      xhr.setRequestHeader('X-CSRF-Token', FleetAuth.csrfToken);
-    }
     if (xhr.upload) {
       xhr.upload.onprogress = (event) => {
         if (FleetUploadModel.setProgress(state.fileUploads, item.id, event.loaded, event.total)) requestFileUploadRender();
       };
     }
     xhr.onload = () => {
-      if (xhr.status === 401 && globalThis.FleetAuth) FleetAuth.invalidate();
       if (xhr.status >= 200 && xhr.status < 300) resolve({ ok: true });
       else resolve({ ok: false, message: uploadFailureMessage(xhr) });
     };
@@ -7238,20 +7295,17 @@ async function saveHost() {
 // ============================================================
 //  退出登录（F4：跳 Authelia 退出端点，登出后回登录页）
 // ============================================================
-async function doLogout() {
+function doLogout() {
   closeMenus();
-  try { await FleetAuth.logout(); }
-  catch (error) { if (error.status !== 401) toast(error.message, 'err'); }
+  compactComposer?.update();
+  location.href = `${BASE}/auth/logout?rd=${encodeURIComponent(location.origin + BASE + '/')}`;
 }
 
 // ============================================================
 //  浮层菜单 / 弹窗
 // ============================================================
 function openOverlay(id) { $('#' + id).hidden = false; }
-function closeOverlay(id) {
-  if (['fleet-settings-modal', 'settings-modal', 'automation-modal'].includes(id)) return globalThis.FleetSettingsDialog?.active?.close();
-  $('#' + id).hidden = true;
-}
+function closeOverlay(id) { $('#' + id).hidden = true; }
 let globalMenu = null;
 function closeMenus({ restoreFocus = false } = {}) {
   const trigger = globalMenu?.trigger;
@@ -7533,8 +7587,8 @@ function init() {
   renderHosts();
   refreshNames();
   refreshSettings();
-  refreshNodes();
-  authenticatedPollTimers = [setInterval(refreshNodes, 30000), setInterval(refreshSessionsSoft, 5000)];
+  refreshNodes(); setInterval(refreshNodes, 30000);
+  setInterval(refreshSessionsSoft, 5000); // 轻量轮询 waiting / Codex 进行中状态（函数自带 mode/macId guard）
   wireMobileInput();
 
   // 模式 / 助手 / 搜索 / 新建
@@ -7763,18 +7817,16 @@ function init() {
   $$('#usermenu button, #m-menu button').forEach((b) => {
     if (!b.dataset.act && !b.dataset.themeChoice) return;
     b.onclick = () => {
-      const trigger = globalMenu?.trigger || document.activeElement;
       closeMenus({ restoreFocus: Boolean(b.dataset.themeChoice) });
       if (b.dataset.themeChoice) setThemePreference(b.dataset.themeChoice);
       else if (b.dataset.act === 'archive') toggleArchivedSessions();
-      else if (b.dataset.act === 'automation') openUnifiedSettings('automation', trigger);
-      else if (b.dataset.act === 'settings') openUnifiedSettings('sessions', trigger);
-      else if (b.dataset.act === 'account') openUnifiedSettings('account', trigger);
-      else if (b.dataset.act === 'admin') location.href = '/admin';
-      else if (b.dataset.act === 'add-device') openUnifiedSettings('add-device', trigger);
+      else if (b.dataset.act === 'appearance') openAppearanceSettings();
+      else if (b.dataset.act === 'automation') openAutomation();
+      else if (b.dataset.act === 'settings') openSettings();
       else if (b.dataset.act === 'logout') doLogout();
     };
   });
+  wireAppearanceSettings();
   $('#st-save').onclick = saveSettings;
   $$('[data-automation-tab]').forEach((b) => { b.onclick = () => showAutomationTab(b.dataset.automationTab); });
   $('#automation-key-create').onclick = () => openAccessKeyForm();
@@ -7914,53 +7966,4 @@ function init() {
   initPWAExperience();
   registerServiceWorker();
 }
-async function initAuthenticatedDashboard() {
-  try {
-    await FleetAuth.me();
-    SESSION_READ_KEY = FleetAuth.storageKey('fleet-session-read-v2');
-    SESSION_ARCHIVE_KEY = FleetAuth.storageKey('fleet-show-archived-sessions');
-    UI_STATE_KEY = FleetAuth.storageKey('fleet-ui-state-v1');
-    POOL_SNAP_KEY = FleetAuth.storageKey('fleet-pool');
-    state.sessionReadAt = loadSessionReadState();
-    $('#user-name').textContent = FleetAuth.user.email;
-    $$('[data-act="admin"]').forEach((button) => { button.hidden = FleetAuth.user.role !== 'admin'; });
-    document.documentElement.dataset.auth = 'ready';
-    $('#auth-status').hidden = true;
-    document.addEventListener('fleet:auth-lost', stopAuthenticatedDashboard);
-    init();
-  } catch (error) {
-    if (error.status === 401) return;
-    $('#auth-status-message').textContent = error.message;
-  }
-}
-function stopAuthenticatedDashboard() {
-  globalThis.FleetSettingsDialog?.active?.reset();
-  window.FleetWorkspaceTabs?.reset();
-  authenticatedPollTimers.forEach(clearInterval);
-  authenticatedPollTimers = [];
-  clearTimeout(sessionSearchTimer);
-  for (const chat of new Set([state.chat, ...state.chatCache.values()])) if (chat) disposeChat(chat);
-  state.chat = null;
-  state.chatCache.clear();
-  compactComposer?.update();
-  state.sessionReadAt.clear();
-  state.sessionResults = [];
-  state.fileEntries = [];
-  state.fileColumns = [];
-  state.filePaths = {};
-  state.pool = [];
-  state.current = null;
-  state.nodes = {};
-  state.counts = {};
-  state.assistantInfo = {};
-  state.fileUploads.items = [];
-  MACS = [];
-  macNames = {};
-  automationAccessKeys = [];
-  automationRecordKeys = [];
-  automationEditingKey = null;
-  automationBindingSessions = [];
-  $$('#session-groups, #chat-messages, #file-list, #preview-markdown').forEach((element) => element.replaceChildren());
-  $$('#app iframe, #preview-page iframe, #preview-page video, #preview-page audio').forEach((element) => element.removeAttribute('src'));
-}
-document.addEventListener('DOMContentLoaded', initAuthenticatedDashboard);
+document.addEventListener('DOMContentLoaded', init);

@@ -1,5 +1,5 @@
 // PWA 外壳缓存。终端、API 与用户文件必须实时，明确不进入 Cache Storage。
-const CACHE = 'fleet-shell-v193';
+const CACHE = 'fleet-shell-v195';
 const FILE_TYPE_ICONS = [
   'audio', 'c', 'console', 'cpp', 'csharp', 'css', 'dart', 'database', 'docker',
   'document', 'exe', 'font', 'git', 'go', 'html', 'image', 'java', 'javascript',
@@ -14,28 +14,28 @@ const CODEMIRROR_ASSETS = [
   'javascript', 'xml', 'jsx', 'css', 'go', 'python', 'ruby', 'shell', 'yaml', 'toml', 'properties',
 ].map((name, index) => index < 2 ? name : `/vendor/codemirror/mode/${name}/${name}.js?v=5.65.20`);
 const SHELL = [
-  '/', '/index.html', '/automation-guide.html', '/theme.js?v=188', '/device_appearance.js?v=188', '/style.css?v=193', '/account.css?v=190', '/auth-client.js?v=188',
+  '/', '/index.html', '/theme.js?v=195', '/device_appearance.js?v=195', '/icons/favicon.svg?v=195', '/automation-guide.html', '/style.css?v=195',
   '/vendor/purify.min.js?v=3.2.6', '/vendor/marked.min.js?v=15.0.12',
   ...CODEMIRROR_ASSETS,
-  "/fleet_core.js?v=188", "/workspace.js?v=188", "/native_bridge.js?v=188", "/native.css?v=188", "/titanium.css?v=188", "/icons/logo.svg?v=188",
-  '/markdown.js?v=193', '/preview.js?v=193', '/chat_model.js?v=193',
-  '/account.js?v=190', '/settings_dialog.js?v=188', '/auth_effects.js?v=188',
-  '/upload_model.js?v=193', '/sidebar_layout.js?v=188', '/device_hover.js?v=188', '/workspace_tabs.js?v=188', '/compact_composer.js?v=188', '/app.js?v=193',
-  '/manifest.webmanifest', '/icons/icon.svg?v=188', '/icons/favicon.svg?v=188', '/icons/icon-180.png?v=188', '/icons/icon-192.png?v=188',
-  '/icons/icon-512.png?v=188', '/icons/icon-maskable-512.png?v=188',
+  '/markdown.js?v=195', '/preview.js?v=195', '/chat_model.js?v=195',
+  '/upload_model.js?v=195', '/sidebar_layout.js?v=186', '/device_hover.js?v=186', '/workspace_tabs.js?v=186', '/compact_composer.js?v=186', '/app.js?v=195',
+  '/manifest.webmanifest', '/icons/icon.svg?v=195', '/icons/icon-180.png?v=195', '/icons/icon-192.png?v=195',
+  '/icons/icon-512.png?v=195', '/icons/icon-maskable-512.png?v=195',
   ...FILE_TYPE_ICONS,
 ];
 const SHELL_KEYS = new Set(SHELL);
 
 function isSensitivePath(pathname) {
-  return /^\/(?:api|auth|account|admin|enroll|oauth)(?:\/|$)/.test(pathname) ||
+  return pathname.startsWith('/api/') ||
     /^\/m\d+(?:\/|$)/.test(pathname) ||
+    pathname.startsWith('/auth/') ||
+    pathname.startsWith('/enroll/') ||
     pathname.startsWith('/files/');
 }
 
 async function cacheFresh(cache, request, key = request) {
   const response = await fetch(request, { cache: 'no-cache' });
-  if (response && response.ok && !response.redirected) await cache.put(key, response.clone());
+  if (response && response.ok) await cache.put(key, response.clone());
   return response;
 }
 
@@ -45,7 +45,7 @@ self.addEventListener('install', (event) => {
     // 单个可选图标失败不应让整个 PWA 安装失败。
     await Promise.allSettled(SHELL.map(async (url) => {
       const response = await fetch(url, { cache: 'reload' });
-      if (!response.ok || response.redirected) throw new Error(`${url}: ${response.status}`);
+      if (!response.ok) throw new Error(`${url}: ${response.status}`);
       await cache.put(url, response);
     }));
     await self.skipWaiting();
@@ -75,7 +75,7 @@ self.addEventListener('fetch', (event) => {
       const navigationKey = url.pathname === '/automation-guide.html' ? '/automation-guide.html' : '/index.html';
       try {
         const response = await fetch(request, { cache: 'no-cache' });
-        if (response.ok && !response.redirected) await cache.put(navigationKey, response.clone());
+        if (response.ok) await cache.put(navigationKey, response.clone());
         return response;
       } catch (_) {
         return (await cache.match(navigationKey)) ||

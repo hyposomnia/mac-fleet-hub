@@ -139,11 +139,9 @@ function renderEmptyState({ gatewayDown, mode = 'sessions' }) {
   const state = { gatewayDown, nodes: {}, mode };
   const toast = () => {};
   const refreshNodes = () => {};
-  const settingsCalls = [];
-  const openUnifiedSettings = (...values) => settingsCalls.push(values);
   const src = ['renderHosts'].map(extractFunction).join('\n');
   const stubs = `
-    const svgIcon = (className, path) => h('svg', { class: className, 'data-path': path });
+    const svgIcon = () => ({ nodeType: 1 });
     const svgIconParts = () => ({ nodeType: 1 });
     const syncDshNativeButtons = () => {};
     const updateDeviceScopeUI = () => {};
@@ -153,11 +151,10 @@ function renderEmptyState({ gatewayDown, mode = 'sessions' }) {
     const retryNodes = () => {};
     const h = arguments[0], clear = arguments[1], $ = arguments[2];
     const MACS = arguments[3], state = arguments[4], toast = arguments[5], refreshNodes = arguments[6];
-    const openUnifiedSettings = arguments[7];
   `;
-  const fn = new Function(`${stubs}\n${src}\nreturn renderHosts;`)(h, clear, $, MACS, state, toast, refreshNodes, openUnifiedSettings);
+  const fn = new Function(`${stubs}\n${src}\nreturn renderHosts;`)(h, clear, $, MACS, state, toast, refreshNodes);
   fn();
-  return { created, state, settingsCalls };
+  return { created, state };
 }
 
 function flattenText(node, out = []) {
@@ -167,49 +164,19 @@ function flattenText(node, out = []) {
   return out;
 }
 
-test('网关不可达时提示服务器不可用，不显示添加设备空态', () => {
+test('网关不可达时空态提示「服务器不可用」，而不是「暂无已入网的 Mac」', () => {
   const { created } = renderEmptyState({ gatewayDown: true });
   const texts = created.flatMap((n) => flattenText(n)).join(' | ');
   assert.match(texts, /无法连接服务器/, '必须明确说是服务器/网关的问题');
-  assert.match(texts, /不代表没有设备入网/, '要点破这个最容易被误读的结论');
-  assert.ok(!/暂无已入网的设备/.test(texts), '故障态绝不能复用空列表文案');
-  assert.ok(!created.some((node) => node.attrs.href === '/account#add-device'));
+  assert.match(texts, /不代表没有 Mac 入网/, '要点破这个最容易被误读的结论');
+  assert.ok(!/暂无已入网的 Mac/.test(texts), '故障态绝不能复用「没有 Mac」的文案');
 });
 
-test('会话和文件的设备空列表在提示下方提供添加设备入口', () => {
-  for (const mode of ['sessions', 'files']) {
-    const { created, settingsCalls } = renderEmptyState({ gatewayDown: false, mode });
-    const empty = created.find((node) => (node.attrs.class || '').split(' ').includes('empty-devices'));
-    assert.ok(empty);
-    assert.equal(empty.children[0].textContent, '暂无已入网的设备');
-    const add = empty.children[1];
-    assert.equal(add.tag, 'a');
-    assert.equal(add.children.find((node) => node.attrs.class === 'empty-add-device-label').textContent, '添加设备');
-    assert.equal(add.attrs.href, '/account#add-device');
-    let prevented = false;
-    add.onclick({ preventDefault() { prevented = true; } });
-    assert.equal(prevented, true);
-    assert.deepEqual(settingsCalls, [['add-device', add]]);
-    assert.ok(!/无法连接服务器/.test(flattenText(empty).join(' | ')));
-  }
-});
-
-test('无设备入口保留可访问名称及加号，收起侧栏只显示图标', () => {
-  for (const mode of ['sessions', 'files']) {
-    const { created } = renderEmptyState({ gatewayDown: false, mode });
-    const add = created.find((node) => node.attrs.href === '/account#add-device');
-    assert.equal(add.attrs['aria-label'], '添加设备');
-    assert.equal(add.attrs.title, '添加设备');
-    const icon = add.children.find((node) => (node.attrs.class || '').includes('empty-add-device-icon'));
-    assert.equal(icon.tag, 'svg');
-    assert.equal(icon.attrs['data-path'], 'M12 5v14M5 12h14');
-    assert.equal(icon.attrs['aria-hidden'], 'true');
-    const css = readFileSync(new URL('./style.css', import.meta.url), 'utf8');
-    assert.match(css, /\.empty-add-device \.empty-add-device-icon\s*\{\s*display:\s*none;/);
-    assert.match(css, /#app\[data-rail-collapsed="true"\] #rail \.empty-device-message,[^}]*\.empty-add-device-label\s*\{\s*display:\s*none;/);
-    assert.match(css, /#app\[data-rail-collapsed="true"\] #rail \.empty-add-device \.empty-add-device-icon\s*\{\s*display:\s*block;/);
-    assert.match(css, /#app\[data-rail-collapsed="true"\] #rail \.empty-add-device\s*\{[^}]*min-width:\s*44px;[^}]*height:\s*44px;/);
-  }
+test('网关正常但没有 Mac 时，仍是原来的中性文案', () => {
+  const { created } = renderEmptyState({ gatewayDown: false });
+  const texts = created.flatMap((n) => flattenText(n)).join(' | ');
+  assert.match(texts, /暂无已入网的 Mac/);
+  assert.ok(!/无法连接服务器/.test(texts), '正常空态不该吓唬人');
 });
 
 test('故障态提供重试按钮，且点击会重新拉取', () => {

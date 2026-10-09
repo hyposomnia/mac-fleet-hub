@@ -1,27 +1,24 @@
 <!DOCTYPE html>
-<html lang="zh-CN" data-auth="checking">
+<html lang="zh-CN">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content" />
-  <!-- theme-color 与共享主题控制器、Titanium 页面底色同步。 -->
-  <meta name="theme-color" content="#FFFFFF" />
-  <script src="/theme.js?v=188"></script>
+  <!-- theme-color 与共享 Titanium 主题控制器同步。 -->
+  <meta name="theme-color" content="#FAFAFA" />
+  <script src="/theme.js?v=195"></script>
   <title>mac fleet hub</title>
   <link rel="manifest" href="manifest.webmanifest" />
-  <link rel="icon" href="icons/favicon.svg?v=188" type="image/svg+xml" />
-  <link rel="apple-touch-icon" href="icons/icon-180.png?v=188" sizes="180x180" />
+  <link rel="icon" href="icons/favicon.svg?v=195" type="image/svg+xml" />
+  <link rel="apple-touch-icon" href="icons/icon-180.png?v=195" sizes="180x180" />
   <meta name="mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <meta name="apple-mobile-web-app-title" content="fleet hub" />
   <!-- theme.js 在样式加载前同步应用已保存的外观，默认浅色。 -->
-
   <link rel="stylesheet" href="vendor/codemirror/lib/codemirror.css?v=5.65.20" />
-  <link rel="stylesheet" href="style.css?v=193" />
-  <link rel="stylesheet" href="account.css?v=190" />
+  <link rel="stylesheet" href="style.css?v=195" />
 </head>
 <body>
-  <div id="auth-status" role="status"><span id="auth-status-message">正在验证登录…</span><a href="">重新加载</a></div>
   <!-- DeepSeek 官方 whale mark，来源与 MIT 许可见 icons/deepseek/LICENSE.md。 -->
   <svg class="brand-symbols" aria-hidden="true" focusable="false">
     <symbol id="deepseek-whale-mark" viewBox="0 0 23.16 17.04">
@@ -64,7 +61,7 @@
 
     <!-- ───────── 主机栏（桌面左栏） ───────── -->
     <aside id="rail" class="pane">
-      <div class="rail-heading"><div class="brand"><button id="rail-expand" class="logo" type="button" aria-label="Fleet Hub" aria-expanded="true" aria-controls="host-list" disabled><svg aria-hidden="true" focusable="false" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96" role="img"><title>Fleet Hub · 精密钛银</title><g fill="currentColor"><path d="M 21.578 29.507 L 46.547 12.967 Q 48.000 12.000 49.453 12.967 L 74.422 29.507 Q 75.681 30.341 74.422 31.175 L 68.552 35.065 Q 67.293 35.899 66.034 35.065 L 49.453 24.083 Q 48.000 23.116 46.547 24.083 L 29.966 35.065 Q 28.707 35.899 27.448 35.065 L 21.578 31.175 Q 20.319 30.341 21.578 29.507 Z"/><path d="M 78.196 36.006 L 78.193 62.451 Q 78.196 63.992 76.740 64.953 L 51.774 81.499 Q 50.516 82.334 50.516 81.000 L 50.515 75.316 Q 50.516 73.983 51.774 73.148 L 68.855 61.826 Q 70.311 60.865 70.308 59.325 L 70.312 41.230 Q 70.312 39.897 71.571 39.062 L 76.938 35.507 Q 78.197 34.673 78.196 36.006 Z"/><path d="M 44.226 81.499 L 19.260 64.953 Q 17.804 63.992 17.807 62.451 L 17.804 36.006 Q 17.803 34.673 19.062 35.507 L 24.429 39.062 Q 25.688 39.897 25.688 41.230 L 25.692 59.325 Q 25.689 60.865 27.145 61.826 L 44.226 73.148 Q 45.484 73.983 45.485 75.316 L 45.484 81.000 Q 45.484 82.334 44.226 81.499 Z"/></g></svg></button><span class="brand-name">fleet hub</span></div><button id="rail-collapse" class="iconbtn bare sidebar-collapse" type="button" aria-label="收起设备栏" title="收起设备栏" aria-expanded="true" aria-controls="host-list"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="m14 6-6 6 6 6"/></svg></button></div>
+      <div class="rail-heading"><div class="brand"><button id="rail-expand" class="logo" type="button" aria-label="Fleet Hub" aria-expanded="true" aria-controls="host-list" disabled><svg aria-hidden="true" focusable="false" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96" role="img"><title>Fleet Hub</title><g fill="currentColor"><path d="M 21.578 29.507 L 46.547 12.967 Q 48.000 12.000 49.453 12.967 L 74.422 29.507 Q 75.681 30.341 74.422 31.175 L 68.552 35.065 Q 67.293 35.899 66.034 35.065 L 49.453 24.083 Q 48.000 23.116 46.547 24.083 L 29.966 35.065 Q 28.707 35.899 27.448 35.065 L 21.578 31.175 Q 20.319 30.341 21.578 29.507 Z"/><path d="M 78.196 36.006 L 78.193 62.451 Q 78.196 63.992 76.740 64.953 L 51.774 81.499 Q 50.516 82.334 50.516 81.000 L 50.515 75.316 Q 50.516 73.983 51.774 73.148 L 68.855 61.826 Q 70.311 60.865 70.308 59.325 L 70.312 41.230 Q 70.312 39.897 71.571 39.062 L 76.938 35.507 Q 78.197 34.673 78.196 36.006 Z"/><path d="M 44.226 81.499 L 19.260 64.953 Q 17.804 63.992 17.807 62.451 L 17.804 36.006 Q 17.803 34.673 19.062 35.507 L 24.429 39.062 Q 25.688 39.897 25.688 41.230 L 25.692 59.325 Q 25.689 60.865 27.145 61.826 L 44.226 73.148 Q 45.484 73.983 45.485 75.316 L 45.484 81.000 Q 45.484 82.334 44.226 81.499 Z"/></g></svg></button><span class="brand-name">fleet hub</span></div><button id="rail-collapse" class="iconbtn bare sidebar-collapse" type="button" aria-label="收起设备栏" title="收起设备栏" aria-expanded="true" aria-controls="host-list"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="m14 6-6 6 6 6"/></svg></button></div>
 
       <div class="modeseg" role="tablist">
         <button data-mode="sessions" role="tab" aria-selected="true" aria-label="会话" title="会话"><svg class="ic" viewBox="0 0 24 24"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg><span class="mode-label">会话</span></button>
@@ -78,10 +75,8 @@
           <span class="avatar"><svg class="ic" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09A1.65 1.65 0 0 0 19.4 15z"/></svg></span><span class="un" id="user-name">设置</span><span class="cv"><svg class="ic" viewBox="0 0 24 24"><polyline points="6 9 12 15 18 9"/></svg></span>
         </button>
         <div id="usermenu" class="menu" hidden>
-          <button data-act="account">账户</button>
-          <button data-act="admin" hidden>管理</button>
-          <button data-act="add-device">添加设备</button>
           <div class="menu-theme"><div class="menu-label">外观</div><div class="seg full menu-theme-seg" role="group" aria-label="外观"><button type="button" data-theme-choice="system" aria-pressed="true">系统</button><button type="button" data-theme-choice="light" aria-pressed="false">浅色</button><button type="button" data-theme-choice="dark" aria-pressed="false">深色</button></div></div>
+          <button data-act="appearance"><svg class="ic" viewBox="0 0 24 24"><circle cx="13.5" cy="6.5" r="2.5"/><circle cx="17.5" cy="10.5" r="2.5"/><circle cx="8.5" cy="7.5" r="2.5"/><path d="M12 3a9 9 0 1 0 0 18h1.5a2.5 2.5 0 0 0 0-5H12a2 2 0 0 1 0-4h3"/></svg>配色设置</button>
           <button data-act="archive" class="archive-menu-action" aria-pressed="false"><svg class="ic" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="4" rx="1"/><path d="M5 8v11a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8M10 12h4"/></svg><span class="menu-item-label">显示已归档会话</span><span class="menu-check" aria-hidden="true"></span></button>
           <button data-act="automation"><svg class="ic" viewBox="0 0 24 24"><path d="M8 3h8v5H8zM5 16h6v5H5zM13 16h6v5h-6zM12 8v4M8 12h8M8 12v4M16 12v4"/></svg>自动化</button>
           <button data-act="settings"><svg class="ic" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>会话设置</button>
@@ -93,14 +88,12 @@
 
     <!-- ───────── 移动端头部（品牌 + 当前主机ⓘ + ⋮菜单） ───────── -->
     <header id="mtopbar">
-      <span class="logo"><svg aria-hidden="true" focusable="false" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96" role="img"><title>Fleet Hub · 精密钛银</title><g fill="currentColor"><path d="M 21.578 29.507 L 46.547 12.967 Q 48.000 12.000 49.453 12.967 L 74.422 29.507 Q 75.681 30.341 74.422 31.175 L 68.552 35.065 Q 67.293 35.899 66.034 35.065 L 49.453 24.083 Q 48.000 23.116 46.547 24.083 L 29.966 35.065 Q 28.707 35.899 27.448 35.065 L 21.578 31.175 Q 20.319 30.341 21.578 29.507 Z"/><path d="M 78.196 36.006 L 78.193 62.451 Q 78.196 63.992 76.740 64.953 L 51.774 81.499 Q 50.516 82.334 50.516 81.000 L 50.515 75.316 Q 50.516 73.983 51.774 73.148 L 68.855 61.826 Q 70.311 60.865 70.308 59.325 L 70.312 41.230 Q 70.312 39.897 71.571 39.062 L 76.938 35.507 Q 78.197 34.673 78.196 36.006 Z"/><path d="M 44.226 81.499 L 19.260 64.953 Q 17.804 63.992 17.807 62.451 L 17.804 36.006 Q 17.803 34.673 19.062 35.507 L 24.429 39.062 Q 25.688 39.897 25.688 41.230 L 25.692 59.325 Q 25.689 60.865 27.145 61.826 L 44.226 73.148 Q 45.484 73.983 45.485 75.316 L 45.484 81.000 Q 45.484 82.334 44.226 81.499 Z"/></g></svg></span><span class="tt">fleet hub</span>
+      <span class="logo"><svg aria-hidden="true" focusable="false" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96" role="img"><title>Fleet Hub</title><g fill="currentColor"><path d="M 21.578 29.507 L 46.547 12.967 Q 48.000 12.000 49.453 12.967 L 74.422 29.507 Q 75.681 30.341 74.422 31.175 L 68.552 35.065 Q 67.293 35.899 66.034 35.065 L 49.453 24.083 Q 48.000 23.116 46.547 24.083 L 29.966 35.065 Q 28.707 35.899 27.448 35.065 L 21.578 31.175 Q 20.319 30.341 21.578 29.507 Z"/><path d="M 78.196 36.006 L 78.193 62.451 Q 78.196 63.992 76.740 64.953 L 51.774 81.499 Q 50.516 82.334 50.516 81.000 L 50.515 75.316 Q 50.516 73.983 51.774 73.148 L 68.855 61.826 Q 70.311 60.865 70.308 59.325 L 70.312 41.230 Q 70.312 39.897 71.571 39.062 L 76.938 35.507 Q 78.197 34.673 78.196 36.006 Z"/><path d="M 44.226 81.499 L 19.260 64.953 Q 17.804 63.992 17.807 62.451 L 17.804 36.006 Q 17.803 34.673 19.062 35.507 L 24.429 39.062 Q 25.688 39.897 25.688 41.230 L 25.692 59.325 Q 25.689 60.865 27.145 61.826 L 44.226 73.148 Q 45.484 73.983 45.485 75.316 L 45.484 81.000 Q 45.484 82.334 44.226 81.499 Z"/></g></svg></span><span class="tt">fleet hub</span>
       <button id="m-info-btn" class="iconbtn" title="当前主机设置"><svg class="ic" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg></button>
-      <button id="m-menu-btn" class="iconbtn" title="菜单" aria-haspopup="true" aria-expanded="false" aria-controls="m-menu"><svg class="ic fill" viewBox="0 0 24 24"><circle cx="12" cy="5" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="12" cy="19" r="1.6"/></svg></button>
+      <button id="m-menu-btn" aria-expanded="false" aria-controls="m-menu" class="iconbtn" title="菜单" aria-haspopup="true"><svg class="ic fill" viewBox="0 0 24 24"><circle cx="12" cy="5" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="12" cy="19" r="1.6"/></svg></button>
       <div id="m-menu" class="menu" hidden>
-        <button data-act="account">账户</button>
-        <button data-act="admin" hidden>管理</button>
-        <button data-act="add-device">添加设备</button>
         <div class="menu-theme"><div class="menu-label">外观</div><div class="seg full menu-theme-seg" role="group" aria-label="外观"><button type="button" data-theme-choice="system" aria-pressed="true">系统</button><button type="button" data-theme-choice="light" aria-pressed="false">浅色</button><button type="button" data-theme-choice="dark" aria-pressed="false">深色</button></div></div>
+        <button data-act="appearance"><svg class="ic" viewBox="0 0 24 24"><circle cx="13.5" cy="6.5" r="2.5"/><circle cx="17.5" cy="10.5" r="2.5"/><circle cx="8.5" cy="7.5" r="2.5"/><path d="M12 3a9 9 0 1 0 0 18h1.5a2.5 2.5 0 0 0 0-5H12a2 2 0 0 1 0-4h3"/></svg>配色设置</button>
         <button data-act="archive" class="archive-menu-action" aria-pressed="false"><svg class="ic" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="4" rx="1"/><path d="M5 8v11a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8M10 12h4"/></svg><span class="menu-item-label">显示已归档会话</span><span class="menu-check" aria-hidden="true"></span></button>
         <button data-act="automation"><svg class="ic" viewBox="0 0 24 24"><path d="M8 3h8v5H8zM5 16h6v5H5zM13 16h6v5h-6zM12 8v4M8 12h8M8 12v4M16 12v4"/></svg>自动化</button>
         <button data-act="settings"><svg class="ic" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>会话设置</button>
@@ -190,6 +183,10 @@
             <header class="file-toolbar">
               <div class="file-title-row">
                 <h1 id="file-folder-title">文件</h1>
+                <div class="file-searchbar">
+                  <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><line x1="16.5" y1="16.5" x2="21" y2="21"/></svg>
+                  <input id="file-search" type="search" placeholder="搜索当前文件夹" autocomplete="off" aria-label="搜索文件">
+                </div>
                 <div class="file-actions">
                   <button id="file-upload" class="iconbtn" title="上传文件" aria-label="上传文件"><svg class="ic" viewBox="0 0 24 24"><path d="M12 16V4m0 0 5 5m-5-5L7 9M5 20h14"/></svg></button>
                   <button id="file-new-folder" class="iconbtn" title="新建文件夹" aria-label="新建文件夹"><svg class="ic" viewBox="0 0 24 24"><path d="M3 6.5A2.5 2.5 0 0 1 5.5 4H9l2 2h7.5A2.5 2.5 0 0 1 21 8.5v8A2.5 2.5 0 0 1 18.5 19h-13A2.5 2.5 0 0 1 3 16.5v-10Z"/><path d="M12 10v5m-2.5-2.5h5"/></svg></button>
@@ -198,10 +195,6 @@
               </div>
               <div id="file-upload-queue-mobile" class="file-upload-queue file-upload-queue-inline" aria-label="上传队列" hidden></div>
               <nav id="file-breadcrumbs" class="file-breadcrumbs" aria-label="路径"></nav>
-              <div class="file-searchbar">
-                <svg class="ic" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><line x1="16.5" y1="16.5" x2="21" y2="21"/></svg>
-                <input id="file-search" type="search" placeholder="搜索当前文件夹" autocomplete="off" aria-label="搜索文件">
-              </div>
             </header>
             <div class="file-table-head" role="row">
               <span role="columnheader" aria-sort="ascending"><button type="button" class="file-sort-button" data-file-sort="name"><span>名称</span><svg class="file-sort-indicator" viewBox="0 0 24 24" aria-hidden="true"><polyline points="6 15 12 9 18 15"/></svg></button></span>
@@ -427,12 +420,12 @@
             <div class="field"><span class="device-choice-label">图标</span><div id="hm-icon-choices" class="device-icon-choices" role="group" aria-label="设备图标"></div></div>
             <div id="hm-letter-field" class="field" hidden>
               <label for="hm-letter-input">文字图标</label>
-              <input id="hm-letter-input" class="input device-letter-input" type="text" maxlength="3" pattern="[A-Za-z0-9]{1,3}" placeholder="如 MbP、009、a1B" autocomplete="off" autocapitalize="none" spellcheck="false" aria-describedby="hm-letter-hint hm-letter-error" />
-              <span id="hm-letter-hint" class="hint">1–3 个英文字母或数字，保留输入的大小写。</span>
-              <span id="hm-letter-error" class="device-letter-error" role="status" hidden>请输入 1–3 个英文字母或数字。</span>
+              <input id="hm-letter-input" class="input device-letter-input" type="text" maxlength="4" pattern="[A-Za-z0-9]{1,4}" placeholder="如 home、Mac4、0009" autocomplete="off" autocapitalize="none" spellcheck="false" aria-describedby="hm-letter-hint hm-letter-error" />
+              <span id="hm-letter-hint" class="hint">1–4 个英文字母或数字，保留输入的大小写。</span>
+              <span id="hm-letter-error" class="device-letter-error" role="status" hidden>请输入 1–4 个英文字母或数字。</span>
             </div>
             <div class="field"><span class="device-choice-label">颜色</span><div id="hm-color-choices" class="device-color-choices" role="group" aria-label="设备颜色"></div></div>
-            <p class="hint">外观仅保存在当前浏览器。</p>
+            <p class="hint">图标与颜色保存在当前浏览器，在线状态单独显示。</p>
           </section>
           <div class="kv"><span class="k">Mesh IP</span>
             <span class="v"><span id="hm-ip" class="mono">—</span>
@@ -444,8 +437,8 @@
           </div>
           <div class="field"><label>HTTP 代理</label><input id="hm-http" class="input mono" placeholder="http://127.0.0.1:7897" /></div>
           <div class="field"><label>HTTPS 代理</label><input id="hm-https" class="input mono" placeholder="http://127.0.0.1:7897" /></div>
-          <p class="hint">仅对新开或重开的会话生效；请先启动本机代理。</p>
-          <div class="field"><label>显示名（留空恢复默认）</label><input id="hm-name" class="input" placeholder="Mac N" maxlength="40" /></div>
+          <p class="hint">开启后，<b>新开 / 重开</b>的命令行会话将带上 HTTP(S)_PROXY。请确保该 Mac 本地代理在运行。</p>
+          <div class="field"><label>显示名（仅本控制台显示，不改真实主机名，留空恢复默认）</label><input id="hm-name" class="input" placeholder="Mac N" maxlength="40" /></div>
         </div>
         <div class="modal-foot">
           <button class="btn sm" data-close="host-modal">取消</button>
@@ -455,29 +448,9 @@
     </div>
 
     <!-- ───────── 会话设置（移动端呈现为底部抽屉） ───────── -->
-    <div id="fleet-settings-modal" class="overlay" hidden>
-      <div class="modal fleet-settings-dialog" role="dialog" aria-modal="true" aria-labelledby="fleet-settings-title">
-        <div id="settings-discard-prompt" class="settings-discard-prompt" role="alertdialog" aria-modal="true" aria-labelledby="settings-discard-title" hidden>
-          <div class="settings-discard-card">
-            <h2 id="settings-discard-title">放弃未提交的设置？</h2>
-            <div class="settings-discard-actions"><button id="settings-keep-editing" class="btn" type="button">继续编辑</button><button id="settings-discard" class="btn danger" type="button">放弃并离开</button></div>
-          </div>
-        </div>
-        <span id="fleet-settings-title" hidden>设置</span>
-        <button class="iconbtn bare fleet-settings-close" type="button" data-close="fleet-settings-modal" aria-label="关闭设置"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
-        <div class="fleet-settings-layout">
-          <nav class="fleet-settings-nav" role="tablist" aria-label="设置页面">
-            <button id="settings-tab-account" type="button" role="tab" data-settings-page="account" aria-controls="settings-account-panel">账号设置</button>
-            <button id="settings-tab-device" type="button" role="tab" data-settings-page="add-device" aria-controls="settings-device-panel">添加设备</button>
-            <button id="settings-tab-automation" type="button" role="tab" data-settings-page="automation" aria-controls="automation-modal">自动化</button>
-            <button id="settings-tab-sessions" type="button" role="tab" data-settings-page="sessions" aria-controls="settings-modal">会话设置</button>
-          </nav>
-          <div class="fleet-settings-scroll">
-            <p id="fleet-settings-status" role="status" aria-live="polite"></p>
-            <section id="settings-account-panel" class="fleet-settings-panel" data-settings-panel="account" role="tabpanel" aria-labelledby="settings-tab-account" hidden></section>
-            <section id="settings-device-panel" class="fleet-settings-panel" data-settings-panel="add-device" role="tabpanel" aria-labelledby="settings-tab-device" hidden></section>
-    <section id="settings-modal" class="fleet-settings-panel" data-settings-panel="sessions" role="tabpanel" aria-labelledby="settings-tab-sessions" hidden>
-      <div class="settings-panel-card">
+    <div id="settings-modal" class="overlay" hidden>
+      <div class="modal">
+        <div class="modal-head"><svg class="ic" viewBox="0 0 24 24" style="width:18px;height:18px"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg><span>会话设置</span><button class="iconbtn bare x" data-close="settings-modal"><svg class="ic" viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button></div>
         <div class="modal-body">
           <section class="set-group">
             <div class="set-group-title">聊天设置</div>
@@ -485,7 +458,7 @@
             <div class="kv set-cache-stat"><span class="k">当前缓存</span><span id="st-chat-cache-count" class="v tnum">0 / 0</span></div>
             <div class="kv set-cache-stat"><span class="k">估算内存</span><span id="st-chat-cache-bytes" class="v tnum">0 KB</span></div>
             <div class="kv set-cache-stat"><span class="k">平均单个缓存</span><span id="st-chat-cache-each" class="v tnum">0 KB</span></div>
-            <p class="hint">保留会话连接以加快切换；缓存越多，占用内存越多。</p>
+            <p class="hint">缓存会保持 ChatGPT / DeepSeek 的事件连接，切回同一会话会直接显示已有消息。估算包含消息/工具输出文本、图片预览大小和每条事件连接的基础开销；长工具输出和图片会明显增加占用。</p>
           </section>
         </div>
         <div id="settings-footer" class="modal-foot">
@@ -493,12 +466,54 @@
           <button id="st-save" class="btn sm primary">保存</button>
         </div>
       </div>
-    </section>
+    </div>
+
+    <!-- ───────── 外观与配色（浏览器本地偏好） ───────── -->
+    <div id="appearance-modal" class="overlay" hidden>
+      <div class="modal" role="dialog" aria-modal="true" aria-labelledby="appearance-title">
+        <div class="modal-head"><span id="appearance-title">外观</span><button class="iconbtn bare x" type="button" data-close="appearance-modal" aria-label="关闭外观设置"><svg class="ic" viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button></div>
+        <div class="modal-body">
+          <section class="set-group">
+            <div class="set-group-title">显示模式</div>
+            <div class="seg appearance-theme-choice" role="group" aria-label="显示模式">
+              <button type="button" data-theme-choice="light" aria-pressed="false">浅色</button>
+              <button type="button" data-theme-choice="dark" aria-pressed="false">深色</button>
+              <button type="button" data-theme-choice="system" aria-pressed="false">跟随系统</button>
+            </div>
+          </section>
+          <section class="set-group">
+            <div class="set-group-title">配色</div>
+            <p class="hint">设置四个基础颜色；标题、边栏、hover 和文字层级会自动生成。配色保存在当前浏览器，会话列表与详情继续保持纯白或黑色。</p>
+            <div class="appearance-palette-grid">
+              <fieldset class="appearance-palette-card">
+                <legend>浅色</legend>
+                <label class="appearance-color-field"><span>页面背景</span><input id="palette-light-canvas" type="color" data-palette-color="light.canvas" /><input id="palette-light-canvas-hex" class="input mono" type="text" maxlength="7" data-palette-hex="light.canvas" aria-label="浅色页面背景十六进制颜色" /></label>
+                <label class="appearance-color-field"><span>主题色</span><input id="palette-light-accent" type="color" data-palette-color="light.accent" /><input id="palette-light-accent-hex" class="input mono" type="text" maxlength="7" data-palette-hex="light.accent" aria-label="浅色主题色十六进制颜色" /></label>
+                <label class="appearance-color-field"><span>反差色</span><input id="palette-light-highlight" type="color" data-palette-color="light.highlight" /><input id="palette-light-highlight-hex" class="input mono" type="text" maxlength="7" data-palette-hex="light.highlight" aria-label="浅色反差色十六进制颜色" /></label>
+                <label class="appearance-color-field"><span>字色</span><input id="palette-light-text" type="color" data-palette-color="light.text" /><input id="palette-light-text-hex" class="input mono" type="text" maxlength="7" data-palette-hex="light.text" aria-label="浅色字色十六进制颜色" /></label>
+              </fieldset>
+              <fieldset class="appearance-palette-card">
+                <legend>深色</legend>
+                <label class="appearance-color-field"><span>页面背景</span><input id="palette-dark-canvas" type="color" data-palette-color="dark.canvas" /><input id="palette-dark-canvas-hex" class="input mono" type="text" maxlength="7" data-palette-hex="dark.canvas" aria-label="深色页面背景十六进制颜色" /></label>
+                <label class="appearance-color-field"><span>主题色</span><input id="palette-dark-accent" type="color" data-palette-color="dark.accent" /><input id="palette-dark-accent-hex" class="input mono" type="text" maxlength="7" data-palette-hex="dark.accent" aria-label="深色主题色十六进制颜色" /></label>
+                <label class="appearance-color-field"><span>反差色</span><input id="palette-dark-highlight" type="color" data-palette-color="dark.highlight" /><input id="palette-dark-highlight-hex" class="input mono" type="text" maxlength="7" data-palette-hex="dark.highlight" aria-label="深色反差色十六进制颜色" /></label>
+                <label class="appearance-color-field"><span>字色</span><input id="palette-dark-text" type="color" data-palette-color="dark.text" /><input id="palette-dark-text-hex" class="input mono" type="text" maxlength="7" data-palette-hex="dark.text" aria-label="深色字色十六进制颜色" /></label>
+              </fieldset>
+            </div>
+          </section>
+        </div>
+        <div class="modal-foot appearance-settings-footer">
+          <button id="appearance-reset" class="btn sm" type="button">恢复默认</button>
+          <button class="btn sm" type="button" data-close="appearance-modal">取消</button>
+          <button id="appearance-save" class="btn sm primary" type="button">保存</button>
+        </div>
+      </div>
+    </div>
 
     <!-- ───────── 自动化（访问密钥 + API 消息记录） ───────── -->
-    <section id="automation-modal" class="fleet-settings-panel" data-settings-panel="automation" role="tabpanel" aria-labelledby="settings-tab-automation" hidden>
-      <div class="settings-panel-card automation-modal-card">
-        <div class="automation-panel-tools"><a class="automation-doc-link" href="/automation-guide.html" target="_blank" rel="noopener">使用文档 ↗</a></div>
+    <div id="automation-modal" class="overlay" hidden>
+      <div class="modal automation-modal-card">
+        <div class="modal-head"><svg class="ic" viewBox="0 0 24 24" style="width:18px;height:18px"><path d="M8 3h8v5H8zM5 16h6v5H5zM13 16h6v5h-6zM12 8v4M8 12h8M8 12v4M16 12v4"/></svg><span>自动化</span><a class="automation-doc-link" href="/automation-guide.html" target="_blank" rel="noopener">使用文档 ↗</a><button class="iconbtn bare x" data-close="automation-modal"><svg class="ic" viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button></div>
         <div class="modal-body">
           <div class="seg set-tabs" role="tablist" aria-label="自动化设置">
             <button data-automation-tab="keys" role="tab" aria-selected="true">访问密钥</button>
@@ -506,6 +521,7 @@
           </div>
           <section class="set-group set-panel" data-automation-panel="keys">
             <div class="set-group-title automation-panel-title"><span>访问密钥</span><button id="automation-key-create" class="btn sm primary" type="button">新建密钥</button></div>
+            <p class="hint">可逐级限定设备、AI 客户端、项目和会话；后续层级留空表示不限制。绑定到具体会话后，密钥名称可作为 alias 调用。</p>
             <form id="automation-key-form" class="automation-key-form" hidden>
               <strong id="automation-key-form-title">新建密钥</strong>
               <div class="automation-key-identity">
@@ -522,18 +538,14 @@
               <div class="automation-key-form-actions"><button id="automation-key-cancel" class="btn sm" type="button">取消</button><button id="automation-key-save" class="btn sm primary" type="submit">保存密钥</button></div>
             </form>
             <div id="automation-key-list" class="automation-key-list"><div class="message-record-empty">正在加载…</div></div>
-            <p class="hint warn">未限定范围的密钥可向你的全部设备会话发送消息，请妥善保管。</p>
+            <p class="hint warn">未绑定的密钥可向所有已纳管设备的项目会话发送消息。密钥应放在 <code>Authorization: Bearer …</code> 请求头中。</p>
           </section>
           <section class="set-group set-panel message-records-panel" data-automation-panel="messages" hidden>
             <div class="set-group-title automation-panel-title"><span>API 消息记录</span><button id="automation-message-refresh" class="btn sm" type="button">刷新</button></div>
             <div class="automation-message-filter"><label for="automation-message-key-filter">访问密钥</label><select id="automation-message-key-filter" class="input"><option value="">全部密钥</option></select></div>
-            <p class="hint">最近 100 条请求及 AI 回复；结束后的记录保留 7 天。</p>
+            <p class="hint">显示最近 100 条公网 API 请求。记录含用户消息与最终 AI 回复，终态记录默认在网关保留 7 天。</p>
             <div id="automation-message-records" class="message-records"><div class="message-record-empty">尚未加载</div></div>
           </section>
-        </div>
-      </div>
-    </section>
-          </div>
         </div>
       </div>
     </div>
@@ -619,21 +631,15 @@
   <script src="vendor/codemirror/mode/yaml/yaml.js?v=5.65.20"></script>
   <script src="vendor/codemirror/mode/toml/toml.js?v=5.65.20"></script>
   <script src="vendor/codemirror/mode/properties/properties.js?v=5.65.20"></script>
-  <script src="auth-client.js?v=188"></script>
-  <script src="account.js?v=190"></script>
-  <script src="settings_dialog.js?v=188"></script>
-  <script src="markdown.js?v=193"></script>
-  <script src="preview.js?v=193"></script>
-  <script src="chat_model.js?v=193"></script>
-  <script src="upload_model.js?v=193"></script>
-  <script src="device_appearance.js?v=188"></script>
-  <script src="sidebar_layout.js?v=188"></script>
-  <script src="device_hover.js?v=188"></script>
-  <script src="workspace_tabs.js?v=188"></script>
-  <script src="compact_composer.js?v=188"></script>
-  <script src="fleet_core.js?v=188"></script>
-  <script src="app.js?v=193"></script>
-  <script src="workspace.js?v=188"></script>
-  <script src="native_bridge.js?v=188"></script>
+  <script src="markdown.js?v=195"></script>
+  <script src="preview.js?v=195"></script>
+  <script src="chat_model.js?v=195"></script>
+  <script src="upload_model.js?v=195"></script>
+  <script src="device_appearance.js?v=195"></script>
+  <script src="sidebar_layout.js?v=186"></script>
+  <script src="device_hover.js?v=186"></script>
+  <script src="workspace_tabs.js?v=186"></script>
+  <script src="compact_composer.js?v=186"></script>
+  <script src="app.js?v=195"></script>
 </body>
 </html>

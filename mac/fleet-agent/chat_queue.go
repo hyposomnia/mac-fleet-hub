@@ -377,10 +377,6 @@ func (w *chatQueueWorker) Run(ctx context.Context) {
 }
 
 func (w *chatQueueWorker) processOne() {
-	if !desktopMaintenance.Enter() {
-		return
-	}
-	defer desktopMaintenance.Leave()
 	item, ok, err := w.queue.ClaimNext()
 	if err != nil || !ok {
 		return

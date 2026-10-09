@@ -1,8 +1,0 @@
-{
-  "json-c": {"directory":"json-c-json-c-0.18-20240915","url":"https://codeload.github.com/json-c/json-c/tar.gz/refs/tags/json-c-0.18-20240915","sha256":"3112c1f25d39eca661fe3fc663431e130cc6e2f900c081738317fba49d29e298"},
-  "libuv": {"directory":"libuv-v1.51.0","url":"https://dist.libuv.org/dist/v1.51.0/libuv-v1.51.0.tar.gz","sha256":"5f0557b90b1106de71951a3c3931de5e0430d78da1d9a10287ebc7a3f78ef8eb"},
-  "libwebsockets": {"directory":"libwebsockets-4.3.5","url":"https://codeload.github.com/warmcat/libwebsockets/tar.gz/refs/tags/v4.3.5","sha256":"87f99ad32803ed325fceac5327aae1f5c1b417d54ee61ad36cffc8df5f5ab276"},
-  "ttyd": {"directory":"ttyd-1.7.7","url":"https://codeload.github.com/tsl0922/ttyd/tar.gz/refs/tags/1.7.7","sha256":"039dd995229377caee919898b7bd54484accec3bba49c118e2d5cd6ec51e3650"},
-  "libevent": {"directory":"libevent-2.1.12-stable","url":"https://github.com/libevent/libevent/releases/download/release-2.1.12-stable/libevent-2.1.12-stable.tar.gz","sha256":"92e6de1be9ec176428fd2367677e61ceffc2ee1cb119035037a27d346b0403bb"},
-  "tmux": {"directory":"tmux-3.6a","url":"https://github.com/tmux/tmux/releases/download/3.6a/tmux-3.6a.tar.gz","sha256":"b6d8d9c76585db8ef5fa00d4931902fa4b8cbe8166f528f44fc403961a3f3759"}
-}

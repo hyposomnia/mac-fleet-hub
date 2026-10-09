@@ -45,3 +45,7 @@ mac/fleet-agent/fleet-agent
 # 系统杂项
 .DS_Store
 *.log
+
+# Native build caches may remain when switching to the self-hosted branch.
+mac/settings-app/.build/
+mac/settings-app/Vendor/
