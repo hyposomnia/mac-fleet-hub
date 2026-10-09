@@ -48,8 +48,8 @@ test('palette defaults use the approved four seed colors for both modes', () => 
   assert.equal(f.styleValues['--highlight'], '#D9F23A');
   assert.equal(f.styleValues['--text'], '#18211F');
   assert.match(f.styleValues['--surface'], /^color-mix\(in oklch,/);
-  assert.equal(f.styleValues['--session-list-bg'], '#FFFFFF');
-  assert.equal(f.styleValues['--session-detail-bg'], '#FFFFFF');
+  assert.equal(f.styleValues['--session-list-bg'], '#FAFAFA');
+  assert.equal(f.styleValues['--session-detail-bg'], '#FAFAFA');
 });
 test('custom palette persists valid seeds, derives secondary tokens and follows theme changes', () => {
   const f=fixture();
@@ -59,14 +59,18 @@ test('custom palette persists valid seeds, derives secondary tokens and follows 
   };
   f.host.FleetTheme.setPalette(custom);
   assert.equal(f.meta.content, '#FFFDFA');
+  assert.equal(f.styleValues['--session-list-bg'], '#FFFDFA');
+  assert.equal(f.styleValues['--session-detail-bg'], '#FFFDFA');
   assert.equal(f.styleValues['--accent'], '#145DA0');
+  assert.match(f.styleValues['--surface-2'], /#FFFDFA 90%, #145DA0/);
   assert.match(f.styleValues['--surface-hover'], /#FFFDFA 84%, #145DA0/);
   assert.deepEqual(JSON.parse(f.values.get('fleet-theme-palette-v1')).light, {canvas:'#FFFDFA',accent:'#145DA0',highlight:'#FFEA00',text:'#202124'});
   f.host.FleetTheme.setPreference('dark');
   assert.equal(f.meta.content, '#020304');
   assert.equal(f.styleValues['--accent'], '#62D9C0');
-  assert.equal(f.styleValues['--session-list-bg'], '#000000');
-  assert.equal(f.styleValues['--session-detail-bg'], '#050606');
+  assert.equal(f.styleValues['--session-list-bg'], '#020304');
+  assert.equal(f.styleValues['--session-detail-bg'], '#020304');
+  assert.match(f.styleValues['--surface-2'], /#020304 86%, #62D9C0/);
 });
 test('invalid stored palette fields fall back independently and reset removes the override', () => {
   const f=fixture(null,false,false,{light:{canvas:'bad',accent:'#123456'},dark:{text:'#ABCDEF'}});

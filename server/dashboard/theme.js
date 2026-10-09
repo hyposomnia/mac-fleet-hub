@@ -48,8 +48,8 @@
       'accent-text': mix(accent, text, 84),
       'accent-contrast': contrastColor(accent),
       highlight,
-      'session-list-bg': light ? '#FFFFFF' : '#000000',
-      'session-detail-bg': light ? '#FFFFFF' : '#050606',
+      'session-list-bg': canvas,
+      'session-detail-bg': canvas,
     };
   }
   function createController(target) {
