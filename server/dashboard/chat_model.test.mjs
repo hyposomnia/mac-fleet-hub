@@ -201,6 +201,153 @@ test('preview helpers build protected media URLs and parse only /view routes', (
   assert.equal(previewRequest('?mac=m2&path=%2Ftmp%2Fnote.txt&embed=1').embed, true);
 });
 
+function imagePreviewHarness(name, options = {}) {
+  const nodes = new Map();
+  for (const id of ['app', 'preview-page', 'preview-stage', 'preview-title', 'preview-path', 'preview-download', 'preview-image', 'preview-error']) {
+    nodes.set(`#${id}`, { dataset: {}, setAttribute() {}, removeAttribute() {} });
+  }
+  nodes.get('#preview-stage').querySelectorAll = () => [];
+  const scripts = [];
+  const fetches = [];
+  const revoked = [];
+  const listeners = new Map();
+  const timers = [];
+  let decoderCalls = 0;
+  const document = {
+    documentElement: { dataset: {} },
+    querySelector: (selector) => nodes.get(selector),
+    createElement: () => ({ remove() {} }),
+    head: { append(script) {
+      scripts.push(script.src);
+      queueMicrotask(() => {
+        if (options.scriptError) { script.onerror(); return; }
+        sandbox.HeicTo = async (args) => {
+          decoderCalls++;
+          assert.equal(args.type, 'image/jpeg');
+          assert.equal(args.blob.type, 'image/heic');
+          return options.decode ? options.decode(args) : new Blob(['preview'], { type: 'image/jpeg' });
+        };
+        script.onload();
+      });
+    } },
+  };
+  const sandbox = {
+    document, URLSearchParams, AbortController, clearTimeout,
+    setTimeout: (callback, ms) => {
+      timers.push({ callback, ms });
+      const timer = setTimeout(callback, ms);
+      timer.unref();
+      return timer;
+    },
+    URL: { createObjectURL: () => 'blob:converted-heic', revokeObjectURL: (url) => revoked.push(url) },
+    location: { origin: 'https://fleet.example.test', search: `?mac=m4&path=${encodeURIComponent(`/photos/${name}`)}&embed=1` },
+    addEventListener: (type, callback) => listeners.set(type, callback),
+    fetch: async (url, init) => {
+      fetches.push({ url, init });
+      if (url.includes('/preview?')) return {
+        ok: true, json: async () => ({ path: `/photos/${name}`, name, kind: 'image', mime: name.endsWith('WebP') ? 'image/webp' : 'image/heic' }),
+      };
+      return { ok: options.httpError ? false : true, status: options.httpError || 200, blob: async () => new Blob(['original'], { type: 'image/heic' }) };
+    },
+  };
+  sandbox.globalThis = sandbox;
+  vm.createContext(sandbox);
+  vm.runInContext(previewSrc, sandbox);
+  return { api: sandbox.FleetPreview, nodes, scripts, fetches, revoked, listeners, timers, decoderCalls: () => decoderCalls };
+}
+
+test('HEIC preview falls back to a locally hosted decoder and keeps the original download', async () => {
+  const h = imagePreviewHarness('PHOTO.HEIC');
+  await h.api.initRoute();
+  const image = h.nodes.get('#preview-image');
+  assert.match(image.src, /^\/m4\/api\/file\/content\?path=/);
+  assert.equal(h.scripts.length, 0);
+  await image.onerror();
+  assert.deepEqual(h.scripts, ['/vendor/heic-to.js?v=1.6.5']);
+  assert.equal(h.decoderCalls(), 1);
+  assert.equal(image.src, 'blob:converted-heic');
+  image.onload();
+  assert.equal(h.nodes.get('#preview-stage').dataset.kind, 'image');
+  assert.match(h.nodes.get('#preview-download').href, /PHOTO\.HEIC&download=1$/);
+  assert.equal(h.fetches[1].init.cache, 'no-store');
+  h.listeners.get('pagehide')();
+  assert.deepEqual(h.revoked, ['blob:converted-heic']);
+  assert.equal(h.fetches[1].init.signal.aborted, true);
+});
+
+test('HEIF uses the same fallback while native HEIC and WebP need no decoder', async () => {
+  const heif = imagePreviewHarness('photo.heif');
+  await heif.api.initRoute();
+  await heif.nodes.get('#preview-image').onerror();
+  assert.equal(heif.decoderCalls(), 1);
+  for (const name of ['native.HEIC', 'transparent.WebP']) {
+    const h = imagePreviewHarness(name);
+    await h.api.initRoute();
+    h.nodes.get('#preview-image').onload?.();
+    assert.equal(h.nodes.get('#preview-stage').dataset.kind, 'image');
+    assert.equal(h.scripts.length, 0);
+    assert.equal(h.fetches.length, 1);
+    assert.match(h.nodes.get('#preview-image').src, /api\/file\/content/);
+  }
+});
+
+test('HEIC conversion failures leave a useful error and the original download', async () => {
+  for (const options of [
+    { scriptError: true }, { httpError: 403 },
+    { decode: async () => { throw new Error('corrupt image'); } },
+  ]) {
+    const h = imagePreviewHarness('broken.heic', options);
+    await h.api.initRoute();
+    await h.nodes.get('#preview-image').onerror();
+    assert.equal(h.nodes.get('#preview-stage').dataset.kind, 'error');
+    assert.match(h.nodes.get('#preview-error').textContent, /HEIC.*下载原文件/);
+    assert.match(h.nodes.get('#preview-download').href, /download=1$/);
+  }
+});
+
+test('leaving an HEIC preview prevents an unfinished conversion from replacing the image', async () => {
+  let finish;
+  const h = imagePreviewHarness('slow.heic', { decode: () => new Promise((resolve) => { finish = resolve; }) });
+  await h.api.initRoute();
+  const image = h.nodes.get('#preview-image');
+  const original = image.src;
+  const pending = image.onerror();
+  for (let tick = 0; !finish && tick < 20; tick++) await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(typeof finish, 'function');
+  h.listeners.get('pagehide')();
+  finish(new Blob(['preview'], { type: 'image/jpeg' }));
+  await pending;
+  assert.equal(image.src, original);
+  assert.equal(h.nodes.get('#preview-stage').dataset.kind, 'loading');
+});
+
+test('HEIC conversion timeout stops loading and ignores a late decoder result', async () => {
+  let finish;
+  const h = imagePreviewHarness('slow.heic', { decode: () => new Promise((resolve) => { finish = resolve; }) });
+  await h.api.initRoute();
+  const image = h.nodes.get('#preview-image');
+  const pending = image.onerror();
+  for (let tick = 0; !finish && tick < 20; tick++) await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(typeof finish, 'function');
+  h.timers.find((timer) => timer.ms === 60000).callback();
+  assert.equal(h.nodes.get('#preview-stage').dataset.kind, 'error');
+  assert.equal(h.fetches[1].init.signal.aborted, true);
+  finish(new Blob(['preview'], { type: 'image/jpeg' }));
+  await pending;
+  assert.doesNotMatch(image.src, /^blob:/);
+  assert.equal(h.nodes.get('#preview-stage').dataset.kind, 'error');
+});
+
+test('broken WebP reports an error without invoking the HEIC decoder', async () => {
+  const h = imagePreviewHarness('broken.WebP');
+  await h.api.initRoute();
+  await h.nodes.get('#preview-image').onerror();
+  assert.equal(h.nodes.get('#preview-stage').dataset.kind, 'error');
+  assert.equal(h.scripts.length, 0);
+  assert.equal(h.fetches.length, 1);
+  assert.match(h.nodes.get('#preview-download').href, /download=1$/);
+});
+
 test('file preview omits browser back actions and redundant device/type/size badges', () => {
   const header = indexHTML.match(/<header class="preview-head">[\s\S]*?<\/header>/)?.[0] || '';
   assert.ok(header);

@@ -30,6 +30,90 @@
     ['img', 'src'], ['video', 'src'], ['video', 'poster'], ['audio', 'src'], ['source', 'src'], ['track', 'src'],
   ];
   let textEditor = null;
+  let heicDecoderPromise = null;
+  let imagePreview = null;
+
+  function loadHEICDecoder() {
+    if (typeof root.HeicTo === 'function') return Promise.resolve(root.HeicTo);
+    if (!heicDecoderPromise) {
+      heicDecoderPromise = new Promise((resolve, reject) => {
+        const script = document.createElement('script');
+        script.src = '/vendor/heic-to.js?v=1.6.5';
+        script.async = true;
+        const timer = root.setTimeout(() => fail(), 20000);
+        const fail = () => {
+          root.clearTimeout(timer);
+          script.remove();
+          reject(new Error('无法载入 HEIC 解码器。'));
+        };
+        script.onerror = fail;
+        script.onload = () => {
+          if (typeof root.HeicTo !== 'function') { fail(); return; }
+          root.clearTimeout(timer);
+          resolve(root.HeicTo);
+        };
+        document.head.append(script);
+      }).catch((error) => {
+        heicDecoderPromise = null;
+        throw error;
+      });
+    }
+    return heicDecoderPromise;
+  }
+
+  function clearImagePreview() {
+    if (!imagePreview) return;
+    imagePreview.controller.abort();
+    root.clearTimeout(imagePreview.timer);
+    imagePreview.image.onload = null;
+    imagePreview.image.onerror = null;
+    if (imagePreview.objectURL) root.URL.revokeObjectURL(imagePreview.objectURL);
+    imagePreview = null;
+  }
+
+  function renderImagePreview(image, meta, source) {
+    const preview = { image, controller: new root.AbortController(), objectURL: '', timer: null };
+    imagePreview = preview;
+    const current = () => imagePreview === preview && !preview.controller.signal.aborted;
+    const heic = ['.heic', '.heif'].includes(extensionOf(meta.path)) || /^image\/hei[cf](?:$|;)/i.test(meta.mime || '');
+    image.alt = meta.name || '图片';
+    image.onload = () => {
+      root.clearTimeout(preview.timer);
+      if (current()) setPreviewState('image');
+    };
+    const fail = () => {
+      root.clearTimeout(preview.timer);
+      if (current()) showPreviewError(heic
+        ? 'HEIC 图片转换失败，仍可下载原文件。'
+        : '无法显示这张图片，仍可下载原文件。');
+    };
+    image.onerror = async () => {
+      if (!current()) return;
+      if (!heic) { fail(); return; }
+      // Safari 可直接显示 HEIC；其它浏览器才下载解码器并在 worker 中转换。
+      image.onerror = fail;
+      setPreviewState('loading');
+      preview.timer = root.setTimeout(() => {
+        fail();
+        preview.controller.abort();
+      }, 60000);
+      try {
+        const response = await root.fetch(source, { cache: 'no-store', signal: preview.controller.signal });
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const blob = await response.blob();
+        const decode = await loadHEICDecoder();
+        if (!current()) return;
+        const converted = await decode({ blob, type: 'image/jpeg', quality: 0.9 });
+        if (!current()) return;
+        preview.objectURL = root.URL.createObjectURL(converted);
+        image.src = preview.objectURL;
+      } catch (_) {
+        fail();
+      }
+    };
+    setPreviewState('loading');
+    image.src = source;
+  }
 
   function decodedPath(value) {
     try { return decodeURIComponent(value); } catch (_) { return value; }
@@ -279,6 +363,7 @@
   }
 
   function renderPreview(meta, request) {
+    clearImagePreview();
     const title = document.querySelector('#preview-title');
     const path = document.querySelector('#preview-path');
     const download = document.querySelector('#preview-download');
@@ -321,10 +406,8 @@
       const frame = document.querySelector('#preview-pdf');
       frame.src = source;
     } else if (meta.kind === 'image') {
-      const image = document.querySelector('#preview-image');
-      image.alt = meta.name || '图片';
-      image.onerror = () => showPreviewError('浏览器无法显示这张图片。');
-      image.src = source;
+      renderImagePreview(document.querySelector('#preview-image'), meta, source);
+      return;
     } else if (meta.kind === 'video') {
       const video = document.querySelector('#preview-video');
       video.onerror = () => showPreviewError('浏览器不支持该视频的封装或编码。');
@@ -372,4 +455,5 @@
     safeHTMLDocument, rewriteCSSURLs, isTextPreviewPath, textPreviewMode, textWrapEnabled,
     updateTextWrapButton, setTextWrap, initRoute,
   };
+  root.addEventListener?.('pagehide', clearImagePreview);
 })(typeof globalThis !== 'undefined' ? globalThis : window);
