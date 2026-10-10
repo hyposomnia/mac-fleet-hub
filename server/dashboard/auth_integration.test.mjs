@@ -5,6 +5,7 @@ import vm from 'node:vm';
 
 const app = await readFile(new URL('./app.js', import.meta.url), 'utf8');
 const index = await readFile(new URL('./index.html', import.meta.url), 'utf8');
+const account = await readFile(new URL('./account.js', import.meta.url), 'utf8');
 const worker = await readFile(new URL('./sw.js', import.meta.url), 'utf8');
 function workerHarness(response = { ok: true, redirected: true, clone() { return this; } }) {
   const listeners = {};
@@ -68,15 +69,17 @@ test('dashboard awaits me before init/preview/polling and namespaces all private
   assert.doesNotMatch(app, /sessionReadAt:\s*loadSessionReadState\(\)/);
 });
 
-test('owned device discovery uses /api/devices, logout uses POST client, and both menus expose new navigation', () => {
+test('owned device discovery uses /api/devices, logout uses POST client, and both menus open unified settings', () => {
   const roster = app.slice(app.indexOf('async function refreshNodes()'), app.indexOf('function markGatewayUnreachable'));
   assert.match(roster, /\/api\/devices/);
   assert.match(roster, /\.devices/);
   assert.doesNotMatch(roster, /givenName|nodes.json/);
-  assert.match(app, /await FleetAuth.logout\(\)/);
+  assert.match(account, /button\('退出登录', \(\) => auth\.logout\(\)/);
   assert.doesNotMatch(app, /\/auth\/logout\?rd/);
-  for (const action of ['account', 'admin', 'add-device']) {
-    assert.equal([...index.matchAll(new RegExp(`data-act="${action}"`, 'g'))].length, 2);
+  assert.equal([...index.matchAll(/data-act="settings"/g)].length, 2);
+  assert.doesNotMatch(index, /data-act="(?:account|admin|add-device|automation|logout)"/);
+  for (const page of ['account', 'add-device', 'automation', 'sessions', 'appearance']) {
+    assert.match(index, new RegExp(`data-settings-page="${page}"`));
   }
 });
 

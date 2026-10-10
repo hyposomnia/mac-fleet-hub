@@ -447,6 +447,28 @@ function initTheme() {
 function resolvedTheme() { return FleetTheme.resolvedTheme(); }
 function syncThemeControls() { FleetTheme.syncControls(); }
 function setThemePreference(preference) { FleetTheme.setPreference(preference); }
+function renderThemeChoices() {
+  const choices = [
+    { value: 'light', label: '浅色', parts: [{ attrs: { d: 'M20.9 13a9 9 0 0 1-9.9-9.9A9 9 0 1 0 20.9 13Z' } }] },
+    { value: 'dark', label: '深色', parts: [
+      { tag: 'circle', attrs: { cx: 12, cy: 12, r: 4 } },
+      { attrs: { d: 'M12 2v2M12 20v2M2 12h2M20 12h2M4.93 4.93l1.42 1.42M17.65 17.65l1.42 1.42M4.93 19.07l1.42-1.42M17.65 6.35l1.42-1.42' } },
+    ] },
+    { value: 'system', label: '跟随系统', parts: [
+      { tag: 'rect', attrs: { x: 3, y: 4, width: 18, height: 13, rx: 2 } },
+      { attrs: { d: 'M8 21h8M12 17v4' } },
+    ] },
+  ];
+  $$('[data-theme-controls]').forEach(container => {
+    container.replaceChildren(...choices.map(({ value, label, parts }) => {
+      const icon = svgIconParts('ic', parts);
+      icon.setAttribute('aria-hidden', 'true');
+      return h('button', { type: 'button', class: 'theme-icon-choice', dataset: { themeChoice: value },
+        title: label, 'aria-label': label, 'aria-pressed': 'false' }, icon);
+    }));
+  });
+  syncThemeControls();
+}
 
 // ============================================================
 //  toast（状态反馈，取代 alert）
@@ -1340,6 +1362,7 @@ function updateSessionFilterUI() {
 function updateSettingsMenus() {
   const unavailable = state.mode === 'files';
   $$('.archive-menu-action').forEach((button) => {
+    button.hidden = unavailable;
     button.disabled = unavailable;
     button.setAttribute('aria-pressed', String(state.scope === 'all'));
     button.title = unavailable ? '仅在会话页可用' : '';
@@ -7302,15 +7325,6 @@ async function saveHost() {
 }
 
 // ============================================================
-//  退出登录（F4：跳 Authelia 退出端点，登出后回登录页）
-// ============================================================
-async function doLogout() {
-  closeMenus();
-  try { await FleetAuth.logout(); }
-  catch (error) { if (error.status !== 401) toast(error.message, 'err'); }
-}
-
-// ============================================================
 //  浮层菜单 / 弹窗
 // ============================================================
 function openOverlay(id) { $('#' + id).hidden = false; }
@@ -7560,6 +7574,7 @@ async function registerServiceWorker() {
 // ============================================================
 function init() {
   initTheme();
+  renderThemeChoices();
   if (window.FleetPreview?.isPreviewRoute()) {
     FleetPreview.initRoute();
     initPWAExperience();
@@ -7833,12 +7848,7 @@ function init() {
       closeMenus({ restoreFocus: Boolean(b.dataset.themeChoice) });
       if (b.dataset.themeChoice) setThemePreference(b.dataset.themeChoice);
       else if (b.dataset.act === 'archive') toggleArchivedSessions();
-      else if (b.dataset.act === 'automation') openUnifiedSettings('automation', trigger);
-      else if (b.dataset.act === 'settings') openUnifiedSettings('sessions', trigger);
-      else if (b.dataset.act === 'account') openUnifiedSettings('account', trigger);
-      else if (b.dataset.act === 'admin') location.href = '/admin';
-      else if (b.dataset.act === 'add-device') openUnifiedSettings('add-device', trigger);
-      else if (b.dataset.act === 'logout') doLogout();
+      else if (b.dataset.act === 'settings') openUnifiedSettings('account', trigger);
     };
   });
   wireAppearanceSettings();
@@ -7989,8 +7999,7 @@ async function initAuthenticatedDashboard() {
     UI_STATE_KEY = FleetAuth.storageKey('fleet-ui-state-v1');
     POOL_SNAP_KEY = FleetAuth.storageKey('fleet-pool');
     state.sessionReadAt = loadSessionReadState();
-    $('#user-name').textContent = FleetAuth.user.email;
-    $$('[data-act="admin"]').forEach((button) => { button.hidden = FleetAuth.user.role !== 'admin'; });
+    $('#user-name').textContent = '设置';
     document.documentElement.dataset.auth = 'ready';
     $('#auth-status').hidden = true;
     document.addEventListener('fleet:auth-lost', stopAuthenticatedDashboard);

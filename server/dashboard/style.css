@@ -537,10 +537,6 @@ html.automation-doc-root, html.automation-doc-root body { height: auto; min-heig
 .menu button:disabled { color: var(--text-2); cursor: not-allowed; opacity: .48; }
 .menu button:disabled:hover { background: transparent; color: var(--text-2); }
 .menu button.danger:hover { background: var(--danger-soft); color: var(--danger); }
-.menu-theme { padding: 2px 4px 6px; }
-.menu-theme .menu-label { padding: 5px 5px 6px; }
-.menu .menu-theme-seg button { border-radius: var(--radius-compact); min-height: 36px; display: block; flex: 1; min-width: 0; width: auto; padding: 7px 0; text-align: center; }
-.menu .menu-theme-seg button[aria-pressed="true"] { background: var(--surface-1); color: var(--text); box-shadow: var(--e1); }
 .menu .sep { height: 1px; background: var(--border); margin: 5px 4px; }
 
 /* ============================================================

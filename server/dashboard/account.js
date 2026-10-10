@@ -288,6 +288,7 @@
         const result = await post('/api/auth/recovery-codes', values);
         showCodes(result.recovery_codes, showAccount);
       }, recovery);
+      if (auth.user.role === 'admin') content.append(link('管理', '/admin'));
       button('退出登录', () => auth.logout(), content, true);
     }
 

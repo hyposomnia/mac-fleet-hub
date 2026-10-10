@@ -548,20 +548,19 @@ test('settings menu owns archive browsing and session settings', () => {
   assert.match(indexHTML, /id="user-name">设置</);
   assert.deepEqual(
     [...indexHTML.matchAll(/<button data-act="([^"]+)"/g)].map((match) => match[1]),
-    ['account', 'admin', 'add-device', 'archive', 'automation', 'settings', 'logout',
-      'account', 'admin', 'add-device', 'archive', 'automation', 'settings', 'logout'],
+    ['settings', 'archive', 'settings', 'archive'],
   );
   assert.deepEqual(
-    [...indexHTML.matchAll(/data-theme-choice="([^"]+)"/g)].map((match) => match[1]),
-    ['system', 'light', 'dark', 'system', 'light', 'dark', 'light', 'dark', 'system'],
+    [...indexHTML.matchAll(/data-theme-controls/g)].map(() => true),
+    [true, true, true],
   );
   assert.equal((indexHTML.match(/role="group" aria-label="外观"/g) || []).length, 2);
   assert.equal((indexHTML.match(/>显示已归档会话</g) || []).length, 2);
-  assert.equal((indexHTML.match(/>会话设置</g) || []).length, 3);
+  assert.equal((indexHTML.match(/>会话设置</g) || []).length, 1);
   assert.doesNotMatch(indexHTML, /data-settings-tab="sessions"|id="st-show-archived"/);
   assert.match(appSrc, /SESSION_ARCHIVE_KEY\s*=\s*'fleet-show-archived-sessions'/);
   assert.match(appSrc, /localStorage\.setItem\(SESSION_ARCHIVE_KEY/);
-  assert.match(appSrc, /const unavailable = state\.mode === 'files';[\s\S]*?button\.disabled = unavailable;/);
+  assert.match(appSrc, /const unavailable = state\.mode === 'files';[\s\S]*?button\.hidden = unavailable;/);
   assert.match(appSrc, /else if \(b\.dataset\.act === 'archive'\) toggleArchivedSessions\(\)/);
   assert.match(styleCSS, /\.menu button:disabled\s*\{[^}]*opacity:\s*\.48;/s);
   assert.match(styleCSS, /\.sc-head-actions\s*\{/);

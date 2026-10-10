@@ -6,6 +6,8 @@
 
 ## Unreleased
 
+- Web 设置入口 v197：账户、添加设备、自动化、会话设置及退出登录统一收入设置弹窗，桌面与移动菜单保留“设置”和外观图标；仅会话模式显示已归档会话开关。外观快捷入口与设置页共用轻量图标控件，保留主题同步、键盘焦点及 44px 点击区域；管理员入口移到账户设置。
+
 - 原生 shared 环境补齐原有 Aqua LaunchAgent，修复 Desktop helper 的 macOS BSD sed 端口解析；分别备份与还原 user/Aqua 环境，兼容旧快照并验证实际 GUI 地址。`0.1.8+9` 已由唯一正式入口完成 Agent / Hub / DMG 三项公证、实际下载核对和 abj 发布，并通过内置更新器替换本机 Hub 与独立 Agent。账号绑定、设置及后台磁盘访问保留，原有 keeper 未重启，GUI shared 地址正确；网关会话 200 / 23 项、空闲历史 200 / 40 条事件。405 项 JS、82 项 Swift 及 Go/Shell 全部通过；Desktop 同线程/App Tools 验收仍需本轮结束后完整重开。详见 docs/native-build9-aqua-release-2026-10-10.md。
 
 - 原生客户端补齐原有 Codex shared 接入：原样携带 keeper、监督包装、解析器、Desktop 环境脚本、空闲守卫和 launchd 模板，接入正常启动、登录启动及升级恢复；移除共享关闭配置与独立进程草案。已有共享服务直接复用，新服务就绪后再设置 Desktop 环境，失败回滚、卸载还原环境并保护活动任务。`0.1.7+8` 已完成三项公证并通过内置更新器替换 Hub / 独立 Agent；绑定与设置保留、磁盘访问 verified、网关 health/info/sessions 为 200，Codex 列表返回 23 项。后续真实验收发现 Aqua helper 装配与 BSD sed 缺陷，已追加源码修复；详情见 docs/native-build8-shared-and-aqua-2026-10-09.md。

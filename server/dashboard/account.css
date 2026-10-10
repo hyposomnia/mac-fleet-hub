@@ -153,9 +153,13 @@ body.account-auth { background: var(--surface); isolation: isolate; }
 .fleet-settings-panel .modal-body { padding: 0; }
 .fleet-settings-panel .modal-foot { padding: 20px 0 0; }
 .fleet-settings-panel .input { background: var(--settings-input); }
-.appearance-theme-choice { display: flex; width: min(100%, 360px); }
-.appearance-theme-choice button { flex: 1; min-height: 40px; padding: 0 12px; color: var(--text-1); border-radius: var(--radius-compact); }
-.appearance-theme-choice button[aria-pressed="true"] { background: var(--settings-elevated); color: var(--accent-text); box-shadow: var(--e1); }
+.theme-icon-choices { display: flex; align-items: center; gap: 4px; padding: 4px; background: transparent; }
+.theme-icon-choices .theme-icon-choice { display: flex; align-items: center; justify-content: center; flex: 1; min-width: 44px; min-height: 44px; padding: 0; border-radius: var(--radius-compact); color: var(--text-2); }
+.theme-icon-choices .theme-icon-choice .ic { width: 18px; height: 18px; stroke-width: 1.6; }
+.theme-icon-choices .theme-icon-choice[aria-pressed="true"] { background: var(--surface-hover); color: var(--accent-text); box-shadow: none; }
+.theme-icon-choices .theme-icon-choice:hover { background: var(--surface-hover); color: var(--text); }
+.theme-icon-choices .theme-icon-choice:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.appearance-theme-choice { width: min(100%, 156px); }
 .appearance-palette-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; margin-top: 14px; }
 .appearance-palette-card { min-width: 0; padding: 16px; border: 0; border-radius: var(--radius-card); background: var(--settings-surface); }
 .appearance-palette-card legend { padding: 0 2px; color: var(--text); font-size: var(--t-body); font-weight: 600; }
@@ -170,9 +174,8 @@ body.account-auth { background: var(--surface); isolation: isolate; }
 .appearance-settings-spacer { flex: 1; }
 #fleet-settings-status, .settings-account-status { color: var(--text-1); margin-bottom: 16px; line-height: 1.6; }
 #fleet-settings-status:empty, .settings-account-status:empty { display: none; }
-.menu-theme-seg { display: flex; gap: 4px; background: transparent; }
-.menu .menu-theme-seg button[aria-pressed="true"] { background: transparent; color: var(--accent-text); box-shadow: none; font-weight: 600; }
-.menu .menu-theme-seg button:hover { background: var(--surface-hover); }
+.menu .theme-icon-choices .theme-icon-choice { display: flex; width: auto; min-height: 44px; padding: 0; }
+.menu .theme-icon-choices .theme-icon-choice[aria-pressed="true"] { background: var(--surface-hover); color: var(--accent-text); box-shadow: none; }
 body:has(#fleet-settings-modal:not([hidden])) .pwa-install,
 body:has(#fleet-settings-modal:not([hidden])) .pwa-update { visibility: hidden; }
 @media (max-width: 860px) {
