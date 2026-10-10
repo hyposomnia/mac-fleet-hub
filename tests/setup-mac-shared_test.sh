@@ -30,15 +30,6 @@ bash -n "$SETUP"
 /usr/bin/plutil -lint "$SHARED_APPSERVER_PLIST" >/dev/null
 /usr/bin/plutil -lint "$DESKTOP_ENV_PLIST" >/dev/null
 bash -n "$DESKTOP_ENV_HELPER"
-# Exercise the real parser with macOS's system sed, without changing launchd.
-eval "$(awk '/^readyz_url\(\)/ { capture=1 } capture { print } capture && /^}/ { exit }' "$DESKTOP_ENV_HELPER")"
-for endpoint in 'ws://127.0.0.1:47682/rpc' 'ws://localhost:47682' 'ws://[::1]:47682/rpc'; do
-  probe="$(PATH=/usr/bin:/bin readyz_url "$endpoint")" || fail "readyz parser rejected $endpoint"
-  [[ "$probe" == 'http://127.0.0.1:47682/readyz' ]] || fail "incorrect readyz target: $probe"
-done
-for endpoint in 'ws://example.test:47682/rpc' 'ws://127.0.0.1:476821/rpc' 'ws://127.0.0.1:0/rpc'; do
-  if PATH=/usr/bin:/bin readyz_url "$endpoint" >/dev/null; then fail "readyz parser accepted $endpoint"; fi
-done
 bash -n "$MIGRATE" "$RELEASE" "$CONFIG_DEPLOY"
 bash -n "$RESOLVER" "$KEEPER_LAUNCHER" "$UNINSTALL"
 if [[ -x /Applications/ChatGPT.app/Contents/Resources/cua_node/bin/node ]]; then
@@ -68,16 +59,19 @@ contains "$SETUP" 'source "$SCRIPT_DIR/codex-bin-resolve.sh"'
 contains "$SETUP" 'fleet_resolve_codex_bin'
 contains "$SETUP" 'fleet_resolve_keeper_node'
 contains "$SETUP" 'install -m 0700 "$SCRIPT_DIR/codex-bin-resolve.sh" "$CODEX_RESOLVER"'
-contains "$SETUP" 'install -m 0700 "$SCRIPT_DIR/codex-keeper-launch.sh" "$CODEX_KEEPER_LAUNCHER"'
 if rg -qF -- '/Applications/ChatGPT.app/Contents/Resources/codex"' "$SETUP"; then
   fail "setup-mac.sh 仍写死旧版 codex 路径"
 fi
 contains "$RESOLVER" 'codex-cli/codex-package.json'
 contains "$RESOLVER" 'chatgpt-layout-manifest'
-contains "$SHARED_KEEPER" 'resolveCodexBin'
-contains "$SHARED_KEEPER" 'fs.constants.X_OK'
-contains "$KEEPER_LAUNCHER" 'circuit_open'
-contains "$KEEPER_LAUNCHER" 'probe_ready'
+# Main's keeper gets the resolved binary from the installer and launchd runs signed Node directly.
+contains "$SHARED_KEEPER" 'const codexBin = process.env.FLEET_CODEX_BIN;'
+if rg -q 'resolveCodexBin|endpoint_ready|fail-open' "$SHARED_KEEPER" "$DESKTOP_ENV_HELPER"; then
+  fail "shared runtime diverges from main with its own resolver or Desktop fallback"
+fi
+if rg -q 'newDesktopEnvWatchdog' "$ROOT/mac/fleet-agent/main.go"; then
+  fail "agent still changes shared Desktop intent on readiness failure"
+fi
 
 # --- 风险点 R1/R5：GUI 域变量必须「就绪后才注入」，卸载必须还原 ---
 readiness_line="$(rg -n 'SHARED_READY=1' "$SETUP" | head -1 | cut -d: -f1)"
@@ -89,8 +83,6 @@ contains "$SETUP" 'write_install_manifest'
 contains "$UNINSTALL" 'launchctl unsetenv "$var"'
 contains "$UNINSTALL" 'guiEnvPrevious'
 contains "$UNINSTALL" 'CHECK_FAILED'
-contains "$DESKTOP_ENV_HELPER" 'endpoint_ready'
-contains "$DESKTOP_ENV_HELPER" 'fail-open'
 if rg -qF -- '/tmp/macfleet' "$SETUP"; then
   fail "setup-mac.sh 仍把日志放在 /tmp"
 fi
@@ -126,17 +118,12 @@ sed -e 's#__CODEX_BIN__#/tmp/codex#g' \
     "$SHARED_APPSERVER_PLIST" > "$rendered"
 /usr/bin/plutil -lint "$rendered" >/dev/null
 
-# 监督包装启动（R4）+ 熔断语义 + 日志迁出 /tmp（R3/R9）
-[[ "$(/usr/bin/plutil -extract ProgramArguments.0 raw -o - "$rendered")" == "/bin/bash" ]]
-[[ "$(/usr/bin/plutil -extract ProgramArguments.1 raw -o - "$rendered")" == "/tmp/codex-keeper-launch.sh" ]]
-[[ "$(/usr/bin/plutil -extract KeepAlive.SuccessfulExit raw -o - "$rendered")" == "false" ]]
-[[ "$(/usr/bin/plutil -extract ThrottleInterval raw -o - "$rendered")" == "10" ]]
-[[ "$(/usr/bin/plutil -extract StandardErrorPath raw -o - "$rendered")" == "/tmp/macfleet-logs/codex-app-server.launchd.log" ]]
+# Reuse main's signed Node -> keeper -> single listener chain.
+[[ "$(/usr/bin/plutil -extract ProgramArguments.0 raw -o - "$rendered")" == "/tmp/openai-node" ]]
+[[ "$(/usr/bin/plutil -extract ProgramArguments.1 raw -o - "$rendered")" == "/tmp/codex-shared-app-server.mjs" ]]
+[[ "$(/usr/bin/plutil -extract KeepAlive raw -o - "$rendered")" == "true" ]]
+[[ "$(/usr/bin/plutil -extract ThrottleInterval raw -o - "$rendered")" == "2" ]]
 [[ "$(/usr/bin/plutil -extract EnvironmentVariables.FLEET_CODEX_BIN raw -o - "$rendered")" == "/tmp/codex" ]]
-[[ "$(/usr/bin/plutil -extract EnvironmentVariables.FLEET_CODEX_RESOLVER raw -o - "$rendered")" == "/tmp/codex-bin-resolve.sh" ]]
-[[ "$(/usr/bin/plutil -extract EnvironmentVariables.FLEET_CODEX_KEEPER_LAUNCHER raw -o - "$rendered")" == "/tmp/codex-keeper-launch.sh" ]]
-[[ "$(/usr/bin/plutil -extract EnvironmentVariables.FLEET_LOG_DIR raw -o - "$rendered")" == "/tmp/macfleet-logs" ]]
-[[ "$(/usr/bin/plutil -extract EnvironmentVariables.FLEET_STATE_DIR raw -o - "$rendered")" == "/tmp/macfleet-state" ]]
 [[ "$(/usr/bin/plutil -extract EnvironmentVariables.FLEET_CODEX_APPSERVER_LISTEN raw -o - "$rendered")" == "ws://127.0.0.1:47682" ]]
 [[ "$(/usr/bin/plutil -extract EnvironmentVariables.FLEET_CODEX_APPSERVER_PROXY_SOCK raw -o - "$rendered")" == "/tmp/codex-shared-proxy.sock" ]]
 if rg -qF -- '__' "$rendered"; then

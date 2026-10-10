@@ -2041,14 +2041,6 @@ func serveAgent(listener net.Listener, ready func()) error {
 		}
 	}
 
-	// R5：shared 模式下看门狗兜底——shared app-server 挂了就摘掉 GUI 域注入的
-	// CODEX_APP_SERVER_WS_URL，避免 Desktop 被指向死端口后启动即 ECONNREFUSED；
-	// 恢复后只补回一次。
-	if desktopMayConfigureEnvironment() && normalizeCodexAppServerMode(cfg.CodexMode) == codexAppServerModeShared && cfg.CodexDesktopShare {
-		watchdog := newDesktopEnvWatchdog(cfg.CodexDesktopURL, appServerStatePath())
-		go watchdog.Run(context.Background())
-	}
-
 	if desktopMayConfigureEnvironment() {
 		if err := configureCodexDesktopSharedDaemon(cfg, home, runtime.GOOS); err != nil {
 			log.Printf("配置 Codex.app app-server 连接策略失败；重启 App 后连接模式可能未更新：%v", err)

@@ -49,6 +49,7 @@ ditto "$FLEET_SETTINGS_RUNTIME/universal/bin" "$AGENT/Contents/Resources/bin"
 ditto "$FLEET_SETTINGS_RUNTIME/licenses" "$APP/Contents/Resources/Licenses"
 mkdir -p "$AGENT/Contents/Resources/codex"
 # Carry the proven shared runtime unchanged; the native installer owns only its lifecycle.
+# Keep a forwarding shim for rollback of an installed pre-main launch definition.
 for file in codex-keeper-launch.sh codex-bin-resolve.sh codex-shared-app-server.mjs codex-desktop-env.sh check-codex-idle.sh com.macfleet.codex-shared-app-server.plist com.macfleet.codex-desktop-env.plist; do
   install -m 0644 "$ROOT/mac/$file" "$AGENT/Contents/Resources/codex/$file"
 done

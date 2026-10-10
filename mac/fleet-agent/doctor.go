@@ -1,9 +1,5 @@
-// doctor.go —— `fleet-agent doctor`：本机 Codex / shared app-server 体检与自愈。
-//
-// 它把一次真实事故的排查步骤固化成命令：plist 里写死的 codex 路径在 ChatGPT.app 自动
-// 更新后失效 → shared app-server 起不来 → GUI 域被注入的 CODEX_APP_SERVER_WS_URL 把
-// Desktop 指向死端口。doctor 一次性输出服务、Codex、shared app-server、GUI 域环境与熔断
-// 状态，并在 --fix 时按「解劫持 → 重启 → 复测」三步自愈。
+// fleet-agent doctor inspects shared readiness and can start a stopped keeper.
+// Shared Desktop intent is preserved; recovery never kills an active writer.
 package main
 
 import (
@@ -277,7 +273,7 @@ func buildDoctorReport() (string, doctorSummary) {
 	default:
 		degraded = true
 		fmt.Fprintf(&b, "  判定       与配置不一致（配置 %s，实际 %s；风险：Desktop 可能被指向死端口）\n", desktopURL, actual)
-		fixes = append(fixes, fmt.Sprintf("GUI 域 WS 端点与配置不一致：先 `launchctl unsetenv CODEX_APP_SERVER_WS_URL`，确认 shared 恢复后重跑 `bash mac/codex-desktop-env.sh shared %s` 并重开 ChatGPT.app。", desktopURL))
+		fixes = append(fixes, fmt.Sprintf("GUI 域 WS 端点与配置不一致：确认 shared 恢复后运行 `bash mac/codex-desktop-env.sh shared %s` 并重开 ChatGPT.app。", desktopURL))
 	}
 
 	// ---------------- 熔断状态文件 ----------------
@@ -327,25 +323,18 @@ func buildDoctorReport() (string, doctorSummary) {
 	return b.String(), summary
 }
 
-// doctorFix：shared app-server 未 ready 时的三步自愈（解劫持 → 重启 → 复测）。
+// doctorFix starts a stopped keeper without interrupting a concurrently running listener.
 func doctorFix(out io.Writer, desktopURL string) int {
 	target := svcDomain() + "/" + codexAppServerLabel
 	probeTarget := readyzURL(desktopURL)
 
 	fmt.Fprintln(out, "== doctor --fix：shared app-server 未 ready，开始自愈 ==")
 
-	fmt.Fprintf(out, "$ launchctl unsetenv %s\n", codexDesktopWebSocketEnv)
-	if detail, err := doctorRunCmd("launchctl", "unsetenv", codexDesktopWebSocketEnv); err != nil {
-		fmt.Fprintf(out, "  → 失败: %v %s（fail-open，继续尝试恢复 app-server）\n", err, firstLine(detail))
-	} else {
-		fmt.Fprintln(out, "  → ok，已解除 Desktop 被劫持到死端口的风险")
-	}
-
-	fmt.Fprintf(out, "$ launchctl kickstart -k %s\n", target)
-	if detail, err := doctorRunCmd("launchctl", "kickstart", "-k", target); err != nil {
+	fmt.Fprintf(out, "$ launchctl kickstart %s\n", target)
+	if detail, err := doctorRunCmd("launchctl", "kickstart", target); err != nil {
 		fmt.Fprintf(out, "  → 失败: %v %s\n", err, firstLine(detail))
 	} else {
-		fmt.Fprintln(out, "  → ok，已重启 shared app-server")
+		fmt.Fprintln(out, "  → ok，已请求启动 shared app-server")
 	}
 
 	fmt.Fprintf(out, "重新探测 %s …\n", probeTarget)

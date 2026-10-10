@@ -1,17 +1,11 @@
-// desktop_env.go —— R5 看门狗 + shared app-server 状态文件。
-//
-// shared 模式下 GUI 域被注入 CODEX_APP_SERVER_WS_URL，ChatGPT.app 启动即连这个 loopback
-// WebSocket。一旦 shared app-server 挂掉而变量还留着，Desktop 就会被指向一个死端口，
-// 每次启动直接失败（connect ECONNREFUSED）。看门狗周期性探测 /readyz，连续失败到阈值
-// 就摘掉该变量（只摘一次、只记状态迁移），恢复后再补回一次。
+// Shared readiness diagnostics and legacy state-file compatibility.
+// Desktop connection intent is owned by the main shared runtime, not a watchdog.
 package main
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
 	"net"
 	"net/http"
 	"net/url"
@@ -22,15 +16,9 @@ import (
 )
 
 const (
-	desktopEnvDefaultInterval      = 30 * time.Second
-	desktopEnvMinInterval          = 5 * time.Second
-	desktopEnvDefaultFailThreshold = 3
-	desktopEnvReadyzTimeout        = 2 * time.Second
-
-	// 状态文件里的 state 取值。与 shell 侧监督包装（mac/codex-keeper-launch.sh）
-	// 保持同一套词汇：ok / failed。
-	appServerStateOK     = "ok"
-	appServerStateFailed = "failed"
+	desktopEnvReadyzTimeout = 2 * time.Second
+	appServerStateOK        = "ok"
+	appServerStateFailed    = "failed"
 )
 
 // jsonFlag 兼容两种写法：shell 写出的裸数字 1/0，以及 Go 写出的 true/false。
@@ -93,173 +81,6 @@ var launchctlRun = runCmd
 func launchctlGetenv(key string) (string, error) {
 	out, err := launchctlRun("launchctl", "getenv", key)
 	return strings.TrimSpace(out), err
-}
-
-func launchctlSetenv(key, value string) error {
-	_, err := launchctlRun("launchctl", "setenv", key, value)
-	return err
-}
-
-func launchctlUnsetenv(key string) error {
-	_, err := launchctlRun("launchctl", "unsetenv", key)
-	return err
-}
-
-// desktopEnvWatchdog：shared app-server 的 GUI 域环境看门狗。
-// 所有外部副作用（探测 / 读写环境变量）都通过字段注入，便于测试。
-type desktopEnvWatchdog struct {
-	probe         func() bool
-	getenv        func() (string, error)
-	setenv        func(string) error
-	unsetenv      func() error
-	desiredURL    string
-	statePath     string
-	interval      time.Duration // 默认 30s，下限 5s
-	failThreshold int           // 默认 3
-	logf          func(format string, args ...any)
-
-	failures       int
-	cleared        bool // 本轮故障是否已摘除过变量
-	clearAttempted bool // 本轮故障是否已尝试过摘除（避免每天 tick 重试刷屏）
-	lastLog        string
-}
-
-// newDesktopEnvWatchdog 用真实 readyz 探测与 launchctl 构造看门狗。
-func newDesktopEnvWatchdog(desiredURL, statePath string) *desktopEnvWatchdog {
-	endpoint := strings.TrimSpace(desiredURL)
-	if endpoint == "" {
-		endpoint = codexSharedWebSocketEndpoint
-	}
-	return &desktopEnvWatchdog{
-		probe:         func() bool { return probeReadyz(endpoint, desktopEnvReadyzTimeout) },
-		getenv:        func() (string, error) { return launchctlGetenv(codexDesktopWebSocketEnv) },
-		setenv:        func(value string) error { return launchctlSetenv(codexDesktopWebSocketEnv, value) },
-		unsetenv:      func() error { return launchctlUnsetenv(codexDesktopWebSocketEnv) },
-		desiredURL:    endpoint,
-		statePath:     statePath,
-		interval:      desktopEnvDefaultInterval,
-		failThreshold: desktopEnvDefaultFailThreshold,
-		logf:          log.Printf,
-	}
-}
-
-func (w *desktopEnvWatchdog) effectiveInterval() time.Duration {
-	if w.interval <= 0 {
-		return desktopEnvDefaultInterval
-	}
-	if w.interval < desktopEnvMinInterval {
-		return desktopEnvMinInterval
-	}
-	return w.interval
-}
-
-func (w *desktopEnvWatchdog) effectiveThreshold() int {
-	if w.failThreshold <= 0 {
-		return desktopEnvDefaultFailThreshold
-	}
-	return w.failThreshold
-}
-
-func (w *desktopEnvWatchdog) emit(format string, args ...any) {
-	if w.logf != nil {
-		w.logf(format, args...)
-		return
-	}
-	log.Printf(format, args...)
-}
-
-// emitOnce 只在状态迁移（key 变化）时打日志，避免每个 tick 刷屏。
-func (w *desktopEnvWatchdog) emitOnce(key, format string, args ...any) {
-	if w.lastLog == key {
-		return
-	}
-	w.lastLog = key
-	w.emit(format, args...)
-}
-
-// Run 周期探测直到 ctx 取消。
-func (w *desktopEnvWatchdog) Run(ctx context.Context) {
-	interval := w.effectiveInterval()
-	threshold := w.effectiveThreshold()
-	w.emit("Desktop 环境看门狗已启动：每 %s 探测 %s 的 /readyz，连续 %d 次失败即摘除 GUI 域 %s",
-		interval, strings.TrimSpace(w.desiredURL), threshold, codexDesktopWebSocketEnv)
-
-	w.check()
-
-	ticker := time.NewTicker(interval)
-	defer ticker.Stop()
-	for {
-		select {
-		case <-ctx.Done():
-			w.emit("Desktop 环境看门狗已退出")
-			return
-		case <-ticker.C:
-			w.check()
-		}
-	}
-}
-
-// check 执行一次探测：成功清零计数并在「此前摘除过」时恢复一次；失败累加，
-// 达到阈值且 GUI 域确实非空时摘除一次，并把状态写进 statePath。
-func (w *desktopEnvWatchdog) check() {
-	if w.probe == nil {
-		return
-	}
-
-	if w.probe() {
-		w.failures = 0
-		if !w.cleared {
-			w.emitOnce(appServerStateOK, "shared app-server readyz 正常")
-			return
-		}
-		if w.setenv == nil {
-			w.cleared = false
-			return
-		}
-		if err := w.setenv(w.desiredURL); err != nil {
-			w.emit("shared app-server 已恢复，但重新注入 GUI 域 %s 失败: %v", codexDesktopWebSocketEnv, err)
-			return
-		}
-		w.cleared = false
-		w.clearAttempted = false
-		w.lastLog = "" // 允许后续再次记录状态迁移
-		w.emit("shared app-server 已恢复，重新注入 GUI 域 %s=%s", codexDesktopWebSocketEnv, w.desiredURL)
-		_ = writeAppServerState(w.statePath, appServerStateOK, "", false)
-		return
-	}
-
-	w.failures++
-	if w.failures < w.effectiveThreshold() || w.clearAttempted {
-		return
-	}
-	if w.getenv == nil || w.unsetenv == nil {
-		w.clearAttempted = true
-		return
-	}
-
-	value, err := w.getenv()
-	if err != nil {
-		w.clearAttempted = true
-		w.emit("读取 GUI 域 %s 失败: %v", codexDesktopWebSocketEnv, err)
-		return
-	}
-	if strings.TrimSpace(value) == "" {
-		w.clearAttempted = true
-		w.emitOnce("empty", "shared app-server 连续 %d 次未 ready，但 GUI 域未注入 %s，无需摘除",
-			w.failures, codexDesktopWebSocketEnv)
-		return
-	}
-
-	w.clearAttempted = true
-	if err := w.unsetenv(); err != nil {
-		w.emit("摘除 GUI 域 %s 失败: %v", codexDesktopWebSocketEnv, err)
-		return
-	}
-	w.cleared = true
-	lastError := fmt.Sprintf("readyz 连续 %d 次探测失败", w.failures)
-	w.emit("shared app-server 连续 %d 次未 ready，已摘除 GUI 域 %s（原值 %s），避免 Desktop 被指向死端口",
-		w.failures, codexDesktopWebSocketEnv, value)
-	_ = writeAppServerState(w.statePath, appServerStateFailed, lastError, true)
 }
 
 // readyzURL 把 shared WS/HTTP 端点归一成 http://host:port/readyz；无法解析返回空串。

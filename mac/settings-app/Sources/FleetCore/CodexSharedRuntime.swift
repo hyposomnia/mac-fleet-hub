@@ -29,48 +29,61 @@ public final class CodexSharedRuntime {
 
     public func start() async throws {
         let owned = FileManager.default.fileExists(atPath: definition.path)
+        var migrateLegacyLauncher = false
         if let loaded = try? await launchctl(["print", target]) {
             if owned {
                 try validateOwnership(loaded)
                 _ = try readSnapshot()
+                let previous = try PropertyListSerialization.propertyList(from: PrivateRuntime.read(definition), format: nil) as? [String: Any]
+                migrateLegacyLauncher = (previous?["ProgramArguments"] as? [String])?.contains(where: { $0.hasSuffix("/codex-keeper-launch.sh") }) == true
                 let state = (String(data: loaded, encoding: .utf8) ?? "").split(separator: "\n")
                     .map { $0.trimmingCharacters(in: .whitespaces) }
-                if state.contains("state = not running") || state.contains("state = exited") {
+                if !migrateLegacyLauncher && (state.contains("state = not running") || state.contains("state = exited")) {
                     // No -k: a concurrently recovered keeper must never be killed.
                     _ = try await launchctl(["kickstart", target])
                 }
             }
-            do { try await waitForReady() }
-            catch {
-                let failure = error
-                if owned { try await applyDesktopEnvironment(mode: "clear") }
-                throw failure
+            if !migrateLegacyLauncher {
+                try await waitForReady()
+                // Keep shared intent during a listener failure. Clearing it would
+                // let Desktop create an independent writer on its next launch.
+                if owned { try await applyDesktopEnvironment() }
+                return
             }
-            // An existing installation keeps its own lifecycle and GUI settings.
-            if owned { try await applyDesktopEnvironment() }
-            return
         }
         if let loaded = try? await launchctl(["print", desktopTarget]) {
             try validateDesktopOwnership(loaded)
         }
         let node: String
+        let codex: String
         do {
             node = try await shell("codex-bin-resolve.sh", ["--keeper-node"])
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            codex = try await shell("codex-bin-resolve.sh")
                 .trimmingCharacters(in: .whitespacesAndNewlines)
         } catch {
             // Codex is optional. Its absence must not disable enrollment/files/terminal.
             FileHandle.standardError.write(Data("Codex shared keeper 不可用：\(error.localizedDescription)\n".utf8))
             return
         }
-        guard node.hasPrefix("/"), !node.contains("\n") else { throw FleetError.message("Codex Node 路径无效。") }
-        let data = try launchDefinition(node: node)
+        guard [node, codex].allSatisfy({ $0.hasPrefix("/") && !$0.contains("\n") }) else { throw FleetError.message("Codex 可执行路径无效。") }
+        let data = try launchDefinition(node: node, codex: codex)
         let previousDefinition = owned ? try PrivateRuntime.read(definition) : nil
+        let previousDesktopDefinition = migrateLegacyLauncher && FileManager.default.fileExists(atPath: desktopDefinition.path) ? try PrivateRuntime.read(desktopDefinition) : nil
         let previousEnvironment = try await readEnvironment()
         let hadSnapshot = FileManager.default.fileExists(atPath: snapshot.path)
         if hadSnapshot { _ = try readSnapshot() }
         else { try PrivateRuntime.write(JSONEncoder().encode(previousEnvironment), to: snapshot) }
+        // Only the installer retires an owned legacy launch definition, using the
+        // existing rollout guard. Shared thread writers never change hands here.
+        if migrateLegacyLauncher { _ = try await shell("check-codex-idle.sh") }
         var started = false
+        var retiredLegacy = false
         do {
+            if migrateLegacyLauncher {
+                retiredLegacy = true
+                _ = try await launchctl(["bootout", target])
+            }
             try PrivateRuntime.write(data, to: definition)
             _ = try await launchctl(["bootstrap", domain, definition.path])
             started = true
@@ -80,7 +93,8 @@ public final class CodexSharedRuntime {
             let failure = error
             do {
                 if !started, let loaded = try? await launchctl(["print", target]),
-                   String(data: loaded, encoding: .utf8)?.contains("path = " + definition.path) == true {
+                   String(data: loaded, encoding: .utf8)?.contains("path = " + definition.path) == true,
+                   try PrivateRuntime.read(definition) == data {
                     // Account for a bootstrap that completed despite a command timeout.
                     started = true
                 }
@@ -93,6 +107,13 @@ public final class CodexSharedRuntime {
                 if started { _ = try await launchctl(["bootout", target]) }
                 if let previousDefinition { try PrivateRuntime.write(previousDefinition, to: definition) }
                 else { try removePrivateFile(definition) }
+                if retiredLegacy, (try? await launchctl(["print", target])) == nil {
+                    _ = try await launchctl(["bootstrap", domain, definition.path])
+                }
+                if let previousDesktopDefinition {
+                    try PrivateRuntime.write(previousDesktopDefinition, to: desktopDefinition)
+                    _ = try await launchctl(["bootstrap", domain, desktopDefinition.path])
+                }
                 if !hadSnapshot { try removePrivateFile(snapshot) }
             } catch {
                 throw FleetError.message("Codex shared 启动失败，回滚未完成，保留启动定义：\(failure.localizedDescription)；\(error.localizedDescription)")
@@ -135,19 +156,15 @@ public final class CodexSharedRuntime {
         }
     }
 
-    private func launchDefinition(node: String) throws -> Data {
+    private func launchDefinition(node: String, codex: String) throws -> Data {
         let template = try Data(contentsOf: resources.appendingPathComponent("com.macfleet.codex-shared-app-server.plist"))
         let replacements = [
             "__CODEX_HOME__": layout.home.appendingPathComponent(".codex").path,
-            "__CODEX_RESOLVER__": resources.appendingPathComponent("codex-bin-resolve.sh").path,
-            "__CODEX_KEEPER_LAUNCHER__": resources.appendingPathComponent("codex-keeper-launch.sh").path,
             "__CODEX_KEEPER_NODE__": node,
             "__CODEX_KEEPER_SCRIPT__": resources.appendingPathComponent("codex-shared-app-server.mjs").path,
-            "__CODEX_BIN__": "", // The existing supervisor resolves it on every start.
+            "__CODEX_BIN__": codex,
             "__CODEX_APPSERVER_LISTEN__": "ws://127.0.0.1:47682",
             "__CODEX_APPSERVER_SOCK__": proxy.path,
-            "__FLEET_LOG_DIR__": layout.state.appendingPathComponent("codex-logs").path,
-            "__FLEET_STATE_DIR__": layout.state.appendingPathComponent("codex-state").path,
             "__BREW_PREFIX__": "/opt/homebrew"
         ]
         func render(_ value: Any) throws -> Any {
@@ -167,7 +184,7 @@ public final class CodexSharedRuntime {
         }
         environment["HOME"] = layout.home.path
         result["EnvironmentVariables"] = environment
-        for directory in ["codex-logs", "codex-state"] { try PrivateRuntime.ensureDirectory(layout.state.appendingPathComponent(directory)) }
+        try PrivateRuntime.ensureDirectory(layout.state.appendingPathComponent("codex-logs"))
         return try PropertyListSerialization.data(fromPropertyList: result, format: .xml, options: 0)
     }
 

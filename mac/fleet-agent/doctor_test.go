@@ -140,10 +140,10 @@ func healthyDoctorFakes(t *testing.T) *doctorFakes {
 			"FLEET_CODEX_APPSERVER_MODE": codexAppServerModeShared,
 			"FLEET_CODEX_BIN":            "/Applications/ChatGPT.app/Contents/Resources/codex",
 			"FLEET_CODEX_HOME":           "/tmp/codex-home",
-			"FLEET_CODEX_DESKTOP_WS_URL": watchdogTestURL,
+			"FLEET_CODEX_DESKTOP_WS_URL": codexSharedWebSocketEndpoint,
 			"FLEET_CODEX_APPSERVER_SOCK": writeTestSock(t, 0o600),
 		},
-		guiEnv:     watchdogTestURL,
+		guiEnv:     codexSharedWebSocketEndpoint,
 		ready:      true,
 		binVersion: "0.159.0",
 		resolve: func(string, string, string) (string, string, error) {
@@ -223,7 +223,7 @@ func TestDoctorFailedWhenAppServerNotReadyAndEnvHijacked(t *testing.T) {
 	}
 }
 
-func TestDoctorFixUnsetsEnvAndKickstartsWhenNotReady(t *testing.T) {
+func TestDoctorFixPreservesSharedIntentAndDoesNotKillRunningKeeper(t *testing.T) {
 	f := healthyDoctorFakes(t)
 	f.ready = false
 
@@ -232,10 +232,10 @@ func TestDoctorFixUnsetsEnvAndKickstartsWhenNotReady(t *testing.T) {
 	if code != 1 {
 		t.Fatalf("--fix 后仍不 ready 应返回 1，实际 %d\n%s", code, buf.String())
 	}
-	if !f.hasCmd("launchctl unsetenv " + codexDesktopWebSocketEnv) {
-		t.Fatalf("未发出 unsetenv: %v", f.cmds)
+	if f.hasCmd("launchctl unsetenv ") || f.hasCmd("launchctl kickstart -k") {
+		t.Fatalf("恢复不能分流 Desktop 或强杀 writer: %v", f.cmds)
 	}
-	if !f.hasCmd("launchctl kickstart -k gui/") || !f.hasCmd("/"+codexAppServerLabel) {
+	if !f.hasCmd("launchctl kickstart gui/") || !f.hasCmd("/"+codexAppServerLabel) {
 		t.Fatalf("未发出 kickstart: %v", f.cmds)
 	}
 	if f.probes < 2 {
@@ -243,8 +243,7 @@ func TestDoctorFixUnsetsEnvAndKickstartsWhenNotReady(t *testing.T) {
 	}
 	out := buf.String()
 	for _, want := range []string{
-		"$ launchctl unsetenv " + codexDesktopWebSocketEnv,
-		"$ launchctl kickstart -k gui/",
+		"$ launchctl kickstart gui/",
 		"结论：FAILED（shared app-server 仍未 ready）",
 	} {
 		if !strings.Contains(out, want) {
@@ -277,21 +276,21 @@ func TestDoctorFixReportsRecovery(t *testing.T) {
 	}
 }
 
-func TestDoctorFixUnsetenvFailureIsFailOpen(t *testing.T) {
+func TestDoctorFixStartFailurePreservesSharedIntent(t *testing.T) {
 	f := healthyDoctorFakes(t)
 	f.ready = false
 	f.runErr = map[string]error{
-		"launchctl unsetenv " + codexDesktopWebSocketEnv: fmt.Errorf("模拟失败"),
+		"launchctl kickstart " + svcDomain() + "/" + codexAppServerLabel: fmt.Errorf("模拟失败"),
 	}
-
 	var buf bytes.Buffer
-	doctorRun(&buf, true)
-	out := buf.String()
-	if !strings.Contains(out, "失败") || !strings.Contains(out, "fail-open") {
-		t.Fatalf("unsetenv 失败必须 fail-open 且打印原因:\n%s", out)
+	if code := doctorRun(&buf, true); code != 1 {
+		t.Fatalf("失败须返回 1: %d", code)
 	}
-	if !f.hasCmd("launchctl kickstart -k gui/") {
-		t.Fatalf("unsetenv 失败后仍应尝试 kickstart: %v", f.cmds)
+	if !strings.Contains(buf.String(), "模拟失败") {
+		t.Fatalf("未输出启动失败原因: %s", buf.String())
+	}
+	if f.hasCmd("unsetenv") || f.hasCmd("kickstart -k") {
+		t.Fatalf("故障不能取消共享或强杀: %v", f.cmds)
 	}
 }
 
@@ -440,7 +439,7 @@ func TestDoctorIsolatedModeExpectsClearedGUIEnv(t *testing.T) {
 		t.Fatalf("判定=%q\n%s", got, report)
 	}
 
-	f.guiEnv = watchdogTestURL
+	f.guiEnv = codexSharedWebSocketEndpoint
 	buf.Reset()
 	if code := doctorRun(&buf, false); code != 0 {
 		t.Fatalf("isolated + 残留注入应 DEGRADED（0），实际 %d\n%s", code, buf.String())

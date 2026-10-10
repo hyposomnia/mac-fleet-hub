@@ -51,7 +51,7 @@ bash "$ROOT/tests/client-authorization_test.sh"
 step "Codex 路径解析回归（R2）：tests/codex-bin-resolve_test.sh"
 bash "$ROOT/tests/codex-bin-resolve_test.sh"
 
-step "app-server 熔断/退避回归（R4）：tests/codex-keeper-launch_test.sh"
+step "旧版 app-server 监督包装回滚兼容：tests/codex-keeper-launch_test.sh"
 bash "$ROOT/tests/codex-keeper-launch_test.sh"
 
 step "卸载还原 GUI 域环境变量回归（R1/R3）：tests/uninstall-restore_test.sh"

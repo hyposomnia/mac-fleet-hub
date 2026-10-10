@@ -698,7 +698,6 @@ install -m 0755 "$SCRIPT_DIR/fleet-agent/dist/fleet-agent-darwin-${AB}" "$BIN_DI
 install -m 0755 "$SCRIPT_DIR/fleet-agent/fleet-attach.sh" "$BIN_DIR/fleet-attach"
 install -m 0700 "$SCRIPT_DIR/codex-desktop-env.sh" "$CODEX_DESKTOP_ENV_HELPER"
 install -m 0700 "$SCRIPT_DIR/codex-bin-resolve.sh" "$CODEX_RESOLVER"
-install -m 0700 "$SCRIPT_DIR/codex-keeper-launch.sh" "$CODEX_KEEPER_LAUNCHER"
 if [[ "$CODEX_APPSERVER_MODE" == "shared" ]]; then
   install -m 0700 "$SCRIPT_DIR/codex-shared-app-server.mjs" "$CODEX_KEEPER_SCRIPT"
 fi
@@ -809,8 +808,6 @@ render() { # src dst
       -e "s#__CODEX_APPSERVER_LISTEN__#${CODEX_APPSERVER_LISTEN}#g" \
       -e "s#__CODEX_KEEPER_NODE__#${CODEX_KEEPER_NODE}#g" \
       -e "s#__CODEX_KEEPER_SCRIPT__#${CODEX_KEEPER_SCRIPT}#g" \
-      -e "s#__CODEX_KEEPER_LAUNCHER__#${CODEX_KEEPER_LAUNCHER}#g" \
-      -e "s#__CODEX_RESOLVER__#${CODEX_RESOLVER}#g" \
       -e "s#__FLEET_LOG_DIR__#${FLEET_LOG_DIR}#g" \
       -e "s#__FLEET_STATE_DIR__#${FLEET_STATE_DIR}#g" \
       -e "s#__CODEX_DESKTOP_ENV_HELPER__#${CODEX_DESKTOP_ENV_HELPER}#g" \
