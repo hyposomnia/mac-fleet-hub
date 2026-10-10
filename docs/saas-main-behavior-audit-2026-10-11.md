@@ -44,3 +44,24 @@ LINUX_BUILD_OK aee5b4265ab4c9e84bb35bfabcb93d6c981d500c98f5cd43040bf6bb6c3e74a2
 ```
 
 Go、446 项 JS、Swift 和 Shell 检查通过；1 项已有 SDK 缓存篡改测试按环境条件跳过。Mac 双架构仅编译到临时目录，正式签名产物未替换。
+
+## abj 服务器及网页部署
+
+源码提交 `cad9f2c4a4d468c5ada2e592631754a118aa84fe` 已部署至 `https://10.17.74.92:7443/`。发布前使用 SQLite backup API 备份并完成 quick_check，保留旧发布快照。切换后 141 项快照 SHA 核对一致，19 项发布文件与不可变源码相同，正式 Mac 下载及其他未修改文件逐字节相同。
+
+```text
+DEPLOY_EXIT=0
+HTTPS /healthz=200
+HTTPS /readyz=200
+HTTPS /auth=200
+HTTPS /api/devices=401
+HTTPS /api/settings=401
+macfleet-saas-uat=active
+macfleet-saas-uat-web=active
+macfleet-saas-uat-headscale=active
+macfleet-saas-uat-mesh=active
+backend_pid=2273907->25208
+backend_running_sha256=aee5b4265ab4c9e84bb35bfabcb93d6c981d500c98f5cd43040bf6bb6c3e74a2
+```
+
+发布目录为 `/opt/macfleet-saas-uat/releases/tenant-audit-cad9f2c4a4d468c5ada2e592631754a118aa84fe`，备份为 `/opt/macfleet-saas-uat/backups/before-tenant-audit-20261010T163845Z`。匿名私有接口及私有资源访问继续拒绝；四项公开 CSS / JS 的 HTTPS 字节与发布文件相同。真实登录后的产品流程由用户验收；Mac 共享运行态仍需正式客户端升级后的 UAT。
