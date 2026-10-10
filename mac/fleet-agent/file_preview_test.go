@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -86,6 +87,49 @@ func TestFilePreviewRecognizesCommonBrowserMediaFormats(t *testing.T) {
 		if !ok || format.Kind != want || !format.Stream {
 			t.Fatalf("%s: format=%+v ok=%v", path, format, ok)
 		}
+	}
+}
+
+func TestFileImageContentPreservesHEICAndWebP(t *testing.T) {
+	for extension, contentType := range map[string]string{"heic": "image/heic", "webp": "image/webp"} {
+		t.Run(extension, func(t *testing.T) {
+			data, err := os.ReadFile(filepath.Join("testdata", "media", "preview."+extension))
+			if err != nil {
+				t.Fatal(err)
+			}
+			root := t.TempDir()
+			path := filepath.Join(root, "PHOTO."+strings.ToUpper(extension))
+			if err := os.WriteFile(path, data, 0600); err != nil {
+				t.Fatal(err)
+			}
+			usePreviewRoot(t, root)
+			endpoint := "/api/file/content?path=" + urlQueryEscape(path)
+			for _, download := range []bool{false, true} {
+				url := endpoint
+				if download {
+					url += "&download=1"
+				}
+				rr := httptest.NewRecorder()
+				handleFileContent(rr, httptest.NewRequest(http.MethodGet, url, nil))
+				if rr.Code != http.StatusOK || !bytes.Equal(rr.Body.Bytes(), data) {
+					t.Fatalf("download=%v status=%d: original image bytes changed", download, rr.Code)
+				}
+				wantType := contentType
+				if download {
+					wantType = "application/octet-stream"
+				}
+				if rr.Header().Get("Content-Type") != wantType || rr.Header().Get("X-Content-Type-Options") != "nosniff" {
+					t.Fatalf("download=%v headers=%v", download, rr.Header())
+				}
+			}
+			req := httptest.NewRequest(http.MethodGet, endpoint, nil)
+			req.Header.Set("Range", "bytes=0-15")
+			rr := httptest.NewRecorder()
+			handleFileContent(rr, req)
+			if rr.Code != http.StatusPartialContent || !bytes.Equal(rr.Body.Bytes(), data[:16]) || rr.Header().Get("Content-Type") != contentType {
+				t.Fatalf("range status=%d headers=%v", rr.Code, rr.Header())
+			}
+		})
 	}
 }
 

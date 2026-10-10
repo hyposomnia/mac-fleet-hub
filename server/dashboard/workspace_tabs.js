@@ -50,7 +50,7 @@
     };
   }
 
-  function init({onOpen = () => {}, onSelectChat = () => {}, onCloseChat = () => {}} = {}) {
+  function init({onOpen = () => {}, onSelectChat = () => {}, onCloseChat = () => {}, onRevealFile = () => false} = {}) {
     const doc = root.document, win = doc.querySelector('#win');
     const strip = doc.querySelector('#workspace-tabs'), stage = doc.querySelector('#workspace-preview');
     if (!win || !strip || !stage || strip.dataset.ready) return;
@@ -229,6 +229,10 @@
       model.open(target); render({focus: true});
       return true;
     }
+    function revealFile(target) {
+      hideTip();
+      return onRevealFile(target) === true;
+    }
     function intercept(event) {
       if (event.defaultPrevented || event.button > 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
       const link = event.target.closest?.('a[href]');
@@ -236,9 +240,8 @@
       if (open(link.href)) event.preventDefault();
     }
     doc.querySelector('#chat-scroll')?.addEventListener('click', intercept);
-    doc.querySelector('#file-preview-open')?.addEventListener('click', intercept);
     Object.assign(root.FleetWorkspaceTabs, {
-      open, showChat: () => { model.select('chat'); render(); },
+      open, revealFile, showChat: () => { model.select('chat'); render(); },
       reset: () => { for (const frame of frames.values()) { pause(frame); frame.remove(); }
         frames.clear(); model.reset(); render();
         tipTitle.textContent = tipText.textContent = tipPath.textContent = ''; },
@@ -246,5 +249,5 @@
     render();
   }
   init.sequence = 0;
-  root.FleetWorkspaceTabs = {init, previewTarget, createModel, showChat: () => {}, reset: () => {}};
+  root.FleetWorkspaceTabs = {init, previewTarget, createModel, revealFile: () => false, showChat: () => {}, reset: () => {}};
 })(globalThis);

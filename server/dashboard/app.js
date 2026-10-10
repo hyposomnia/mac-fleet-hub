@@ -11,6 +11,7 @@ let macNames = {};      // id -> 自定义显示名
 let sessionLoadSeq = 0; // 会话列表请求序号：切主机/切筛选时丢弃旧响应，避免慢请求回写旧列表
 let fileLoadSeq = 0;    // 文件目录请求序号：切设备/目录时丢弃旧响应
 let fileColumnLoadSeq = 0; // 分栏子目录请求序号：切列/视图时丢弃旧响应
+let fileColumnAncestorLoadSeq = 0; // 重建根目录链路；逐层展开子目录不会取消上级列加载
 let sessionSearchTimer = null;
 let authenticatedPollTimers = [];
 
@@ -568,7 +569,12 @@ function activateConcreteMac(id) {
 
 function setSessionDevice(id) {
   if (id !== 'all' && !MACS.some((m) => m.id === id)) return;
-  if (state.sessionMacId === id) { closeOverlay('device-modal'); return; }
+  const fileDeviceChanged = id !== 'all' && rememberFileDevice(id);
+  if (state.sessionMacId === id) {
+    if (fileDeviceChanged) persistUIState();
+    closeOverlay('device-modal');
+    return;
+  }
   state.sessionMacId = id;
   if (id !== 'all') state.macId = id;
   backToList();
@@ -585,19 +591,27 @@ function setSessionDevice(id) {
   showEmpty();
 }
 
-function setFileDevice(id) {
-  if (!MACS.some((m) => m.id === id)) return;
+// fileMacId also remembers the last concrete device selected in either mode.
+// Opening a conversation in all-device scope must not change this preference.
+function rememberFileDevice(id) {
   const changed = state.fileMacId !== id;
-  const hadPreviewHistory = changed && !!history.state?.fleet && !!history.state.filePreviewPath;
+  if (!changed) return false;
   state.fileMacId = id;
-  state.macId = id;
   state.filePath = state.filePaths[id] || '';
   state.fileSelectedPath = '';
-  if (changed) {
-    fileColumnLoadSeq++;
-    state.fileColumns = [];
-    closeFilePreview();
-  }
+  fileColumnLoadSeq++;
+  fileColumnAncestorLoadSeq++;
+  state.fileColumns = [];
+  closeFilePreview();
+  return true;
+}
+
+function setFileDevice(id) {
+  if (!MACS.some((m) => m.id === id)) return;
+  const hadPreviewHistory = state.fileMacId !== id && !!history.state?.fleet && !!history.state.filePreviewPath;
+  const changed = rememberFileDevice(id);
+  state.macId = id;
+  state.fileSelectedPath = '';
   renderHosts();
   updateDeviceScopeUI();
   persistUIState();
@@ -809,9 +823,19 @@ function wireAppearanceSettings() {
 async function refreshSettings() {
   try {
     const r = await fetch(`${BASE}/api/settings`, { cache: 'no-store' });
-    if (r.ok) { state.settings = { ...SETTINGS_DEFAULT, ...(await r.json()) }; evictChatCache(); return; }
+    if (r.ok) {
+      const {deviceAppearance, ...settings} = await r.json();
+      state.settings = { ...SETTINGS_DEFAULT, ...settings }; evictChatCache(); return;
+    }
   } catch (_) {}
   if (!state.settings) state.settings = { ...SETTINGS_DEFAULT }; // 拉取失败：用默认，不阻塞
+}
+async function refreshDeviceAppearance() {
+  if (!FleetAuth.user) return;
+  try {
+    await FleetDeviceAppearance.refresh(`${BASE}/api/settings`, MACS.map(device => device.id));
+    renderHosts();
+  } catch (_) {} // 离线保留缓存，下一次刷新重试；保存失败由保存按钮明确报告。
 }
 function openSettings() {
   return openUnifiedSettings('sessions');
@@ -831,7 +855,8 @@ async function saveSettings() {
       method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body),
     });
     if (!r.ok) throw new Error('HTTP ' + r.status);
-    state.settings = { ...SETTINGS_DEFAULT, ...(await r.json()) };
+    const {deviceAppearance, ...settings} = await r.json();
+    state.settings = { ...SETTINGS_DEFAULT, ...settings };
     globalThis.FleetSettingsDialog?.active?.markSaved();
     closeOverlay('settings-modal');
     toast('设置已保存', 'ok');
@@ -1294,8 +1319,23 @@ function applyScrollbackToPool() {
 //  模式切换（会话 / 文件）
 // ============================================================
 function setMode(mode) {
-  state.mode = mode === 'files' ? 'files' : 'sessions';
-  mode = state.mode;
+  mode = mode === 'files' ? 'files' : 'sessions';
+  let sessionDeviceChanged = false;
+  if (mode !== state.mode) {
+    if (mode === 'files' && state.sessionMacId !== 'all') {
+      rememberFileDevice(state.sessionMacId);
+    } else if (mode === 'sessions' && state.sessionMacId !== 'all' && state.fileMacId && state.sessionMacId !== state.fileMacId) {
+      state.sessionMacId = state.fileMacId;
+      state.sessionResults = [];
+      state.sessionCursors = {};
+      sessionDeviceChanged = true;
+      if (state.selectedSessionMacId !== state.fileMacId) {
+        state.selectedSid = null;
+        state.selectedSessionMacId = null;
+      }
+    }
+  }
+  state.mode = mode;
   $('#app').dataset.mode = mode;
   window.FleetSidebarLayout?.sync();
   updateSettingsMenus();
@@ -1310,7 +1350,7 @@ function setMode(mode) {
     loadFiles();
   } else {
     $('#file-browser').hidden = true;
-    loadSessions();
+    loadSessions({ clear: sessionDeviceChanged });
     restoreTermOrEmpty();
   }
 }
@@ -1897,6 +1937,7 @@ function renderSessionMenu(session) {
   const actions = sessionMenuActions(session);
   if (!actions.length) return null;
   const pinAction = session.pinned ? 'unpin' : 'pin';
+  const archiveAction = state.scope === 'all' ? 'unarchive' : 'archive';
   const menu = h('div', { class: 'ses-menu-wrap' },
     h('button', { type: 'button', class: 'iconbtn bare ses-menu-trigger', title: '会话操作', 'aria-label': '会话操作',
       onclick: (event) => {
@@ -1915,6 +1956,8 @@ function renderSessionMenu(session) {
       actions.includes(pinAction) && h('button', { type: 'button', onclick: (event) => { event.stopPropagation(); return mutateSession(session, pinAction); } },
         session.pinned ? '取消置顶' : '置顶'),
       actions.includes('rename') && h('button', { type: 'button', onclick: (event) => { event.stopPropagation(); return renameSession(session); } }, '重命名'),
+      actions.includes(archiveAction) && h('button', { type: 'button', onclick: (event) => { event.stopPropagation(); return mutateSession(session, archiveAction); } },
+        archiveAction === 'archive' ? '归档' : '移回当前'),
       actions.includes('delete') && h('button', { type: 'button', class: 'danger', onclick: (event) => { event.stopPropagation(); return deleteSession(session); } }, '删除')));
   return menu;
 }
@@ -2849,6 +2892,8 @@ function syncChatTurnPin() {
     if (pin) pin.hidden = true;
     return;
   }
+  const scrollbarWidth = Math.max(0, sc.offsetWidth - sc.clientWidth);
+  pin.style.setProperty('--chat-scrollbar-width', `${scrollbarWidth}px`);
   const text = chatTurnPinText(sc.querySelectorAll('.chat-row.user[data-chat-turn-pin]'), sc.getBoundingClientRect().top);
   textEl.textContent = text;
   pin.hidden = !text;
@@ -2874,6 +2919,102 @@ function chatRenderUnits(entries) {
   }
   flushTrace();
   return units;
+}
+
+function chatRenderSignature(value) {
+  let text;
+  try { text = JSON.stringify(value); } catch (_) { text = String(value || ''); }
+  let hash = 2166136261;
+  for (let index = 0; index < text.length; index += 1) {
+    hash ^= text.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return `${text.length}:${(hash >>> 0).toString(36)}`;
+}
+
+function tagChatRenderNode(node, key, value) {
+  if (!node) return node;
+  node.dataset.chatRenderKey = key;
+  node.dataset.chatRenderSignature = chatRenderSignature(value);
+  return node;
+}
+
+function tagChatItemNode(node, key, value) {
+  if (!node) return node;
+  node.dataset.chatItemKey = key;
+  node.dataset.chatItemSignature = chatRenderSignature(value);
+  return node;
+}
+
+function chatActivityScrollTop(scrollTop, scrollHeight, clientHeight, nextScrollHeight) {
+  const wasAtBottom = scrollHeight - scrollTop - clientHeight <= 2;
+  return wasAtBottom ? Math.max(0, nextScrollHeight - clientHeight) : scrollTop;
+}
+
+function reconcileChatActivityItems(currentBody, nextBody) {
+  const existing = new Map([...currentBody.children]
+    .filter((node) => node.dataset.chatItemKey)
+    .map((node) => [node.dataset.chatItemKey, node]));
+  [...nextBody.children].forEach((next, index) => {
+    const key = next.dataset.chatItemKey;
+    const previous = key ? existing.get(key) : null;
+    let node = next;
+    if (previous) {
+      existing.delete(key);
+      if (previous.dataset.chatItemSignature === next.dataset.chatItemSignature) node = previous;
+    }
+    const position = currentBody.children[index];
+    if (position !== node) currentBody.insertBefore(node, position || null);
+    if (previous && previous !== node) previous.remove();
+  });
+  for (const stale of existing.values()) stale.remove();
+}
+
+function reconcileChatActivityGroup(current, next) {
+  const currentDetails = current.firstElementChild;
+  const nextDetails = next.firstElementChild;
+  const currentBody = currentDetails?.querySelector(':scope > .chat-activity-group-body');
+  const nextBody = nextDetails?.querySelector(':scope > .chat-activity-group-body');
+  if (!currentDetails || !nextDetails || !currentBody || !nextBody) return false;
+  const previousTop = currentBody.scrollTop;
+  const previousHeight = currentBody.scrollHeight;
+  const clientHeight = currentBody.clientHeight;
+  const currentSummary = currentDetails.querySelector(':scope > summary');
+  const nextSummary = nextDetails.querySelector(':scope > summary');
+  if (currentSummary && nextSummary) currentSummary.replaceWith(nextSummary);
+  reconcileChatActivityItems(currentBody, nextBody);
+  currentBody.scrollTop = chatActivityScrollTop(previousTop, previousHeight, clientHeight, currentBody.scrollHeight);
+  current.dataset.chatRenderSignature = next.dataset.chatRenderSignature;
+  return true;
+}
+
+function reconcileChatStack(sc, nextStack) {
+  const current = sc.firstElementChild?.classList?.contains('chat-stack') ? sc.firstElementChild : null;
+  if (!current) {
+    sc.replaceChildren(nextStack);
+    return;
+  }
+  const existing = new Map([...current.children]
+    .filter((node) => node.dataset.chatRenderKey)
+    .map((node) => [node.dataset.chatRenderKey, node]));
+  [...nextStack.children].forEach((next, index) => {
+    const key = next.dataset.chatRenderKey;
+    const previous = key ? existing.get(key) : null;
+    let node = next;
+    if (previous) {
+      existing.delete(key);
+      if (previous.dataset.chatRenderSignature === next.dataset.chatRenderSignature) {
+        node = previous;
+      } else if (previous.classList.contains('activity-group') && next.classList.contains('activity-group') &&
+          reconcileChatActivityGroup(previous, next)) {
+        node = previous;
+      }
+    }
+    const position = current.children[index];
+    if (position !== node) current.insertBefore(node, position || null);
+    if (previous && previous !== node) previous.remove();
+  });
+  for (const stale of existing.values()) stale.remove();
 }
 
 const CHAT_SUBAGENT_POLL_MS = 2500;
@@ -3165,19 +3306,22 @@ function renderChat({ preserveScroll = false, forceBottom = false } = {}) {
   const stack = h('div', { class: 'chat-stack' });
   renderChatSubagents(chat);
   if (chat.historyReady && chat.historyLoading) {
-    stack.append(h('div', { class: 'chat-history-state', text: '正在加载更早记录…' }));
+    stack.append(tagChatRenderNode(h('div', { class: 'chat-history-state', text: '正在加载更早记录…' }), 'state:history', true));
   }
-  if (chat.loading) stack.append(chatRow(h('div', { class: 'chat-card muted', text: assistantConnectingText() })));
+  if (chat.loading) stack.append(tagChatRenderNode(
+    chatRow(h('div', { class: 'chat-card muted', text: assistantConnectingText() })), 'state:loading', assistantConnectingText(),
+  ));
   const model = chat.model || FleetChatModel.createChatState();
   renderChatPendingInteraction(chat);
   renderChatOwnershipHead(chat);
   if (isDesktopChatOwned(chat)) {
     const running = isDesktopChatRunning(chat);
-    stack.append(h('div', { class: 'chat-desktop-running' },
+    stack.append(tagChatRenderNode(h('div', { class: 'chat-desktop-running' },
       h('strong', { text: running ? 'ChatGPT 桌面端正在输出' : 'ChatGPT 桌面端已打开此会话' }),
       h('span', { text: running
         ? 'Fleet 会保持同步。现在提交的内容会排队等待 Desktop 释放会话，Desktop 始终优先。'
-        : 'Fleet 当前保持只读。提交内容需再次确认，并会在 Desktop 切换或关闭此会话后自动发送。' })));
+        : 'Fleet 当前保持只读。提交内容需再次确认，并会在 Desktop 切换或关闭此会话后自动发送。' })),
+    'state:desktop', running));
   }
   const metaVisible = chatMessageMetaVisibility(model);
   const entries = model.messages
@@ -3190,25 +3334,29 @@ function renderChat({ preserveScroll = false, forceBottom = false } = {}) {
         unit.entries.map((entry) => entry.id),
         chat.expandedActivityGroups,
       )
-      : [renderChatItem(unit.entries[0].item,
-        unit.entries[0].item.type === 'user' && metaVisible.has(unit.entries[0].id))];
+      : [tagChatRenderNode(renderChatItem(unit.entries[0].item,
+        unit.entries[0].item.type === 'user' && metaVisible.has(unit.entries[0].id)),
+      `item:${unit.entries[0].id}`, [unit.entries[0].item, metaVisible.has(unit.entries[0].id)])];
     for (const row of rows) {
       if (row) stack.append(row);
     }
     if (unit.entries.length === 1 && unit.entries[0].item.type === 'user') {
       const queued = (chat.followups || []).find((item) => item.clientMessageId === unit.entries[0].id);
       if (queued && queued.status !== 'sent' && !isFleetQueueFollowup(queued)) {
-        stack.append(chatRow(queueStatusCard(queued), 'user queue-status-row'));
+        stack.append(tagChatRenderNode(chatRow(queueStatusCard(queued), 'user queue-status-row'),
+          `queue:${queued.id || unit.entries[0].id}`, queued));
       }
     }
     const lastId = unit.entries[unit.entries.length - 1].id;
     const turnMeta = metaVisible.get(lastId);
-    if (turnMeta?.type === 'assistant') stack.append(renderChatTurnMeta(turnMeta));
+    if (turnMeta?.type === 'assistant') stack.append(tagChatRenderNode(
+      renderChatTurnMeta(turnMeta), `meta:${lastId}`, turnMeta,
+    ));
   }
   const progress = renderChatTurnProgress(FleetChatModel.chatTurnProgress(model));
-  if (progress) stack.append(progress);
-  if (model.error) stack.append(renderChatError(model.error));
-  clear(sc); sc.append(stack);
+  if (progress) stack.append(tagChatRenderNode(progress, 'state:progress', FleetChatModel.chatTurnProgress(model)));
+  if (model.error) stack.append(tagChatRenderNode(renderChatError(model.error), 'state:error', model.error));
+  reconcileChatStack(sc, stack);
   syncCompactComposer();
   if (preserveScroll) sc.scrollTop = oldTop + (sc.scrollHeight - oldHeight);
   else if (forceBottom || stick) sc.scrollTop = sc.scrollHeight;
@@ -3540,7 +3688,20 @@ function chatToolIcon(kind) {
   ]);
 }
 
-function renderChatToolSurface(item, extraClass = '') {
+function chatActivityDetails(props, key, expanded, ...children) {
+  return h('details', {
+    ...props, open: key && expanded?.has(key) ? '' : null,
+    ontoggle: (event) => {
+      const details = event.currentTarget;
+      // Replaced nodes can still have a queued toggle event.
+      if (!key || !expanded || details.isConnected === false) return;
+      if (details.open) expanded.add(key);
+      else expanded.delete(key);
+    },
+  }, ...children);
+}
+
+function renderChatToolSurface(item, extraClass = '', itemID = '', expanded = null) {
   const status = chatToolStatus(item.status);
   const duration = chatToolDuration(item.durationMs);
   const hasBody = chatToolHasExpandableBody(item);
@@ -3552,7 +3713,7 @@ function renderChatToolSurface(item, extraClass = '') {
     h('span', { class: 'chat-tool-aside' },
       hasBody ? svgIcon('chat-tool-chevron', 'M6 9l6 6 6-6') : null));
   const cls = ['chat-tool compact', extraClass].filter(Boolean).join(' ');
-  if (!hasBody) return h('div', { class: cls }, header);
+  if (!hasBody) return tagChatItemNode(h('div', { class: cls }, header), `item:${itemID}`, item);
   const body = h('div', { class: 'chat-tool-body' },
     item.mediaPath ? chatImagePreview(chatMediaSrc(item.mediaPath), item.summary || `${assistantLabel()} 图片`, 'chat-tool-media', 'chat-tool-media-preview') : null,
     item.progress ? h('div', { class: 'chat-tool-progress', text: item.progress }) : null,
@@ -3565,32 +3726,35 @@ function renderChatToolSurface(item, extraClass = '') {
         item.output || '',
       ].filter(Boolean).join('\n') })) : null,
     item.exitCode !== undefined ? h('div', { class: 'chat-tool-exit tnum', text: `退出码 ${item.exitCode}` }) : null);
-  return h('details', { class: cls }, h('summary', {}, header), body);
+  return tagChatItemNode(
+    chatActivityDetails({ class: cls }, itemID ? `item:${itemID}` : '', expanded, h('summary', {}, header), body),
+    `item:${itemID}`, item,
+  );
 }
 
-function renderChatTool(item) {
-  return chatRow(renderChatToolSurface(item), 'tool');
+function renderChatTool(item, itemID = '', expanded = null) {
+  return chatRow(renderChatToolSurface(item, '', itemID, expanded), 'tool');
 }
 
-function renderChatDiffSurface(item, extraClass = '') {
+function renderChatDiffSurface(item, extraClass = '', itemID = '', expanded = null) {
   const files = item.files || [];
   const header = h('span', { class: 'chat-tool-summary' },
     h('span', { class: 'chat-tool-icon' }, chatToolIcon('fileChange')),
     h('span', { class: 'chat-tool-label' }, h('span', { class: 'chat-tool-verb', text: '已编辑' }), h('span', { class: 'chat-tool-muted', text: '文件' })),
     h('span', { class: 'chat-tool-aside' }, files.length ? svgIcon('chat-tool-chevron', 'M6 9l6 6 6-6') : null));
   const cls = ['chat-tool chat-diff compact', extraClass].filter(Boolean).join(' ');
-  if (!files.length) return h('div', { class: cls }, header);
-  return h('details', { class: cls },
+  if (!files.length) return tagChatItemNode(h('div', { class: cls }, header), `item:${itemID}`, item);
+  return tagChatItemNode(chatActivityDetails({ class: cls }, itemID ? `item:${itemID}` : '', expanded,
     h('summary', {}, header),
     h('div', { class: 'chat-diff-files' }, files.map((file) => h('div', { class: 'chat-diff-file' },
       h('span', { class: 'chat-diff-path mono', text: file.path }),
       h('span', { class: 'chat-diff-stats tnum' },
         h('span', { class: 'chat-diff-add', text: `+${file.additions || 0}` }),
-        h('span', { class: 'chat-diff-del', text: `-${file.deletions || 0}` }))))));
+        h('span', { class: 'chat-diff-del', text: `-${file.deletions || 0}` })))))), `item:${itemID}`, item);
 }
 
-function renderChatDiff(item) {
-  return chatRow(renderChatDiffSurface(item), 'diff');
+function renderChatDiff(item, itemID = '', expanded = null) {
+  return chatRow(renderChatDiffSurface(item, '', itemID, expanded), 'diff');
 }
 
 function chatActivitySourceLabel(item) {
@@ -3711,36 +3875,33 @@ function chatActivityGroupIconKind(items) {
   return items[0]?.kind || 'tool';
 }
 
-function renderChatActivityGroup(items, groupKey = '', expandedGroups = null) {
+function renderChatActivityGroup(items, groupKey = '', expandedGroups = null, itemIDs = []) {
   const segments = chatActivityActiveSummarySegments(chatActivityActiveItem(items)) || chatActivityGroupSummarySegments(items);
   const header = h('span', { class: 'chat-tool-summary chat-activity-group-summary' },
     h('span', { class: 'chat-tool-icon' }, chatToolIcon(chatActivityGroupIconKind(items))),
     h('span', { class: 'chat-tool-label' }, segments.map((segment) => h('span', { class: 'chat-tool-verb', text: segment }))),
     h('span', { class: 'chat-tool-aside' }, svgIcon('chat-tool-chevron', 'M6 9l6 6 6-6')));
-  const expanded = !!groupKey && expandedGroups?.has(groupKey);
-  const details = h('details', {
-    class: 'chat-activity-group chat-tool compact', open: expanded ? '' : null,
-    ontoggle: (event) => {
-      if (!groupKey || !expandedGroups) return;
-      if (event.currentTarget.open) expandedGroups.add(groupKey);
-      else expandedGroups.delete(groupKey);
-    },
-  },
+  const details = chatActivityDetails({ class: 'chat-activity-group chat-tool compact' }, groupKey, expandedGroups,
     h('summary', {}, header),
-    h('div', { class: 'chat-activity-group-body' }, items.map((item) => (
-      item.type === 'diff' ? renderChatDiffSurface(item, 'grouped') : renderChatToolSurface(item, 'grouped')
+    h('div', { class: 'chat-activity-group-body' }, items.map((item, index) => (
+      item.type === 'diff'
+        ? renderChatDiffSurface(item, 'grouped', itemIDs[index], expandedGroups)
+        : renderChatToolSurface(item, 'grouped', itemIDs[index], expandedGroups)
     ))));
   return chatRow(details,
   'tool activity-group');
 }
 
 function renderChatActivityRun(items, itemIDs = [], expandedGroups = null) {
-  const visibleItems = items.filter((item) => item.type !== 'reasoning');
+  const visibleEntries = items.map((item, index) => ({ item, id: itemIDs[index] })).filter(({ item }) => item.type !== 'reasoning');
+  const visibleItems = visibleEntries.map(({ item }) => item);
+  const visibleIDs = visibleEntries.map(({ id }) => id);
   const rows = [];
   for (let i = 0; i < visibleItems.length; i += 1) {
     const item = visibleItems[i];
     if (!isChatActivityItem(item)) {
-      rows.push(renderChatItem(item, false));
+      rows.push(tagChatRenderNode(renderChatItem(item, false, visibleIDs[i], expandedGroups),
+        `item:${visibleIDs[i] || i}`, item));
       continue;
     }
     const group = [item];
@@ -3751,8 +3912,11 @@ function renderChatActivityRun(items, itemIDs = [], expandedGroups = null) {
     const groupEnd = i;
     const groupStart = groupEnd - group.length + 1;
     // The group grows while a turn streams, so its first item ID is the stable identity.
-    const groupKey = group.length > 1 ? (itemIDs[groupStart] || '') : '';
-    rows.push(group.length > 1 ? renderChatActivityGroup(group, groupKey, expandedGroups) : renderChatItem(item, false));
+    const groupKey = group.length > 1 ? (visibleIDs[groupStart] || '') : '';
+    const row = group.length > 1
+      ? renderChatActivityGroup(group, groupKey, expandedGroups, visibleIDs.slice(groupStart, groupEnd + 1))
+      : renderChatItem(item, false, visibleIDs[i], expandedGroups);
+    rows.push(tagChatRenderNode(row, `activity:${visibleIDs[groupStart] || groupStart}`, group));
   }
   return rows.filter(Boolean);
 }
@@ -4023,7 +4187,7 @@ function renderChatMessageAttachment(att) {
   return href ? h('a', { class: 'chat-file-link', href, download: att.name || '附件', title: `下载 ${att.name || '附件'}` }, card) : card;
 }
 
-function renderChatItem(item, showMeta = true) {
+function renderChatItem(item, showMeta = true, itemID = '', expanded = null) {
   if (item.type === 'user') {
     const parts = [];
     if (item.text) parts.push(h('div', { text: item.text }));
@@ -4070,11 +4234,11 @@ function renderChatItem(item, showMeta = true) {
     return chatRow(h('div', { class: 'chat-context-note', text: '上下文已自动压缩' }), 'context');
   }
   if (item.type === 'review') return null;
-  if (item.type === 'tool') return renderChatTool(item);
+  if (item.type === 'tool') return renderChatTool(item, itemID, expanded);
   if (item.type === 'approval') return renderChatApprovalRequest(item);
   if (item.type === 'request_user_input') return renderChatUserInputRequest(item);
   if (item.type === 'elicitation') return renderChatElicitationRequest(item);
-  if (item.type === 'diff') return renderChatDiff(item);
+  if (item.type === 'diff') return renderChatDiff(item, itemID, expanded);
   return chatRow(h('div', { class: 'chat-card muted', text: JSON.stringify(item) }));
 }
 
@@ -5945,6 +6109,31 @@ function fileBaseName(path) {
   return parts.pop() || '文件';
 }
 
+function fileParentPath(path) {
+  const value = String(path || '').replace(/\/+$/, '') || '/';
+  const slash = value.lastIndexOf('/');
+  return slash > 0 ? value.slice(0, slash) : '/';
+}
+
+function revealWorkspaceFile(target = {}) {
+  const macId = String(target.macId || '');
+  const path = String(target.path || '').trim();
+  if (!/^m\d+$/.test(macId) || !path.startsWith('/')) return false;
+  const selectedPath = target.kind === 'file' ? path : '';
+  const directory = selectedPath ? fileParentPath(path) : (path.replace(/\/+$/, '') || '/');
+  if (state.mode !== 'files') setMode('files');
+  rememberFileDevice(macId);
+  state.macId = macId;
+  state.fileSearch = '';
+  const search = $('#file-search');
+  if (search) search.value = '';
+  renderHosts();
+  updateDeviceScopeUI();
+  persistUIState();
+  loadFileDirectory(directory, { pushHistory: true, fallback: false, selectedPath });
+  return true;
+}
+
 function formatFileTime(ms) {
   const value = Number(ms);
   if (!value) return '—';
@@ -6163,11 +6352,11 @@ function fileColumnRequestCurrent(request) {
     column?.selectedPath === request.path;
 }
 
-async function fetchFileDirectory(macId, path = '') {
+async function fetchFileDirectory(macId, path = '', options) {
   const query = new URLSearchParams();
   if (path) query.set('path', path);
   const queryString = query.toString();
-  return api(macId, `file/list${queryString ? '?' + queryString : ''}`);
+  return api(macId, `file/list${queryString ? '?' + queryString : ''}`, options);
 }
 
 function applyFileDirectoryData(data, macId, { resetColumns = true, selectedPath = '' } = {}) {
@@ -6178,7 +6367,10 @@ function applyFileDirectoryData(data, macId, { resetColumns = true, selectedPath
   state.fileLocations = data.locations || [];
   state.filePaths[macId] = state.filePath;
   state.fileSelectedPath = selectedPath;
-  if (resetColumns) state.fileColumns = [fileColumnFromData(data)];
+  if (resetColumns) {
+    if (state.fileView === 'columns') restoreFileColumnPath();
+    else state.fileColumns = [fileColumnFromData(data)];
+  }
 }
 
 function syncFileStateFromColumn(column, selectedPath = '') {
@@ -6226,6 +6418,7 @@ async function loadFileDirectory(path = '', opts = {}) {
   if (!fileBackAwaitingHistory) resetFileBackGesture();
   const req = ++fileLoadSeq;
   fileColumnLoadSeq++;
+  fileColumnAncestorLoadSeq++;
   const macId = state.fileMacId;
   const replacePreviewHistory = opts.pushHistory && !!history.state?.fleet && !!history.state.filePreviewPath;
   if (replacePreviewHistory) closeFilePreview();
@@ -6238,10 +6431,16 @@ async function loadFileDirectory(path = '', opts = {}) {
   try {
     const data = await fetchFileDirectory(macId, path);
     if (req !== fileLoadSeq || state.fileMacId !== macId || state.mode !== 'files') return;
-    applyFileDirectoryData(data, macId);
+    applyFileDirectoryData(data, macId, { selectedPath: opts.selectedPath || '' });
     state.fileLoading = false;
     persistUIState();
     renderFileBrowser();
+    if (opts.selectedPath) {
+      requestAnimationFrame(() => {
+        const selected = $$('#file-list [aria-selected="true"]');
+        selected[selected.length - 1]?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+      });
+    }
     if (opts.pushHistory) {
       const historyState = { mode: 'files', fileMacId: macId, filePath: state.filePath, filePreviewPath: '' };
       if (replacePreviewHistory) replaceFleetHistory(historyState);
@@ -6426,16 +6625,68 @@ function syncFileViewUI() {
   syncFileSortUI();
 }
 
+function fileColumnPaths(root, path) {
+  const base = String(root || '').replace(/\/+$/, '') || (root === '/' ? '/' : '');
+  const target = String(path || '').replace(/\/+$/, '') || (path === '/' ? '/' : '');
+  if (!base.startsWith('/') || !target.startsWith('/')) return [];
+  if (target === base) return [base];
+  if (base !== '/' && !target.startsWith(base + '/')) return [];
+  const parts = target.slice(base === '/' ? 1 : base.length + 1).split('/').filter(Boolean);
+  if (parts.some((part) => part === '.' || part === '..')) return [];
+  const paths = [base];
+  let current = base === '/' ? '' : base;
+  for (const part of parts) {
+    current += '/' + part;
+    paths.push(current);
+  }
+  return paths;
+}
+
+async function restoreFileColumnPath() {
+  const paths = fileColumnPaths(state.fileRoot, state.filePath);
+  if (!paths.length) return;
+  const macId = state.fileMacId;
+  const seq = ++fileColumnAncestorLoadSeq;
+  const cached = new Map(state.fileColumns.map((column) => [column.path, column]));
+  state.fileColumns = paths.map((path, index) => {
+    const last = index === paths.length - 1;
+    const existing = cached.get(path);
+    const column = last
+      ? { path, parent: state.fileParent, entries: state.fileEntries, loading: false, error: '' }
+      : (existing && !existing.loading && !existing.error ? existing : {
+        path, parent: paths[index - 1] || '', entries: [], loading: true, error: '',
+      });
+    return { ...column, selectedPath: paths[index + 1] || state.fileSelectedPath || '' };
+  });
+  scrollFileColumnsToStart();
+  await Promise.allSettled(state.fileColumns.filter((column) => column.loading).map(async (column) => {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 15000);
+    let loaded;
+    try {
+      loaded = fileColumnFromData(await fetchFileDirectory(macId, column.path, { signal: controller.signal, cache: 'no-store' }));
+    } catch (error) {
+      loaded = { ...column, loading: false, error: controller.signal.aborted ? '读取文件夹超时。' : error.message };
+    } finally {
+      clearTimeout(timer);
+    }
+    if (seq !== fileColumnAncestorLoadSeq || state.fileMacId !== macId || state.mode !== 'files' || state.fileView !== 'columns') return;
+    // 用户可能已在一个上级列切换到其它子目录；只填充仍保留的列，不恢复旧分支。
+    const index = state.fileColumns.findIndex((current) => current.path === column.path);
+    if (index < 0) return;
+    state.fileColumns[index] = { ...loaded, selectedPath: state.fileColumns[index].selectedPath };
+    renderFileEntries();
+  }));
+}
+
 function ensureFileColumns() {
-  if (state.fileColumns.length || !state.filePath) return;
-  state.fileColumns = [{
-    path: state.filePath,
-    parent: state.fileParent,
-    entries: state.fileEntries,
-    selectedPath: '',
-    loading: false,
-    error: '',
-  }];
+  if (!state.fileColumns.length && state.filePath) restoreFileColumnPath();
+}
+
+function scrollFileColumnsToStart() {
+  const wrap = $('#file-list');
+  if (!wrap || state.fileView !== 'columns') return;
+  requestAnimationFrame(() => { if (state.fileView === 'columns') wrap.scrollLeft = 0; });
 }
 
 function scrollFileColumnsToEnd() {
@@ -6446,6 +6697,18 @@ function scrollFileColumnsToEnd() {
   });
 }
 
+function handleFileColumnsWheel(event) {
+  const wrap = event.currentTarget;
+  if (state.fileView !== 'columns' || !event.shiftKey || event.ctrlKey || event.metaKey ||
+      wrap.scrollWidth <= wrap.clientWidth) return;
+  // Some browsers already translate Shift+wheel to deltaX; apply only one axis.
+  const delta = Math.abs(event.deltaX) > Math.abs(event.deltaY) ? event.deltaX : event.deltaY;
+  if (!delta) return;
+  const unit = event.deltaMode === 1 ? 16 : (event.deltaMode === 2 ? wrap.clientWidth : 1);
+  event.preventDefault();
+  wrap.scrollLeft += delta * unit;
+}
+
 function setFileView(view) {
   const next = normalizeFileView(view);
   if (next === state.fileView) {
@@ -6453,17 +6716,15 @@ function setFileView(view) {
     return;
   }
   fileColumnLoadSeq++;
+  fileColumnAncestorLoadSeq++;
   while (state.fileColumns[state.fileColumns.length - 1]?.loading) state.fileColumns.pop();
   state.fileView = next;
   if (next === 'columns') {
-    const last = state.fileColumns[state.fileColumns.length - 1];
-    if (!last || last.path !== state.filePath) state.fileColumns = [];
-    ensureFileColumns();
+    restoreFileColumnPath();
   }
   closeFileMenus();
   persistUIState();
   renderFileEntries();
-  if (next === 'columns') scrollFileColumnsToEnd();
 }
 
 function fileEntryMenu(entry, columnIndex = null) {
@@ -7298,7 +7559,13 @@ async function saveHost() {
   }
   const btn = $('#hm-save'); btn.disabled = true; btn.textContent = '保存中…';
 
-  const appearanceSaved = FleetDeviceAppearance.set(id, state.hostAppearanceDraft);
+  try {
+    await FleetDeviceAppearance.save(id, state.hostAppearanceDraft, `${BASE}/api/settings`);
+  } catch (error) {
+    btn.disabled = false; btn.textContent = '保存';
+    toast('设备外观未保存到服务器：' + error.message, 'err');
+    return;
+  }
   renderHosts();
   // 只写入用户实际修改的显示名与代理；改外观无需设备在线。
   if ($('#hm-name').value.trim() !== state.hostOriginalName) try {
@@ -7321,7 +7588,7 @@ async function saveHost() {
   btn.disabled = false; btn.textContent = '保存';
   if (proxyErr) { toast('外观已应用；代理未保存（' + macName(id) + ' 可能离线）：' + proxyErr, 'err'); return; }
   closeOverlay('host-modal');
-  toast(appearanceSaved ? '已保存' : '外观已应用；浏览器未允许记住设置，刷新后会恢复默认', appearanceSaved ? 'ok' : 'err');
+  toast('已保存到服务器', 'ok');
 }
 
 // ============================================================
@@ -7595,7 +7862,7 @@ function init() {
       pushFleetHistory({ mode: 'sessions', term: true });
       $('#app').classList.add('term-open');
     }
-  }, onSelectChat: restoreTermOrEmpty, onCloseChat: ({hasFiles}) => {
+  }, onRevealFile: revealWorkspaceFile, onSelectChat: restoreTermOrEmpty, onCloseChat: ({hasFiles}) => {
     state.selectedSid = state.selectedSessionMacId = null;
     showEmpty();
     if (hasFiles) $('#fullscreen-btn').hidden = false;
@@ -7607,15 +7874,15 @@ function init() {
     }
   }});
   window.FleetSidebarLayout?.init();
-  window.FleetDeviceHover?.init({onSelect: selectMac, onSettings: openHostModal});
   mountDeviceScopeButtons();
   initUIState();
   initSessionListPreferences();
   renderHosts();
   refreshNames();
   refreshSettings();
-  refreshNodes();
-  authenticatedPollTimers = [setInterval(refreshNodes, 30000), setInterval(refreshSessionsSoft, 5000)];
+  addEventListener('focus', refreshDeviceAppearance);
+  refreshNodes().then(refreshDeviceAppearance);
+  authenticatedPollTimers = [setInterval(refreshNodes, 30000), setInterval(refreshSessionsSoft, 5000), setInterval(refreshDeviceAppearance, 30000)];
   wireMobileInput();
 
   // 模式 / 助手 / 搜索 / 新建
@@ -7646,6 +7913,7 @@ function init() {
     button.onclick = openDshNativeUI;
   });
   // 自绘文件浏览器
+  $('#file-list').addEventListener('wheel', handleFileColumnsWheel, { passive: false });
   $('#file-search').oninput = (event) => { state.fileSearch = event.target.value.trim(); renderFileEntries(); };
   $$('[data-file-view]').forEach((button) => {
     button.onclick = () => setFileView(button.dataset.fileView);
@@ -7938,7 +8206,6 @@ function init() {
     resetFileBackGesture();
     if (state.mode === 'sessions' && state.termSid) $('#mobile-input').hidden = !isMobile();
     if (!$('#file-settings-menu').hidden) positionFileSettings(fileSettingsTrigger);
-    if (state.mode === 'files' && state.fileView === 'columns') scrollFileColumnsToEnd();
     if (!$('#chat-image-viewer').hidden) syncChatImageViewerLayout();
     syncChatTurnPin();
   });
@@ -7998,6 +8265,7 @@ async function initAuthenticatedDashboard() {
     SESSION_ARCHIVE_KEY = FleetAuth.storageKey('fleet-show-archived-sessions');
     UI_STATE_KEY = FleetAuth.storageKey('fleet-ui-state-v1');
     POOL_SNAP_KEY = FleetAuth.storageKey('fleet-pool');
+    FleetDeviceAppearance.bindAccount(FleetAuth.storageKey('fleet-device-appearance-v1'));
     state.sessionReadAt = loadSessionReadState();
     $('#user-name').textContent = '设置';
     document.documentElement.dataset.auth = 'ready';
@@ -8011,6 +8279,8 @@ async function initAuthenticatedDashboard() {
 }
 function stopAuthenticatedDashboard() {
   globalThis.FleetSettingsDialog?.active?.reset();
+  globalThis.FleetDeviceAppearance?.reset();
+  removeEventListener('focus', refreshDeviceAppearance);
   window.FleetWorkspaceTabs?.reset();
   authenticatedPollTimers.forEach(clearInterval);
   authenticatedPollTimers = [];

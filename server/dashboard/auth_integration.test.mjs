@@ -53,8 +53,10 @@ test('dashboard awaits me before init/preview/polling and namespaces all private
   assert.ok(source, 'authenticated dashboard bootstrap missing');
   let finish;
   let started = 0;
+  let appearanceKey;
   const user = { id: 'alice', role: 'user', email: 'alice@example.com' };
   const sandbox = { FleetAuth: { user, me: () => new Promise((resolve) => { finish = resolve; }), storageKey: (key) => `alice:${key}` },
+    FleetDeviceAppearance: { bindAccount: key => { appearanceKey = key; } },
     SESSION_READ_KEY: 'fleet-session-read-v2', SESSION_ARCHIVE_KEY: 'fleet-show-archived-sessions', UI_STATE_KEY: 'fleet-ui-state-v1', POOL_SNAP_KEY: 'fleet-pool',
     state: {}, loadSessionReadState: () => new Map(), stopAuthenticatedDashboard() {}, init: () => { started++; },
     document: { documentElement: { dataset: {} }, addEventListener() {} }, $: () => ({}), $$: () => [] };
@@ -64,6 +66,7 @@ test('dashboard awaits me before init/preview/polling and namespaces all private
   finish({ user });
   await pending;
   assert.equal(started, 1);
+  assert.equal(appearanceKey, 'alice:fleet-device-appearance-v1');
   for (const key of ['SESSION_READ_KEY', 'SESSION_ARCHIVE_KEY', 'UI_STATE_KEY', 'POOL_SNAP_KEY']) assert.match(sandbox[key], /^alice:/);
   assert.match(app, /DOMContentLoaded', initAuthenticatedDashboard/);
   assert.doesNotMatch(app, /sessionReadAt:\s*loadSessionReadState\(\)/);
@@ -101,7 +104,10 @@ test('session loss stops dashboard polling, closes chat streams and clears priva
   const cleared = [];
   let workspaceResets = 0;
   let composerResets = 0;
+  let appearanceResets = 0;
   const sandbox = { window: { FleetWorkspaceTabs: { reset: () => { workspaceResets++; } } },
+    FleetDeviceAppearance: { reset: () => { appearanceResets++; } },
+    removeEventListener() {}, refreshDeviceAppearance() {},
     compactComposer: { update: () => { composerResets++; } },
     authenticatedPollTimers: [1, 2], clearInterval: (timer) => cleared.push(timer), clearTimeout() {}, sessionSearchTimer: null,
     disposeChat: (chat) => closed.push(chat), state: { chat: { id: 'open' }, chatCache: new Map([['cached', { id: 'cached' }]]),
@@ -113,10 +119,28 @@ test('session loss stops dashboard polling, closes chat streams and clears priva
   sandbox.stopAuthenticatedDashboard();
   assert.equal(workspaceResets, 1);
   assert.equal(composerResets, 1);
+  assert.equal(appearanceResets, 1);
   assert.deepEqual(cleared, [1, 2]);
   assert.equal(closed.length, 2);
   assert.equal(sandbox.state.chatCache.size, 0);
   assert.equal(sandbox.state.sessionReadAt.size, 0);
   assert.equal(sandbox.state.pool.length, 0);
   assert.equal(sandbox.state.fileEntries.length, 0);
+});
+
+test('repeated session settings saves keep appearance objects out of integer preference requests', async () => {
+  const source = app.match(/async function saveSettings\(\) \{[\s\S]*?^\}/m)?.[0];
+  const requests = [];
+  const sandbox = { BASE: '', SETTINGS_DEFAULT: {chatCacheMaxSessions: 6}, state: {settings: {chatCacheMaxSessions: 6}},
+    $: () => ({value: '9'}), closeOverlay() {}, toast() {}, evictChatCache() {},
+    fetch: async (_, options) => {
+      requests.push(JSON.parse(options.body));
+      return {ok: true, json: async () => ({chatCacheMaxSessions: 9, deviceAppearance: {m1: {icon: 'mini', color: 'teal'}}})};
+    } };
+  vm.runInNewContext(source, sandbox);
+  await sandbox.saveSettings();
+  await sandbox.saveSettings();
+  assert.equal(requests.length, 2);
+  for (const request of requests) assert.deepEqual(request, {chatCacheMaxSessions: 9});
+  assert.equal(Object.hasOwn(sandbox.state.settings, 'deviceAppearance'), false);
 });

@@ -112,6 +112,11 @@ vm.runInContext('globalThis.__chatApprovalCapabilityTest = { assistantCapabiliti
 const { assistantCapabilities, chatTurnOptions } = appSandbox.__chatApprovalCapabilityTest;
 vm.runInContext('globalThis.__chatEventsTest = { startChatEvents };', appSandbox);
 const { startChatEvents } = appSandbox.__chatEventsTest;
+vm.runInContext(`globalThis.__chatIncrementalTest = {
+  chatActivityScrollTop: typeof chatActivityScrollTop === 'function' ? chatActivityScrollTop : null,
+  reconcileChatActivityItems: typeof reconcileChatActivityItems === 'function' ? reconcileChatActivityItems : null,
+};`, appSandbox);
+const { chatActivityScrollTop, reconcileChatActivityItems } = appSandbox.__chatIncrementalTest;
 function toolLabelText(item) {
   const status = chatToolStatus(item.status);
   return chatToolActivityLabel(item, status, chatToolDuration(item.durationMs)).map(nodeText).join('');
@@ -135,7 +140,7 @@ const previewSandbox = {
 };
 vm.createContext(previewSandbox);
 vm.runInContext(previewSrc, previewSandbox);
-const { resolveLocalLink, resourceURL, fileEndpoint, isPreviewRoute, previewRequest, isTextPreviewPath, textPreviewMode } = previewSandbox.globalThis.FleetPreview;
+const { resolveLocalLink, resourceURL, fileEndpoint, isPreviewRoute, previewRequest, previewPathSegments, isTextPreviewPath, textPreviewMode } = previewSandbox.globalThis.FleetPreview;
 
 test('chat model and app use the same versioned shell URLs', () => {
   const styleURL = indexHTML.match(/style\.css\?v=([a-zA-Z0-9_-]+)/);
@@ -202,6 +207,179 @@ test('preview helpers build protected media URLs and parse only /view routes', (
     { macId: 'm2', path: '/Users/test/plan.md', cwd: '/repo', embed: false },
   );
   assert.equal(previewRequest('?mac=m2&path=%2Ftmp%2Fnote.txt&embed=1').embed, true);
+});
+
+test('preview path exposes every directory segment and the final file as file-manager targets', () => {
+  assert.deepEqual(
+    JSON.parse(JSON.stringify(previewPathSegments('/Users/hjc/Git_Repositories/photo-cleaner/docs/README.md'))),
+    [
+      { label: '/', path: '/', kind: 'folder' },
+      { label: 'Users', path: '/Users', kind: 'folder' },
+      { label: 'hjc', path: '/Users/hjc', kind: 'folder' },
+      { label: 'Git_Repositories', path: '/Users/hjc/Git_Repositories', kind: 'folder' },
+      { label: 'photo-cleaner', path: '/Users/hjc/Git_Repositories/photo-cleaner', kind: 'folder' },
+      { label: 'docs', path: '/Users/hjc/Git_Repositories/photo-cleaner/docs', kind: 'folder' },
+      { label: 'README.md', path: '/Users/hjc/Git_Repositories/photo-cleaner/docs/README.md', kind: 'file' },
+    ],
+  );
+  assert.deepEqual(JSON.parse(JSON.stringify(previewPathSegments('docs/README.md'))), [
+    { label: 'docs', path: 'docs', kind: 'folder' },
+    { label: 'README.md', path: 'docs/README.md', kind: 'file' },
+  ]);
+});
+
+test('embedded preview breadcrumbs hand navigation to the main file manager', () => {
+  assert.match(previewSrc, /FleetWorkspaceTabs\?\.revealFile\?\.\(\{\s*macId:\s*request\.macId,\s*path:\s*segment\.path,\s*kind:\s*segment\.kind/s);
+  assert.match(appSrc, /FleetWorkspaceTabs\?\.init\(\{[\s\S]*?onRevealFile:\s*revealWorkspaceFile/);
+  assert.match(appSrc, /applyFileDirectoryData\(data, macId, \{\s*selectedPath:\s*opts\.selectedPath\s*\|\|\s*''\s*\}\)/);
+  assert.match(styleCSS, /\.preview-path-segment\s*\{[^}]*cursor:\s*pointer;/s);
+});
+
+function imagePreviewHarness(name, options = {}) {
+  const nodes = new Map();
+  for (const id of ['app', 'preview-page', 'preview-stage', 'preview-title', 'preview-path', 'preview-download', 'preview-image', 'preview-error']) {
+    nodes.set(`#${id}`, { dataset: {}, setAttribute() {}, removeAttribute() {} });
+  }
+  nodes.get('#preview-stage').querySelectorAll = () => [];
+  const scripts = [];
+  const fetches = [];
+  const revoked = [];
+  const listeners = new Map();
+  const timers = [];
+  let decoderCalls = 0;
+  const document = {
+    documentElement: { dataset: {} },
+    querySelector: (selector) => nodes.get(selector),
+    createElement: () => ({ remove() {} }),
+    head: { append(script) {
+      scripts.push(script.src);
+      queueMicrotask(() => {
+        if (options.scriptError) { script.onerror(); return; }
+        sandbox.HeicTo = async (args) => {
+          decoderCalls++;
+          assert.equal(args.type, 'image/jpeg');
+          assert.equal(args.blob.type, 'image/heic');
+          return options.decode ? options.decode(args) : new Blob(['preview'], { type: 'image/jpeg' });
+        };
+        script.onload();
+      });
+    } },
+  };
+  const sandbox = {
+    document, URLSearchParams, AbortController, clearTimeout,
+    setTimeout: (callback, ms) => {
+      timers.push({ callback, ms });
+      const timer = setTimeout(callback, ms);
+      timer.unref();
+      return timer;
+    },
+    URL: { createObjectURL: () => 'blob:converted-heic', revokeObjectURL: (url) => revoked.push(url) },
+    location: { origin: 'https://fleet.example.test', search: `?mac=m4&path=${encodeURIComponent(`/photos/${name}`)}&embed=1` },
+    addEventListener: (type, callback) => listeners.set(type, callback),
+    fetch: async (url, init) => {
+      fetches.push({ url, init });
+      if (url.includes('/preview?')) return {
+        ok: true, json: async () => ({ path: `/photos/${name}`, name, kind: 'image', mime: name.endsWith('WebP') ? 'image/webp' : 'image/heic' }),
+      };
+      return { ok: options.httpError ? false : true, status: options.httpError || 200, blob: async () => new Blob(['original'], { type: 'image/heic' }) };
+    },
+  };
+  sandbox.globalThis = sandbox;
+  vm.createContext(sandbox);
+  vm.runInContext(previewSrc, sandbox);
+  return { api: sandbox.FleetPreview, nodes, scripts, fetches, revoked, listeners, timers, decoderCalls: () => decoderCalls };
+}
+
+test('HEIC preview falls back to a locally hosted decoder and keeps the original download', async () => {
+  const h = imagePreviewHarness('PHOTO.HEIC');
+  await h.api.initRoute();
+  const image = h.nodes.get('#preview-image');
+  assert.match(image.src, /^\/m4\/api\/file\/content\?path=/);
+  assert.equal(h.scripts.length, 0);
+  await image.onerror();
+  assert.deepEqual(h.scripts, ['/vendor/heic-to.js?v=1.6.5']);
+  assert.equal(h.decoderCalls(), 1);
+  assert.equal(image.src, 'blob:converted-heic');
+  image.onload();
+  assert.equal(h.nodes.get('#preview-stage').dataset.kind, 'image');
+  assert.match(h.nodes.get('#preview-download').href, /PHOTO\.HEIC&download=1$/);
+  assert.equal(h.fetches[1].init.cache, 'no-store');
+  h.listeners.get('pagehide')();
+  assert.deepEqual(h.revoked, ['blob:converted-heic']);
+  assert.equal(h.fetches[1].init.signal.aborted, true);
+});
+
+test('HEIF uses the same fallback while native HEIC and WebP need no decoder', async () => {
+  const heif = imagePreviewHarness('photo.heif');
+  await heif.api.initRoute();
+  await heif.nodes.get('#preview-image').onerror();
+  assert.equal(heif.decoderCalls(), 1);
+  for (const name of ['native.HEIC', 'transparent.WebP']) {
+    const h = imagePreviewHarness(name);
+    await h.api.initRoute();
+    h.nodes.get('#preview-image').onload?.();
+    assert.equal(h.nodes.get('#preview-stage').dataset.kind, 'image');
+    assert.equal(h.scripts.length, 0);
+    assert.equal(h.fetches.length, 1);
+    assert.match(h.nodes.get('#preview-image').src, /api\/file\/content/);
+  }
+});
+
+test('HEIC conversion failures leave a useful error and the original download', async () => {
+  for (const options of [
+    { scriptError: true }, { httpError: 403 },
+    { decode: async () => { throw new Error('corrupt image'); } },
+  ]) {
+    const h = imagePreviewHarness('broken.heic', options);
+    await h.api.initRoute();
+    await h.nodes.get('#preview-image').onerror();
+    assert.equal(h.nodes.get('#preview-stage').dataset.kind, 'error');
+    assert.match(h.nodes.get('#preview-error').textContent, /HEIC.*下载原文件/);
+    assert.match(h.nodes.get('#preview-download').href, /download=1$/);
+  }
+});
+
+test('leaving an HEIC preview prevents an unfinished conversion from replacing the image', async () => {
+  let finish;
+  const h = imagePreviewHarness('slow.heic', { decode: () => new Promise((resolve) => { finish = resolve; }) });
+  await h.api.initRoute();
+  const image = h.nodes.get('#preview-image');
+  const original = image.src;
+  const pending = image.onerror();
+  for (let tick = 0; !finish && tick < 20; tick++) await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(typeof finish, 'function');
+  h.listeners.get('pagehide')();
+  finish(new Blob(['preview'], { type: 'image/jpeg' }));
+  await pending;
+  assert.equal(image.src, original);
+  assert.equal(h.nodes.get('#preview-stage').dataset.kind, 'loading');
+});
+
+test('HEIC conversion timeout stops loading and ignores a late decoder result', async () => {
+  let finish;
+  const h = imagePreviewHarness('slow.heic', { decode: () => new Promise((resolve) => { finish = resolve; }) });
+  await h.api.initRoute();
+  const image = h.nodes.get('#preview-image');
+  const pending = image.onerror();
+  for (let tick = 0; !finish && tick < 20; tick++) await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(typeof finish, 'function');
+  h.timers.find((timer) => timer.ms === 60000).callback();
+  assert.equal(h.nodes.get('#preview-stage').dataset.kind, 'error');
+  assert.equal(h.fetches[1].init.signal.aborted, true);
+  finish(new Blob(['preview'], { type: 'image/jpeg' }));
+  await pending;
+  assert.doesNotMatch(image.src, /^blob:/);
+  assert.equal(h.nodes.get('#preview-stage').dataset.kind, 'error');
+});
+
+test('broken WebP reports an error without invoking the HEIC decoder', async () => {
+  const h = imagePreviewHarness('broken.WebP');
+  await h.api.initRoute();
+  await h.nodes.get('#preview-image').onerror();
+  assert.equal(h.nodes.get('#preview-stage').dataset.kind, 'error');
+  assert.equal(h.scripts.length, 0);
+  assert.equal(h.fetches.length, 1);
+  assert.match(h.nodes.get('#preview-download').href, /download=1$/);
 });
 
 test('file preview omits browser back actions and redundant device/type/size badges', () => {
@@ -1446,6 +1624,63 @@ test('file browser supports persistent icon, list, and column views', () => {
   assert.doesNotMatch(styleCSS, /\.file-view-switch\s*\{[^}]*order:\s*3/);
 });
 
+test('column view routes Shift+wheel to horizontal scrolling and preserves other wheel gestures', () => {
+  const handleWheel = vm.runInContext(
+    "typeof handleFileColumnsWheel === 'function' ? handleFileColumnsWheel : null", appSandbox,
+  );
+  assert.equal(typeof handleWheel, 'function');
+  const previousView = appState.fileView;
+  const wrap = { scrollLeft: 200, scrollWidth: 1600, clientWidth: 600, scrollTop: 0 };
+  const body = { scrollTop: 120 };
+  const wheel = (options = {}) => {
+    const event = {
+      currentTarget: wrap, target: body, shiftKey: true, deltaX: 0, deltaY: 80, deltaMode: 0,
+      ctrlKey: false, metaKey: false, defaultPrevented: false,
+      preventDefault() { this.defaultPrevented = true; }, ...options,
+    };
+    handleWheel(event);
+    return event;
+  };
+  try {
+    appState.fileView = 'columns';
+    assert.equal(wheel().defaultPrevented, true);
+    assert.equal(wrap.scrollLeft, 280);
+    wheel({ deltaY: -60 });
+    assert.equal(wrap.scrollLeft, 220);
+    wheel({ deltaX: 50, deltaY: 50 });
+    assert.equal(wrap.scrollLeft, 270, 'native horizontal delta is applied only once');
+    wheel({ deltaX: -30, deltaY: 0 });
+    assert.equal(wrap.scrollLeft, 240);
+    wheel({ deltaY: 3, deltaMode: 1 });
+    assert.equal(wrap.scrollLeft, 288);
+    wheel({ deltaY: 1, deltaMode: 2 });
+    assert.equal(wrap.scrollLeft, 888);
+    assert.equal(wrap.scrollTop, 0);
+    assert.equal(body.scrollTop, 120, 'Shift+wheel does not move the nested column vertically');
+
+    for (const options of [{ shiftKey: false }, { ctrlKey: true }, { metaKey: true }, { deltaY: 0 }]) {
+      assert.equal(wheel(options).defaultPrevented, false);
+      assert.equal(wrap.scrollLeft, 888);
+    }
+    for (const view of ['list', 'icons']) {
+      appState.fileView = view;
+      assert.equal(wheel().defaultPrevented, false);
+      assert.equal(wrap.scrollLeft, 888);
+    }
+    appState.fileView = 'columns';
+    wrap.scrollWidth = wrap.clientWidth;
+    assert.equal(wheel().defaultPrevented, false);
+    assert.equal(wrap.scrollLeft, 888);
+  } finally {
+    appState.fileView = previousView;
+  }
+});
+
+test('column view allows small mouse-wheel movements without snapping while retaining touch snapping', () => {
+  assert.match(styleCSS, /\.file-list-columns\s*\{[^}]*scroll-snap-type:\s*x proximity;/s);
+  assert.match(styleCSS, /@media\s*\(hover:\s*hover\)\s*\{\s*\.file-list-columns\s*\{\s*scroll-snap-type:\s*none;/s);
+});
+
 test('file browser highlights only the most specific matching location', () => {
   const locations = [
     { id: 'home', path: '/Users/demo' },
@@ -1495,6 +1730,149 @@ test('column view truncates stale descendants and rejects stale async responses'
   }
 });
 
+test('column directory paths include the configured root and every ancestor', () => {
+  const paths = vm.runInContext("typeof fileColumnPaths === 'function' ? fileColumnPaths : null", appSandbox);
+  assert.equal(typeof paths, 'function');
+  const plain = (root, path) => Array.from(paths(root, path));
+  assert.deepEqual(plain('/Users/demo', '/Users/demo/Downloads/CrossOver.app/Contents'), [
+    '/Users/demo', '/Users/demo/Downloads', '/Users/demo/Downloads/CrossOver.app', '/Users/demo/Downloads/CrossOver.app/Contents',
+  ]);
+  assert.deepEqual(plain('/Users/demo/', '/Users/demo/'), ['/Users/demo']);
+  assert.deepEqual(plain('/', '/Users/demo'), ['/', '/Users', '/Users/demo']);
+  assert.deepEqual(plain('/Users/demo', '/Users/demo2/private'), []);
+  assert.deepEqual(plain('', '/Users/demo'), []);
+});
+
+function fileColumnRestoreHarness() {
+  const context = {
+    document: { ...appSandbox.document },
+    FleetChatModel: sandbox.globalThis.FleetChatModel,
+    FleetUploadModel: uploadSandbox.globalThis.FleetUploadModel,
+    AbortController, setTimeout, clearTimeout, requestAnimationFrame: (callback) => callback(),
+  };
+  vm.createContext(context);
+  vm.runInContext(appSrc, context);
+  vm.runInContext(`globalThis.testColumns = {
+    state,
+    restore: typeof restoreFileColumnPath === 'function' ? restoreFileColumnPath : null,
+    apply: applyFileDirectoryData,
+    setView: setFileView,
+    select: truncateFileColumns,
+    renderCount: 0,
+    pending: [],
+    scrollLeft: 400,
+    invalidate: () => { fileColumnAncestorLoadSeq++; },
+  };
+  renderFileEntries = () => { testColumns.renderCount++; };
+  fetchFileDirectory = (macId, path) => new Promise((resolve, reject) => testColumns.pending.push({ macId, path, resolve, reject }));
+  `, context);
+  context.document.querySelector = (selector) => selector === '#file-list' ? context.testColumns : null;
+  Object.assign(context.testColumns.state, {
+    mode: 'files', fileMacId: 'm4', fileView: 'columns', fileRoot: '/Users/demo',
+    filePath: '/Users/demo/Downloads/app/Contents', fileParent: '/Users/demo/Downloads/app',
+    fileEntries: [{ name: 'file.txt', path: '/Users/demo/Downloads/app/Contents/file.txt', kind: 'file' }],
+    fileColumns: [], fileSelectedPath: '',
+  });
+  return context.testColumns;
+}
+
+test('opening a deep directory restores root columns, selections and the initial root viewport', async () => {
+  const h = fileColumnRestoreHarness();
+  assert.equal(typeof h.restore, 'function');
+  const pending = h.restore();
+  assert.deepEqual(Array.from(h.state.fileColumns, (column) => column.path), [
+    '/Users/demo', '/Users/demo/Downloads', '/Users/demo/Downloads/app', '/Users/demo/Downloads/app/Contents',
+  ]);
+  assert.deepEqual(Array.from(h.state.fileColumns, (column) => column.selectedPath), [
+    '/Users/demo/Downloads', '/Users/demo/Downloads/app', '/Users/demo/Downloads/app/Contents', '',
+  ]);
+  assert.equal(h.scrollLeft, 0);
+  assert.equal(h.pending.length, 3, 'the already fetched current directory is reused');
+  for (const request of h.pending) request.resolve({ path: request.path, entries: [{ name: 'loaded', path: request.path + '/loaded' }] });
+  await pending;
+  assert.ok(h.state.fileColumns.every((column) => !column.loading));
+  assert.equal(h.state.fileColumns.at(-1).entries[0].name, 'file.txt');
+});
+
+test('ancestor loading preserves a newer folder selection and keeps failures in their own column', async () => {
+  const h = fileColumnRestoreHarness();
+  assert.equal(typeof h.restore, 'function');
+  const pending = h.restore();
+  h.state.fileColumns = h.select(h.state.fileColumns, 1, '/Users/demo/Downloads/other');
+  h.state.fileColumns.push({ path: '/Users/demo/Downloads/other', entries: [], selectedPath: '', loading: false });
+  h.pending[0].reject(new Error('permission denied'));
+  h.pending[1].resolve({ path: '/Users/demo/Downloads', entries: [{ name: 'other', path: '/Users/demo/Downloads/other' }] });
+  h.pending[2].resolve({ path: '/Users/demo/Downloads/app', entries: [] });
+  await pending;
+  assert.equal(h.state.fileColumns[0].error, 'permission denied');
+  assert.equal(h.state.fileColumns[0].loading, false);
+  assert.equal(h.state.fileColumns[1].selectedPath, '/Users/demo/Downloads/other');
+  assert.equal(h.state.fileColumns.at(-1).path, '/Users/demo/Downloads/other');
+  assert.equal(h.state.fileColumns.length, 3, 'discarded descendants are not restored by old requests');
+});
+
+test('changing directory, device or view rejects stale ancestor responses', async () => {
+  for (const change of [
+    (h) => h.invalidate(),
+    (h) => { h.state.fileMacId = 'm1'; },
+    (h) => { h.state.fileView = 'list'; },
+    (h) => { h.state.mode = 'sessions'; },
+  ]) {
+    const h = fileColumnRestoreHarness();
+    assert.equal(typeof h.restore, 'function');
+    const pending = h.restore();
+    change(h);
+    for (const request of h.pending) request.resolve({ path: request.path, entries: [{ name: 'stale' }] });
+    await pending;
+    assert.equal(h.renderCount, 0);
+    assert.ok(h.state.fileColumns.slice(0, -1).every((column) => !column.entries.length));
+  }
+});
+
+test('refreshing a deep column directory keeps its ancestry while replacing the current listing', async () => {
+  const h = fileColumnRestoreHarness();
+  h.apply({ root: '/Users/demo', path: '/Users/demo/Downloads/app/Contents', parent: '/Users/demo/Downloads/app', entries: [{ name: 'new.txt' }] }, 'm4');
+  assert.equal(h.state.fileColumns[0].path, '/Users/demo');
+  assert.equal(h.state.fileColumns.at(-1).entries[0].name, 'new.txt');
+  for (const request of h.pending) request.resolve({ path: request.path, entries: [] });
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.ok(h.state.fileColumns.every((column) => !column.loading));
+});
+
+test('restoring columns reuses loaded ancestors and loads nothing extra at the root', async () => {
+  const h = fileColumnRestoreHarness();
+  assert.equal(typeof h.restore, 'function');
+  h.state.fileColumns = [
+    { path: '/Users/demo', entries: [{ name: 'Downloads' }], loading: false, error: '' },
+    { path: '/Users/demo/Downloads', entries: [{ name: 'app' }], loading: false, error: '' },
+    { path: '/Users/demo/Downloads/app', entries: [{ name: 'Contents' }], loading: false, error: '' },
+  ];
+  await h.restore();
+  assert.equal(h.pending.length, 0);
+  assert.equal(h.state.fileColumns.length, 4);
+  assert.equal(h.state.fileColumns[1].entries[0].name, 'app');
+  h.state.filePath = h.state.fileRoot;
+  h.state.fileParent = '';
+  h.state.fileEntries = [{ name: 'fresh folder' }];
+  await h.restore();
+  assert.equal(h.state.fileColumns.length, 1);
+  assert.equal(h.state.fileColumns[0].entries[0].name, 'fresh folder');
+  assert.equal(h.pending.length, 0);
+});
+
+test('switching from list to columns restores the entire root path', async () => {
+  const h = fileColumnRestoreHarness();
+  h.state.fileView = 'list';
+  h.state.fileColumns = [{ path: h.state.filePath, entries: h.state.fileEntries }];
+  h.setView('columns');
+  assert.equal(h.state.fileColumns[0].path, '/Users/demo');
+  assert.equal(h.state.fileColumns.length, 4);
+  assert.equal(h.scrollLeft, 0);
+  for (const request of h.pending) request.resolve({ path: request.path, entries: [] });
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.ok(h.state.fileColumns.every((column) => !column.loading));
+});
+
 test('hidden files stay muted in icon and column views', () => {
   assert.match(appSrc, /class:\s*`file-icon-item\$\{entry\.hidden \? ' is-hidden' : ''\}`/);
   assert.match(appSrc, /class:\s*`file-column-row\$\{entry\.hidden \? ' is-hidden' : ''\}`/);
@@ -1534,13 +1912,26 @@ test('jump-to-bottom control uses an accessible inline SVG icon', () => {
   assert.doesNotMatch(indexHTML, />跳到底部<\/button>/);
 });
 
-test('floating summaries and jump control use a visibly translucent surface independently of user bubbles', () => {
-  assert.ok(/--chat-floating-bg:\s*color-mix\(in srgb, var\(--chat-surface-2\) 35%, transparent\)/.test(styleCSS), 'floating surface stays translucent enough for the backdrop blur to remain visible');
-  for (const selector of ['.chat-turn-pin-card', '#chat-jump', '#win[data-workspace-preview="true"] #chat-preview-output:not([hidden])']) {
+test('sticky previous input aligns with user bubbles and reuses their tint with extra transparency', () => {
+  assert.ok(/--chat-turn-pin-bg:\s*color-mix\(in srgb, var\(--chat-user-bg\) 70%, transparent\)/.test(styleCSS), 'sticky input derives from the user bubble tint');
+  assert.match(styleCSS, /#chat-turn-pin\s*\{[^}]*padding:\s*8px calc\(20px \+ var\(--chat-scrollbar-width, 0px\)\) 8px 20px;/s);
+  assert.match(styleCSS, /@media \(max-width:\s*860px\)[\s\S]*?#chat-turn-pin\s*\{[^}]*padding:\s*7px calc\(14px \+ var\(--chat-scrollbar-width, 0px\)\) 7px 14px;/s);
+  assert.match(appSrc, /Math\.max\(0, sc\.offsetWidth - sc\.clientWidth\)/);
+  assert.match(appSrc, /pin\.style\.setProperty\('--chat-scrollbar-width', `\$\{scrollbarWidth\}px`\)/);
+  const pinBlock = styleCSS.split('.chat-turn-pin-card {')[1]?.split('}')[0] || '';
+  assert.match(pinBlock, /background:\s*var\(--chat-turn-pin-bg\)/);
+  assert.match(pinBlock, /backdrop-filter:\s*blur\(18px\)/);
+});
+
+test('floating output and jump control keep glass surfaces while the down arrow is quieter', () => {
+  assert.ok(/--chat-floating-bg:\s*color-mix\(in srgb, var\(--chat-surface-2\) 50%, transparent\)/.test(styleCSS), 'floating surface retains a 50% alpha channel');
+  for (const selector of ['#chat-jump', '#win[data-workspace-preview="true"] #chat-preview-output:not([hidden])']) {
     const block = styleCSS.split(selector + ' {')[1]?.split('}')[0] || '';
     assert.match(block, /background:\s*var\(--chat-floating-bg\)/, selector);
     assert.match(block, /backdrop-filter:\s*blur\(18px\)/, selector);
   }
+  assert.match(styleCSS, /#chat-jump\s*\{[^}]*opacity:\s*\.72;/s);
+  assert.match(styleCSS, /#chat-jump:hover\s*\{[^}]*opacity:\s*\.82;/s);
 });
 
 test('jump-to-bottom glass is not trapped inside the composer backdrop root', () => {
@@ -2221,6 +2612,15 @@ test('mobile session rows center single-line content vertically', () => {
   );
 });
 
+test('session archive shortcut is subtle on desktop and hidden on mobile', () => {
+  assert.match(styleCSS, /\.ses-archive-trigger\s*\{[^}]*width:\s*23px;[^}]*height:\s*23px;[^}]*color:\s*var\(--text-3\);/s);
+  assert.match(styleCSS, /\.ses-archive-trigger \.ic\s*\{[^}]*width:\s*13px;[^}]*height:\s*13px;/s);
+  assert.match(styleCSS, /\.ses-archive-trigger:hover\s*\{[^}]*color:\s*var\(--text-2\);/s);
+  const mobileRules = styleCSS.match(/@media \(max-width:\s*860px\)[\s\S]*$/)?.[0] || '';
+  assert.match(mobileRules, /\.ses-archive-trigger\s*\{\s*display:\s*none;\s*\}/);
+  assert.match(mobileRules, /\.ses-menu-trigger\s*\{[^}]*width:\s*44px;[^}]*height:\s*44px;[^}]*opacity:\s*1;/s);
+});
+
 test('mobile title switch emphasizes only the selected mode', () => {
   assert.match(styleCSS, /\.mobile-title-switch button\s*\{[^}]*border:\s*0;[^}]*color:\s*var\(--text\);[^}]*font-weight:\s*500;/s);
   assert.match(styleCSS, /\.mobile-title-switch button\[aria-selected="true"\]\s*\{[^}]*[^}]*color:\s*var\(--accent\);[^}]*font-weight:\s*700;/s);
@@ -2494,6 +2894,113 @@ test('manually expanded activity groups stay open across live rerenders', () => 
   details.open = false;
   details.ontoggle({ currentTarget: details });
   assert.equal(expanded.has('tool-1'), false);
+});
+
+test('live chat refresh reconciles keyed rows instead of rebuilding the transcript', () => {
+  const source = appSrc.match(/function renderChat\(\{ preserveScroll = false, forceBottom = false \} = \{\}\) \{[\s\S]*?\n\}/)?.[0] || '';
+  assert.match(source, /reconcileChatStack\(sc, stack\)/);
+  assert.doesNotMatch(source, /clear\(sc\);\s*sc\.append\(stack\)/);
+  assert.match(appSrc, /node\.dataset\.chatItemKey\s*=\s*key/);
+});
+
+test('activity group background updates preserve reading position and follow the bottom only when already there', () => {
+  assert.equal(typeof chatActivityScrollTop, 'function');
+  assert.equal(chatActivityScrollTop(72, 420, 180, 520), 72);
+  assert.equal(chatActivityScrollTop(238, 420, 180, 520), 340);
+  assert.equal(chatActivityScrollTop(240, 420, 180, 520), 340);
+});
+
+test('activity group reconciliation reuses unchanged tools and appends only new frontend nodes', () => {
+  const item = (key, signature) => ({
+    dataset: { chatItemKey: key, chatItemSignature: signature }, parent: null,
+    remove() {
+      const index = this.parent?.children.indexOf(this) ?? -1;
+      if (index >= 0) this.parent.children.splice(index, 1);
+      this.parent = null;
+    },
+  });
+  const body = (children) => {
+    const container = {
+      children,
+      insertBefore(node, position) {
+        if (node.parent) node.remove();
+        const index = position ? this.children.indexOf(position) : this.children.length;
+        this.children.splice(index < 0 ? this.children.length : index, 0, node);
+        node.parent = this;
+      },
+    };
+    children.forEach((node) => { node.parent = container; });
+    return container;
+  };
+  const unchanged = item('item:a', 'same');
+  const replaced = item('item:b', 'old');
+  const current = body([unchanged, replaced]);
+  const nextUnchanged = item('item:a', 'same');
+  const nextReplaced = item('item:b', 'new');
+  const appended = item('item:c', 'new');
+  reconcileChatActivityItems(current, body([nextUnchanged, nextReplaced, appended]));
+  assert.deepEqual(current.children, [unchanged, nextReplaced, appended]);
+});
+
+test('standalone tool details preserve manual open and closed states across updates', () => {
+  const item = { type: 'tool', kind: 'mcpToolCall', title: 'cua_repl · js', detail: 'request', status: 'inProgress' };
+  const expanded = new Set();
+  const render = (value = item, state = expanded) => nodesWithClass(renderChatActivityRun([value], ['call-1'], state)[0], 'chat-tool')[0];
+  const details = render();
+  assert.equal(details.attributes.open, undefined);
+  assert.equal(typeof details.ontoggle, 'function');
+  details.open = true;
+  details.ontoggle({ currentTarget: details });
+  const updated = render({ ...item, output: 'response', status: 'completed' });
+  assert.equal(updated.attributes.open, '');
+  assert.match(nodeText(updated), /response/);
+  assert.equal(render(item, new Set()).attributes.open, undefined, 'another session has independent disclosure state');
+  updated.open = false;
+  updated.ontoggle({ currentTarget: updated });
+  assert.equal(render().attributes.open, undefined);
+});
+
+test('group growth preserves individual tool and diff details independently', () => {
+  const first = { type: 'tool', kind: 'commandExecution', summary: 'pwd', status: 'completed' };
+  const diff = { type: 'diff', files: [{ path: 'app.js' }], status: 'completed' };
+  const expanded = new Set();
+  const standalone = nodesWithClass(renderChatActivityRun([first], ['call-1'], expanded)[0], 'chat-tool')[0];
+  assert.equal(typeof standalone.ontoggle, 'function');
+  standalone.open = true;
+  standalone.ontoggle({ currentTarget: standalone });
+  const grouped = renderChatActivityRun([first, diff], ['call-1', 'diff-1'], expanded)[0];
+  const parent = nodesWithClass(grouped, 'chat-activity-group')[0];
+  assert.equal(parent.attributes.open, undefined, 'a leaf must not expand its parent');
+  const children = nodesWithClass(grouped, 'grouped');
+  assert.equal(children[0].attributes.open, '', 'standalone to grouped keeps the same item identity');
+  assert.equal(children[1].attributes.open, undefined);
+  parent.open = true;
+  parent.ontoggle({ currentTarget: parent });
+  children[1].open = true;
+  children[1].ontoggle({ currentTarget: children[1] });
+  const grown = renderChatActivityRun([first, diff, { ...first, summary: 'ls' }], ['call-1', 'diff-1', 'call-2'], expanded)[0];
+  assert.equal(nodesWithClass(grown, 'chat-activity-group')[0].attributes.open, '');
+  const grownChildren = nodesWithClass(grown, 'grouped');
+  assert.equal(grownChildren[0].attributes.open, '');
+  assert.equal(grownChildren[1].attributes.open, '');
+  assert.equal(grownChildren[2].attributes.open, undefined);
+  children[1].isConnected = false;
+  children[1].open = false;
+  children[1].ontoggle({ currentTarget: children[1] });
+  const rerendered = renderChatActivityRun([first, diff], ['call-1', 'diff-1'], expanded)[0];
+  assert.equal(nodesWithClass(rerendered, 'grouped')[1].attributes.open, '', 'a detached old node cannot erase current state');
+});
+
+test('hidden reasoning does not shift disclosure identities', () => {
+  const tool = { type: 'tool', kind: 'commandExecution', summary: 'pwd', status: 'completed' };
+  const expanded = new Set();
+  const row = renderChatActivityRun([{ type: 'reasoning' }, tool], ['reason-1', 'call-1'], expanded)[0];
+  const details = nodesWithClass(row, 'chat-tool')[0];
+  assert.equal(typeof details.ontoggle, 'function');
+  details.open = true;
+  details.ontoggle({ currentTarget: details });
+  const rerendered = renderChatActivityRun([tool], ['call-1'], expanded)[0];
+  assert.equal(nodesWithClass(rerendered, 'chat-tool')[0].attributes.open, '');
 });
 
 test('Codex activity traces omit internal reasoning items', () => {
@@ -3182,6 +3689,7 @@ function sessionNavigationFixture() {
   };
   const context = {document, FleetUploadModel: uploadSandbox.globalThis.FleetUploadModel,
     FleetChatModel: sandbox.globalThis.FleetChatModel, matchMedia: () => ({matches: false}),
+    history: {state: null},
     window: {FleetWorkspaceTabs: {showChat() {}}}};
   vm.createContext(context);
   vm.runInContext(appSrc, context);
@@ -3200,10 +3708,73 @@ function sessionNavigationFixture() {
       showChatPane(state.chat.title, state.chat.cwd);
       $('#chat-input').value = state.chat.draft || '';
     };
-    globalThis.navigation = {state, setMode, restoreTermOrEmpty};
+    MACS = ['m1', 'm2', 'm3', 'm4'].map(id => ({id}));
+    globalThis.navigation = {state, setMode, setSessionDevice, setFileDevice, restoreTermOrEmpty};
   `, context);
   return {...context.navigation, elements, opened: context.opened};
 }
+
+test('switching modes keeps the concrete device selected in the source mode', () => {
+  const {state, setMode, setFileDevice} = sessionNavigationFixture();
+  Object.assign(state, {sessionMacId: 'm2', fileMacId: 'm1', macId: 'm2',
+    filePath: '/Users/one/Downloads', filePaths: {m1: '/Users/one/Downloads', m2: '/Users/two/Documents', m3: '/Users/three'},
+    fileColumns: [{path: '/Users/one'}], filePreviewPath: '/Users/one/Downloads/old.png'});
+  setMode('files');
+  assert.equal(state.fileMacId, 'm2');
+  assert.equal(state.filePath, '/Users/two/Documents');
+  assert.equal(state.filePreviewPath, '');
+  assert.equal(state.fileColumns.length, 0);
+  setFileDevice('m3');
+  state.selectedSid = 'old-chat';
+  state.selectedSessionMacId = 'm2';
+  state.sessionResults = [{macId: 'm2', sessionId: 'old-chat'}];
+  setMode('sessions');
+  assert.equal(state.sessionMacId, 'm3');
+  assert.equal(state.selectedSid, null, 'a conversation from another device must not be reopened');
+  assert.equal(state.sessionResults.length, 0);
+  setMode('files');
+  assert.equal(state.fileMacId, 'm3');
+});
+
+test('all-device sessions use the last explicitly selected device for files', () => {
+  const {state, setMode, setSessionDevice, setFileDevice} = sessionNavigationFixture();
+  Object.assign(state, {sessionMacId: 'm1', fileMacId: 'm4', macId: 'm1'});
+  setSessionDevice('m2');
+  setSessionDevice('all');
+  state.macId = 'm3'; // Opening a conversation in all-device scope is not a device selection.
+  setMode('files');
+  assert.equal(state.fileMacId, 'm2');
+  setMode('sessions');
+  assert.equal(state.sessionMacId, 'all');
+  setMode('files');
+  setFileDevice('m4');
+  setMode('sessions');
+  assert.equal(state.sessionMacId, 'all');
+  setMode('files');
+  assert.equal(state.fileMacId, 'm4');
+});
+
+test('reselecting a saved concrete session device updates the file fallback before choosing all', () => {
+  const {state, setMode, setSessionDevice} = sessionNavigationFixture();
+  Object.assign(state, {sessionMacId: 'm2', fileMacId: 'm1'});
+  setSessionDevice('m2');
+  setSessionDevice('all');
+  setMode('files');
+  assert.equal(state.fileMacId, 'm2');
+});
+
+test('mode switches keep the same device directory and columns even while offline', () => {
+  const {state, setMode} = sessionNavigationFixture();
+  const columns = [{path: '/Users/two'}, {path: '/Users/two/Documents'}];
+  Object.assign(state, {sessionMacId: 'm2', fileMacId: 'm2', nodes: {m1: true, m2: false},
+    filePath: '/Users/two/Documents', filePaths: {m2: '/Users/two/Documents'}, fileColumns: columns});
+  setMode('files');
+  assert.equal(state.fileMacId, 'm2');
+  assert.equal(state.filePath, '/Users/two/Documents');
+  assert.equal(state.fileColumns, columns);
+  setMode('sessions');
+  assert.equal(state.sessionMacId, 'm2');
+});
 
 test('returning from files restores the selected cached conversation and its saved draft', () => {
   const fixture = sessionNavigationFixture(), {state, setMode, elements, opened} = fixture;
@@ -3275,7 +3846,7 @@ test('chat send keeps textarea focus through pointerdown on mobile keyboards', (
   assert.match(appSrc, /\$\('#chat-send'\)\.addEventListener\('pointerdown',[\s\S]*?document\.activeElement === \$\('#chat-input'\)[\s\S]*?e\.preventDefault\(\)/);
 });
 
-test('session archive is a first-level action beside the shared menu and respects native capabilities', () => {
+test('session archive stays in the shared menu and has a desktop shortcut when supported', () => {
   const previousInfo = appState.assistantInfo, previousScope = appState.scope;
   try {
     appState.assistantInfo = {m1: {dsh: {enabled: true, degraded: false,
@@ -3284,7 +3855,7 @@ test('session archive is a first-level action beside the shared menu and respect
     appState.scope = 'active';
     let menu = nodesWithClass(sessionRow(session), 'ses-menu')[0];
     assert.ok(menu, 'DeepSeek row must have the shared … menu');
-    assert.deepEqual(menu.children.map(nodeText), ['置顶', '重命名', '删除']);
+    assert.deepEqual(menu.children.map(nodeText), ['置顶', '重命名', '归档', '删除']);
     const row = sessionRow(session);
     const controls = nodesWithClass(row, 'ses-actions')[0];
     assert.equal(controls.children[0].attributes['aria-label'], '归档会话');
@@ -3293,7 +3864,7 @@ test('session archive is a first-level action beside the shared menu and respect
     menu = nodesWithClass(sessionRow(session), 'ses-menu')[0];
     assert.deepEqual(menu.children.map(nodeText), ['置顶', '重命名', '删除']);
     const codexMenu = nodesWithClass(sessionRow({...session, assistant: 'codex'}), 'ses-menu')[0];
-    assert.deepEqual(codexMenu.children.map(nodeText), ['置顶', '重命名', '删除']);
+    assert.deepEqual(codexMenu.children.map(nodeText), ['置顶', '重命名', '移回当前', '删除']);
     assert.equal(nodesWithClass(sessionRow(session), 'ses-archive-trigger').length, 0, 'DeepSeek does not support unarchive');
     assert.equal(nodesWithClass(sessionRow({...session, assistant: 'codex'}), 'ses-archive-trigger')[0].attributes['aria-label'], '移回当前会话');
     appState.assistantInfo = {m1: {dsh: {enabled: true, degraded: false}}};
@@ -3317,10 +3888,12 @@ test('DeepSeek menu clicks keep the row assistant and source Mac', async () => {
     await nodesWithClass(row, 'ses-archive-trigger')[0].onclick({stopPropagation() { stopped = true; }});
     assert.equal(stopped, true, 'archive must not activate the row');
     assert.deepEqual(JSON.parse(JSON.stringify(appSandbox.__menuCalls)), [{macId:'m2', path:'sessions/action', body:{assistant:'dsh',sessionId:'session-menu',action:'archive',value:''}}]);
+    await menu.children.find(button => nodeText(button) === '归档').onclick({stopPropagation() {}});
+    assert.deepEqual(JSON.parse(JSON.stringify(appSandbox.__menuCalls[1])), {macId:'m2', path:'sessions/action', body:{assistant:'dsh',sessionId:'session-menu',action:'archive',value:''}});
     appState.scope = 'all';
     const archived = sessionRow({assistant: 'codex', macId: 'm3', sessionId: 'archived-session', title: 'Archived'});
     await nodesWithClass(archived, 'ses-archive-trigger')[0].onclick({stopPropagation() {}});
-    assert.deepEqual(JSON.parse(JSON.stringify(appSandbox.__menuCalls[1])), {macId:'m3', path:'sessions/action', body:{assistant:'codex',sessionId:'archived-session',action:'unarchive',value:''}});
+    assert.deepEqual(JSON.parse(JSON.stringify(appSandbox.__menuCalls[2])), {macId:'m3', path:'sessions/action', body:{assistant:'codex',sessionId:'archived-session',action:'unarchive',value:''}});
   } finally {
     vm.runInContext('({api, loadSessions, toast, renderSessionResults} = __menuOriginals);', appSandbox);
     appState.assistantInfo = previousInfo; appState.scope = previousScope;
@@ -3419,7 +3992,11 @@ test('saving only device appearance does not rewrite its name or proxy', async (
   const fields={'#hm-save':testElement('button'),'#hm-name':{value:'Mac Seven'},'#hm-http':{value:'http://localhost:7897'},'#hm-https':{value:'http://localhost:7897'},'#hm-proxy-on':{checked:true},'#hm-title':testElement('span')};
   appSandbox.document.querySelector=selector=>fields[selector] || null;
   appSandbox.__appearanceNetworkCalls=[];
-  appSandbox.fetch=async (...args)=>{appSandbox.__appearanceNetworkCalls.push(args);return {ok:true,json:async()=>({})};};
+  appSandbox.fetch=async (...args)=>{
+    appSandbox.__appearanceNetworkCalls.push(args);
+    const {id,appearance}=JSON.parse(args[1].body);
+    return {ok:true,json:async()=>({deviceAppearance:{[id]:appearance}})};
+  };
   appSandbox.localStorage={setItem(){}};
   vm.runInContext('globalThis.__appearanceOriginals={api,renderHosts,closeOverlay,toast}; api=async (...args)=>{__appearanceNetworkCalls.push(args);}; renderHosts=()=>{}; closeOverlay=()=>{}; toast=()=>{};',appSandbox);
   try {
@@ -3427,13 +4004,42 @@ test('saving only device appearance does not rewrite its name or proxy', async (
     appState.hostOriginalProxy={enabled:true,http:'http://localhost:7897',https:'http://localhost:7897'};
     appState.hostAppearanceDraft={icon:'laptop',color:'rose'};
     await vm.runInContext('saveHost()',appSandbox);
-    assert.equal(appSandbox.__appearanceNetworkCalls.length,0);
+    assert.equal(appSandbox.__appearanceNetworkCalls.length,1);
+    const [url,options]=appSandbox.__appearanceNetworkCalls[0];
+    assert.equal(url,'/api/settings');
+    assert.equal(options.method,'PATCH');
+    assert.deepEqual(JSON.parse(options.body),{id:'m7',appearance:{icon:'laptop',color:'rose'}});
     assert.equal(appSandbox.FleetDeviceAppearance.get('m7').icon,'laptop');
     assert.equal(appSandbox.FleetDeviceAppearance.get('m7').color,'rose');
   } finally {
     vm.runInContext('({api,renderHosts,closeOverlay,toast}=__appearanceOriginals);',appSandbox);
     appSandbox.document.querySelector=previousQuery;appSandbox.fetch=previousFetch;appSandbox.localStorage=previousStorage;
     Object.assign(appState,{hostModalMac:previousState.id,hostAppearanceDraft:previousState.draft,hostOriginalName:previousState.name,hostOriginalProxy:previousState.proxy});
+  }
+});
+
+test('a failed device appearance save keeps the editor open and does not report success', async () => {
+  const previousQuery=appSandbox.document.querySelector, previousFetch=appSandbox.fetch;
+  const previousState={id:appState.hostModalMac,draft:appState.hostAppearanceDraft};
+  const button=testElement('button');
+  appSandbox.document.querySelector=selector=>selector==='#hm-save'?button:null;
+  appSandbox.fetch=async()=>({ok:false,status:500});
+  appSandbox.__appearanceClosed=false;appSandbox.__appearanceToasts=[];
+  vm.runInContext('globalThis.__appearanceFailureOriginals={closeOverlay,toast}; closeOverlay=()=>{__appearanceClosed=true;}; toast=(message,kind)=>__appearanceToasts.push({message,kind});',appSandbox);
+  try {
+    appState.hostModalMac='m7';appState.hostAppearanceDraft={icon:'text',text:'New',color:'teal'};
+    const previous=appSandbox.FleetDeviceAppearance.get('m7');
+    await vm.runInContext('saveHost()',appSandbox);
+    assert.equal(appSandbox.__appearanceClosed,false);
+    assert.equal(button.disabled,false);
+    assert.equal(button.textContent,'保存');
+    assert.deepEqual(appSandbox.FleetDeviceAppearance.get('m7'),previous);
+    assert.equal(appSandbox.__appearanceToasts[0].kind,'err');
+    assert.match(appSandbox.__appearanceToasts[0].message,/未保存到服务器/);
+  } finally {
+    vm.runInContext('({closeOverlay,toast}=__appearanceFailureOriginals);',appSandbox);
+    appSandbox.document.querySelector=previousQuery;appSandbox.fetch=previousFetch;
+    Object.assign(appState,{hostModalMac:previousState.id,hostAppearanceDraft:previousState.draft});
   }
 });
 

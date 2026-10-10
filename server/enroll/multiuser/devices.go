@@ -1,8 +1,6 @@
 package multiuser
 
 import (
-	"database/sql"
-	"encoding/json"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -118,49 +116,6 @@ func (server *Server) handleDevices(writer http.ResponseWriter, request *http.Re
 		}
 	}
 	respond(writer, 200, map[string]any{"devices": visible})
-}
-
-func (server *Server) handlePreferences(writer http.ResponseWriter, request *http.Request, user User) {
-	defaults := map[string]int{"desktopMaxWindows": 10, "desktopScrollback": 5000, "mobileMaxWindows": 4, "mobileScrollback": 5000, "autoCloseMinutes": 30, "chatCacheMaxSessions": 6}
-	if request.Method == "GET" {
-		var raw string
-		err := server.db.QueryRow("SELECT value FROM preferences WHERE user_id=?", user.ID).Scan(&raw)
-		if err != nil && err != sql.ErrNoRows {
-			server.failure(writer, err)
-			return
-		}
-		if raw != "" {
-			json.Unmarshal([]byte(raw), &defaults)
-		}
-		respond(writer, 200, defaults)
-		return
-	}
-	if request.Method != "POST" {
-		reject(writer, 405, "不支持的方法")
-		return
-	}
-	var input map[string]int
-	if !decode(writer, request, &input) {
-		return
-	}
-	limits := map[string][2]int{"desktopMaxWindows": {1, 30}, "desktopScrollback": {200, 100000}, "mobileMaxWindows": {1, 12}, "mobileScrollback": {200, 100000}, "autoCloseMinutes": {1, 1440}, "chatCacheMaxSessions": {1, 20}}
-	for key, bounds := range limits {
-		if value := input[key]; value != 0 {
-			if value < bounds[0] {
-				value = bounds[0]
-			}
-			if value > bounds[1] {
-				value = bounds[1]
-			}
-			defaults[key] = value
-		}
-	}
-	raw, _ := json.Marshal(defaults)
-	if _, err := server.db.Exec("INSERT INTO preferences(user_id,value) VALUES(?,?) ON CONFLICT(user_id) DO UPDATE SET value=excluded.value", user.ID, string(raw)); err != nil {
-		server.failure(writer, err)
-		return
-	}
-	respond(writer, 200, defaults)
 }
 
 func (server *Server) revokeDevice(writer http.ResponseWriter, request *http.Request, actor int64, device Device) {
