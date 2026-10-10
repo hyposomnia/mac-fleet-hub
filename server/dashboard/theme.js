@@ -5,8 +5,8 @@
   const PALETTE_KEY = 'fleet-theme-palette-v1';
   const PALETTE_FIELDS = ['canvas', 'accent', 'highlight', 'text'];
   const PALETTE_DEFAULTS = Object.freeze({
-    light: Object.freeze({ canvas: '#FAFAFA', accent: '#087F65', highlight: '#D9F23A', text: '#18211F' }),
-    dark: Object.freeze({ canvas: '#000000', accent: '#5BD7B7', highlight: '#EDFF52', text: '#F4F7F6' }),
+    light: Object.freeze({ canvas: '#FAFAFA', accent: '#356B5B', highlight: '#C99A2E', text: '#202923' }),
+    dark: Object.freeze({ canvas: '#0B1210', accent: '#78B59D', highlight: '#E0B84F', text: '#F1EBDD' }),
   });
   const validPreference = value => ['light', 'dark', 'system'].includes(value);
   const clone = value => JSON.parse(JSON.stringify(value));

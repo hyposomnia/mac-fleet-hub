@@ -580,6 +580,7 @@ function setSessionDevice(id) {
   backToList();
   state.selectedSid = null;
   state.selectedSessionMacId = null;
+  window.FleetWorkspaceTabs?.activateSession?.('');
   state.sessionResults = [];
   state.sessionCursors = {};
   renderHosts();
@@ -1356,7 +1357,7 @@ function setMode(mode) {
 }
 
 function setAssistant(assistant) {
-  window.FleetWorkspaceTabs?.showChat();
+  window.FleetWorkspaceTabs?.activateSession?.('');
   state.assistant = normalizeAssistant(assistant);
   state.selectedSid = null;
   state.selectedSessionMacId = null;
@@ -1976,6 +1977,7 @@ async function mutateSession(session, action, value = '', { throwOnError = false
         disposeChat(chat);
         state.chatCache.delete(key);
       }
+      window.FleetWorkspaceTabs?.discardSession?.(sessionKey(session));
     }
     if (action === 'pin' || action === 'unpin') {
       session.pinned = action === 'pin';
@@ -2001,7 +2003,7 @@ function deleteSession(session) {
 }
 
 function selectSes(sid, macId = state.macId, assistant = state.assistant) {
-  window.FleetWorkspaceTabs?.showChat();
+  window.FleetWorkspaceTabs?.activateSession?.(sessionKey({macId, assistant, sessionId: sid}));
   state.macId = macId;
   state.selectedSid = sid;
   state.selectedSessionMacId = macId;
@@ -2219,7 +2221,7 @@ function restoreTermOrEmpty() {
     const cached = state.chatCache.get(chatCacheKey(macId, sessionId));
     const chat = cached?.assistant === assistant ? cached : null;
     if (chat && state.chat === chat) {
-      window.FleetWorkspaceTabs?.showChat();
+      window.FleetWorkspaceTabs?.activateSession?.(sessionKey(chat));
       showChatPane(chat.title, chat.cwd, { connected: !chat.pendingStart });
       markSessionRead({ ...chat, mtime: chat.updatedAt });
     } else {
@@ -2744,6 +2746,7 @@ function evictChatCache() {
     const victim = chatCacheVictim(state.chatCache, state.chat);
     if (!victim) break;
     disposeChat(victim.chat);
+    window.FleetWorkspaceTabs?.discardSession?.(sessionKey(victim.chat));
     state.chatCache.delete(victim.key);
   }
   syncSessionRuntimeIndicators();
@@ -2837,6 +2840,7 @@ function closeChatPane({ dispose = false } = {}) {
   closeChatSkillMenu();
   if (dispose && chat) {
     disposeChat(chat);
+    window.FleetWorkspaceTabs?.discardSession?.(sessionKey(chat));
     state.chatCache.delete(chat.cacheKey);
     renderChatCacheStats();
   }
@@ -4867,9 +4871,9 @@ function renderChatError(msg) {
 }
 
 async function openChatSession(s) {
-  window.FleetWorkspaceTabs?.showChat();
   const macId = s.macId || state.macId;
   if (!macId || !canSelfDrawChat(state.assistant, macId)) return;
+  window.FleetWorkspaceTabs?.activateSession?.(sessionKey({macId, assistant: state.assistant, sessionId: s.sessionId}));
   state.macId = macId;
   state.selectedSid = s.sessionId;
   state.selectedSessionMacId = macId;
@@ -5504,11 +5508,13 @@ async function ensurePendingChatStarted(chat) {
     if (!sessionId) throw new Error(`${assistantLabel()} 未返回有效的会话 ID`);
 
     const oldKey = chat.cacheKey;
+    const oldWorkspaceKey = sessionKey(chat);
     const newKey = chatCacheKey(chat.macId, sessionId);
     const preferredApproval = chat.approvalMode;
     state.chatCache.delete(oldKey);
     chat.cacheKey = newKey;
     chat.sessionId = sessionId;
+    globalThis.FleetWorkspaceTabs?.renameSession?.(oldWorkspaceKey, sessionKey(chat));
     chat.cwd = started.cwd || cwd;
     chat.skillsCwd = chat.cwd;
     chat.pendingStart = false;

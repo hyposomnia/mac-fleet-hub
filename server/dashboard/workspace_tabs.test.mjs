@@ -78,24 +78,71 @@ test('closing a background tab preserves active file, last close restores chat a
   assert.equal(frame.hidden, false);
   e['workspace-tabs'].children[1].children[1].onclick();
   assert.equal(e['workspace-preview'].children.length, 0);
-  assert.equal(e['workspace-tabs'].hidden, false);
+  assert.equal(e['workspace-tabs'].hidden, true);
   assert.equal(e['workspace-preview'].hidden, true);
   assert.equal(e['chat-pane'].inert, false);
 });
 
-test('a lone conversation uses the same tab header before opening files and after reset', () => {
+test('a lone conversation keeps the normal session header until it owns another window', () => {
   const {api, elements: e} = setup();
-  const checkSingle = () => {
-    assert.equal(e.win.dataset.workspaceTabs, 'true');
-    assert.equal(e['workspace-tabs'].hidden, false);
-    assert.equal(e['workspace-tabs'].children.length, 1);
-    assert.equal(e['workspace-tabs'].children[0].children[0].attrs['aria-selected'], 'true');
-    assert.equal(e['workspace-tabs'].children[0].children[0].children[1].textContent, '规划并创建 emotion-service 角色');
-  };
-  checkSingle();
+  assert.equal(e.win.dataset.workspaceTabs, 'false');
+  assert.equal(e['workspace-tabs'].hidden, true);
+  assert.equal(e['workspace-tabs'].children.length, 0);
   api.open(url('a.md'));
   assert.equal(e['workspace-tabs'].children.length, 2);
-  api.reset(); checkSingle();
+  assert.equal(e['workspace-tabs'].hidden, false);
+  api.reset();
+  assert.equal(e.win.dataset.workspaceTabs, 'false');
+  assert.equal(e['workspace-tabs'].hidden, true);
+  assert.equal(e['workspace-tabs'].children.length, 0);
+});
+
+test('file windows belong only to the session that opened them', () => {
+  const {api, elements: e} = setup();
+  api.activateSession('m1\ncodex\nsession-a');
+  api.open(url('a.md'));
+  assert.equal(e['workspace-tabs'].children.length, 2);
+  const aFrame = e['workspace-preview'].children[0];
+
+  api.activateSession('m1\ncodex\nsession-b');
+  assert.equal(e.win.dataset.workspaceTabs, 'false');
+  assert.equal(e['workspace-tabs'].hidden, true);
+  assert.equal(e['workspace-tabs'].children.length, 0);
+  assert.equal(aFrame.hidden, true);
+
+  api.activateSession('m1\ncodex\nsession-a');
+  assert.equal(e['workspace-tabs'].hidden, false);
+  assert.equal(e['workspace-tabs'].children.length, 2);
+  assert.equal(e['workspace-tabs'].children[1].children[0].children[1].textContent, 'a.md');
+  assert.equal(e.win.dataset.workspacePreview, 'false');
+});
+
+test('account reset removes inactive session windows and their saved workspace state', () => {
+  const {api, elements: e} = setup();
+  api.activateSession('m1\ncodex\nsession-a');
+  api.open(url('a.md'));
+  api.activateSession('m1\ncodex\nsession-b');
+  api.open(url('b.md'));
+  assert.equal(e['workspace-preview'].children.length, 2);
+  api.reset();
+  assert.equal(e['workspace-preview'].children.length, 0);
+  api.activateSession('m1\ncodex\nsession-a');
+  assert.equal(e['workspace-tabs'].hidden, true);
+  assert.equal(e['workspace-tabs'].children.length, 0);
+});
+
+test('renaming a draft session preserves its windows and discarding the session removes them', () => {
+  const {api, elements: e} = setup();
+  api.activateSession('m1\ncodex\ndraft-1');
+  api.open(url('draft.md'));
+  const frame = e['workspace-preview'].children[0];
+  api.renameSession('m1\ncodex\ndraft-1', 'm1\ncodex\nsession-1');
+  api.activateSession('m1\ncodex\nsession-1');
+  assert.equal(e['workspace-tabs'].children[1].children[0].children[1].textContent, 'draft.md');
+  api.discardSession('m1\ncodex\nsession-1');
+  assert.equal(e['workspace-preview'].children.length, 0);
+  assert.equal(frame.parent.children.includes(frame), false);
+  assert.equal(e['workspace-tabs'].hidden, true);
 });
 
 test('ordinary file links are intercepted but external links, downloads and modifier clicks keep native behavior', () => {
@@ -140,7 +187,7 @@ test('tabs support keyboard selection and deleting a file restores the conversat
   e['workspace-tabs'].children[0].children[0].onkeydown({key: 'End', preventDefault() {}});
   assert.equal(e.win.dataset.workspacePreview, 'true');
   e['workspace-tabs'].children[1].children[0].onkeydown({key: 'Delete', preventDefault() {}});
-  assert.equal(e['workspace-tabs'].hidden, false);
+  assert.equal(e['workspace-tabs'].hidden, true);
   assert.equal(e.win.dataset.workspacePreview, 'false');
 });
 
@@ -160,8 +207,8 @@ test('integration loads workspace before app, restores chat on navigation and is
   const [html, app, css] = await Promise.all(['index.html','app.js','style.css'].map(name => readFile(new URL('./'+name, import.meta.url),'utf8')));
   assert.ok(html.indexOf('workspace_tabs.js?v=') < html.indexOf('app.js?v='));
   assert.match(app, /FleetWorkspaceTabs\?\.init\(\{onOpen:/);
-  assert.match(app, /function selectSes\([^]*?FleetWorkspaceTabs\?\.showChat\(\)/);
-  assert.match(app, /async function openChatSession\([^]*?FleetWorkspaceTabs\?\.showChat\(\)/);
+  assert.match(app, /function selectSes\([^]*?FleetWorkspaceTabs\?\.activateSession\?\.\(sessionKey\(\{macId, assistant, sessionId: sid\}\)\)/);
+  assert.match(app, /async function openChatSession\([^]*?FleetWorkspaceTabs\?\.activateSession\?\.\(sessionKey\(\{macId, assistant: state\.assistant, sessionId: s\.sessionId\}\)\)/);
   assert.match(css, /\.workspace-preview-frame\[hidden\] \{ display: none; \}/);
   assert.match(css, /#win\[data-workspace-preview="true"\] \.win-body > :not\(#workspace-preview\):not\(#chat-pane\)/);
 });
@@ -279,10 +326,8 @@ test('closing the active conversation selects a retained file and reopening chat
   assert.equal(e.win.dataset.workspacePreview, 'false');
 });
 
-test('closing a lone conversation hides the tab row without creating or deleting any file', () => {
+test('a lone conversation is not presented as a closable workspace tab', () => {
   const state = setup(), e = state.elements;
-  e['workspace-tabs'].children[0].children[1].onclick();
-  assert.equal(state.closed, 1);
   assert.equal(e['workspace-tabs'].children.length, 0);
   assert.equal(e['workspace-tabs'].hidden, true);
   assert.equal(e['workspace-preview'].children.length, 0);

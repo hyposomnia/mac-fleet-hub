@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import vm from 'node:vm';
 import { readFile } from 'node:fs/promises';
 const source = await readFile(new URL('./theme.js', import.meta.url), 'utf8');
+const styleSource = await readFile(new URL('./style.css', import.meta.url), 'utf8');
 function fixture(stored = null, light = false, blocked = false, savedPalette = null) {
   const listeners = {}, media = { matches: light, addEventListener: (type, fn) => { listeners.media = fn; } };
   const values = new Map();
@@ -30,7 +31,7 @@ test('saved dark survives reload and system is an explicit persistent choice', (
 });
 test('cross-tab preference changes update chrome and controls without another write', () => {
   const f=fixture(); f.listeners.storage({key:'fleet-theme',newValue:'dark'});
-  assert.equal(f.attrs['data-theme'],'dark'); assert.equal(f.meta.content,'#000000'); assert.equal(f.stored(),null);
+  assert.equal(f.attrs['data-theme'],'dark'); assert.equal(f.meta.content,'#0B1210'); assert.equal(f.stored(),null);
   f.listeners.storage({key:'fleet-theme',newValue:null}); assert.equal(f.attrs['data-theme'],'light');
 });
 test('storage restrictions and invalid choices still allow in-memory theme selection', () => {
@@ -40,16 +41,18 @@ test('storage restrictions and invalid choices still allow in-memory theme selec
 test('palette defaults use the approved four seed colors for both modes', () => {
   const f=fixture();
   assert.deepEqual(JSON.parse(JSON.stringify(f.host.FleetTheme.paletteDefaults)), {
-    light: {canvas:'#FAFAFA',accent:'#087F65',highlight:'#D9F23A',text:'#18211F'},
-    dark: {canvas:'#000000',accent:'#5BD7B7',highlight:'#EDFF52',text:'#F4F7F6'},
+    light: {canvas:'#FAFAFA',accent:'#356B5B',highlight:'#C99A2E',text:'#202923'},
+    dark: {canvas:'#0B1210',accent:'#78B59D',highlight:'#E0B84F',text:'#F1EBDD'},
   });
   assert.equal(f.styleValues['--bg'], '#FAFAFA');
-  assert.equal(f.styleValues['--accent'], '#087F65');
-  assert.equal(f.styleValues['--highlight'], '#D9F23A');
-  assert.equal(f.styleValues['--text'], '#18211F');
+  assert.equal(f.styleValues['--accent'], '#356B5B');
+  assert.equal(f.styleValues['--highlight'], '#C99A2E');
+  assert.equal(f.styleValues['--text'], '#202923');
   assert.match(f.styleValues['--surface'], /^color-mix\(in oklch,/);
   assert.equal(f.styleValues['--session-list-bg'], '#FAFAFA');
   assert.equal(f.styleValues['--session-detail-bg'], '#FAFAFA');
+  assert.match(styleSource, /:root, \[data-theme="light"\][\s\S]*?--accent:#356B5B;[\s\S]*?--highlight:#C99A2E;/);
+  assert.match(styleSource, /\[data-theme="dark"\][\s\S]*?--bg:#0B1210;[\s\S]*?--accent:#78B59D;[\s\S]*?--highlight:#E0B84F;/);
 });
 test('custom palette persists valid seeds, derives secondary tokens and follows theme changes', () => {
   const f=fixture();
@@ -79,5 +82,5 @@ test('invalid stored palette fields fall back independently and reset removes th
   assert.equal(f.host.FleetTheme.getPalette().dark.text, '#ABCDEF');
   f.host.FleetTheme.resetPalette();
   assert.equal(f.values.has('fleet-theme-palette-v1'), false);
-  assert.equal(f.styleValues['--accent'], '#087F65');
+  assert.equal(f.styleValues['--accent'], '#356B5B');
 });
