@@ -44,7 +44,7 @@ const usage = `fleet-agent —— 每台 Mac 的会话管理服务
                        不填地址时在终端输入；浏览器授权后回终端确认
   fleet-agent logout    锁定本机并撤销设备授权
   fleet-agent capabilities  打印支持的授权协议
-  fleet-agent doctor    本机 Codex / shared app-server 体检（--fix 自动解劫持并重启）
+  fleet-agent doctor    本机 Codex / shared app-server 体检（--fix 启动未运行的 shared 服务）
   fleet-agent update    下载最新二进制、原子替换并重启服务
   fleet-agent version   打印版本
   fleet-agent help      显示本帮助

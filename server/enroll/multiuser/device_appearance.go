@@ -109,11 +109,6 @@ func (server *Server) handlePreferences(writer http.ResponseWriter, request *htt
 			owned[device.ID] = true
 		}
 	}
-	for id := range preferences.DeviceAppearance {
-		if !owned[id] {
-			delete(preferences.DeviceAppearance, id)
-		}
-	}
 	if request.Method == "PATCH" {
 		var input struct {
 			ID         string            `json:"id"`

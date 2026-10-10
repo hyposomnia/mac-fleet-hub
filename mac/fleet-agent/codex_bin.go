@@ -1,10 +1,4 @@
-// codex_bin.go —— codex 可执行文件的运行时解析（自愈 R2）。
-//
-// 背景：ChatGPT.app 自动更新会改内部路径（旧版 Contents/Resources/codex，新版
-// Contents/Resources/codex-cli/bin/codex，并带 codex-cli/codex-package.json）。
-// plist 里写死的 FLEET_CODEX_BIN 一旦指向旧路径，shared app-server 每次启动即退出，
-// launchd KeepAlive 无限重启。这里按「配置 → 新布局 manifest → 新布局固定路径 →
-// 旧布局 → 托管 standalone → PATH」逐级解析，让 agent 自己找到当前可用的 codex。
+// Resolve the current Codex executable for CLI sessions and diagnostics.
 package main
 
 import (

@@ -62,8 +62,14 @@ func TestDeviceAppearanceIsOwnerScopedAndRequiresAnOwnedDevice(t *testing.T) {
 	if _, err := server.db.Exec("UPDATE devices SET status='revoked' WHERE device_index=1"); err != nil {
 		t.Fatal(err)
 	}
-	if result := readAppearanceSettings(t, owner.request("GET", "/api/settings", nil)); len(result.DeviceAppearance) != 0 {
-		t.Fatalf("revoked device appearance remains visible: %+v", result)
+	if result := readAppearanceSettings(t, owner.request("GET", "/api/settings", nil)); result.DeviceAppearance["m1"]["text"] != "aB04" {
+		t.Fatalf("revocation hid owner's saved appearance: %+v", result)
+	}
+	if result := readAppearanceSettings(t, owner.request("POST", "/api/settings", map[string]int{"chatCacheMaxSessions": 9})); result.DeviceAppearance["m1"]["text"] != "aB04" {
+		t.Fatalf("unrelated settings save erased owner's saved appearance: %+v", result)
+	}
+	if result := readAppearanceSettings(t, other.request("GET", "/api/settings", nil)); len(result.DeviceAppearance) != 0 {
+		t.Fatalf("revoked appearance leaked to another owner: %+v", result)
 	}
 }
 

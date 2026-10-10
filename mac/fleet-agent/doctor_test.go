@@ -20,7 +20,6 @@ type doctorFakes struct {
 	guiEnv     string
 	guiErr     error
 	ready      bool
-	statePath  string
 	binVersion string
 	resolve    func(configured, appPath, codexHome string) (string, string, error)
 	runErr     map[string]error // 命令 → 错误（模拟 launchctl 失败）
@@ -35,9 +34,6 @@ func useDoctorFakes(t *testing.T, f *doctorFakes) *doctorFakes {
 	if f.plist == nil {
 		f.plist = map[string]string{}
 	}
-	if f.statePath == "" {
-		f.statePath = filepath.Join(t.TempDir(), "state", "app-server.json")
-	}
 	if f.resolve == nil {
 		f.resolve = func(string, string, string) (string, string, error) {
 			return "/fake/codex", codexBinSourceConfigured, nil
@@ -47,13 +43,13 @@ func useDoctorFakes(t *testing.T, f *doctorFakes) *doctorFakes {
 	oldLoaded, oldPID, oldHealth := doctorSvcLoaded, doctorSvcPID, doctorProbeHealth
 	oldPlistEnv, oldListEnv := doctorPlistEnv, doctorListEnv
 	oldResolve, oldBinVersion := doctorResolveBin, doctorBinVersion
-	oldProbe, oldRunCmd, oldStatePath := doctorProbeReadyz, doctorRunCmd, doctorStatePath
+	oldProbe, oldRunCmd := doctorProbeReadyz, doctorRunCmd
 	oldAttempts, oldInterval := doctorFixAttempts, doctorFixInterval
 	t.Cleanup(func() {
 		doctorSvcLoaded, doctorSvcPID, doctorProbeHealth = oldLoaded, oldPID, oldHealth
 		doctorPlistEnv, doctorListEnv = oldPlistEnv, oldListEnv
 		doctorResolveBin, doctorBinVersion = oldResolve, oldBinVersion
-		doctorProbeReadyz, doctorRunCmd, doctorStatePath = oldProbe, oldRunCmd, oldStatePath
+		doctorProbeReadyz, doctorRunCmd = oldProbe, oldRunCmd
 		doctorFixAttempts, doctorFixInterval = oldAttempts, oldInterval
 	})
 
@@ -85,7 +81,6 @@ func useDoctorFakes(t *testing.T, f *doctorFakes) *doctorFakes {
 		}
 		return "", nil
 	}
-	doctorStatePath = func() string { return f.statePath }
 	doctorFixAttempts, doctorFixInterval = 1, 0 // 测试里不做真实等待
 	return f
 }
@@ -172,11 +167,11 @@ func TestDoctorHealthyReport(t *testing.T) {
 	if got := reportValue(report, "配置 bin"); got != "/Applications/ChatGPT.app/Contents/Resources/codex（来自 plist）" {
 		t.Fatalf("配置 bin=%q\n%s", got, report)
 	}
-	if got := reportValue(report, "生效 bin"); got != "/Applications/ChatGPT.app/Contents/Resources/codex-cli/bin/codex（来源 chatgpt-layout-manifest）" {
-		t.Fatalf("生效 bin=%q\n%s", got, report)
+	if got := reportValue(report, "可用 bin"); got != "/Applications/ChatGPT.app/Contents/Resources/codex-cli/bin/codex（来源 chatgpt-layout-manifest）" {
+		t.Fatalf("可用 bin=%q\n%s", got, report)
 	}
-	if !strings.Contains(report, "已替换 plist 里写死的旧路径") {
-		t.Fatalf("未提示自愈替换:\n%s", report)
+	if strings.Contains(report, "已替换") {
+		t.Fatalf("只读体检不能声称修改了配置:\n%s", report)
 	}
 	if !strings.Contains(report, "0.159.0") {
 		t.Fatalf("缺少 codex --version:\n%s", report)
@@ -326,73 +321,25 @@ func TestDoctorDegradedOnSockPermission(t *testing.T) {
 	}
 }
 
-func TestDoctorShowsAppServerStateFile(t *testing.T) {
+func TestDoctorUsesLiveReadinessDespiteOldStateFile(t *testing.T) {
 	f := healthyDoctorFakes(t)
-	statePath := filepath.Join(t.TempDir(), "state", "app-server.json")
-	if err := writeAppServerState(statePath, appServerStateFailed, "readyz 连续 3 次探测失败", true); err != nil {
+	stateDir := t.TempDir()
+	t.Setenv("FLEET_STATE_DIR", stateDir)
+	statePath := filepath.Join(stateDir, "app-server.json")
+	if err := os.WriteFile(statePath, []byte(`{"state":"failed","lastError":"old keeper failed","clearedDesktopEnv":1}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	f.statePath = statePath
-
 	var buf bytes.Buffer
-	if code := doctorRun(&buf, false); code != 0 {
-		t.Fatalf("熔断历史应 DEGRADED 而非 FAILED，实际 %d\n%s", code, buf.String())
+	if code := doctorRun(&buf, true); code != 0 || !strings.Contains(buf.String(), "结论：HEALTHY") {
+		t.Fatalf("live ready listener should be healthy: %d\n%s", code, buf.String())
 	}
-	report := buf.String()
-	if !strings.Contains(report, "结论：DEGRADED") {
-		t.Fatalf("结论应为 DEGRADED:\n%s", report)
+	if len(f.cmds) != 0 {
+		t.Fatalf("old state triggered a repair: %v", f.cmds)
 	}
-	if got := reportValue(report, "state"); got != appServerStateFailed {
-		t.Fatalf("state=%q\n%s", got, report)
-	}
-	if got := reportValue(report, "lastError"); got != "readyz 连续 3 次探测失败" {
-		t.Fatalf("lastError=%q\n%s", got, report)
-	}
-	if got := reportValue(report, "摘除记录"); !strings.HasPrefix(got, "是") {
-		t.Fatalf("摘除记录=%q\n%s", got, report)
-	}
-}
-
-// 同一个状态文件由 shell 侧监督包装与看门狗共同维护：keeper 的 ok/failed 词汇
-// 必须被正确识别，诊断字段要展示出来。
-func TestDoctorAcceptsKeeperStateVocabulary(t *testing.T) {
-	writeKeeperState := func(t *testing.T, body string) string {
-		t.Helper()
-		statePath := filepath.Join(t.TempDir(), "state", "app-server.json")
-		if err := os.MkdirAll(filepath.Dir(statePath), 0o700); err != nil {
-			t.Fatal(err)
-		}
-		if err := os.WriteFile(statePath, []byte(body+"\n"), 0o600); err != nil {
-			t.Fatal(err)
-		}
-		return statePath
-	}
-
-	f := healthyDoctorFakes(t)
-	f.statePath = writeKeeperState(t, `{"state":"ok","lastError":"","updatedAt":"2026-09-30T12:00:00Z","clearedDesktopEnv":false,"codexBin":"/Applications/ChatGPT.app/Contents/Resources/codex-cli/bin/codex","listen":"ws://127.0.0.1:47682/rpc"}`)
-	var buf bytes.Buffer
-	if code := doctorRun(&buf, false); code != 0 {
-		t.Fatalf("keeper ok 状态应返回 0，实际 %d\n%s", code, buf.String())
-	}
-	report := buf.String()
-	if !strings.Contains(report, "结论：HEALTHY") {
-		t.Fatalf("keeper ok 状态不应降级:\n%s", report)
-	}
-	if got := reportValue(report, "codexBin"); got != "/Applications/ChatGPT.app/Contents/Resources/codex-cli/bin/codex" {
-		t.Fatalf("codexBin=%q\n%s", got, report)
-	}
-
-	f.statePath = writeKeeperState(t, `{"state":"failed","lastError":"keeper 连续启动失败","updatedAt":"2026-09-30T12:00:00Z","clearedDesktopEnv":1}`)
+	f.ready = false
 	buf.Reset()
-	if code := doctorRun(&buf, false); code != 0 {
-		t.Fatalf("熔断历史应 DEGRADED（0），实际 %d\n%s", code, buf.String())
-	}
-	report = buf.String()
-	if !strings.Contains(report, "结论：DEGRADED") || !strings.Contains(report, "keeper 连续启动失败") {
-		t.Fatalf("keeper failed 状态未被点名:\n%s", report)
-	}
-	if got := reportValue(report, "摘除记录"); !strings.HasPrefix(got, "是") {
-		t.Fatalf("clearedDesktopEnv=1 应显示摘除记录: %q\n%s", got, report)
+	if code := doctorRun(&buf, false); code != 1 || !strings.Contains(buf.String(), "结论：FAILED") {
+		t.Fatalf("live unavailable listener should fail: %d\n%s", code, buf.String())
 	}
 }
 
@@ -412,8 +359,8 @@ func TestDoctorFailsOnUnresolvableCodexAndNoService(t *testing.T) {
 	if got := reportValue(report, "launchd"); got != "未加载" {
 		t.Fatalf("launchd=%q\n%s", got, report)
 	}
-	if got := reportValue(report, "生效 bin"); got != "解析失败" {
-		t.Fatalf("生效 bin=%q\n%s", got, report)
+	if got := reportValue(report, "可用 bin"); got != "解析失败" {
+		t.Fatalf("可用 bin=%q\n%s", got, report)
 	}
 	if !strings.Contains(report, "结论：FAILED") || !strings.Contains(report, "setup-mac.sh") || !strings.Contains(report, "fleet-agent start") {
 		t.Fatalf("缺少 FAILED 结论或修复建议:\n%s", report)

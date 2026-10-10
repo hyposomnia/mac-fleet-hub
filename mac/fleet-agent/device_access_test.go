@@ -34,6 +34,42 @@ func TestDeviceBindingPrivateStorage(t *testing.T) {
 	}
 }
 
+func TestDeviceStatusSynchronizesIdleSettingsOnlyWithValidAuthorization(t *testing.T) {
+	previous := idleSec.Load()
+	t.Cleanup(func() { idleSec.Store(previous) })
+	idleSec.Store(1800)
+	status, seconds, owner := 200, int64(420), "owner@example.com"
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		writer.WriteHeader(status)
+		json.NewEncoder(writer).Encode(map[string]any{"device_id": "m1", "owner_email": owner,
+			"lease_until": time.Now().Add(40 * time.Second).Unix(), "idleSec": seconds})
+	}))
+	defer server.Close()
+	path := filepath.Join(t.TempDir(), "private", "binding.json")
+	binding := deviceBinding{Origin: server.URL, DeviceID: "m1", DeviceToken: strings.Repeat("a", 43), ProxyToken: strings.Repeat("b", 43), OwnerEmail: owner}
+	if err := writePrivateJSON(path, binding); err != nil {
+		t.Fatal(err)
+	}
+	access := newDeviceAccess(path)
+	defer access.close()
+	refresh := func(expected int64) {
+		t.Helper()
+		access.refresh(context.Background())
+		if actual := idleSec.Load(); actual != expected {
+			t.Fatalf("idleSec=%d, want %d", actual, expected)
+		}
+	}
+	refresh(420)
+	seconds = 2460
+	refresh(2460)
+	status, seconds = 503, 60
+	refresh(2460)
+	status, owner = 200, "other@example.com"
+	refresh(2460)
+	owner, seconds = binding.OwnerEmail, 0
+	refresh(2460)
+}
+
 func TestDeviceAccessLeaseAndLocalLogoutCancelStreams(t *testing.T) {
 	var status int = 200
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {

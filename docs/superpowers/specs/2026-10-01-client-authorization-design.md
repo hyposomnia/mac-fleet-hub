@@ -22,7 +22,7 @@ agent 使用 device_token 获取 45 秒授权 lease，15 秒重新校验；收�
 
 - GET /api/enrollment/preview?code=：完整登录后返回设备名称和请求状态，不含 claim token。
 - claim：除 authKey/loginServer/index/state 返回 device_id、owner_email、device_token、proxy_token、agent_port、terminal_port、files_port。
-- GET /api/device/status：device_token Bearer，仅返回自己的 device_id、owner_email、状态、lease_until、idleSec；installing 202、active 200、禁用 403、撤销 410。
+- GET /api/device/status：device_token Bearer，仅返回自己的 device_id、owner_email、状态、lease_until、idleSec；installing 202、active 200、禁用 403、撤销 410。idleSec 沿用该 owner 的 autoCloseMinutes × 60，默认 1800 秒；agent 在授权响应有效时同步，读取设置失败或 idleSec 非正数时保留当前回收时长，不影响设备授权。已绑定 agent 不再从公开的全局配置接口覆盖该值。
 - DELETE /api/device/binding：device_token Bearer；先撤销本设备和所有相关访问，再收敛网络。网络失败 503 且 access_revoked=true，不冒充成功。
 - fleet-agent login/status/logout/capabilities：CLI。status 不打印凭据；logout 先本地锁定访问，再远端撤销，成功删除凭据，离线保留锁定状态供重试。
 

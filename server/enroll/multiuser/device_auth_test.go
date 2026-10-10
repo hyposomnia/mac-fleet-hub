@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -16,6 +17,44 @@ func deviceRequest(server *Server, method, path, token string) *httptest.Respons
 	response := httptest.NewRecorder()
 	server.ServeHTTP(response, request)
 	return response
+}
+
+func TestDeviceStatusUsesOwnerIdleSettings(t *testing.T) {
+	server, now := newTestServer(t)
+	for index, minutes := range []int{7, 41} {
+		browser, user, _, _ := registerBrowser(t, server, *now, fmt.Sprintf("idle-%d@example.com", index))
+		addAppearanceDevice(t, server, user, index+1, "active")
+		token, _, err := server.issueDeviceCredentials(int64(index + 1))
+		if err != nil {
+			t.Fatal(err)
+		}
+		check := func(expected int) {
+			t.Helper()
+			response := deviceRequest(server, "GET", "/api/device/status", token)
+			var result struct {
+				IdleSec int `json:"idleSec"`
+			}
+			if response.Code != 200 || json.Unmarshal(response.Body.Bytes(), &result) != nil || result.IdleSec != expected {
+				t.Fatalf("owner idle setting: %d %s, want %ds", response.Code, response.Body.String(), expected)
+			}
+		}
+		check(1800)
+		if response := browser.request("POST", "/api/settings", map[string]int{"autoCloseMinutes": minutes}); response.Code != 200 {
+			t.Fatal(response.Body.String())
+		}
+		check(minutes * 60)
+		if _, err := server.db.Exec("UPDATE preferences SET value='broken-json' WHERE user_id=?", user.ID); err != nil {
+			t.Fatal(err)
+		}
+		response := deviceRequest(server, "GET", "/api/device/status", token)
+		var result struct {
+			Lease   int64 `json:"lease_until"`
+			IdleSec int   `json:"idleSec"`
+		}
+		if response.Code != 200 || json.Unmarshal(response.Body.Bytes(), &result) != nil || result.Lease <= now.Unix() || result.IdleSec != 0 {
+			t.Fatalf("invalid preferences affected device authorization: %d %s", response.Code, response.Body.String())
+		}
+	}
 }
 
 func TestProxyRequiresCredentialAndInjectsOnlyOwnedSecret(t *testing.T) {

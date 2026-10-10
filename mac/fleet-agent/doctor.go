@@ -31,7 +31,6 @@ var (
 	doctorBinVersion  = codexBinVersion
 	doctorProbeReadyz = probeReadyz
 	doctorRunCmd      = runCmd
-	doctorStatePath   = appServerStatePath
 	doctorPlistPath   = svcPlistPath
 
 	// --fix 复测次数与间隔（测试里调小以免真等待）。
@@ -164,20 +163,13 @@ func buildDoctorReport() (string, doctorSummary) {
 	switch {
 	case resolveErr != nil:
 		summary.failed = true
-		b.WriteString("  生效 bin   解析失败\n")
+		b.WriteString("  可用 bin   解析失败\n")
 		for _, line := range strings.Split(resolveErr.Error(), "\n") {
 			fmt.Fprintf(&b, "             %s\n", line)
 		}
 		fixes = append(fixes, "Codex 可执行文件无法解析：重跑 `bash mac/setup-mac.sh`，或把 FLEET_CODEX_BIN 指向当前可用的 codex。")
 	default:
-		fmt.Fprintf(&b, "  生效 bin   %s（来源 %s）\n", resolved, source)
-		if resolved != configuredBin {
-			if binFromPlist {
-				b.WriteString("  自愈       已替换 plist 里写死的旧路径\n")
-			} else {
-				b.WriteString("  自愈       已替换运行环境里的默认值\n")
-			}
-		}
+		fmt.Fprintf(&b, "  可用 bin   %s（来源 %s）\n", resolved, source)
 		if binVersion := doctorBinVersion(resolved, doctorCodexVersionTimeout); binVersion != "" {
 			fmt.Fprintf(&b, "  版本       %s\n", binVersion)
 		} else {
@@ -276,34 +268,6 @@ func buildDoctorReport() (string, doctorSummary) {
 		fixes = append(fixes, fmt.Sprintf("GUI 域 WS 端点与配置不一致：确认 shared 恢复后运行 `bash mac/codex-desktop-env.sh shared %s` 并重开 ChatGPT.app。", desktopURL))
 	}
 
-	// ---------------- 熔断状态文件 ----------------
-	b.WriteString("熔断状态\n")
-	statePath := doctorStatePath()
-	fmt.Fprintf(&b, "  文件       %s\n", statePath)
-	if state, err := readAppServerState(statePath); err == nil {
-		fmt.Fprintf(&b, "  state      %s\n", orDash(state.State))
-		fmt.Fprintf(&b, "  lastError  %s\n", orDash(state.LastError))
-		fmt.Fprintf(&b, "  updatedAt  %s\n", orDash(state.UpdatedAt))
-		if state.CodexBin != "" {
-			fmt.Fprintf(&b, "  codexBin   %s\n", state.CodexBin)
-		}
-		if state.Listen != "" {
-			fmt.Fprintf(&b, "  listen     %s\n", state.Listen)
-		}
-		if state.ClearedDesktopEnv {
-			b.WriteString("  摘除记录   是（GUI 域曾因 shared app-server 故障被摘除）\n")
-		}
-		if !appServerStateHealthy(state.State) {
-			degraded = true
-			fixes = append(fixes, fmt.Sprintf("状态文件记录 state=%s lastError=%s updatedAt=%s：确认 shared app-server 已恢复（`fleet-agent doctor --fix`）。", state.State, orDash(state.LastError), orDash(state.UpdatedAt)))
-		}
-	} else if os.IsNotExist(err) {
-		b.WriteString("  （无状态文件，未熔断过）\n")
-	} else {
-		degraded = true
-		fmt.Fprintf(&b, "  （读取失败: %v）\n", err)
-	}
-
 	conclusion := "HEALTHY"
 	switch {
 	case summary.failed:
@@ -361,13 +325,6 @@ func doctorFix(out io.Writer, desktopURL string) int {
 	return 0
 }
 
-func orDash(value string) string {
-	if strings.TrimSpace(value) == "" {
-		return "-"
-	}
-	return value
-}
-
 // fleetLogPath 返回本机 Fleet 日志文件路径：默认 ~/Library/Logs/macfleet，
 // 与 setup-mac.sh 渲染进 plist 的 FLEET_LOG_DIR 一致（显式设置时跟随）。
 func fleetLogPath(name string) string {
@@ -381,5 +338,5 @@ func fleetLogPath(name string) string {
 	return filepath.Join(home, "Library", "Logs", "macfleet", name)
 }
 
-// codexAppServerLogPath 是 shared 监督包装（keeper launcher）自己的结构化日志。
-func codexAppServerLogPath() string { return fleetLogPath("codex-app-server.log") }
+// Shared launchd stderr path from mac/com.macfleet.codex-shared-app-server.plist.
+func codexAppServerLogPath() string { return "/tmp/macfleet-codex-app-server.err" }

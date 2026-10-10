@@ -457,43 +457,95 @@ func TestUserApplicationsCallbackScopeCancelsOnDisable(t *testing.T) {
 	}
 }
 
-func TestUserApplicationsRevokedResultsAndIdempotencyAreHidden(t *testing.T) {
-	registry := newApplicationTestRegistry()
-	apps := newUserApplications(t.TempDir())
-	apps.server = registry
-	t.Cleanup(apps.Close)
-	handler := apps.Handler(registry.users[0])
-	key := applicationTestKey(t, handler)
-	api, err := apps.application(1)
-	if err != nil {
-		t.Fatal(err)
-	}
-	body := `{"device":"m3","ai_client":"codex","project":"demo","message":"hello"}`
-	var parsed submitMessageRequest
-	if err := json.Unmarshal([]byte(body), &parsed); err != nil {
-		t.Fatal(err)
-	}
-	raw, _ := json.Marshal(parsed)
-	api.mu.Lock()
-	api.jobs["private"] = &messageJob{ID: "private", Status: messageCompleted, AIMessage: "revoked content", DeviceID: "m3", DeviceNodeID: "node-3", DeviceIP: "127.0.0.1", AccessKeyID: api.keys[0].ID, IdempotencyKey: "retry", RequestHash: hashString(string(raw)), CompletedAt: time.Now()}
-	api.mu.Unlock()
-	registry.revoke(1, "m3")
-	response := applicationTestRequest(apps, "GET", "/api/v1/messages/private", key, "")
-	if response.Code != 404 {
-		t.Fatalf("revoked public result: %d %s", response.Code, response.Body.String())
-	}
-	response = applicationTestRequest(handler, "GET", "/api/message-records", "", "")
-	if response.Code != 200 || strings.Contains(response.Body.String(), "revoked content") {
-		t.Fatalf("revoked private result: %d %s", response.Code, response.Body.String())
-	}
-	request := httptest.NewRequest("POST", "/api/v1/messages", strings.NewReader(body))
-	request.Header.Set("Content-Type", "application/json")
-	request.Header.Set("Authorization", "Bearer "+key)
-	request.Header.Set("Idempotency-Key", "retry")
-	response = httptest.NewRecorder()
-	apps.ServeHTTP(response, request)
-	if response.Code != 404 {
-		t.Fatalf("revoked idempotent retry: %d %s", response.Code, response.Body.String())
+func TestUserApplicationsHistorySurvivesDeviceChanges(t *testing.T) {
+	for _, change := range []string{"revoke", "owner", "node", "ip", "missing-node", "removed"} {
+		t.Run(change, func(t *testing.T) {
+			registry := newApplicationTestRegistry()
+			apps := newUserApplications(t.TempDir())
+			apps.server = registry
+			t.Cleanup(apps.Close)
+			handler := apps.Handler(registry.users[0])
+			key := applicationTestKey(t, handler)
+			otherHandler := apps.Handler(registry.users[1])
+			otherKey := applicationTestKey(t, otherHandler)
+			api, err := apps.application(1)
+			if err != nil {
+				t.Fatal(err)
+			}
+			body := `{"device":"m3","ai_client":"codex","project":"demo","message":"hello"}`
+			var parsed submitMessageRequest
+			if err := json.Unmarshal([]byte(body), &parsed); err != nil {
+				t.Fatal(err)
+			}
+			raw, _ := json.Marshal(parsed)
+			api.mu.Lock()
+			api.jobs["private"] = &messageJob{ID: "private", Status: messageCompleted, AIMessage: "revoked content", DeviceID: "m3", DeviceNodeID: "node-3", DeviceIP: "127.0.0.1", AccessKeyID: api.keys[0].ID, IdempotencyKey: "retry", RequestHash: hashString(string(raw)), CompletedAt: time.Now()}
+			api.mu.Unlock()
+			if change == "revoke" {
+				registry.revoke(1, "m3")
+			} else {
+				registry.mu.Lock()
+				switch change {
+				case "owner":
+					registry.devices[0].UserID = 2
+				case "node":
+					registry.devices[0].NodeID = "replacement-node"
+				case "ip":
+					registry.devices[0].IP = "127.0.0.3"
+				case "missing-node":
+					registry.devices[0].NodeID = ""
+				case "removed":
+					registry.devices = registry.devices[1:]
+				}
+				registry.mu.Unlock()
+			}
+			response := applicationTestRequest(apps, "GET", "/api/v1/messages/private", key, "")
+			if response.Code != 200 || !strings.Contains(response.Body.String(), "revoked content") {
+				t.Fatalf("owned public history: %d %s", response.Code, response.Body.String())
+			}
+			response = applicationTestRequest(handler, "GET", "/api/message-records", "", "")
+			if response.Code != 200 || !strings.Contains(response.Body.String(), "revoked content") {
+				t.Fatalf("owned private history: %d %s", response.Code, response.Body.String())
+			}
+			response = applicationTestRequest(apps, "GET", "/api/v1/messages/private", otherKey, "")
+			if response.Code != 404 || strings.Contains(response.Body.String(), "revoked content") {
+				t.Fatalf("cross-owner public history: %d %s", response.Code, response.Body.String())
+			}
+			response = applicationTestRequest(otherHandler, "GET", "/api/message-records", "", "")
+			if response.Code != 200 || strings.Contains(response.Body.String(), "revoked content") {
+				t.Fatalf("cross-owner private history: %d %s", response.Code, response.Body.String())
+			}
+			request := httptest.NewRequest("POST", "/api/v1/messages", strings.NewReader(body))
+			request.Header.Set("Content-Type", "application/json")
+			request.Header.Set("Authorization", "Bearer "+key)
+			request.Header.Set("Idempotency-Key", "retry")
+			response = httptest.NewRecorder()
+			apps.ServeHTTP(response, request)
+			var result struct {
+				ID string `json:"message_id"`
+			}
+			if response.Code != 202 || json.Unmarshal(response.Body.Bytes(), &result) != nil || result.ID != "private" {
+				t.Fatalf("owned idempotent retry: %d %s", response.Code, response.Body.String())
+			}
+			api.mu.Lock()
+			count := len(api.jobs)
+			status := api.jobs["private"].Status
+			api.mu.Unlock()
+			if count != 1 || status != messageCompleted {
+				t.Fatal("idempotent retry queued another device operation")
+			}
+			if change == "revoke" || change == "owner" || change == "missing-node" || change == "removed" {
+				response = applicationTestRequest(apps, "POST", "/api/v1/messages", key, body)
+				if response.Code != 404 {
+					t.Fatalf("new operation on unavailable device: %d %s", response.Code, response.Body.String())
+				}
+			}
+			registry.revoke(1, "")
+			response = applicationTestRequest(apps, "GET", "/api/v1/messages/private", key, "")
+			if response.Code != 401 {
+				t.Fatalf("disabled owner history: %d %s", response.Code, response.Body.String())
+			}
+		})
 	}
 }
 

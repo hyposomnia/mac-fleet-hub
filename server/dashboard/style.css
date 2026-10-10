@@ -86,8 +86,7 @@
   --chat-link:var(--accent-text);
   --chat-code-bg:var(--surface-2);
   --chat-user-bg:var(--surface-2);
-  --chat-turn-pin-bg: color-mix(in srgb, var(--chat-user-bg) 70%, transparent);
-  --chat-floating-bg: color-mix(in srgb, var(--chat-surface-2) 50%, transparent);
+  --chat-floating-bg: color-mix(in srgb, var(--chat-surface-2) 60%, transparent);
   --chat-composer-bg:var(--surface-2);
  --chat-border:transparent;
   --chat-border-light:transparent;
@@ -156,8 +155,7 @@
   --chat-link:var(--accent-text);
   --chat-code-bg:var(--surface-2);
   --chat-user-bg:var(--surface-2);
-  --chat-turn-pin-bg: color-mix(in srgb, var(--chat-user-bg) 70%, transparent);
-  --chat-floating-bg: color-mix(in srgb, var(--chat-surface-2) 50%, transparent);
+  --chat-floating-bg: color-mix(in srgb, var(--chat-surface-2) 60%, transparent);
   --chat-composer-bg:var(--surface-2);
  --chat-border:transparent;
   --chat-border-light:transparent;
@@ -868,7 +866,7 @@ html.automation-doc-root, html.automation-doc-root body { height: auto; min-heig
 .chat-turn-pin-inner { width: 100%; min-width: 0; max-width: none; margin: 0; display: flex; justify-content: flex-end; }
 .chat-turn-pin-card {
   width: fit-content; max-width: min(74%, 680px); min-width: 0; overflow: hidden; padding: 8px 12px;
-  border: 0; border-radius: var(--radius-control); background: var(--chat-turn-pin-bg);
+  border: 0; border-radius: var(--radius-control); background: var(--chat-floating-bg);
   box-shadow: var(--chat-composer-shadow); color: var(--chat-text); font-size: var(--t-body); line-height: 1.5; text-overflow: ellipsis; white-space: nowrap;
   -webkit-backdrop-filter: blur(18px); backdrop-filter: blur(18px);
 }
@@ -1282,9 +1280,8 @@ textarea.chat-request-input { resize: vertical; }
 #chat-jump {
   width: 48px; height: 48px; padding: 0; flex: none; display: grid; place-items: center;
   border: 0; border-radius: 50%; background: var(--chat-floating-bg); color: var(--chat-text-1);
-  opacity: .72;
   pointer-events: auto; -webkit-backdrop-filter: blur(18px); backdrop-filter: blur(18px);
-  transition: background var(--dur-1) var(--ease), color var(--dur-1) var(--ease), opacity var(--dur-1) var(--ease),
+  transition: background var(--dur-1) var(--ease), color var(--dur-1) var(--ease),
               border-color var(--dur-1) var(--ease), transform var(--dur-1) var(--ease);
 }
 #chat-jump[hidden] { display: none; }
@@ -1292,7 +1289,6 @@ textarea.chat-request-input { resize: vertical; }
 @media (hover: hover) {
   #chat-jump:hover {
     background: color-mix(in oklab, var(--chat-text) 3%, var(--chat-floating-bg));  color: var(--chat-text);
-    opacity: .82;
     transform: translateY(-1px);
   }
 }

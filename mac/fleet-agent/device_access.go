@@ -78,10 +78,11 @@ func (access *deviceAccess) refresh(ctx context.Context) {
 		return
 	}
 	var status struct {
-		ID    string `json:"device_id"`
-		Email string `json:"owner_email"`
-		Name  string `json:"device_name"`
-		Lease int64  `json:"lease_until"`
+		ID      string `json:"device_id"`
+		Email   string `json:"owner_email"`
+		Name    string `json:"device_name"`
+		Lease   int64  `json:"lease_until"`
+		IdleSec int64  `json:"idleSec"`
 	}
 	err = json.NewDecoder(http.MaxBytesReader(nil, response.Body, 16<<10)).Decode(&status)
 	access.mu.Lock()
@@ -92,6 +93,9 @@ func (access *deviceAccess) refresh(ctx context.Context) {
 	if response.StatusCode != 200 || err != nil || status.ID != binding.DeviceID || status.Email != binding.OwnerEmail || status.Lease <= time.Now().Unix() || status.Lease > time.Now().Add(46*time.Second).Unix() {
 		access.deny()
 		return
+	}
+	if status.IdleSec > 0 {
+		idleSec.Store(status.IdleSec)
 	}
 	// Names are presentation metadata, never part of the authorization identity.
 	// Synchronize only after validating the device, owner and lease.

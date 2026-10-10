@@ -2,6 +2,7 @@ package multiuser
 
 import (
 	"database/sql"
+	"log"
 	"net/http"
 	"strings"
 	"time"
@@ -113,7 +114,16 @@ func (server *Server) handleDeviceAuth(writer http.ResponseWriter, request *http
 			status = 200
 			lease = server.now().Add(45 * time.Second).Unix()
 		}
-		respond(writer, status, map[string]any{"device_id": device.ID, "device_name": device.Name, "owner_email": user.Email, "state": device.Status, "lease_until": lease, "idleSec": 1800})
+		server.mu.Lock()
+		preferences, err := server.loadDashboardPreferences(user.ID)
+		server.mu.Unlock()
+		var idleSeconds int64
+		if err != nil {
+			log.Printf("读取用户 %d 空闲回收设置失败: %v", user.ID, err)
+		} else {
+			idleSeconds = int64(preferences.AutoCloseMinutes) * 60
+		}
+		respond(writer, status, map[string]any{"device_id": device.ID, "device_name": device.Name, "owner_email": user.Email, "state": device.Status, "lease_until": lease, "idleSec": idleSeconds})
 		return
 	}
 	reject(writer, 401, "设备凭据无效")

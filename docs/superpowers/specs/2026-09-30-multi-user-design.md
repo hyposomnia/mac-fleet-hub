@@ -22,7 +22,7 @@
 
 Network 接口 Issue/Discover/Reconcile/Revoke；Headscale 每用户一个内部 user，但隔离真正来自显式 policy。ACL 仅放行网关 IP 到有效设备的服务端口，以及同一 active 用户设备间互通；跨账号默认拒绝。失效、disabled、revoked 设备无规则。数据库状态先封锁网页/API，再执行网络撤销；失败以 503 和待收敛状态返回，后台重试，不冒充完成。
 
-设备 ID 保留 mN，编号不复用。`GET /api/devices` 和兼容 `/api/nodes.json` 仅返回 owner 的设备。GET/POST names、settings 按用户保存。DELETE devices/mN 关闭活动连接、撤销网络及自动化授权，不删除本地文件或终止 Desktop turn。
+设备 ID 保留 mN，编号不复用。`GET /api/devices` 和兼容 `/api/nodes.json` 仅返回 owner 的设备。GET/POST names、settings 按用户保存，设备撤销不隐藏或清除 owner 已保存的外观偏好。修改设备外观仍检查当前归属和有效状态。DELETE devices/mN 关闭活动连接、撤销网络及自动化授权，不删除本地文件或终止 Desktop turn。
 
 ## 路由及自动化
 
@@ -30,7 +30,7 @@ nginx 只负责 TLS 和入口，所有私有请求经 Go 认证授权，动态�
 
 上述为服务端代理契约，不能据此认定 filebrowser / DSH 嵌入应用已经完整支持新认证。代理入口的写请求检查 Fleet Origin 与 CSRF，Fleet CSRF 不转发给上游；嵌入应用自身的凭据、CSRF token 与请求形状需在后续新客户端集成后逐项实测登录、写操作、上传及实时连接。Fleet 页面测试与模拟上游代理测试只验证各自范围，不能替代真实嵌入应用及客户端验收。
 
-复用现有 messageAPI 的持久队列和回调逻辑，每用户独立应用实例与私有数据路径；数据库保存用户/设备/偏好真相，既有 JSON 自动化数据通过 owner 专属目录保存，防止重写复杂消息状态机。每次投递及结果查询重验有效 owner 和 device，公开 Bearer key 仅在其 owner 应用内有效。后台禁止查询其他用户的消息正文。
+复用现有 messageAPI 的持久队列和回调逻辑，每用户独立应用实例与私有数据路径；数据库保存用户/设备/偏好真相，既有 JSON 自动化数据通过 owner 专属目录保存，防止重写复杂消息状态机。向设备发起操作时重验有效 owner 和 device。已保存的结果及记录由有效 owner 和当前 API key 范围决定可见性，设备撤销或身份变更不隐藏该 owner 的历史；相同幂等请求返回既有 message_id，不再次投递。公开 Bearer key 仅在其 owner 应用内有效。后台禁止查询其他用户的消息正文。
 
 ## 数据及运维
 

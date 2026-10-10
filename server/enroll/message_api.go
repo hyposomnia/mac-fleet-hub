@@ -867,14 +867,6 @@ func (a *messageAPI) handleMessages(w http.ResponseWriter, r *http.Request) {
 		writeAPIProblem(w, &apiProblem{Status: 404, Code: "message_not_found", Message: "message_id 不存在或已过保留期"})
 		return
 	}
-	if a.scopeJob != nil {
-		_, cancel, err := a.scopeJob(r.Context(), job)
-		if err != nil {
-			writeAPIProblem(w, &apiProblem{Status: 404, Code: "message_not_found", Message: "message_id 不存在或设备已撤销"})
-			return
-		}
-		defer cancel()
-	}
 	writeJSON(w, http.StatusOK, publicMessage(job, false))
 }
 
@@ -991,16 +983,7 @@ func (a *messageAPI) submitMessage(w http.ResponseWriter, r *http.Request, key a
 				return
 			}
 			id := existing.ID
-			job := cloneMessageJob(existing)
 			a.mu.Unlock()
-			if a.scopeJob != nil {
-				_, cancel, err := a.scopeJob(r.Context(), job)
-				if err != nil {
-					writeAPIProblem(w, &apiProblem{Status: 404, Code: "device_not_found", Message: "找不到指定设备"})
-					return
-				}
-				cancel()
-			}
 			w.Header().Set("Location", "/api/v1/messages/"+id)
 			writeJSON(w, http.StatusAccepted, map[string]string{"message_id": id})
 			return
@@ -1097,18 +1080,6 @@ func (a *messageAPI) handleMessageRecords(w http.ResponseWriter, r *http.Request
 	recordKeyNames := map[string]string{}
 	hasLegacy := false
 	for _, job := range a.jobs {
-		jobs = append(jobs, cloneMessageJob(job))
-	}
-	a.mu.Unlock()
-	visible := jobs[:0]
-	for _, job := range jobs {
-		if a.scopeJob != nil {
-			_, cancel, err := a.scopeJob(r.Context(), job)
-			if err != nil {
-				continue
-			}
-			cancel()
-		}
 		if job.AccessKeyID == "" {
 			hasLegacy = true
 		} else {
@@ -1120,9 +1091,9 @@ func (a *messageAPI) handleMessageRecords(w http.ResponseWriter, r *http.Request
 		if accessKeyID != "" && accessKeyID != "__legacy__" && job.AccessKeyID != accessKeyID {
 			continue
 		}
-		visible = append(visible, job)
+		jobs = append(jobs, cloneMessageJob(job))
 	}
-	jobs = visible
+	a.mu.Unlock()
 	sort.Slice(jobs, func(i, j int) bool { return jobs[i].CreatedAt.After(jobs[j].CreatedAt) })
 	if len(jobs) > limit {
 		jobs = jobs[:limit]

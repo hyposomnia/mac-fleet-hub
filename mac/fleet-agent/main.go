@@ -2012,6 +2012,7 @@ func runServer() {
 
 func serveAgent(listener net.Listener, ready func()) error {
 	cfg = loadConfig()
+	idleSec.Store(cfg.IdleSec)
 	access := newDeviceAccess(bindingPath())
 	access.refresh(context.Background())
 	go access.run(context.Background())
@@ -2021,9 +2022,7 @@ func serveAgent(listener net.Listener, ready func()) error {
 	}
 	home, _ := os.UserHomeDir()
 
-	// R2：ChatGPT.app 自动更新会改内部 codex 路径（Contents/Resources/codex →
-	// codex-cli/bin/codex），plist 里写死的 FLEET_CODEX_BIN 会失效。这里按
-	// manifest/新布局动态解析；解析失败只告警，其他功能（会话/文件/Claude）必须继续可用。
+	// CLI sessions and legacy daemon modes also need the current bundled executable.
 	switch normalizeCodexAppServerMode(cfg.CodexMode) {
 	case codexAppServerModeShared, codexAppServerModeDaemon, codexAppServerModeAuto:
 		appPath := strings.TrimSpace(os.Getenv("FLEET_CODEX_DESKTOP_APP_PATH"))
@@ -2035,7 +2034,7 @@ func serveAgent(listener net.Listener, ready func()) error {
 			log.Printf("Codex 可执行文件动态解析失败，继续使用配置值 %q：%v", cfg.CodexBin, err)
 		} else {
 			if resolved != cfg.CodexBin {
-				log.Printf("Codex 可执行文件已自愈：%q → %s（来源 %s）", cfg.CodexBin, resolved, source)
+				log.Printf("Codex 可执行文件解析为：%q → %s（来源 %s）", cfg.CodexBin, resolved, source)
 			}
 			cfg.CodexBin = resolved
 		}
@@ -2101,8 +2100,9 @@ func serveAgent(listener net.Listener, ready func()) error {
 	mux.HandleFunc("/api/chat/access", handleChatAccess)
 	mux.HandleFunc("/api/health", func(w http.ResponseWriter, r *http.Request) { w.Write([]byte("ok")) })
 
-	idleSec.Store(cfg.IdleSec) // 初值 = FLEET_IDLE_SEC，configSync 成功后覆盖
-	go configSync()
+	if bindingErr != nil {
+		go configSync()
+	}
 	go reaper()
 	log.Printf("fleet-agent listening on %s (mac index %s, idle %ds)", cfg.Listen, cfg.MacIndex, cfg.IdleSec)
 	if ready != nil {

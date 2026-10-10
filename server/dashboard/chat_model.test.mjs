@@ -1919,26 +1919,25 @@ test('jump-to-bottom control uses an accessible inline SVG icon', () => {
   assert.doesNotMatch(indexHTML, />跳到底部<\/button>/);
 });
 
-test('sticky previous input aligns with user bubbles and reuses their tint with extra transparency', () => {
-  assert.ok(/--chat-turn-pin-bg:\s*color-mix\(in srgb, var\(--chat-user-bg\) 70%, transparent\)/.test(styleCSS), 'sticky input derives from the user bubble tint');
+test('sticky previous input aligns with user bubbles and uses the floating glass surface', () => {
   assert.match(styleCSS, /#chat-turn-pin\s*\{[^}]*padding:\s*8px calc\(20px \+ var\(--chat-scrollbar-width, 0px\)\) 8px 20px;/s);
   assert.match(styleCSS, /@media \(max-width:\s*860px\)[\s\S]*?#chat-turn-pin\s*\{[^}]*padding:\s*7px calc\(14px \+ var\(--chat-scrollbar-width, 0px\)\) 7px 14px;/s);
   assert.match(appSrc, /Math\.max\(0, sc\.offsetWidth - sc\.clientWidth\)/);
   assert.match(appSrc, /pin\.style\.setProperty\('--chat-scrollbar-width', `\$\{scrollbarWidth\}px`\)/);
   const pinBlock = styleCSS.split('.chat-turn-pin-card {')[1]?.split('}')[0] || '';
-  assert.match(pinBlock, /background:\s*var\(--chat-turn-pin-bg\)/);
+  assert.match(pinBlock, /background:\s*var\(--chat-floating-bg\)/);
   assert.match(pinBlock, /backdrop-filter:\s*blur\(18px\)/);
 });
 
-test('floating output and jump control keep glass surfaces while the down arrow is quieter', () => {
-  assert.ok(/--chat-floating-bg:\s*color-mix\(in srgb, var\(--chat-surface-2\) 50%, transparent\)/.test(styleCSS), 'floating surface retains a 50% alpha channel');
-  for (const selector of ['#chat-jump', '#win[data-workspace-preview="true"] #chat-preview-output:not([hidden])']) {
+test('sticky input, floating output and jump control share the same glass surface', () => {
+  assert.ok(/--chat-floating-bg:\s*color-mix\(in srgb, var\(--chat-surface-2\) 60%, transparent\)/.test(styleCSS), 'floating surface retains a 60% alpha channel');
+  for (const selector of ['.chat-turn-pin-card', '#chat-jump', '#win[data-workspace-preview="true"] #chat-preview-output:not([hidden])']) {
     const block = styleCSS.split(selector + ' {')[1]?.split('}')[0] || '';
     assert.match(block, /background:\s*var\(--chat-floating-bg\)/, selector);
     assert.match(block, /backdrop-filter:\s*blur\(18px\)/, selector);
+    assert.doesNotMatch(block, /\bopacity\s*:/, selector);
   }
-  assert.match(styleCSS, /#chat-jump\s*\{[^}]*opacity:\s*\.72;/s);
-  assert.match(styleCSS, /#chat-jump:hover\s*\{[^}]*opacity:\s*\.82;/s);
+  assert.doesNotMatch(styleCSS, /#chat-jump:hover\s*\{[^}]*\bopacity\s*:/s);
 });
 
 test('jump-to-bottom glass is not trapped inside the composer backdrop root', () => {
