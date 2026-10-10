@@ -1718,13 +1718,10 @@ func (b *codexChatBackend) runConnectedSync(ctx context.Context, sessionID strin
 			if stateErr == nil {
 				rpc, err := b.ensure(ctx)
 				if err == nil {
-					completed, reconcileErr := b.reconcileConnectedSession(ctx, rpc, sessionID, taskState)
+					_, reconcileErr := b.reconcileConnectedSession(ctx, rpc, sessionID, taskState)
 					if reconcileErr == nil {
 						last = stamp
 						haveLast = true
-						if completed {
-							return
-						}
 					}
 				}
 			}

@@ -2720,6 +2720,77 @@ func TestCodexChatBackendConnectedSyncPreservesCurrentFleetLeaseWithoutLockFile(
 	}
 }
 
+func TestCodexChatBackendConnectedSyncContinuesAcrossTurns(t *testing.T) {
+	previousCfg := cfg
+	previousOwner := codexThreadWriterProcessOwner
+	t.Cleanup(func() {
+		cfg = previousCfg
+		codexThreadWriterProcessOwner = previousOwner
+	})
+	cfg.CodexMode = "isolated"
+	codexThreadWriterProcessOwner = func(string) string { return "desktop" }
+	rpc := newFakeRPCConn()
+	rpc.reply["thread/items/list"] = json.RawMessage(`{"data":[]}`)
+	initialReconciled := make(chan struct{}, 1)
+	rpc.beforeReply["thread/items/list"] = func() {
+		select {
+		case initialReconciled <- struct{}{}:
+		default:
+		}
+	}
+	b := newCodexChatBackend(func(context.Context) (codexRPCConn, func(), error) {
+		return rpc, func() {}, nil
+	})
+	b.syncInterval = 5 * time.Millisecond
+	rollout := filepath.Join(t.TempDir(), "rollout.jsonl")
+	if err := os.WriteFile(rollout, []byte(strings.Join([]string{
+		`{"type":"event_msg","payload":{"type":"task_started","turn_id":"turn-1"}}`,
+		`{"type":"event_msg","payload":{"type":"task_complete","turn_id":"turn-1"}}`,
+	}, "\n")+"\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	b.rolloutStamp = func(string) (codexRolloutStamp, bool) {
+		return testCodexRolloutStamp(t, rollout), true
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	events, err := b.Events(ctx, "codex", "thread-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer cancel()
+	select {
+	case <-initialReconciled:
+	case <-time.After(time.Second):
+		t.Fatal("initial completed turn was not reconciled")
+	}
+	time.Sleep(20 * time.Millisecond)
+
+	f, err := os.OpenFile(rollout, os.O_APPEND|os.O_WRONLY, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, writeErr := f.WriteString(`{"type":"event_msg","payload":{"type":"task_started","turn_id":"turn-2"}}` + "\n")
+	closeErr := f.Close()
+	if writeErr != nil {
+		t.Fatal(writeErr)
+	}
+	if closeErr != nil {
+		t.Fatal(closeErr)
+	}
+
+	select {
+	case event := <-events:
+		if event.Type != "turn_started" || event.TurnID != "turn-2" {
+			t.Fatalf("next turn event got %+v", event)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("connected sync stopped after the previous turn completed")
+	}
+	cancel()
+	waitForCodexSyncStop(t, b, "thread-1")
+}
+
 func TestCodexChatBackendLastBrowserDisconnectDoesNotReleaseWriter(t *testing.T) {
 	rpc := newFakeRPCConn()
 	rpc.reply["thread/items/list"] = json.RawMessage(`{"data":[]}`)
