@@ -1116,7 +1116,9 @@ test('special session states use trailing indicators and never render relative t
   assert.equal(nodesWithClass(running, 'ses-time').length, 0);
   assert.doesNotMatch(appSrc, /class:\s*'ses-time'/);
   assert.match(styleCSS, /\.session-state-dot\.unread\s*\{/);
-  const runningStyle = styleCSS.match(/\.session-state-dot\.running\s*\{([^}]*)\}/)?.[1];
+  const runningStyle = [...styleCSS.matchAll(/\.session-state-dot\.running\s*\{([^}]*)\}/g)]
+    .map(([, body]) => body)
+    .find((body) => /width:\s*14px/.test(body));
   assert.ok(runningStyle, '会话进行中标记应使用清晰可见的旋转圈');
   assert.match(runningStyle, /width:\s*14px/);
   assert.match(runningStyle, /height:\s*14px/);
@@ -1126,6 +1128,11 @@ test('special session states use trailing indicators and never render relative t
   assert.match(runningStyle, /border-top-color:\s*var\(--accent\)/);
   assert.match(runningStyle, /border-right-color:\s*var\(--accent\)/);
   assert.match(runningStyle, /animation:\s*spin \.65s linear infinite/);
+  assert.match(
+    styleCSS,
+    /@media \(prefers-reduced-motion: reduce\)\s*\{\s*\*\s*\{[^}]*\}\s*\.session-state-dot\.running\s*\{[^}]*animation-duration:\s*\.65s !important/,
+    '系统减少动态效果不应冻结必要的会话进行中状态反馈',
+  );
 });
 
 test('a newer background reply becomes unread until that session is selected', () => {

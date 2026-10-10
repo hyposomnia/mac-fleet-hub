@@ -280,8 +280,10 @@ button { cursor: pointer; border: 0; background: none; }
 ::selection { background: var(--accent-soft); }
 :focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; box-shadow: 0 0 0 5px color-mix(in srgb, var(--highlight) 24%, transparent); }
 
+/* 进行中是必要的实时状态反馈；保留小尺寸匀速旋转，其他动效仍被压缩。 */
 @media (prefers-reduced-motion: reduce) {
   * { animation-duration: .001ms !important; transition-duration: .001ms !important; transition-delay: 0s !important; }
+  .session-state-dot.running { animation-duration: .65s !important; }
 }
 
 /* ============================================================
