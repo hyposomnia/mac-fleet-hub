@@ -3,13 +3,14 @@ import FleetCore
 import SwiftUI
 
 enum SettingsPage: String, CaseIterable, Identifiable {
-    case overview = "运行状态", connection = "关联账号", privacy = "磁盘权限", about = "关于"
+    case overview = "运行状态", connection = "关联账号", privacy = "磁盘权限", preferences = "设置", about = "关于"
     var id: String { rawValue }
     var symbol: String {
         switch self {
         case .overview: return "desktopcomputer"
         case .connection: return "person.crop.circle"
         case .privacy: return "internaldrive"
+        case .preferences: return "gearshape"
         case .about: return "info.circle"
         }
     }
@@ -19,6 +20,7 @@ struct SettingsView: View {
     @ObservedObject var model: SettingsModel
     @ObservedObject var updater: AppUpdater
     let management: NativeManagement
+    var preview = false
     @Environment(\.colorScheme) private var scheme
     @State private var page: SettingsPage = .overview
     @State private var operationError = ""
@@ -29,7 +31,6 @@ struct SettingsView: View {
     @State private var removeSettings = false
     @State private var saveDelay: Task<Void, Never>?
     @StateObject private var diskGuide = DiskAccessGuideController()
-    @FocusState private var originFocused: Bool
     private var theme: FleetTheme { FleetTheme(scheme: scheme) }
     private var setupAction: FleetSetupAction {
         FleetSetupAction(requiresInstallation: management.layout.requiresInstallation,
@@ -39,13 +40,38 @@ struct SettingsView: View {
         FleetSetupAction.installationTitle(installed: FileManager.default.fileExists(atPath: "/Applications/Fleet Hub.app"))
     }
     private var validOrigin: Bool { (try? FleetSettings.validatedOrigin(model.origin)) != nil }
+    private var webURL: URL? {
+        guard let origin = try? FleetSettings.validatedOrigin(model.status?.binding?.origin ?? model.origin) else { return nil }
+        return URL(string: origin)
+    }
+    private var overviewStatus: FleetOverviewStatus {
+        FleetOverviewStatus(running: model.status != nil, runtime: model.status?.runtime,
+                            locked: model.status?.binding?.locked == true,
+                            operationError: operationError, fallback: setupAction.status)
+    }
+    private var statusColor: Color {
+        switch overviewStatus.tone {
+        case .inactive: return theme.secondaryText
+        case .online: return theme.online
+        case .connecting: return theme.accent
+        case .warning: return theme.warning
+        }
+    }
+    private var statusSymbol: String {
+        switch overviewStatus.tone {
+        case .inactive: return "pause.circle"
+        case .online: return "checkmark.circle.fill"
+        case .connecting: return "arrow.triangle.2.circlepath"
+        case .warning: return "exclamationmark.circle.fill"
+        }
+    }
 
     var body: some View {
         HStack(spacing: 0) {
             VStack(alignment: .leading, spacing: 28) {
                 HStack(spacing: 10) {
                     FleetBrandMark().foregroundStyle(theme.accent)
-                    Text("FLEET HUB").font(.system(size: 13, weight: .semibold, design: .monospaced)).tracking(0.8)
+                    Text("Fleet Hub").font(.system(size: 16, weight: .semibold, design: .rounded))
                 }
                 VStack(spacing: 8) {
                     ForEach(SettingsPage.allCases) { item in
@@ -55,29 +81,48 @@ struct SettingsView: View {
                 Spacer()
             }
             .padding(20).frame(width: 188).background(theme.navigation)
-            ScrollView {
-                VStack(alignment: .leading, spacing: 24) {
+            .overlay(alignment: .trailing) { theme.secondaryText.opacity(0.12).frame(width: 0.5) }
+            VStack(alignment: .leading, spacing: 16) {
+                HStack {
                     Text(page.rawValue).font(.system(size: 24, weight: .semibold))
+                    Spacer()
+                    if page == .overview {
+                        Button {
+                            if let webURL, !NSWorkspace.shared.open(webURL) { operationError = "无法打开网页端" }
+                        } label: { Label("打开网页端", systemImage: "arrow.up.right.square") }
+                        .buttonStyle(.borderedProminent).controlSize(.large).disabled(webURL == nil)
+                    }
+                }
+                List {
                     switch page {
                     case .overview: overview
                     case .connection: connection
                     case .privacy: privacy
+                    case .preferences: preferences
                     case .about: about
                     }
-                    if !operationError.isEmpty || !model.error.isEmpty {
+                    if page != .overview, !operationError.isEmpty || !model.error.isEmpty {
                         Label(operationError.isEmpty ? model.error : operationError, systemImage: "exclamationmark.circle")
                             .foregroundStyle(theme.warning).textSelection(.enabled)
                     }
                 }
-                .frame(maxWidth: .infinity, alignment: .leading).padding(32)
+                .listStyle(.plain).scrollContentBackground(.hidden)
             }
+            .frame(maxWidth: .infinity, alignment: .leading).padding(28)
         }
         .font(.system(size: 13)).foregroundStyle(theme.text).background(theme.background).tint(theme.accent)
-        .buttonStyle(FleetButtonStyle())
+        .buttonStyle(.bordered).controlSize(.regular)
         .disabled(model.isBusy || operationBusy || updater.busy)
         .onChange(of: model.origin) { _ in queueSave() }
         .onChange(of: model.autoStart) { _ in queueSave() }
         .task {
+            if preview {
+                while !Task.isCancelled {
+                    await model.refresh()
+                    try? await Task.sleep(nanoseconds: 2_000_000_000)
+                }
+                return
+            }
             if let origin = FleetSetupAction.initialOrigin(arguments: CommandLine.arguments) {
                 model.origin = origin
                 page = .connection
@@ -127,201 +172,237 @@ struct SettingsView: View {
     }
 
     private var overview: some View {
-        VStack(alignment: .leading, spacing: 20) {
-            card {
-                HStack(spacing: 12) {
-                    Circle().fill(model.status == nil ? theme.secondaryText : theme.online).frame(width: 8, height: 8)
-                    Text(model.status == nil ? setupAction.status : "后台运行中").font(.system(size: 16, weight: .semibold))
+        Group {
+            Section {
+                HStack(spacing: 16) {
+                    Image(systemName: statusSymbol)
+                        .font(.system(size: 30, weight: .regular))
+                        .symbolRenderingMode(.hierarchical).foregroundStyle(statusColor)
+                        .accessibilityHidden(true)
+                    VStack(alignment: .leading, spacing: 12) {
+                        Text(overviewStatus.title)
+                            .font(.system(size: 22, weight: .semibold, design: .rounded))
+                            .foregroundStyle(overviewStatus.tone == .warning ? theme.warning : theme.text)
+                            .textSelection(.enabled)
+                        if let current = model.status {
+                            HStack(spacing: 12) {
+                                Text("版本 \(current.version)")
+                                Text("·")
+                                Text("进程 \(String(current.pid))").monospacedDigit()
+                            }
+                            .font(.system(size: 12)).foregroundStyle(theme.secondaryText).textSelection(.enabled)
+                        }
+                    }
                     Spacer()
                     if model.status == nil {
                         Button(setupAction == .installApplication ? installationTitle : setupAction.title) {
                             if setupAction == .installApplication { installApplication() }
                             else { perform { try await management.start(); await model.refresh(); try management.setAutoStart(model.autoStart) } }
                         }
-                        .buttonStyle(FleetButtonStyle(.primary))
+                        .buttonStyle(.borderedProminent)
                     } else {
-                        Button("重启") { perform { try await management.restart(); await model.refresh() } }
-                        Button("停止") { perform { try await management.stop(); await model.refresh() } }
-                    }
-                }
-                if let runtime = model.status?.runtime, runtime.phase != "unbound" {
-                    Text(runtime.phase == "running" ? "设备服务已就绪" : runtime.error ?? "正在连接")
-                        .foregroundStyle(theme.secondaryText)
-                }
-            }
-            if let binding = model.status?.binding {
-                card {
-                    row("账号", binding.ownerEmail)
-                    row("设备名称", binding.displayName)
-                    if binding.locked { Text("授权已锁定").foregroundStyle(theme.warning) }
-                }
-            } else {
-                Button { page = .connection } label: {
-                    HStack {
-                        VStack(alignment: .leading, spacing: 8) {
-                            Text("尚未关联账号").font(.system(size: 16, weight: .semibold))
-                            Text("关联账号").foregroundStyle(theme.accent)
+                        Button { perform { try await management.restart(); await model.refresh() } } label: {
+                            Label("重启", systemImage: "arrow.clockwise").foregroundStyle(theme.secondaryText)
                         }
-                        Spacer()
-                        Image(systemName: "arrow.right").foregroundStyle(theme.accent)
+                        Button { perform { try await management.stop(); await model.refresh() } } label: {
+                            Label("停止", systemImage: "stop.fill").foregroundStyle(theme.secondaryText)
+                        }
                     }
-                    .padding(20).contentShape(Rectangle())
-                    .background(theme.surface, in: RoundedRectangle(cornerRadius: FleetTheme.cardRadius))
                 }
-                .buttonStyle(.plain)
+                .padding(.vertical, 20)
             }
-            card {
-                Toggle("登录后启动后台", isOn: $model.autoStart).toggleStyle(.switch)
-                    .disabled(management.layout.requiresInstallation)
-                if management.layout.requiresInstallation {
-                    Text("安装后可设置").foregroundStyle(theme.secondaryText)
-                } else if management.autoStartStatus != "已启用" && management.autoStartStatus != "未启用" {
-                    Text(management.autoStartStatus).foregroundStyle(theme.warning)
-                }
-                if let current = model.status {
-                    row("版本", current.version)
-                    row("进程", String(current.pid)).monospacedDigit()
+            Section {
+                if let binding = model.status?.binding {
+                    row("账号", binding.ownerEmail, symbol: "person.crop.circle")
+                    row("设备名称", binding.displayName, symbol: "desktopcomputer")
+                } else {
+                    Button { page = .connection } label: {
+                        HStack {
+                            Text("尚未关联账号")
+                            Spacer()
+                            Text("关联账号")
+                            Image(systemName: "chevron.right")
+                        }
+                        .frame(maxWidth: .infinity).padding(.vertical, 8).contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
                 }
             }
         }
+        .listRowBackground(Color.clear)
     }
 
     private var connection: some View {
-        VStack(alignment: .leading, spacing: 20) {
-            VStack(alignment: .leading, spacing: 12) {
-                Text("服务器地址").fontWeight(.medium)
-                TextField("https://fleet.example.com", text: $model.origin)
-                    .textFieldStyle(.plain).padding(.horizontal, 14).frame(height: FleetTheme.controlHeight)
-                    .background(theme.surface, in: RoundedRectangle(cornerRadius: FleetTheme.controlRadius))
-                    .focused($originFocused)
-                    .overlay(RoundedRectangle(cornerRadius: FleetTheme.controlRadius).stroke(originFocused ? theme.accent : .clear, lineWidth: 2))
-                    .disabled(model.status?.binding != nil)
-                HStack {
-                    Button("打开网页授权") {
-                        if management.layout.requiresInstallation { installApplication() }
-                        else { saveSettings(authorize: true) }
+        Group {
+            Section {
+                if let binding = model.status?.binding {
+                    row("服务器地址", binding.origin, symbol: "network")
+                } else {
+                    LabeledContent("服务器地址") {
+                        TextField("https://fleet.example.com", text: $model.origin)
+                            .textFieldStyle(.roundedBorder)
                     }
-                        .buttonStyle(FleetButtonStyle(.primary))
-                        .disabled(!validOrigin || model.isSaving || model.status?.binding != nil || model.status?.pairing?.phase == "joining")
-                    if model.isSaving { ProgressView().controlSize(.small) }
+                    HStack {
+                        Button("打开网页授权") {
+                            if management.layout.requiresInstallation { installApplication() }
+                            else { saveSettings(authorize: true) }
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .disabled(!validOrigin || model.isSaving || model.status?.pairing?.phase == "joining")
+                        if model.isSaving { ProgressView().controlSize(.small) }
+                    }
                 }
-                if management.layout.requiresInstallation { Text("先\(installationTitle)，再继续网页授权。").foregroundStyle(theme.secondaryText) }
+                if management.layout.requiresInstallation {
+                    Text("先\(installationTitle)，再继续网页授权。").foregroundStyle(theme.secondaryText)
+                }
             }
             if let pairing = model.status?.pairing, pairing.phase != "idle" {
-                card {
+                Section {
                     HStack {
                         if pairing.isActive { ProgressView().controlSize(.small) }
                         Text(pairing.label)
                         Spacer()
                         if pairing.isActive && pairing.phase != "joining" {
                             Button { Task { await model.cancelPairing() } } label: { Image(systemName: "xmark") }
-                                .buttonStyle(FleetButtonStyle(.compact)).accessibilityLabel("取消授权")
+                                .accessibilityLabel("取消授权")
                         }
                     }
                     if let owner = pairing.ownerEmail { row("账号", owner) }
                     if pairing.phase == "awaiting_confirmation" {
-                        Button("确认接入") { Task { await model.confirmPairing() } }.buttonStyle(FleetButtonStyle(.primary))
+                        Button("确认接入") { Task { await model.confirmPairing() } }.buttonStyle(.borderedProminent)
                     }
                     if pairing.needsCleanup == true && model.status?.binding == nil {
-                        Button("解除未完成关联") { confirmLogout = true }.buttonStyle(FleetButtonStyle(.danger))
+                        Button("解除未完成关联") { confirmLogout = true }.foregroundStyle(theme.danger)
                     }
                 }
             }
             if let binding = model.status?.binding {
-                card {
-                    row("账号", binding.ownerEmail)
-                    row("设备名称", binding.displayName)
-                    Button("解除关联") { confirmLogout = true }.buttonStyle(FleetButtonStyle(.danger)).disabled(updater.sessionActive)
+                Section {
+                    row("账号", binding.ownerEmail, symbol: "person.crop.circle")
+                    row("设备名称", binding.displayName, symbol: "desktopcomputer")
+                    Button("解除关联") { confirmLogout = true }.buttonStyle(.link).foregroundStyle(theme.danger)
                 }
             }
         }
+        .listRowBackground(Color.clear)
         .disabled(updater.sessionActive)
     }
 
     private var privacy: some View {
-        VStack(alignment: .leading, spacing: 20) {
-            card {
+        Group {
+            Section {
                 HStack {
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("完全磁盘访问").fontWeight(.medium)
-                        Text(model.diskState.label).foregroundStyle(model.diskState == .verified ? theme.online : theme.warning)
-                    }
+                    Label("完全磁盘访问", systemImage: "internaldrive")
+                        .fontWeight(.medium).foregroundStyle(theme.iconColor(for: .privacy))
                     Spacer()
+                    Label(model.diskState.label, systemImage: model.diskState == .verified ? "checkmark.circle.fill" : "exclamationmark.circle")
+                        .foregroundStyle(model.diskState == .verified ? theme.online : theme.warning)
                     Button { Task { await model.recheckDisk() } } label: { Image(systemName: "arrow.clockwise") }
-                        .buttonStyle(FleetButtonStyle(.compact)).accessibilityLabel("重新检查后台权限")
+                        .accessibilityLabel("重新检查后台权限")
                         .help("由实际后台只读检查；文件权限与 ACL 仍然生效。").disabled(model.status == nil)
                 }
             }
             if let application = DiskAccessApplication(url: management.layout.backgroundApplication), !management.layout.requiresInstallation {
-                card { DiskAccessInstructions(application: application) }
+                Section { DiskAccessInstructions(application: application) }
             }
-            HStack {
-                Button("授权磁盘访问") {
-                    if management.layout.requiresInstallation { installApplication(authorizeDisk: true) }
-                    else {
-                        perform {
-                            try await diskGuide.authorize(applicationURL: management.layout.backgroundApplication) {
-                                try await management.start()
-                                await model.refresh()
+            Section {
+                HStack {
+                    Button("授权磁盘访问") {
+                        if management.layout.requiresInstallation { installApplication(authorizeDisk: true) }
+                        else {
+                            perform {
+                                try await diskGuide.authorize(applicationURL: management.layout.backgroundApplication) {
+                                    try await management.start()
+                                    await model.refresh()
+                                }
                             }
                         }
                     }
+                    .buttonStyle(.borderedProminent).controlSize(.large)
+                    if model.diskState != .verified && model.status != nil {
+                        Button("重启并检查") { perform { try await management.restart(); await model.refresh(); await model.recheckDisk() } }
+                    }
                 }
-                .buttonStyle(FleetButtonStyle(.primary))
-                if model.diskState != .verified && model.status != nil {
-                    Button("重启并检查") { perform { try await management.restart(); await model.refresh(); await model.recheckDisk() } }
+                .frame(maxWidth: .infinity)
+                if let evidence = model.status?.diskAccess, !(evidence.deniedTargets ?? []).isEmpty {
+                    DisclosureGroup("检测详情") {
+                        Text((evidence.deniedTargets ?? []).joined(separator: "\n"))
+                            .font(.system(size: 11, design: .monospaced)).textSelection(.enabled)
+                    }
+                    .foregroundStyle(theme.secondaryText)
                 }
-            }
-            if let evidence = model.status?.diskAccess, !(evidence.deniedTargets ?? []).isEmpty {
-                DisclosureGroup("检测详情") {
-                    Text((evidence.deniedTargets ?? []).joined(separator: "\n"))
-                        .font(.system(size: 11, design: .monospaced)).textSelection(.enabled)
-                }
-                .foregroundStyle(theme.secondaryText)
             }
         }
+        .listRowBackground(Color.clear)
+    }
+
+    private var preferences: some View {
+        Section {
+            Toggle(isOn: $model.autoStart) {
+                Label {
+                    Text("登录后启动后台").foregroundStyle(theme.text)
+                } icon: {
+                    Image(systemName: "power.circle").foregroundStyle(theme.iconColor(for: .preferences))
+                }
+            }
+                .toggleStyle(.switch).disabled(management.layout.requiresInstallation)
+            if management.layout.requiresInstallation {
+                Text("安装后可设置").foregroundStyle(theme.secondaryText)
+            } else if !preview, management.autoStartStatus != "已启用" && management.autoStartStatus != "未启用" {
+                Text(management.autoStartStatus).foregroundStyle(theme.warning)
+            }
+        }
+        .listRowBackground(Color.clear)
     }
 
     private var about: some View {
-        VStack(alignment: .leading, spacing: 20) {
-            card {
-                HStack(spacing: 16) {
-                    FleetBrandMark(size: 48).foregroundStyle(theme.accent)
-                    VStack(alignment: .leading, spacing: 6) {
-                        Text("Fleet Hub").font(.system(size: 20, weight: .semibold))
-                        Text(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "开发版本")
-                            .foregroundStyle(theme.secondaryText)
+        Group {
+            Section {
+                VStack(spacing: 12) {
+                    Image(nsImage: NSWorkspace.shared.icon(forFile: management.layout.application.path))
+                        .resizable().scaledToFit().frame(width: 96, height: 96).accessibilityHidden(true)
+                    Text("Fleet Hub").font(.system(size: 22, weight: .semibold))
+                    Text(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "开发版本")
+                        .foregroundStyle(theme.secondaryText)
+                    if !management.layout.requiresInstallation {
+                        Button("检查更新") { Task { await updater.check() } }.disabled(updater.sessionActive)
                     }
-                    Spacer()
                 }
-                if !management.layout.requiresInstallation { Button("检查更新") { Task { await updater.check() } }.disabled(updater.sessionActive) }
+                .frame(maxWidth: .infinity).padding(.vertical, 28)
                 if !updater.message.isEmpty { Text(updater.message).foregroundStyle(theme.secondaryText).textSelection(.enabled) }
                 if updater.sessionActive { Button("继续安装升级") { Task { await updater.continueInstallation() } } }
             }
-            if management.layout.requiresInstallation {
-                Button(installationTitle) { installApplication() }
-                .buttonStyle(FleetButtonStyle(.primary))
-            } else {
-                DisclosureGroup("卸载") {
-                    Toggle("同时移除本机设置", isOn: $removeSettings)
-                    Button("卸载 Fleet Hub 和 Fleet Agent") { confirmUninstall = true }
-                        .buttonStyle(.link).foregroundStyle(theme.warning).disabled(updater.sessionActive)
+            Section {
+                if management.layout.requiresInstallation {
+                    Button(installationTitle) { installApplication() }.buttonStyle(.borderedProminent)
+                } else {
+                    DisclosureGroup("卸载") {
+                        Toggle("同时移除本机设置", isOn: $removeSettings)
+                        Button("卸载 Fleet Hub 和 Fleet Agent") { confirmUninstall = true }
+                            .buttonStyle(.link).foregroundStyle(theme.warning).disabled(updater.sessionActive)
+                    }
+                    .foregroundStyle(theme.secondaryText)
                 }
-                .foregroundStyle(theme.secondaryText)
             }
         }
+        .listRowBackground(Color.clear)
     }
 
-    private func card<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
-        VStack(alignment: .leading, spacing: 16, content: content)
-            .frame(maxWidth: .infinity, alignment: .leading).padding(20)
-            .background(theme.surface, in: RoundedRectangle(cornerRadius: FleetTheme.cardRadius))
-    }
-    private func row(_ title: String, _ value: String) -> some View {
-        HStack(alignment: .firstTextBaseline) {
-            Text(title).foregroundStyle(theme.secondaryText).frame(width: 88, alignment: .leading)
-            Text(value).textSelection(.enabled)
+    private func row(_ title: String, _ value: String, symbol: String? = nil) -> some View {
+        LabeledContent {
+            Text(value).foregroundStyle(theme.text).textSelection(.enabled)
+        } label: {
+            if let symbol {
+                Label {
+                    Text(title)
+                } icon: {
+                    Image(systemName: symbol).symbolRenderingMode(.hierarchical).foregroundStyle(theme.accent)
+                }
+            }
+            else { Text(title) }
         }
+        .foregroundStyle(theme.secondaryText).padding(.vertical, 10)
+        .listRowSeparator(.visible)
     }
     private func installApplication(authorizeDisk: Bool = false) {
         perform {
@@ -347,7 +428,7 @@ struct SettingsView: View {
     }
     private func queueSave() {
         saveDelay?.cancel()
-        guard !management.layout.requiresInstallation, !updater.sessionActive,
+        guard !preview, !management.layout.requiresInstallation, !updater.sessionActive,
               model.origin.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || validOrigin else { return }
         saveDelay = Task {
             do { try await Task.sleep(nanoseconds: 600_000_000) } catch { return }
@@ -357,6 +438,7 @@ struct SettingsView: View {
         }
     }
     private func perform(_ action: @escaping @MainActor () async throws -> Void) {
+        guard !preview else { return }
         guard !updater.sessionActive else { operationError = "请先完成或取消升级"; return }
         guard !operationBusy else { return }
         operationBusy = true

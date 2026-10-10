@@ -68,9 +68,7 @@ struct DiskAccessInstructions: View {
     var body: some View {
         VStack(spacing: 12) {
             DraggableApplicationIcon(application: application)
-                .frame(width: 112, height: 112)
-                .background(theme.surface, in: RoundedRectangle(cornerRadius: FleetTheme.cardRadius))
-                .overlay(RoundedRectangle(cornerRadius: FleetTheme.cardRadius).stroke(theme.secondaryText.opacity(0.3), style: StrokeStyle(lineWidth: 1, dash: [5, 4])))
+                .frame(width: 144, height: 144)
             Text("Fleet Agent.app").font(.system(size: 16, weight: .semibold))
             Text("将图标拖入「完全磁盘访问」，再打开开关。")
                 .foregroundStyle(theme.secondaryText).multilineTextAlignment(.center)
@@ -78,7 +76,7 @@ struct DiskAccessInstructions: View {
                 .buttonStyle(.link)
         }
         .font(.system(size: 13)).foregroundStyle(theme.text)
-        .frame(maxWidth: .infinity)
+        .frame(maxWidth: .infinity).padding(.vertical, 20)
     }
 }
 

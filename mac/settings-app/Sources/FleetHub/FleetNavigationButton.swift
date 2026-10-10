@@ -9,13 +9,20 @@ struct FleetNavigationButton: View {
     var body: some View {
         let theme = FleetTheme(scheme: scheme)
         Button(action: action) {
-            Label(page.rawValue, systemImage: page.symbol)
-                .font(.system(size: 13, weight: selected ? .semibold : .regular))
+            HStack(spacing: 11) {
+                Image(systemName: page.symbol)
+                    .font(.system(size: 16, weight: .medium))
+                    .symbolRenderingMode(.hierarchical)
+                    .foregroundStyle(theme.iconColor(for: page))
+                    .frame(width: 22)
+                Text(page.rawValue)
+                    .font(.system(size: 13, weight: selected ? .semibold : .medium))
+            }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.horizontal, 14).frame(height: FleetTheme.controlHeight)
                 .contentShape(Rectangle())
-                .foregroundStyle(selected ? theme.accent : theme.secondaryText)
-                .background(selected ? theme.surface : .clear, in: RoundedRectangle(cornerRadius: FleetTheme.controlRadius))
+                .foregroundStyle(selected ? theme.accent : theme.text)
+                .background(selected ? theme.accent.opacity(0.07) : .clear, in: RoundedRectangle(cornerRadius: FleetTheme.controlRadius))
         }
         .buttonStyle(.plain).accessibilityAddTraits(selected ? .isSelected : [])
     }

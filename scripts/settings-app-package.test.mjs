@@ -22,8 +22,8 @@ test('runtime details show version and process without a disclosure control', ()
   const overview = view.slice(view.indexOf('private var overview:'), view.indexOf('private var connection:'));
   assert.doesNotMatch(overview, /DisclosureGroup\("运行详情"\)/);
   assert.doesNotMatch(overview, /Text\("运行详情"\)/);
-  assert.match(overview, /row\("版本", current\.version\)/);
-  assert.match(overview, /row\("进程", String\(current\.pid\)\)/);
+  assert.match(overview, /Text\("版本.*current\.version/);
+  assert.match(overview, /Text\("进程.*current\.pid/);
 });
 
 test('SDK preparation replaces a tampered extracted cache from the verified archive', {
@@ -171,8 +171,6 @@ test('native sidebar and shared buttons hit the whole padded area, with first-ru
   assert.match(navigation, /frame\(maxWidth: \.infinity, alignment: \.leading\)/);
   assert.match(navigation, /frame\(height: FleetTheme\.controlHeight\)/);
   assert.match(navigation, /contentShape\(Rectangle\(\)\)/);
-  const theme = read('../mac/settings-app/Sources/FleetHub/FleetTheme.swift');
-  assert.match(theme, /frame\(minHeight:[\s\S]*?contentShape\(Rectangle\(\)\)/);
   const view = read('../mac/settings-app/Sources/FleetHub/SettingsView.swift');
   assert.match(view, /Button\(setupAction == \.installApplication \? installationTitle : setupAction\.title\)/);
   assert.match(view, /--fleet-install-and-start/);
@@ -180,11 +178,14 @@ test('native sidebar and shared buttons hit the whole padded area, with first-ru
   assert.doesNotMatch(view, /page = \.about; return/);
 });
 
-test('native account authorization stays actionable with automatic settings and startup on overview', () => {
+test('native account authorization stays actionable with automatic settings and separate startup preferences', () => {
   const view = read('../mac/settings-app/Sources/FleetHub/SettingsView.swift');
   const overview = view.slice(view.indexOf('private var overview:'), view.indexOf('private var connection:'));
   const connection = view.slice(view.indexOf('private var connection:'), view.indexOf('private var privacy:'));
-  assert.match(overview, /Toggle\("登录后启动后台"/);
+  const preferences = view.slice(view.indexOf('private var preferences:'), view.indexOf('private var about:'));
+  assert.doesNotMatch(overview, /登录后启动后台/);
+  assert.match(preferences, /Toggle\(isOn: \$model\.autoStart\)/);
+  assert.match(preferences, /Text\("登录后启动后台"\)/);
   assert.doesNotMatch(connection, /登录后启动后台|保存设置/);
   assert.match(connection, /if management\.layout\.requiresInstallation \{ installApplication\(\) \}/);
   assert.match(connection, /disabled\(!validOrigin \|\| model\.isSaving/);

@@ -7,17 +7,25 @@ struct FleetHubApp: App {
     @StateObject private var model: SettingsModel
     @StateObject private var updater: AppUpdater
     private let management: NativeManagement
+    private let preview: Bool
 
     init() {
-        let layout = RuntimeLayout(application: Bundle.main.bundleURL, home: FileManager.default.homeDirectoryForCurrentUser)
+        #if DEBUG
+        preview = CommandLine.arguments.contains("--fleet-ui-preview") || Bundle.main.object(forInfoDictionaryKey: "FleetUIPreview") as? Bool == true
+        #else
+        preview = false
+        #endif
+        let application = preview ? URL(fileURLWithPath: "/Applications/Fleet Hub.app") : Bundle.main.bundleURL
+        let layout = RuntimeLayout(application: application, home: FileManager.default.homeDirectoryForCurrentUser)
         let client = NativeManagement(layout: layout)
         management = client
         _model = StateObject(wrappedValue: SettingsModel(client: client))
         _updater = StateObject(wrappedValue: AppUpdater(management: client))
     }
     var body: some Scene {
-        Window("Fleet Hub", id: "settings") {
-            SettingsView(model: model, updater: updater, management: management)
+        Window(preview ? "Fleet Hub — 界面预览" : "Fleet Hub", id: "settings") {
+            SettingsView(model: model, updater: updater, management: management, preview: preview)
+                .preferredColorScheme(.light)
                 .frame(minWidth: 720, minHeight: 570)
                 .onAppear { delegate.updater = updater }
         }
