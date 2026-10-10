@@ -239,17 +239,17 @@ struct SettingsView: View {
                     row("服务器地址", binding.origin, symbol: "network")
                 } else {
                     LabeledContent("服务器地址") {
-                        TextField("https://fleet.example.com", text: $model.origin)
-                            .textFieldStyle(.roundedBorder)
-                    }
-                    HStack {
-                        Button("打开网页授权") {
-                            if management.layout.requiresInstallation { installApplication() }
-                            else { saveSettings(authorize: true) }
+                        HStack(spacing: 12) {
+                            TextField("https://fleet.example.com", text: $model.origin)
+                                .textFieldStyle(.roundedBorder)
+                            Button("打开网页授权") {
+                                if management.layout.requiresInstallation { installApplication() }
+                                else { saveSettings(authorize: true) }
+                            }
+                            .buttonStyle(.borderedProminent).fixedSize()
+                            .disabled(!validOrigin || model.isSaving || model.status?.pairing?.phase == "joining")
+                            if model.isSaving { ProgressView().controlSize(.small) }
                         }
-                        .buttonStyle(.borderedProminent)
-                        .disabled(!validOrigin || model.isSaving || model.status?.pairing?.phase == "joining")
-                        if model.isSaving { ProgressView().controlSize(.small) }
                     }
                 }
                 if management.layout.requiresInstallation {

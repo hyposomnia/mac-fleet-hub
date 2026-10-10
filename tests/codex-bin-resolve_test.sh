@@ -3,6 +3,10 @@
 # 并且对「断链软链 / 全部候选失效」明确失败（不再静默写死旧路径）。
 set -euo pipefail
 
+# 测试只使用下面的临时 App，避免继承 Desktop/keeper 的真实显式路径。
+# 各用例仍可通过 env 单独传入自己的 FLEET_CODEX_BIN。
+unset FLEET_CODEX_BIN FLEET_CODEX_KEEPER_NODE
+
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 RESOLVER="$ROOT/mac/codex-bin-resolve.sh"
 
