@@ -55,7 +55,11 @@
     const strip = doc.querySelector('#workspace-tabs'), stage = doc.querySelector('#workspace-preview');
     if (!win || !strip || !stage || strip.dataset.ready) return;
     strip.dataset.ready = 'true';
-    const model = createModel(), frames = new Map();
+    const workspaces = new Map();
+    const createWorkspace = () => ({model: createModel(), frames: new Map()});
+    let workspaceKey = '', workspace = createWorkspace();
+    let model = workspace.model, frames = workspace.frames;
+    workspaces.set(workspaceKey, workspace);
     const controls = new Map();
     const tooltip = doc.createElement('div');
     tooltip.id = 'workspace-tab-preview'; tooltip.className = 'workspace-tab-preview';
@@ -108,9 +112,12 @@
     }
     const composer = doc.querySelector('#chat-composer');
     if (composer && root.ResizeObserver) new root.ResizeObserver(syncComposerHeight).observe(composer);
+    function tabsVisible() {
+      return model.tabs.length > 0 || !model.chatOpen;
+    }
     function syncHeader() {
       const pane = doc.querySelector('#chat-pane');
-      const visible = !!(model.chatOpen && pane && !pane.hidden) || model.tabs.length > 0;
+      const visible = tabsVisible() && (!!(model.chatOpen && pane && !pane.hidden) || model.tabs.length > 0);
       win.dataset.workspaceTabs = String(visible);
       strip.hidden = !visible;
     }
@@ -147,7 +154,8 @@
         frame.hidden = key !== model.active;
       }
       strip.replaceChildren(); controls.clear();
-      for (const tab of [...(model.chatOpen ? [{key: 'chat', name: chatTitle(), detail: ''}] : []), ...model.tabs]) {
+      const tabs = tabsVisible() ? [...(model.chatOpen ? [{key: 'chat', name: chatTitle(), detail: ''}] : []), ...model.tabs] : [];
+      for (const tab of tabs) {
         const wrap = element('div', 'workspace-tab');
         const button = element('button', 'workspace-tab-select');
         const icon = element('span', 'workspace-tab-icon');
@@ -240,8 +248,48 @@
       if (open(link.href)) event.preventDefault();
     }
     doc.querySelector('#chat-scroll')?.addEventListener('click', intercept);
+
+    function activateSession(key) {
+      key = typeof key === 'string' ? key : '';
+      if (key !== workspaceKey) {
+        for (const frame of frames.values()) { pause(frame); frame.hidden = true; }
+        workspaceKey = key;
+        workspace = workspaces.get(key) || createWorkspace();
+        workspaces.set(key, workspace);
+        model = workspace.model; frames = workspace.frames;
+      }
+      model.select('chat');
+      render();
+    }
+
+    function renameSession(from, to) {
+      if (typeof from !== 'string' || typeof to !== 'string' || !from || !to || from === to) return;
+      const source = workspaces.get(from);
+      if (!source) return;
+      workspaces.delete(from);
+      workspaces.set(to, source);
+      if (workspaceKey === from) workspaceKey = to;
+    }
+
+    function discardSession(key) {
+      if (typeof key !== 'string' || !key) return;
+      const target = workspaces.get(key);
+      if (!target) return;
+      for (const frame of target.frames.values()) { pause(frame); frame.remove(); }
+      workspaces.delete(key);
+      if (workspaceKey === key) {
+        workspaceKey = '';
+        workspace = workspaces.get('') || createWorkspace();
+        workspaces.set('', workspace);
+        model = workspace.model; frames = workspace.frames;
+        model.select('chat');
+        render();
+      }
+    }
+
     Object.assign(root.FleetWorkspaceTabs, {
-      open, revealFile, showChat: () => { model.select('chat'); render(); },
+      open, revealFile, activateSession, renameSession, discardSession,
+      showChat: () => { model.select('chat'); render(); },
       reset: () => { for (const frame of frames.values()) { pause(frame); frame.remove(); }
         frames.clear(); model.reset(); render();
         tipTitle.textContent = tipText.textContent = tipPath.textContent = ''; },
@@ -249,5 +297,6 @@
     render();
   }
   init.sequence = 0;
-  root.FleetWorkspaceTabs = {init, previewTarget, createModel, revealFile: () => false, showChat: () => {}, reset: () => {}};
+  root.FleetWorkspaceTabs = {init, previewTarget, createModel, revealFile: () => false,
+    activateSession: () => {}, renameSession: () => {}, discardSession: () => {}, showChat: () => {}, reset: () => {}};
 })(globalThis);
