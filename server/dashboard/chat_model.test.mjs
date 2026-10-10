@@ -2718,7 +2718,7 @@ test('manual theme selection updates the browser chrome color', () => {
   applyTheme('light');
   assert.equal(themeMeta.content, '#FAFAFA');
   applyTheme('dark');
-  assert.equal(themeMeta.content, '#000000');
+  assert.equal(themeMeta.content, '#0B1210');
   assert.equal((indexHTML.match(/<meta name="theme-color"/g) || []).length, 1);
 });
 
