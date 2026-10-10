@@ -196,14 +196,14 @@ struct SettingsView: View {
                     if model.status == nil {
                         Button(setupAction == .installApplication ? installationTitle : setupAction.title) {
                             if setupAction == .installApplication { installApplication() }
-                            else { perform { try await management.start(); await model.refresh(); try await management.setAutoStart(model.autoStart) } }
+                            else { perform(allowPreview: true) { try await management.start(); await model.refresh(); try await management.setAutoStart(model.autoStart) } }
                         }
                         .buttonStyle(.borderedProminent)
                     } else {
-                        Button { perform { try await management.restart(); await model.refresh() } } label: {
+                        Button { perform(allowPreview: true) { try await management.restart(); await model.refresh() } } label: {
                             Label("重启", systemImage: "arrow.clockwise").foregroundStyle(theme.secondaryText)
                         }
-                        Button { perform { try await management.stop(); await model.refresh() } } label: {
+                        Button { perform(allowPreview: true) { try await management.stop(); await model.refresh() } } label: {
                             Label("停止", systemImage: "stop.fill").foregroundStyle(theme.secondaryText)
                         }
                     }
@@ -214,7 +214,7 @@ struct SettingsView: View {
                 if let binding = model.status?.binding {
                     row("账号", binding.ownerEmail, symbol: "person.crop.circle")
                     row("设备名称", binding.displayName, symbol: "desktopcomputer")
-                } else {
+                } else if model.status != nil {
                     Button { page = .connection } label: {
                         HStack {
                             Text("尚未关联账号")
@@ -437,8 +437,8 @@ struct SettingsView: View {
             else { await model.save() }
         }
     }
-    private func perform(_ action: @escaping @MainActor () async throws -> Void) {
-        guard !preview else { return }
+    private func perform(allowPreview: Bool = false, _ action: @escaping @MainActor () async throws -> Void) {
+        guard !preview || allowPreview else { return }
         guard !updater.sessionActive else { operationError = "请先完成或取消升级"; return }
         guard !operationBusy else { return }
         operationBusy = true

@@ -4,6 +4,36 @@ import XCTest
 
 @MainActor
 final class NativeRuntimeTests: XCTestCase {
+    func testStopUnloadsOnlyTheDesktopAgentAfterTheIdleCheck() async throws {
+        let fixture = try NativeRuntimeFixture(running: true)
+        defer { fixture.remove() }
+        try await fixture.management.stop()
+        XCTAssertEqual(fixture.events, ["prepare-stop", "bootout"])
+        XCTAssertEqual(fixture.bootoutTargets, ["gui/\(getuid())/com.macfleet.desktop-agent"])
+        XCTAssertFalse(fixture.running)
+    }
+
+    func testStopKeepsAnAgentWithActiveWorkRunning() async throws {
+        let fixture = try NativeRuntimeFixture(running: true)
+        defer { fixture.remove() }
+        fixture.busy = true
+        do { try await fixture.management.stop(); XCTFail("stopped active work") }
+        catch { XCTAssertEqual(error.localizedDescription, "active turn") }
+        XCTAssertEqual(fixture.events, ["prepare-stop"])
+        XCTAssertTrue(fixture.bootoutTargets.isEmpty)
+        XCTAssertTrue(fixture.running)
+    }
+
+    func testFailedStopResumesTheAgentInsteadOfLeavingItInMaintenance() async throws {
+        let fixture = try NativeRuntimeFixture(running: true)
+        defer { fixture.remove() }
+        fixture.rejectBootout = true
+        do { try await fixture.management.stop(); XCTFail("ignored failed stop") }
+        catch { XCTAssertEqual(error.localizedDescription, "bootout failed") }
+        XCTAssertEqual(fixture.events, ["prepare-stop", "bootout", "resume"])
+        XCTAssertTrue(fixture.running)
+    }
+
     func testPairStartDoesNotReuseAnOldBackgroundWhenHostPreparationFails() async throws {
         let fixture = try NativeRuntimeFixture(running: true, nested: true)
         defer { fixture.remove() }
@@ -133,8 +163,10 @@ private final class NativeRuntimeFixture {
     var version: String
     var busy = false
     var rejectNew = false
+    var rejectBootout = false
     var incompleteBinding = false
     var events: [String] = []
+    var bootoutTargets: [String] = []
     var requirements: [String] = []
     lazy var management = NativeManagement(layout: layout, execute: { [unowned self] executable, arguments, _, _ in
         try self.execute(executable, arguments)
@@ -190,7 +222,11 @@ private final class NativeRuntimeFixture {
                 return Data()
             }
             events.append(action)
-            if action == "bootout" { running = false }
+            if action == "bootout" {
+                bootoutTargets.append(arguments[1])
+                if rejectBootout { throw FleetError.message("bootout failed") }
+                running = false
+            }
             if action == "bootstrap" {
                 let program = (try definition()["ProgramArguments"] as! [String])[0]
                 if program == layout.agent.path { version = "1.0.0+\(try identity(layout.backgroundApplication))" }
