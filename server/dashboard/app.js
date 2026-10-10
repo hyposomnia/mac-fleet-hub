@@ -2193,7 +2193,7 @@ function restoreTermOrEmpty() {
     const chat = cached?.assistant === assistant ? cached : null;
     if (chat && state.chat === chat) {
       window.FleetWorkspaceTabs?.activateSession?.(sessionKey(chat));
-      showChatPane(chat.title, chat.cwd, { connected: !chat.pendingStart });
+      showChatPane(chat.title, chat.cwd);
       markSessionRead({ ...chat, mtime: chat.updatedAt });
     } else {
       const session = chat || state.sessionResults.find(s => s.macId === macId &&
@@ -2433,7 +2433,7 @@ function chatOwnershipPresentation(chat) {
 function renderChatOwnershipHead(chat = state.chat) {
   if (!chat || state.chat !== chat) return;
   const tt = $('#win-title'); clear(tt);
-  tt.append(h('span', { class: 'dot live' }), h('span', { class: 'ttl', text: chat.title || `${assistantLabel()} 会话` }));
+  tt.append(h('span', { class: 'ttl', text: chat.title || `${assistantLabel()} 会话` }));
   const presentation = chatOwnershipPresentation(chat);
   if (!presentation) return;
   const action = presentation.action === 'release' ? releaseChatWriter
@@ -2821,7 +2821,7 @@ function closeChatPane({ dispose = false } = {}) {
   closeChatOptions();
 }
 
-function showChatPane(title, cwd, { connected = true } = {}) {
+function showChatPane(title, cwd) {
   state.current = null;
   state.termSid = state.termUrl = null;
   for (const e of state.pool) e.iframe.classList.remove('show');
@@ -2832,7 +2832,6 @@ function showChatPane(title, cwd, { connected = true } = {}) {
   $('#fullscreen-btn').hidden = false;
   $('#chat-pane').hidden = false;
   const tt = $('#win-title'); clear(tt);
-  if (connected) tt.append(h('span', { class: 'dot live' }));
   tt.append(h('span', { class: 'ttl', text: title || `${assistantLabel()} 会话` }));
   $('#win-meta').textContent = '';
   if (isMobile()) {
@@ -4913,7 +4912,7 @@ async function openChatSession(s) {
   }
   updateChatUpdatedAt(chat, s.mtime);
   evictChatCache();
-  showChatPane(chat.title, chat.cwd, { connected: !chat.pendingStart });
+  showChatPane(chat.title, chat.cwd);
   chat.draft = normalizeChatDraft(chat.draft);
   $('#chat-input').value = chat.draft;
   resizeChatInput();
@@ -5521,7 +5520,7 @@ async function ensurePendingChatStarted(chat) {
       }
     }
     if (state.chat === chat) {
-      showChatPane(chat.title, chat.cwd, { connected: true });
+      showChatPane(chat.title, chat.cwd);
       renderChat({ forceBottom: true });
       renderChatApprovalMenu(chat);
       renderChatOptions(chat);
