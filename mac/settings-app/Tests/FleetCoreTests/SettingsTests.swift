@@ -92,6 +92,18 @@ final class SettingsTests: XCTestCase {
         XCTAssertFalse(model.isBusy)
     }
 
+    func testFailedStartupSaveRestoresTheSwitchToEffectiveSettings() async {
+        let client = TestManagement()
+        let model = SettingsModel(client: client)
+        await model.refresh()
+        client.rejectSave = true
+        model.autoStart = false
+        let saved = await model.save()
+        XCTAssertFalse(saved)
+        XCTAssertTrue(model.autoStart)
+        XCTAssertEqual(model.status?.settings.autoStart, true)
+    }
+
     func testStoppedBackgroundNeverClaimsDiskAuthorization() async {
         let client = TestManagement()
         let model = SettingsModel(client: client)

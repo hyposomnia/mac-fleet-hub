@@ -6,23 +6,15 @@ public final class NativeManagement: LocalManagement {
     public let layout: RuntimeLayout
     private let loginService = SMAppService.agent(plistName: "com.macfleet.desktop-login.plist")
     private let configureAutoStart: ((Bool) throws -> Void)?
+    private let controlsRegisteredLoginService: Bool
     private let execute: (URL, [String], Data?, TimeInterval) async throws -> Data
-    public init(layout: RuntimeLayout, configureAutoStart: ((Bool) throws -> Void)? = nil, execute: @escaping (URL, [String], Data?, TimeInterval) async throws -> Data = {
+    public init(layout: RuntimeLayout, controlsRegisteredLoginService: Bool = false, configureAutoStart: ((Bool) throws -> Void)? = nil, execute: @escaping (URL, [String], Data?, TimeInterval) async throws -> Data = {
         try await CommandRunner.run(executable: $0, arguments: $1, input: $2, timeout: $3)
     }) {
         self.layout = layout
         self.configureAutoStart = configureAutoStart
+        self.controlsRegisteredLoginService = controlsRegisteredLoginService
         self.execute = execute
-    }
-
-    public var autoStartStatus: String {
-        switch loginService.status {
-        case .enabled: return "已启用"
-        case .requiresApproval: return "等待系统批准"
-        case .notRegistered: return "未启用"
-        case .notFound: return "未安装"
-        @unknown default: return "系统状态未确认"
-        }
     }
 
     public func status() async throws -> AgentStatus {
@@ -36,7 +28,7 @@ public final class NativeManagement: LocalManagement {
         if previous.autoStart != saved.autoStart {
             do {
                 if let configureAutoStart { try configureAutoStart(saved.autoStart) }
-                else { try setAutoStart(saved.autoStart) }
+                else { try await setAutoStart(saved.autoStart) }
             } catch {
                 let failure = error
                 do { _ = try await request("settings", input: JSONEncoder().encode(previous)) }
@@ -118,7 +110,7 @@ public final class NativeManagement: LocalManagement {
         do {
             try await sharedRuntime.remove()
             if current.binding != nil { _ = try await request("logout") }
-            try setAutoStart(false)
+            try await setAutoStart(false)
             _ = try await launchctl(["bootout", target])
             try layout.removeRuntime()
             try FileManager.default.trashItem(at: layout.application, resultingItemURL: nil)
@@ -142,7 +134,10 @@ public final class NativeManagement: LocalManagement {
         let running = (try? await launchctl(["print", target])) != nil
         try await synchronizeBackground(launch: running)
         if running { try await ensureCodexSharedRuntime() }
-        if loginService.status == .enabled { try setAutoStart(true) }
+        if loginService.status == .enabled {
+            let saved = try JSONDecoder().decode(FleetSettings.self, from: PrivateRuntime.read(layout.state.appendingPathComponent("settings.json")))
+            try await setAutoStart(saved.autoStart)
+        }
     }
 
     private func validateInstallation() async throws {
@@ -245,20 +240,58 @@ public final class NativeManagement: LocalManagement {
         throw FleetError.message("独立后台未通过健康检查，恢复原后台。")
     }
 
-    public func setAutoStart(_ enabled: Bool) throws {
+    public func setAutoStart(_ enabled: Bool) async throws {
         guard !layout.requiresInstallation, FileManager.default.fileExists(atPath: layout.runtimePlist.path) else {
             throw FleetError.message("请先完成应用安装与后台启动，再设置登录后自动运行。")
+        }
+        if controlsRegisteredLoginService {
+            // The debug UI cannot use SMAppService for another host bundle. Control
+            // only the already registered, signed Hub helper through launchd.
+            let definition = try await launchctl(["print", loginTarget])
+            guard String(decoding: definition, as: UTF8.self).contains("parent bundle identifier = com.macfleet.fleet-hub") else {
+                throw FleetError.message("登录启动项不属于已安装的 Fleet Hub。")
+            }
+            let previous = try await registeredLoginServiceDisabled()
+            _ = try await launchctl([enabled ? "enable" : "disable", loginTarget])
+            do {
+                guard try await registeredLoginServiceDisabled() == !enabled else {
+                    throw FleetError.message("登录启动设置未生效。")
+                }
+            } catch {
+                let failure = error
+                do { _ = try await launchctl([previous ? "disable" : "enable", loginTarget]) }
+                catch { throw FleetError.message("登录启动设置失败，系统状态回滚失败：\(error.localizedDescription)") }
+                throw failure
+            }
+            return
         }
         let marker = layout.state.appendingPathComponent("login-helper-version")
         if enabled {
             if loginService.status == .enabled, (try? PrivateRuntime.read(marker)) != Data("2".utf8) {
-                try loginService.unregister()
+                try await loginService.unregister()
             }
             if loginService.status != .enabled { try loginService.register() }
+            guard loginService.status == .enabled else { throw FleetError.message("系统尚未允许登录启动，设置未生效。") }
             try PrivateRuntime.write(Data("2".utf8), to: marker)
         } else if loginService.status != .notRegistered {
-            try loginService.unregister()
+            try await loginService.unregister()
         }
+        // A preview may have disabled this same registered helper. Remove that
+        // override so the host's SMAppService registration stays authoritative.
+        _ = try await launchctl(["enable", loginTarget])
+    }
+
+    private var loginTarget: String { domain + "/com.macfleet.desktop-login" }
+    private func registeredLoginServiceDisabled() async throws -> Bool {
+        let output = String(decoding: try await launchctl(["print-disabled", domain]), as: UTF8.self)
+        for line in output.components(separatedBy: .newlines) where line.trimmingCharacters(in: .whitespaces).hasPrefix("\"com.macfleet.desktop-login\"") {
+            switch line.components(separatedBy: "=>").last?.trimmingCharacters(in: .whitespaces) {
+            case "disabled", "true": return true
+            case "enabled", "false": return false
+            default: throw FleetError.message("无法确认登录启动设置。")
+            }
+        }
+        return false
     }
 
     public func openBackgroundSettings() { SMAppService.openSystemSettingsLoginItems() }

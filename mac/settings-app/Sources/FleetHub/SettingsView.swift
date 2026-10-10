@@ -114,7 +114,6 @@ struct SettingsView: View {
         .buttonStyle(.bordered).controlSize(.regular)
         .disabled(model.isBusy || operationBusy || updater.busy)
         .onChange(of: model.origin) { _ in queueSave() }
-        .onChange(of: model.autoStart) { _ in queueSave() }
         .task {
             if preview {
                 while !Task.isCancelled {
@@ -139,7 +138,7 @@ struct SettingsView: View {
             }
             await model.refresh()
             if FleetSetupAction.startsAfterInstallation(arguments: CommandLine.arguments), model.status != nil, !updater.recoveryPending {
-                do { try management.setAutoStart(model.autoStart) }
+                do { try await management.setAutoStart(model.autoStart) }
                 catch { operationError = error.localizedDescription }
             }
             if FleetSetupAction.authorizesDiskAfterInstallation(arguments: CommandLine.arguments), !updater.recoveryPending {
@@ -197,7 +196,7 @@ struct SettingsView: View {
                     if model.status == nil {
                         Button(setupAction == .installApplication ? installationTitle : setupAction.title) {
                             if setupAction == .installApplication { installApplication() }
-                            else { perform { try await management.start(); await model.refresh(); try management.setAutoStart(model.autoStart) } }
+                            else { perform { try await management.start(); await model.refresh(); try await management.setAutoStart(model.autoStart) } }
                         }
                         .buttonStyle(.borderedProminent)
                     } else {
@@ -338,19 +337,14 @@ struct SettingsView: View {
 
     private var preferences: some View {
         Section {
-            Toggle(isOn: $model.autoStart) {
+            Toggle(isOn: autoStartBinding) {
                 Label {
                     Text("登录后启动后台").foregroundStyle(theme.text)
                 } icon: {
                     Image(systemName: "power.circle").foregroundStyle(theme.iconColor(for: .preferences))
                 }
             }
-                .toggleStyle(.switch).disabled(management.layout.requiresInstallation)
-            if management.layout.requiresInstallation {
-                Text("安装后可设置").foregroundStyle(theme.secondaryText)
-            } else if !preview, management.autoStartStatus != "已启用" && management.autoStartStatus != "未启用" {
-                Text(management.autoStartStatus).foregroundStyle(theme.warning)
-            }
+                .toggleStyle(.switch).disabled(management.layout.requiresInstallation || (preview && model.status == nil))
         }
         .listRowBackground(Color.clear)
     }
@@ -426,9 +420,15 @@ struct SettingsView: View {
             if authorize { await model.beginPairing() }
         }
     }
-    private func queueSave() {
+    private var autoStartBinding: Binding<Bool> {
+        Binding(get: { model.autoStart }, set: { value in
+            model.autoStart = value
+            queueSave(allowPreview: true)
+        })
+    }
+    private func queueSave(allowPreview: Bool = false) {
         saveDelay?.cancel()
-        guard !preview, !management.layout.requiresInstallation, !updater.sessionActive,
+        guard (!preview || allowPreview), !management.layout.requiresInstallation, !updater.sessionActive,
               model.origin.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || validOrigin else { return }
         saveDelay = Task {
             do { try await Task.sleep(nanoseconds: 600_000_000) } catch { return }

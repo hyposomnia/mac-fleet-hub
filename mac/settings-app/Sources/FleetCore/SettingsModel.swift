@@ -202,6 +202,9 @@ public final class SettingsModel: ObservableObject {
                         return true
                     }
                 } catch {
+                    if self.autoStart == autoStartDraft, let effective = self.status?.settings.autoStart {
+                        self.autoStart = effective
+                    }
                     self.error = error.localizedDescription
                     return false
                 }

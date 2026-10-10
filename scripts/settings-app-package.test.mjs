@@ -184,7 +184,7 @@ test('native account authorization stays actionable with automatic settings and 
   const connection = view.slice(view.indexOf('private var connection:'), view.indexOf('private var privacy:'));
   const preferences = view.slice(view.indexOf('private var preferences:'), view.indexOf('private var about:'));
   assert.doesNotMatch(overview, /登录后启动后台/);
-  assert.match(preferences, /Toggle\(isOn: \$model\.autoStart\)/);
+  assert.match(preferences, /Toggle\(isOn: autoStartBinding\)/);
   assert.match(preferences, /Text\("登录后启动后台"\)/);
   assert.doesNotMatch(connection, /登录后启动后台|保存设置/);
   assert.match(connection, /if management\.layout\.requiresInstallation \{ installApplication\(\) \}/);

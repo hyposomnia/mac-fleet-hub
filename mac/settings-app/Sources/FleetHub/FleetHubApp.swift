@@ -17,7 +17,7 @@ struct FleetHubApp: App {
         #endif
         let application = preview ? URL(fileURLWithPath: "/Applications/Fleet Hub.app") : Bundle.main.bundleURL
         let layout = RuntimeLayout(application: application, home: FileManager.default.homeDirectoryForCurrentUser)
-        let client = NativeManagement(layout: layout)
+        let client = NativeManagement(layout: layout, controlsRegisteredLoginService: preview)
         management = client
         _model = StateObject(wrappedValue: SettingsModel(client: client))
         _updater = StateObject(wrappedValue: AppUpdater(management: client))
