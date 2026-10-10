@@ -5,3 +5,7 @@ config_file = "agents/pm.toml"
 [agents.ui]
 description = "用于 mac-fleet-hub 的 UI/UX 设计、设计系统、原生 HTML 交互原型与视觉评审；产出可验证的设计稿和开发交接，明确授权后实现前端表现层。"
 config_file = "agents/ui.toml"
+
+[agents.dev]
+description = "用于 mac-fleet-hub 的功能实现、根因调试、测试、代码审查及产品维护，覆盖 Go agent、网关服务、脚本和轻量 dashboard；按风险选择验证并完成授权范围内的交付。"
+config_file = "agents/dev.toml"
