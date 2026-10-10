@@ -61,6 +61,6 @@ Shell and deployment regressions: passed
 
 Build 9 Universal development bundle compiled successfully. Both Hub and Agent contain arm64/x86_64. All seven original shared resources match source bytes. This isolated preview is unsigned and has not been installed.
 
-Build 9 formal release and local replacement: pending the existing notary profile becoming readable in the execution context. No credentials were recreated. The Mac became locked during verification; manual unlock has been requested. Current installed version remains build 8 until the next official release completes.
+Build 9 formal release and local replacement completed on 2026-10-10 after the user unlocked the Mac. The existing notary profile became readable without recreating credentials. Agent, Hub and DMG all returned Accepted; the official entry published the verified downloads, and the built-in updater installed `0.1.8+9` for Hub and independent Agent. Binding/settings and disk access remained intact, the actual Aqua environment is now correct, and gateway session/history HTTP checks passed. See [build 9 release evidence](native-build9-aqua-release-2026-10-10.md).
 
 Shared same-thread Desktop writer/App Tools UAT still requires a safe, explicit Desktop reopen after the active turn completes. API sessions success does not claim that final Desktop UAT has happened.

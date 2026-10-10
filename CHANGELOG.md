@@ -6,11 +6,11 @@
 
 ## Unreleased
 
-- 原生 shared 环境补齐原有 Aqua LaunchAgent，避免 Sparkle 重开后仅修改 user 会话域；分别备份与还原 user/Aqua 环境，兼容旧快照并验证实际 GUI 地址。修复原有 Desktop helper 的 macOS BSD sed 端口解析，保留 loopback 与就绪守卫。真实 launchd 写入及双域还原、405 项 JS / 82 项 Swift 与 Go/Shell 验证、双架构开发包构建通过；`0.1.8+9` 正式入口在公证预检停止，当前执行会话暂时读取不到已有 profile，Mac 已锁定并请求手动解锁。未安装开发包，正式签名发行待恢复。
+- 原生 shared 环境补齐原有 Aqua LaunchAgent，修复 Desktop helper 的 macOS BSD sed 端口解析；分别备份与还原 user/Aqua 环境，兼容旧快照并验证实际 GUI 地址。`0.1.8+9` 已由唯一正式入口完成 Agent / Hub / DMG 三项公证、实际下载核对和 abj 发布，并通过内置更新器替换本机 Hub 与独立 Agent。账号绑定、设置及后台磁盘访问保留，原有 keeper 未重启，GUI shared 地址正确；网关会话 200 / 23 项、空闲历史 200 / 40 条事件。405 项 JS、82 项 Swift 及 Go/Shell 全部通过；Desktop 同线程/App Tools 验收仍需本轮结束后完整重开。详见 docs/native-build9-aqua-release-2026-10-10.md。
 
 - 原生客户端补齐原有 Codex shared 接入：原样携带 keeper、监督包装、解析器、Desktop 环境脚本、空闲守卫和 launchd 模板，接入正常启动、登录启动及升级恢复；移除共享关闭配置与独立进程草案。已有共享服务直接复用，新服务就绪后再设置 Desktop 环境，失败回滚、卸载还原环境并保护活动任务。`0.1.7+8` 已完成三项公证并通过内置更新器替换 Hub / 独立 Agent；绑定与设置保留、磁盘访问 verified、网关 health/info/sessions 为 200，Codex 列表返回 23 项。后续真实验收发现 Aqua helper 装配与 BSD sed 缺陷，已追加源码修复；详情见 docs/native-build8-shared-and-aqua-2026-10-09.md。
 
-- 修复原生设备名称显示不一致：后台通过现有设备授权状态同步服务器名称，Fleet Hub 两处改为“设备名称”；改名不改变凭据或打断授权流，兼容旧状态响应。补齐 DERP 按 IP 连接时的 TLS 目标身份，保留证书及地址拒绝条件。原生模式的 Codex 初始化/恢复失败只返回聊天不可用，不再反复退出整个设备后台，后续请求仍可重连。源码回归与完整验证记录见 docs/native-device-connectivity-2026-10-09.md；本次未发布、未替换本机。现有服务验证确认 Desktop Codex 正通过 stdio 运行，Fleet 配置的 shared 端点未启动；实际网页 info/projects 为 200、sessions 为 503，网关设备 health 返回 200。正式客户端发行与真实共享聊天验收仍待完成。
+- 修复原生设备名称显示不一致：后台通过现有设备授权状态同步服务器名称，Fleet Hub 两处改为“设备名称”；改名不改变凭据或打断授权流，兼容旧状态响应。补齐 DERP 按 IP 连接时的 TLS 目标身份，保留证书及地址拒绝条件。原生模式的 Codex 初始化/恢复失败只返回聊天不可用，后续请求仍可重连。后续 build 8 / 9 已正式发布并替换本机，服务器名称响应同步部署；真实网关会话和历史读取成功。源码回归见 docs/native-device-connectivity-2026-10-09.md，最终发行验收见 docs/native-build9-aqua-release-2026-10-10.md。
 
 - 原生界面验收整改：磁盘授权直接使用设置页图标，删除重复浮窗和权限说明；设备 `mN` 标为“设备编号”；卸载改文字链接并明确两个程序；运行页去掉“已启用”和“运行详情”。Web 安装说明同步。修复未完成关联阻止后台升级和恢复的问题，保留绑定、版本/PID 检查及空闲守卫，较新签名应用可恢复中断的旧升级。`0.1.6+7` 已经三项公证 Accepted 并发布 abj，本机 Hub / Agent 均已更新，实际进程、载荷 SHA、设置保留及恢复清理通过；网页 v196 的 139 项快照 SHA 与 HTTPS 字节一致。五项 GUI 已核对，设备完整接入待用户重新授权。详见 docs/native-build7-settings-release-2026-10-09.md。
 
