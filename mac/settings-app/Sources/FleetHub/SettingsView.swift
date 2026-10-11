@@ -7,8 +7,8 @@ enum SettingsPage: String, CaseIterable, Identifiable {
     var id: String { rawValue }
     var symbol: String {
         switch self {
-        case .overview: return "desktopcomputer"
-        case .connection: return "person.crop.circle"
+        case .overview: return "display"
+        case .connection: return "person"
         case .privacy: return "internaldrive"
         case .preferences: return "gearshape"
         case .about: return "info.circle"

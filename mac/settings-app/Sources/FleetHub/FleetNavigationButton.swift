@@ -12,9 +12,9 @@ struct FleetNavigationButton: View {
             HStack(spacing: 11) {
                 Image(systemName: page.symbol)
                     .font(.system(size: 16, weight: .medium))
-                    .symbolRenderingMode(.hierarchical)
-                    .foregroundStyle(theme.iconColor(for: page))
-                    .frame(width: 22)
+                    .symbolRenderingMode(.monochrome)
+                    .foregroundStyle(theme.accent)
+                    .frame(width: 22, height: 22)
                 Text(page.rawValue)
                     .font(.system(size: 13, weight: selected ? .semibold : .medium))
             }
