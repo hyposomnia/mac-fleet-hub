@@ -14,11 +14,11 @@ command -v node >/dev/null || { echo "缺少 node，请先安装 Node.js" >&2; e
 step "Go 测试：mac/fleet-agent (go test ./...)"
 (cd "$ROOT/mac/fleet-agent" && go test ./...)
 
-step "原生组网 IP TLS 验证：保留目标身份及证书拒绝条件"
+step "原生组网验证：系统路由、IP TLS 目标身份及证书拒绝条件"
 DESKTOP_TLS_TEST_WORK="$(mktemp -d "${TMPDIR:-/tmp}/fleet-tls-test.XXXXXX")"
 trap 'rm -rf "$DESKTOP_TLS_TEST_WORK"' EXIT
 DESKTOP_TLS_MODFILE="$(node "$ROOT/scripts/prepare-desktop-tls-module.mjs" "$DESKTOP_TLS_TEST_WORK")"
-(cd "$ROOT/mac/fleet-agent" && go test -modfile "$DESKTOP_TLS_MODFILE" -tags fleet_desktop -trimpath -run '^TestDesktopTLS(IP|DERPIP)KeepsVerificationHost$' -count=1 .)
+(cd "$ROOT/mac/fleet-agent" && go test -modfile "$DESKTOP_TLS_MODFILE" -tags fleet_desktop -trimpath -run '^TestDesktop(TLS(IP|DERPIP)KeepsVerificationHost|MeshUsesSystemRouteWithoutBindingPhysicalInterface)$' -count=1 .)
 
 step "Go 测试：server/enroll (go test ./...)"
 (cd "$ROOT/server/enroll" && go test ./...)

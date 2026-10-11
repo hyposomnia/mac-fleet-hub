@@ -11,7 +11,7 @@ public final class CodexSharedRuntime {
     private let endpoint = "ws://127.0.0.1:47682/rpc"
     private var domain: String { "gui/\(getuid())" }
     private var target: String { domain + "/com.macfleet.codex-app-server" }
-    private var resources: URL { layout.backgroundApplication.appendingPathComponent("Contents/Resources/codex") }
+    private var resources: URL { layout.codexResources }
     private var definition: URL { layout.state.appendingPathComponent("codex-app-server.plist") }
     private var snapshot: URL { layout.state.appendingPathComponent("codex-desktop-environment.json") }
     private var desktopDefinition: URL { layout.state.appendingPathComponent("codex-desktop-env.plist") }

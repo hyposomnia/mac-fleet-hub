@@ -5,6 +5,31 @@ import XCTest
 
 @MainActor
 final class CodexSharedRuntimeTests: XCTestCase {
+    func testPreviewUsesMatchingResourcesWithoutChangingInstalledAgentResources() async throws {
+        let fixture = try SharedFixture(previewResources: true)
+        defer { fixture.remove() }
+        let installed = fixture.layout.backgroundApplication.appendingPathComponent("Contents/Resources/codex/com.macfleet.codex-shared-app-server.plist")
+        let oldTemplate = try Data(contentsOf: installed)
+        try await fixture.runtime.start()
+        XCTAssertEqual(try fixture.definition()["ProgramArguments"] as? [String], ["/fixture/signed-node", fixture.resources.appendingPathComponent("codex-shared-app-server.mjs").path])
+        let desktop = try PropertyListSerialization.propertyList(from: PrivateRuntime.read(fixture.layout.state.appendingPathComponent("codex-desktop-env.plist")), format: nil) as! [String: Any]
+        XCTAssertEqual(desktop["ProgramArguments"] as? [String], ["/bin/bash", fixture.resources.appendingPathComponent("codex-desktop-env.sh").path, "shared", "ws://127.0.0.1:47682/rpc"])
+        XCTAssertEqual(try Data(contentsOf: installed), oldTemplate)
+    }
+
+    func testUnknownTemplateParameterFailsBeforeChangingServicesOrEnvironment() async throws {
+        let fixture = try SharedFixture()
+        defer { fixture.remove() }
+        let template = fixture.resources.appendingPathComponent("com.macfleet.codex-shared-app-server.plist")
+        let text = try String(contentsOf: template).replacingOccurrences(of: "__CODEX_KEEPER_NODE__", with: "__UNSUPPORTED_NODE__")
+        try Data(text.utf8).write(to: template)
+        do { try await fixture.runtime.start(); XCTFail("accepted unresolved template") }
+        catch { XCTAssertEqual(error.localizedDescription, "Codex 启动定义包含未解析参数。") }
+        XCTAssertFalse(fixture.events.contains("bootstrap"))
+        XCTAssertFalse(fixture.events.contains("desktop-env"))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: fixture.definitionURL.path))
+    }
+
     func testDesktopHelperIsLoadedIntoAquaRatherThanTheCallersBootstrapDomain() async throws {
         let fixture = try SharedFixture()
         defer { fixture.remove() }
@@ -235,10 +260,11 @@ private final class SharedFixture {
         try self.execute(executable, arguments)
     }, readyAttempts: 1)
 
-    init() throws {
+    init(previewResources: Bool = false) throws {
         root = URL(fileURLWithPath: "/private/tmp/fleet-shared-\(UUID().uuidString)")
-        layout = RuntimeLayout(application: URL(fileURLWithPath: "/Applications/Fleet Hub.app"), home: root)
-        resources = layout.backgroundApplication.appendingPathComponent("Contents/Resources/codex")
+        let preview = previewResources ? root.appendingPathComponent("Fleet Hub Preview.app/Contents/Resources/codex") : nil
+        layout = RuntimeLayout(application: URL(fileURLWithPath: "/Applications/Fleet Hub.app"), home: root, codexResources: preview)
+        resources = layout.codexResources
         definitionURL = layout.state.appendingPathComponent("codex-app-server.plist")
         try PrivateRuntime.ensureDirectory(layout.home.appendingPathComponent(".macfleet"))
         try PrivateRuntime.ensureDirectory(layout.state)
@@ -246,6 +272,14 @@ private final class SharedFixture {
         let mac = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
         for file in ["codex-keeper-launch.sh", "codex-bin-resolve.sh", "codex-shared-app-server.mjs", "codex-desktop-env.sh", "check-codex-idle.sh", "com.macfleet.codex-shared-app-server.plist", "com.macfleet.codex-desktop-env.plist"] {
             try FileManager.default.copyItem(at: mac.appendingPathComponent(file), to: resources.appendingPathComponent(file))
+        }
+        if previewResources {
+            let installed = layout.backgroundApplication.appendingPathComponent("Contents/Resources/codex")
+            try FileManager.default.createDirectory(at: installed.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try FileManager.default.copyItem(at: resources, to: installed)
+            let template = installed.appendingPathComponent("com.macfleet.codex-shared-app-server.plist")
+            let old = try String(contentsOf: template).replacingOccurrences(of: "__CODEX_KEEPER_NODE__", with: "__CODEX_KEEPER_LAUNCHER__")
+            try Data(old.utf8).write(to: template)
         }
     }
     func definition() throws -> [String: Any] {

@@ -4,14 +4,19 @@ import Foundation
 public struct RuntimeLayout: Sendable {
     public let application: URL
     public let home: URL
-    public init(application: URL, home: URL) {
+    private let codexResourcesOverride: URL?
+    public init(application: URL, home: URL, codexResources: URL? = nil) {
         self.application = application
         self.home = home
+        self.codexResourcesOverride = codexResources
     }
     public var bundledBackgroundApplication: URL {
         application.appendingPathComponent("Contents/Library/LoginItems/Fleet Agent.app")
     }
     public var backgroundApplication: URL { runtimeDirectory.appendingPathComponent("Fleet Agent.app") }
+    public var codexResources: URL {
+        codexResourcesOverride ?? backgroundApplication.appendingPathComponent("Contents/Resources/codex")
+    }
     public var bundledAgent: URL { bundledBackgroundApplication.appendingPathComponent("Contents/MacOS/fleet-agent") }
     public var agent: URL { backgroundApplication.appendingPathComponent("Contents/MacOS/fleet-agent") }
     public var state: URL { home.appendingPathComponent(".macfleet/desktop") }

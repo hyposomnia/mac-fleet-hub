@@ -16,7 +16,8 @@ struct FleetHubApp: App {
         preview = false
         #endif
         let application = preview ? URL(fileURLWithPath: "/Applications/Fleet Hub.app") : Bundle.main.bundleURL
-        let layout = RuntimeLayout(application: application, home: FileManager.default.homeDirectoryForCurrentUser)
+        let resources = preview ? Bundle.main.bundleURL.appendingPathComponent("Contents/Resources/codex") : nil
+        let layout = RuntimeLayout(application: application, home: FileManager.default.homeDirectoryForCurrentUser, codexResources: resources)
         let client = NativeManagement(layout: layout, controlsRegisteredLoginService: preview)
         management = client
         _model = StateObject(wrappedValue: SettingsModel(client: client))
