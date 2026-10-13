@@ -4593,7 +4593,8 @@ function updateChatComposerState() {
     input.disabled = mutationBlocked;
     input.placeholder = action === 'readonly' ? 'Fleet 已释放此会话'
       : (action === 'transition' ? '正在切换会话访问状态…'
-        : (action === 'loading' ? '正在同步会话控制状态…' : `给 ${assistantLabel()} 发送消息…`));
+        : (action === 'loading' ? '正在同步会话控制状态…'
+          : (isChatRunning(state.chat) ? '继续追问' : `给 ${assistantLabel()} 发送消息…`)));
   }
   const attach = $('#chat-attach');
   const options = $('#chat-options-trigger');
