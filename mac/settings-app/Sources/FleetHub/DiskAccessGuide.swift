@@ -25,6 +25,7 @@ struct DiskAccessApplication {
 final class ApplicationDragSourceView: NSImageView, NSDraggingSource {
     var application: DiskAccessApplication?
 
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { isEnabled }
     override func mouseDown(with event: NSEvent) {}
 
     override func mouseDragged(with event: NSEvent) {
@@ -70,6 +71,8 @@ struct DiskAccessInstructions: View {
             DraggableApplicationIcon(application: application)
                 .frame(width: 144, height: 144)
             Text("Fleet Agent.app").font(.system(size: 16, weight: .semibold))
+            Text("授权后可在网页端访问本机文件，\n也能直接查看 AI Coding 会话关联的文件。")
+                .foregroundStyle(theme.secondaryText).multilineTextAlignment(.center).frame(maxWidth: 420)
             Text("将图标拖入「完全磁盘访问」，再打开开关。")
                 .foregroundStyle(theme.secondaryText).multilineTextAlignment(.center)
             Button("在访达中显示") { NSWorkspace.shared.activateFileViewerSelecting([application.url]) }

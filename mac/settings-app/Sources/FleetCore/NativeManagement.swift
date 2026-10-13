@@ -83,7 +83,7 @@ public final class NativeManagement: LocalManagement {
     }
 
     public func install() async throws -> URL {
-        let destination = URL(fileURLWithPath: "/Applications/Fleet Hub.app")
+        let destination = RuntimeLayout.installedApplication()
         guard layout.requiresInstallation else { return destination }
         try await ApplicationInstaller.install(source: layout.application, destination: destination) { candidate in
             _ = try await CommandRunner.run(executable: URL(fileURLWithPath: "/usr/sbin/spctl"), arguments: ["--assess", "--type", "execute", candidate.path], timeout: 30)
@@ -93,7 +93,7 @@ public final class NativeManagement: LocalManagement {
     }
 
     public func installedApplication() async throws -> URL {
-        let destination = URL(fileURLWithPath: "/Applications/Fleet Hub.app")
+        let destination = RuntimeLayout.installedApplication()
         _ = try BackgroundIdentity.read(destination, identifier: "com.macfleet.fleet-hub")
         _ = try await execute(URL(fileURLWithPath: "/usr/sbin/spctl"), ["--assess", "--type", "execute", destination.path], nil, 30)
         _ = try await execute(URL(fileURLWithPath: "/usr/bin/codesign"), ["--verify", "--deep", "--strict", destination.path], nil, 30)
@@ -246,10 +246,10 @@ public final class NativeManagement: LocalManagement {
         }
         if controlsRegisteredLoginService {
             // The debug UI cannot use SMAppService for another host bundle. Control
-            // only the already registered, signed Hub helper through launchd.
+            // only the already registered, signed settings helper through launchd.
             let definition = try await launchctl(["print", loginTarget])
             guard String(decoding: definition, as: UTF8.self).contains("parent bundle identifier = com.macfleet.fleet-hub") else {
-                throw FleetError.message("登录启动项不属于已安装的 Fleet Hub。")
+                throw FleetError.message("登录启动项不属于已安装的 Fleet Agent Settings。")
             }
             let previous = try await registeredLoginServiceDisabled()
             _ = try await launchctl([enabled ? "enable" : "disable", loginTarget])
@@ -271,7 +271,7 @@ public final class NativeManagement: LocalManagement {
                 try await loginService.unregister()
             }
             if loginService.status != .enabled { try loginService.register() }
-            guard loginService.status == .enabled else { throw FleetError.message("系统尚未允许登录启动，设置未生效。") }
+            guard loginService.status == .enabled else { throw FleetError.message("macOS 尚未允许 Fleet Agent 自动运行，请在系统设置 → 通用 → 登录项中批准后台运行。") }
             try PrivateRuntime.write(Data("2".utf8), to: marker)
         } else if loginService.status != .notRegistered {
             try await loginService.unregister()
@@ -295,6 +295,7 @@ public final class NativeManagement: LocalManagement {
     }
 
     public func openBackgroundSettings() { SMAppService.openSystemSettingsLoginItems() }
+    public var loginRequiresApproval: Bool { !controlsRegisteredLoginService && loginService.status == .requiresApproval }
 
     private var domain: String { "gui/\(getuid())" }
     private var target: String { domain + "/com.macfleet.desktop-agent" }

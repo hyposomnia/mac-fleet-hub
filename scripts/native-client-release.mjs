@@ -25,7 +25,7 @@ export function createNativeRelease(directory, metadata) {
   const escapeXML = value => String(value).replaceAll('&', '&amp;').replaceAll('"', '&quot;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll("'", '&apos;');
   const appcast = `<?xml version="1.0" encoding="utf-8"?>
 <rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle"><channel>
-<title>Fleet Hub</title><item><title>Fleet Hub ${metadata.version}</title>
+<title>Fleet Agent Settings</title><item><title>Fleet Agent Settings ${metadata.version}</title>
 <sparkle:version>${metadata.build}</sparkle:version><sparkle:shortVersionString>${metadata.version}</sparkle:shortVersionString>
 <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
 <enclosure url="${escapeXML(metadata.origin + assets.update.path)}" length="${assets.update.size}" type="application/octet-stream" sparkle:edSignature="${metadata.signature}"/>

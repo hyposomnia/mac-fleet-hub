@@ -4,9 +4,24 @@ import XCTest
 
 final class RuntimeTests: XCTestCase {
     func testInstallationUsesNormalizedPathRatherThanLaunchSpelling() throws {
-        let layout = RuntimeLayout(application: URL(fileURLWithPath: "/Applications/../Applications/Fleet Hub.app/"), home: URL(fileURLWithPath: "/Users/fixture"))
-        XCTAssertFalse(layout.requiresInstallation)
-        XCTAssertNoThrow(try layout.launchDefinition())
+        for name in ["Fleet Agent Settings", "Fleet Hub"] {
+            let layout = RuntimeLayout(application: URL(fileURLWithPath: "/Applications/../Applications/\(name).app/"), home: URL(fileURLWithPath: "/Users/fixture"))
+            XCTAssertFalse(layout.requiresInstallation)
+            XCTAssertNoThrow(try layout.launchDefinition())
+        }
+    }
+    func testInstalledApplicationSelectionPreservesLegacyInstallAndPrefersCurrentName() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("fleet-app-names-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: directory) }
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let current = directory.appendingPathComponent("Fleet Agent Settings.app", isDirectory: true)
+        let legacy = directory.appendingPathComponent("Fleet Hub.app", isDirectory: true)
+        XCTAssertEqual(RuntimeLayout.installedApplication(in: directory), current)
+        try FileManager.default.createDirectory(at: legacy, withIntermediateDirectories: false)
+        XCTAssertEqual(RuntimeLayout.installedApplication(in: directory), legacy)
+        try FileManager.default.createDirectory(at: current, withIntermediateDirectories: false)
+        XCTAssertEqual(RuntimeLayout.installedApplication(in: directory), current)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: legacy.path))
     }
     func testPrivateRuntimeRejectsSymlinksAndKeepsPermissions() throws {
         let directory = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent(UUID().uuidString)
@@ -43,7 +58,8 @@ final class RuntimeTests: XCTestCase {
     }
 
     func testRuntimeDoesNotRunFromReadOnlyDMGOrSourceDirectory() throws {
-        for application in ["/Volumes/Fleet Hub/Fleet Hub.app", "/Users/fixture/Downloads/Fleet Hub.app", "/Applications/Other.app", "/tmp/Fleet Hub.app"] {
+        for application in ["/Volumes/Fleet Hub/Fleet Hub.app", "/Users/fixture/Downloads/Fleet Hub.app", "/Applications/Other.app", "/tmp/Fleet Hub.app",
+                            "/Volumes/Fleet Agent Settings/Fleet Agent Settings.app", "/Users/fixture/Downloads/Fleet Agent Settings.app", "/tmp/Fleet Agent Settings.app"] {
             let layout = RuntimeLayout(application: URL(fileURLWithPath: application), home: URL(fileURLWithPath: "/Users/fixture"))
             XCTAssertThrowsError(try layout.launchDefinition())
         }

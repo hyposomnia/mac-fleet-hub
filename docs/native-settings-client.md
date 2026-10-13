@@ -1,10 +1,14 @@
-# Fleet Hub 原生 macOS 客户端
+# Fleet Agent Settings 原生 macOS 设置程序
 
 ## 交付与边界
 
-同一个 Fleet Hub 应用支持单用户和多用户服务。新版用户在“关联账号”填写服务网页地址，地址自动保存，点击“打开网页授权”；后台每次生成新的 OAuth 授权码 + S256 PKCE 请求，浏览器登录并确认账号与设备后自动接入。裸域名或 IP:port 自动补 HTTPS，仍拒绝非 HTTPS 和带路径的地址。原生应用不使用配对码，不重开过期链接；旧 CLI 配对协议保留兼容。登录后自动启动在“运行状态”设置。
+同一个 Fleet Agent Settings 应用支持单用户和多用户服务。用户在“关联账号”填写服务网页地址，地址自动保存，点击“打开网页授权”；后台每次生成新的 OAuth 授权码 + S256 PKCE 请求，浏览器登录并确认账号与设备后自动接入。裸域名或 IP:port 自动补 HTTPS，仍拒绝非 HTTPS 和带路径的地址。原生应用不使用配对码，不重开过期链接；旧 CLI 配对协议保留兼容。“设置”页的“登录后启动 Fleet Agent”直接保存系统登录启动项；macOS 需要批准时提供系统登录项入口。
 
-正式交付形态为 Universal `Fleet Hub.app` 和 DMG，最低部署目标 macOS 13。设置窗口与独立的 `Fleet Agent.app` 后台分离。应用包内含 ttyd、tmux、filebrowser 和用户态 mesh，不要求使用者安装 Homebrew，也不切换系统现有 Tailscale 网络。
+应用源码和后续构建统一使用 Universal `Fleet Agent Settings.app` 和 DMG，最低部署目标 macOS 13。设置窗口与独立的 `Fleet Agent.app` 后台分离。应用包内含 ttyd、tmux、filebrowser 和用户态 mesh，不要求使用者安装 Homebrew，也不切换系统现有 Tailscale 网络。
+
+2026-10-13 命名及界面修改目前仅为源码和本机预览，尚未签名发布。旧 `/Applications/Fleet Hub.app` 安装位置继续兼容；新安装使用 `/Applications/Fleet Agent Settings.app`。签名 identifier、OAuth client ID、旧版升级包 URL 和升级恢复备份名称保持协议兼容，登录启动器从自身实际可执行文件定位所属应用。
+
+运行页仅显示主状态、版本和 PID，网页入口在下方居中；账号和设备名称在关联页显示，解除关联位于页头。磁盘页在白底滚动布局中使用居中的大图标，通过 AppKit 直接拖出独立后台原文件 URL。完全磁盘访问支持网页文件访问和 AI Coding 会话关联文件查看，实际可读范围仍受文件权限与 ACL 约束。卸载确认按用户是否勾选删除本机 Fleet 配置分别说明；聊天会话由 Codex / Claude 保存，独立于 Fleet。调试预览不执行安装、解除关联和卸载，并明确反馈该限制。
 
 源码及隔离验证已完成；2026-10-03 已按用户授权更新 abj 独立验收服务。2026-10-04 唯一签名机的正式候选流程成功，应用和 DMG 均已签名公证，可信下载与本机图形安装通过。2026-10-07 已发布 `0.1.2+3` 签名公证测试包，同步验收服务与 Web 安装说明，真实下载、包内容及 Gatekeeper 检查通过；没有替换本机现有安装。真实用户归属确认、设备入网和新版完全磁盘访问仍需用户验收。开发包不得作为官网下载或正式安装包。
 

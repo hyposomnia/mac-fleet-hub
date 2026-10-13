@@ -22,8 +22,8 @@ test('runtime details show version and process without a disclosure control', ()
   const overview = view.slice(view.indexOf('private var overview:'), view.indexOf('private var connection:'));
   assert.doesNotMatch(overview, /DisclosureGroup\("运行详情"\)/);
   assert.doesNotMatch(overview, /Text\("运行详情"\)/);
-  assert.match(overview, /Text\("版本.*current\.version/);
-  assert.match(overview, /Text\("进程.*current\.pid/);
+  assert.match(overview, /row\("版本", current\.version/);
+  assert.match(overview, /row\("进程", String\(current\.pid\)/);
 });
 
 test('SDK preparation replaces a tampered extracted cache from the verified archive', {
@@ -49,7 +49,7 @@ test('SDK preparation replaces a tampered extracted cache from the verified arch
 test('development packaging is isolated and cannot publish an installer', () => {
   const script = read('./build-settings-app.sh');
   assert.match(script, /--development/);
-  assert.match(script, /Fleet Hub\.app/);
+  assert.match(script, /Fleet Agent Settings\.app/);
   assert.match(script, /Fleet Agent\.app/);
   assert.match(script, /com\.macfleet\.fleet-hub/);
   assert.match(script, /com\.macfleet\.fleet-agent/);
@@ -185,7 +185,7 @@ test('native account authorization stays actionable with automatic settings and 
   const preferences = view.slice(view.indexOf('private var preferences:'), view.indexOf('private var about:'));
   assert.doesNotMatch(overview, /登录后启动后台/);
   assert.match(preferences, /Toggle\(isOn: autoStartBinding\)/);
-  assert.match(preferences, /Text\("登录后启动后台"\)/);
+  assert.match(preferences, /Text\("登录后启动 Fleet Agent"\)/);
   assert.doesNotMatch(connection, /登录后启动后台|保存设置/);
   assert.match(connection, /if management\.layout\.requiresInstallation \{ installApplication\(\) \}/);
   assert.match(connection, /disabled\(!validOrigin \|\| model\.isSaving/);

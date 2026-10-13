@@ -13,14 +13,6 @@ struct FleetTheme {
     var online: Color { color(0x247A6A, 0xB1E1BC) }
     var warning: Color { color(0x9B6A25, 0xF6D7A3) }
     var danger: Color { color(0xB54B51, 0xFFB8B8) }
-    func iconColor(for page: SettingsPage) -> Color {
-        switch page {
-        case .overview: return online
-        case .connection, .about: return accent
-        case .privacy: return warning
-        case .preferences: return color(0x79639A, 0xD1BFE8)
-        }
-    }
     private func color(_ light: UInt32, _ dark: UInt32) -> Color {
         let value = scheme == .dark ? dark : light
         return Color(red: Double((value >> 16) & 255) / 255,

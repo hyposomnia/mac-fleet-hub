@@ -320,6 +320,7 @@ test('add device offers a native DMG and explains fresh browser OAuth and backgr
   const add = current.find((node) => node.id === 'add-device');
   const downloads = all(add, (node) => node.tagName === 'a' && node.download);
   assert.deepEqual(downloads.map((node) => node.href), ['/enroll/clients/1/Fleet-Hub.dmg']);
+  assert.equal(downloads[0].download, 'Fleet-Agent-Settings.dmg');
   assert.doesNotMatch(text(add), /fleet-agent login|Homebrew|tar -|回到终端|输入 y/);
   assert.match(text(add), /https:\/\/fleet.test/);
   assert.match(text(add), /应用.*服务网页地址/);
@@ -347,7 +348,7 @@ test('login and device setup omit redundant introductory copy without dropping a
   const addition = harness({ page: 'add-device', embedded: true });
   await addition.start();
   assert.doesNotMatch(text(addition.content), /安装 Fleet Hub，使用当前账号关联这台 Mac|授权请求由/);
-  assert.match(text(addition.content), /Fleet Hub.*检查更新/);
+  assert.match(text(addition.content), /Fleet Agent Settings.*检查更新/);
   assert.doesNotMatch(text(addition.content), /Fleet Hub.*无需磁盘权限/);
   const account = harness({ page: 'account', embedded: true });
   await account.start();

@@ -15,7 +15,7 @@ struct FleetHubApp: App {
         #else
         preview = false
         #endif
-        let application = preview ? URL(fileURLWithPath: "/Applications/Fleet Hub.app") : Bundle.main.bundleURL
+        let application = preview ? RuntimeLayout.installedApplication() : Bundle.main.bundleURL
         let resources = preview ? Bundle.main.bundleURL.appendingPathComponent("Contents/Resources/codex") : nil
         let layout = RuntimeLayout(application: application, home: FileManager.default.homeDirectoryForCurrentUser, codexResources: resources)
         let client = NativeManagement(layout: layout, controlsRegisteredLoginService: preview)
@@ -24,7 +24,7 @@ struct FleetHubApp: App {
         _updater = StateObject(wrappedValue: AppUpdater(management: client))
     }
     var body: some Scene {
-        Window(preview ? "Fleet Hub — 界面预览" : "Fleet Hub", id: "settings") {
+        Window(preview ? RuntimeLayout.applicationName + " — 界面预览" : RuntimeLayout.applicationName, id: "settings") {
             SettingsView(model: model, updater: updater, management: management, preview: preview)
                 .preferredColorScheme(.light)
                 .frame(minWidth: 720, minHeight: 570)

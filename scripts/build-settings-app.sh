@@ -16,7 +16,7 @@ bash "$ROOT/scripts/check-settings-runtime.sh" "$FLEET_SETTINGS_RUNTIME/universa
 [[ -d "$FLEET_SETTINGS_RUNTIME/licenses" ]] || { echo '缺少第三方许可证。' >&2; exit 1; }
 mkdir -p "$PARENT"
 OUTPUT="$(mktemp -d "$PARENT/fleet-settings.XXXXXX")"
-APP="$OUTPUT/Fleet Hub.app"
+APP="$OUTPUT/Fleet Agent Settings.app"
 AGENT="$APP/Contents/Library/LoginItems/Fleet Agent.app"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources" "$APP/Contents/Library/LaunchAgents" "$AGENT/Contents/MacOS"
 swift "$ROOT/scripts/render-settings-icon.swift" "$ROOT/mac/settings-app/Resources/BrandMark.svg" "$OUTPUT/artwork"
@@ -32,7 +32,7 @@ install -m 0644 "$OUTPUT/artwork/BrandMark.png" "$APP/Contents/Resources/BrandMa
 bash "$ROOT/scripts/prepare-settings-sdk.sh"
 (cd "$ROOT/mac/settings-app" && MACOSX_DEPLOYMENT_TARGET=13.0 swift build -c release --arch arm64 --arch x86_64)
 SWIFT_BIN="$(cd "$ROOT/mac/settings-app" && swift build -c release --arch arm64 --arch x86_64 --show-bin-path)"
-install -m 0755 "$SWIFT_BIN/FleetHub" "$APP/Contents/MacOS/Fleet Hub"
+install -m 0755 "$SWIFT_BIN/FleetHub" "$APP/Contents/MacOS/Fleet Agent Settings"
 mkdir -p "$APP/Contents/Library/Helpers"
 install -m 0755 "$SWIFT_BIN/FleetLogin" "$APP/Contents/Library/Helpers/fleet-login-launcher"
 mkdir -p "$APP/Contents/Frameworks"
@@ -59,9 +59,9 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0"><dict>
 <key>CFBundleIdentifier</key><string>com.macfleet.fleet-hub</string>
-<key>CFBundleName</key><string>Fleet Hub</string>
-<key>CFBundleDisplayName</key><string>Fleet Hub</string>
-<key>CFBundleExecutable</key><string>Fleet Hub</string>
+<key>CFBundleName</key><string>Fleet Agent Settings</string>
+<key>CFBundleDisplayName</key><string>Fleet Agent Settings</string>
+<key>CFBundleExecutable</key><string>Fleet Agent Settings</string>
 <key>CFBundleIconFile</key><string>AppIcon</string>
 <key>CFBundlePackageType</key><string>APPL</string>
 <key>CFBundleShortVersionString</key><string>0.1.0</string>

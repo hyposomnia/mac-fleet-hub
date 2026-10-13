@@ -37,7 +37,7 @@ run_native_candidate_release() {
   bash "$ROOT/scripts/build-settings-filebrowser.sh" "$work/runtime"
   FLEET_SETTINGS_RUNTIME="$work/runtime" FLEET_SETTINGS_VERSION="$FLEET_SETTINGS_VERSION" FLEET_SETTINGS_BUILD="$FLEET_SETTINGS_BUILD" bash "$ROOT/scripts/build-settings-app.sh" --development "$work" | tee "$work/build.log"
   app="$(tail -1 "$work/build.log")"
-  [[ "$app" == "$work"/*'/Fleet Hub.app' && -d "$app" ]] || die '构建输出目录无效。'
+  [[ "$app" == "$work"/*'/Fleet Agent Settings.app' && -d "$app" ]] || die '构建输出目录无效。'
   node "$ROOT/scripts/settings-runtime-uat.mjs" "$app"
   agent="$app/Contents/Library/LoginItems/Fleet Agent.app"
   framework="$app/Contents/Frameworks/Sparkle.framework"
@@ -72,9 +72,9 @@ run_native_candidate_release() {
   ditto -c -k --keepParent "$app" "$work/distribution/Fleet-Hub-update.zip"
   signature="$("$ROOT/mac/settings-app/Vendor/bin/sign_update" --account "$FLEET_SPARKLE_ACCOUNT" -p "$work/distribution/Fleet-Hub-update.zip")"
   "$ROOT/mac/settings-app/Vendor/bin/sign_update" --account "$FLEET_SPARKLE_ACCOUNT" --verify "$work/distribution/Fleet-Hub-update.zip" "$signature"
-  ditto "$app" "$work/dmg/Fleet Hub.app"
+  ditto "$app" "$work/dmg/Fleet Agent Settings.app"
   ln -s /Applications "$work/dmg/Applications"
-  hdiutil create -volname 'Fleet Hub' -srcfolder "$work/dmg" -format UDZO "$work/distribution/Fleet-Hub.dmg"
+  hdiutil create -volname 'Fleet Agent Settings' -srcfolder "$work/dmg" -format UDZO "$work/distribution/Fleet-Hub.dmg"
   codesign --force --timestamp --sign "$FLEET_CODESIGN_IDENTITY" "$work/distribution/Fleet-Hub.dmg"
   xcrun notarytool submit "$work/distribution/Fleet-Hub.dmg" --keychain-profile "$NOTARY_PROFILE" "$notary_upload_option" --wait --timeout 60m --output-format json | tee "$work/dmg-notary.json"
   node -e 'if(JSON.parse(require("fs").readFileSync(process.argv[1])).status!=="Accepted")process.exit(1)' "$work/dmg-notary.json"

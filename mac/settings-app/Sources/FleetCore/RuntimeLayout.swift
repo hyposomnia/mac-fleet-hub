@@ -2,6 +2,16 @@ import Darwin
 import Foundation
 
 public struct RuntimeLayout: Sendable {
+    public static let applicationName = "Fleet Agent Settings"
+    private static let legacyApplicationName = "Fleet Hub"
+
+    public static func installedApplication(in directory: URL = URL(fileURLWithPath: "/Applications")) -> URL {
+        let current = directory.appendingPathComponent(applicationName + ".app", isDirectory: true)
+        let legacy = directory.appendingPathComponent(legacyApplicationName + ".app", isDirectory: true)
+        if !FileManager.default.fileExists(atPath: current.path), FileManager.default.fileExists(atPath: legacy.path) { return legacy }
+        return current
+    }
+
     public let application: URL
     public let home: URL
     private let codexResourcesOverride: URL?
@@ -23,7 +33,8 @@ public struct RuntimeLayout: Sendable {
     public var runtimeDirectory: URL { state.appendingPathComponent("runtime") }
     public var runtimePlist: URL { state.appendingPathComponent("agent.plist") }
     public var requiresInstallation: Bool {
-        application.standardizedFileURL.resolvingSymlinksInPath().path != "/Applications/Fleet Hub.app"
+        let path = application.standardizedFileURL.resolvingSymlinksInPath().path
+        return ![Self.applicationName, Self.legacyApplicationName].contains { path == "/Applications/\($0).app" }
     }
 
     public func removeRuntime() throws {
@@ -40,7 +51,7 @@ public struct RuntimeLayout: Sendable {
 
     public func launchDefinition() throws -> Data {
         guard !requiresInstallation else {
-            throw FleetError.message("请先将 Fleet Hub 安装到应用程序，再启动后台服务。")
+            throw FleetError.message("请先将 Fleet Agent Settings 安装到应用程序，再启动后台服务。")
         }
         return try backgroundLaunchDefinition()
     }

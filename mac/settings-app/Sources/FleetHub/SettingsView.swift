@@ -28,6 +28,7 @@ struct SettingsView: View {
     @State private var openedAttempt = ""
     @State private var confirmUninstall = false
     @State private var confirmLogout = false
+    @State private var previewRestriction = false
     @State private var removeSettings = false
     @State private var saveDelay: Task<Void, Never>?
     @StateObject private var diskGuide = DiskAccessGuideController()
@@ -37,7 +38,7 @@ struct SettingsView: View {
                          backgroundInstalled: FileManager.default.isExecutableFile(atPath: management.layout.agent.path))
     }
     private var installationTitle: String {
-        FleetSetupAction.installationTitle(installed: FileManager.default.fileExists(atPath: "/Applications/Fleet Hub.app"))
+        FleetSetupAction.installationTitle(installed: FileManager.default.fileExists(atPath: RuntimeLayout.installedApplication().path))
     }
     private var validOrigin: Bool { (try? FleetSettings.validatedOrigin(model.origin)) != nil }
     private var webURL: URL? {
@@ -71,7 +72,8 @@ struct SettingsView: View {
             VStack(alignment: .leading, spacing: 28) {
                 HStack(spacing: 10) {
                     FleetBrandMark().foregroundStyle(theme.accent)
-                    Text("Fleet Hub").font(.system(size: 16, weight: .semibold, design: .rounded))
+                    Text(RuntimeLayout.applicationName)
+                        .font(.system(size: 15, weight: .semibold, design: .rounded)).fixedSize(horizontal: false, vertical: true)
                 }
                 VStack(spacing: 8) {
                     ForEach(SettingsPage.allCases) { item in
@@ -86,27 +88,26 @@ struct SettingsView: View {
                 HStack {
                     Text(page.rawValue).font(.system(size: 24, weight: .semibold))
                     Spacer()
-                    if page == .overview {
-                        Button {
-                            if let webURL, !NSWorkspace.shared.open(webURL) { operationError = "无法打开网页端" }
-                        } label: { Label("打开网页端", systemImage: "arrow.up.right.square") }
-                        .buttonStyle(.borderedProminent).controlSize(.large).disabled(webURL == nil)
+                    if page == .connection, model.status?.binding != nil {
+                        Button("解除关联") { confirmLogout = true }
+                            .buttonStyle(.link).foregroundStyle(theme.danger).disabled(updater.sessionActive)
                     }
                 }
-                List {
-                    switch page {
-                    case .overview: overview
-                    case .connection: connection
-                    case .privacy: privacy
-                    case .preferences: preferences
-                    case .about: about
+                if page == .privacy {
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: 16) {
+                            pageContents
+                            pageError
+                        }
+                        .padding(.horizontal, 8).padding(.top, 8)
                     }
-                    if page != .overview, !operationError.isEmpty || !model.error.isEmpty {
-                        Label(operationError.isEmpty ? model.error : operationError, systemImage: "exclamationmark.circle")
-                            .foregroundStyle(theme.warning).textSelection(.enabled)
+                } else {
+                    List {
+                        pageContents
+                        pageError
                     }
+                    .listStyle(.plain).scrollContentBackground(.hidden)
                 }
-                .listStyle(.plain).scrollContentBackground(.hidden)
             }
             .frame(maxWidth: .infinity, alignment: .leading).padding(28)
         }
@@ -162,12 +163,38 @@ struct SettingsView: View {
             Button("取消", role: .cancel) {}
             Button("解除关联", role: .destructive) { perform { try await management.logout(); await model.refresh() } }
         } message: { Text("撤销当前设备授权后，才能关联其他账号。") }
-        .alert("卸载 Fleet Hub 和 Fleet Agent？", isPresented: $confirmUninstall) {
+        .alert("卸载 Fleet Agent Settings 和 Fleet Agent？", isPresented: $confirmUninstall) {
             Button("取消", role: .cancel) {}
             Button("卸载", role: .destructive) {
                 perform { try await management.uninstall(removeSettings: removeSettings); NSApplication.shared.terminate(nil) }
             }
-        } message: { Text("撤销设备授权、停止后台并卸载两个程序。你的文件与聊天会话保留。") }
+        } message: {
+            Text("撤销设备授权、停止后台并卸载两个程序。" +
+                 (removeSettings ? "本机 Fleet 配置也会删除。" : "本机 Fleet 配置保留。") +
+                 "\n\n聊天会话由 Codex / Claude 保存，独立于 Fleet；卸载不会删除这些会话或你的个人文件。")
+        }
+        .alert("界面预览", isPresented: $previewRestriction) {
+            Button("知道了", role: .cancel) {}
+        } message: { Text("请在已安装的设置程序中执行此操作。") }
+    }
+
+    @ViewBuilder
+    private var pageContents: some View {
+        switch page {
+        case .overview: overview
+        case .connection: connection
+        case .privacy: privacy
+        case .preferences: preferences
+        case .about: about
+        }
+    }
+
+    @ViewBuilder
+    private var pageError: some View {
+        if page != .overview, !operationError.isEmpty || !model.error.isEmpty {
+            Label(operationError.isEmpty ? model.error : operationError, systemImage: "exclamationmark.circle")
+                .foregroundStyle(theme.warning).textSelection(.enabled)
+        }
     }
 
     private var overview: some View {
@@ -178,20 +205,10 @@ struct SettingsView: View {
                         .font(.system(size: 30, weight: .regular))
                         .symbolRenderingMode(.hierarchical).foregroundStyle(statusColor)
                         .accessibilityHidden(true)
-                    VStack(alignment: .leading, spacing: 12) {
-                        Text(overviewStatus.title)
-                            .font(.system(size: 22, weight: .semibold, design: .rounded))
-                            .foregroundStyle(overviewStatus.tone == .warning ? theme.warning : theme.text)
-                            .textSelection(.enabled)
-                        if let current = model.status {
-                            HStack(spacing: 12) {
-                                Text("版本 \(current.version)")
-                                Text("·")
-                                Text("进程 \(String(current.pid))").monospacedDigit()
-                            }
-                            .font(.system(size: 12)).foregroundStyle(theme.secondaryText).textSelection(.enabled)
-                        }
-                    }
+                    Text(overviewStatus.title)
+                        .font(.system(size: 22, weight: .semibold, design: .rounded))
+                        .foregroundStyle(overviewStatus.tone == .warning ? theme.warning : theme.text)
+                        .textSelection(.enabled)
                     Spacer()
                     if model.status == nil {
                         Button(setupAction == .installApplication ? installationTitle : setupAction.title) {
@@ -211,21 +228,36 @@ struct SettingsView: View {
                 .padding(.vertical, 20)
             }
             Section {
-                if let binding = model.status?.binding {
-                    row("账号", binding.ownerEmail, symbol: "person.crop.circle")
-                    row("设备名称", binding.displayName, symbol: "desktopcomputer")
-                } else if model.status != nil {
-                    Button { page = .connection } label: {
-                        HStack {
-                            Text("尚未关联账号")
-                            Spacer()
-                            Text("关联账号")
-                            Image(systemName: "chevron.right")
+                if let current = model.status {
+                    row("版本", current.version, symbol: "shippingbox")
+                    row("进程", String(current.pid), symbol: "number")
+                    if current.binding == nil {
+                        Button { page = .connection } label: {
+                            HStack {
+                                Text("尚未关联账号")
+                                Spacer()
+                                Text("关联账号")
+                                Image(systemName: "chevron.right")
+                            }
+                            .frame(maxWidth: .infinity).padding(.vertical, 8).contentShape(Rectangle())
                         }
-                        .frame(maxWidth: .infinity).padding(.vertical, 8).contentShape(Rectangle())
+                        .buttonStyle(.plain)
                     }
-                    .buttonStyle(.plain)
                 }
+            }
+            Section {
+                Button {
+                    if let webURL, !NSWorkspace.shared.open(webURL) { operationError = "无法打开网页端" }
+                } label: {
+                    Label("打开网页端", systemImage: "arrow.up.right.square")
+                        .font(.system(size: 17, weight: .semibold))
+                        .foregroundStyle(.white)
+                        .frame(minWidth: 240, minHeight: 56)
+                        .background(theme.accent, in: RoundedRectangle(cornerRadius: FleetTheme.controlRadius))
+                }
+                .buttonStyle(.plain).disabled(webURL == nil).opacity(webURL == nil ? 0.5 : 1)
+                .frame(maxWidth: .infinity).padding(.vertical, 80)
+                .listRowSeparator(.hidden)
             }
         }
         .listRowBackground(Color.clear)
@@ -279,7 +311,6 @@ struct SettingsView: View {
                 Section {
                     row("账号", binding.ownerEmail, symbol: "person.crop.circle")
                     row("设备名称", binding.displayName, symbol: "desktopcomputer")
-                    Button("解除关联") { confirmLogout = true }.buttonStyle(.link).foregroundStyle(theme.danger)
                 }
             }
         }
@@ -292,7 +323,7 @@ struct SettingsView: View {
             Section {
                 HStack {
                     Label("完全磁盘访问", systemImage: "internaldrive")
-                        .fontWeight(.medium).foregroundStyle(theme.iconColor(for: .privacy))
+                        .fontWeight(.medium).foregroundStyle(theme.accent)
                     Spacer()
                     Label(model.diskState.label, systemImage: model.diskState == .verified ? "checkmark.circle.fill" : "exclamationmark.circle")
                         .foregroundStyle(model.diskState == .verified ? theme.online : theme.warning)
@@ -332,19 +363,21 @@ struct SettingsView: View {
                 }
             }
         }
-        .listRowBackground(Color.clear)
     }
 
     private var preferences: some View {
         Section {
             Toggle(isOn: autoStartBinding) {
                 Label {
-                    Text("登录后启动后台").foregroundStyle(theme.text)
+                    Text("登录后启动 Fleet Agent").foregroundStyle(theme.text)
                 } icon: {
-                    Image(systemName: "power.circle").foregroundStyle(theme.iconColor(for: .preferences))
+                    Image(systemName: "power.circle").foregroundStyle(theme.accent)
                 }
             }
                 .toggleStyle(.switch).disabled(management.layout.requiresInstallation || (preview && model.status == nil))
+            if management.loginRequiresApproval {
+                Button("前往系统登录项设置") { management.openBackgroundSettings() }.buttonStyle(.link)
+            }
         }
         .listRowBackground(Color.clear)
     }
@@ -355,7 +388,7 @@ struct SettingsView: View {
                 VStack(spacing: 12) {
                     Image(nsImage: NSWorkspace.shared.icon(forFile: management.layout.application.path))
                         .resizable().scaledToFit().frame(width: 96, height: 96).accessibilityHidden(true)
-                    Text("Fleet Hub").font(.system(size: 22, weight: .semibold))
+                    Text(RuntimeLayout.applicationName).font(.system(size: 22, weight: .semibold))
                     Text(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "开发版本")
                         .foregroundStyle(theme.secondaryText)
                     if !management.layout.requiresInstallation {
@@ -371,8 +404,8 @@ struct SettingsView: View {
                     Button(installationTitle) { installApplication() }.buttonStyle(.borderedProminent)
                 } else {
                     DisclosureGroup("卸载") {
-                        Toggle("同时移除本机设置", isOn: $removeSettings)
-                        Button("卸载 Fleet Hub 和 Fleet Agent") { confirmUninstall = true }
+                        Toggle("同时删除本机 Fleet 配置", isOn: $removeSettings)
+                        Button("卸载 Fleet Agent Settings 和 Fleet Agent") { confirmUninstall = true }
                             .buttonStyle(.link).foregroundStyle(theme.warning).disabled(updater.sessionActive)
                     }
                     .foregroundStyle(theme.secondaryText)
@@ -401,7 +434,7 @@ struct SettingsView: View {
     private func installApplication(authorizeDisk: Bool = false) {
         perform {
             let installed: URL
-            if FileManager.default.fileExists(atPath: "/Applications/Fleet Hub.app") { installed = try await management.installedApplication() }
+            if FileManager.default.fileExists(atPath: RuntimeLayout.installedApplication().path) { installed = try await management.installedApplication() }
             else { installed = try await management.install() }
             let configuration = NSWorkspace.OpenConfiguration()
             configuration.arguments = ["--fleet-install-and-start"]
@@ -438,7 +471,10 @@ struct SettingsView: View {
         }
     }
     private func perform(allowPreview: Bool = false, _ action: @escaping @MainActor () async throws -> Void) {
-        guard !preview || allowPreview else { return }
+        guard !preview || allowPreview else {
+            previewRestriction = true
+            return
+        }
         guard !updater.sessionActive else { operationError = "请先完成或取消升级"; return }
         guard !operationBusy else { return }
         operationBusy = true

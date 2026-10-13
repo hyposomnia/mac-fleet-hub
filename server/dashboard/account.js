@@ -224,14 +224,14 @@
       add.id = 'add-device';
       const downloads = node('div', '', { className: 'account-downloads' });
       if (release) {
-        downloads.append(node('a', '下载 macOS 应用', { href: release.assets.dmg.path, download: 'Fleet-Hub.dmg', className: 'account-button primary' }));
+        downloads.append(node('a', '下载 macOS 应用', { href: release.assets.dmg.path, download: 'Fleet-Agent-Settings.dmg', className: 'account-button primary' }));
         add.append(downloads);
-        add.append(node('p', `Fleet Hub ${release.version} · macOS ${release.minimum_macos} 及以上 · ${(release.assets.dmg.size / 1048576).toFixed(1)} MB`, { className: 'account-muted' }));
-      } else add.append(node('p', 'Fleet Hub 尚未发布，暂不提供下载。', { className: 'account-error' }));
+        add.append(node('p', `Fleet Agent Settings ${release.version} · macOS ${release.minimum_macos} 及以上 · ${(release.assets.dmg.size / 1048576).toFixed(1)} MB`, { className: 'account-muted' }));
+      } else add.append(node('p', 'Fleet Agent Settings 尚未发布，暂不提供下载。', { className: 'account-error' }));
       const steps = node('ol', '', { className: 'account-steps' });
       for (const description of [
-        '打开 DMG，将 Fleet Hub 拖入“应用程序”，或点击“安装并启动”。内置 Fleet Agent，无需另行下载。',
-        '打开 Fleet Hub 应用，在“关联账号”填写下方服务网页地址，点击“打开网页授权”。',
+        '打开 DMG，将 Fleet Agent Settings 拖入“应用程序”，或点击“安装并启动”。内置 Fleet Agent，无需另行下载。',
+        '打开 Fleet Agent Settings，在“关联账号”填写下方服务网页地址，点击“打开网页授权”。',
         '浏览器登录并完成 Authenticator 验证，核对账号与设备名称，点击“授权并连接”；应用会自动接入。',
         '授权过期或取消后，在应用中重新点击“打开网页授权”。',
         '在“磁盘权限”打开系统设置，将页面中的 Fleet Agent.app 图标拖入完全磁盘访问列表并打开开关，返回点击“重启并检查”。',
@@ -244,7 +244,7 @@
         await root.navigator.clipboard.writeText(serviceOrigin);
         status.textContent = '服务器地址已复制。';
       }, add);
-      add.append(node('p', '更新：Fleet Hub → 检查更新。', { className: 'account-muted' }));
+      add.append(node('p', '更新：Fleet Agent Settings → 关于 → 检查更新。', { className: 'account-muted' }));
     }
 
     async function showAccount() {
@@ -375,7 +375,7 @@
 
     async function showOAuthConsent() {
       const requestID = new URLSearchParams(location.search).get('request');
-      heading('授权 Fleet Hub', `关联账号：${auth.user.email}`);
+      heading('授权 Fleet Agent Settings', `关联账号：${auth.user.email}`);
       if (!requestID) { content.append(node('p', '请从客户端重新打开网页授权。')); return; }
       const preview = await auth.json(`/api/oauth/preview?request=${encodeURIComponent(requestID)}`);
       content.append(node('p', `设备：${preview.name}`));
