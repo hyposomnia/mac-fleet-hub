@@ -4,7 +4,7 @@ import vm from 'node:vm';
 import { readFile } from 'node:fs/promises';
 const source = await readFile(new URL('./theme.js', import.meta.url), 'utf8');
 const styleSource = await readFile(new URL('./style.css', import.meta.url), 'utf8');
-function fixture(stored = null, light = false, blocked = false, savedPalette = null) {
+function fixture(stored = null, light = false, blocked = false, savedPalette = null, network = null) {
   const listeners = {}, media = { matches: light, addEventListener: (type, fn) => { listeners.media = fn; } };
   const values = new Map();
   if (stored !== null) values.set('fleet-theme', stored);
@@ -14,6 +14,7 @@ function fixture(stored = null, light = false, blocked = false, savedPalette = n
   const host = { document: { documentElement: {style:{setProperty:(key,value)=>{styleValues[key]=value;}},setAttribute: (key,value) => {attrs[key]=value;}}, querySelector: () => meta, querySelectorAll: () => controls, addEventListener() {} },
     localStorage: {getItem(key) {if (blocked) throw Error('blocked'); return values.get(key) ?? null;}, setItem(key,value) {if(blocked) throw Error('blocked'); values.set(key,value);}, removeItem(key) {if(blocked) throw Error('blocked'); values.delete(key);}},
     matchMedia: () => media, addEventListener: (type,fn) => {listeners[type]=fn;} };
+  if (network) Object.assign(host,{fetch:network,AbortController,setTimeout,clearTimeout});
   vm.createContext(host); vm.runInContext(source, host);
   return {host, attrs, meta, media, listeners, controls, styleValues, values, stored: () => values.get('fleet-theme') ?? null};
 }
@@ -83,4 +84,96 @@ test('invalid stored palette fields fall back independently and reset removes th
   f.host.FleetTheme.resetPalette();
   assert.equal(f.values.has('fleet-theme-palette-v1'), false);
   assert.equal(f.styleValues['--accent'], '#356B5B');
+});
+
+function paletteNetwork(f, handle) {
+  Object.assign(f.host, {AbortController, setTimeout, clearTimeout});
+  const calls=[];
+  f.host.fetch=async (url,options={})=>{
+    calls.push({url,...options,body:options.body ? JSON.parse(options.body) : undefined});
+    const result=await handle(calls.at(-1));
+    return {ok:result.status ? result.status===200 : true,status:result.status || 200,json:async()=>result.body || result};
+  };
+  return calls;
+}
+test('server palette replaces a stale browser cache without uploading it', async () => {
+  const f=fixture(null,false,false,{light:{canvas:'#111111'}});
+  const server=f.host.FleetTheme.paletteDefaults;
+  server.light.canvas='#EEEEEE';
+  const calls=paletteNetwork(f,()=>({palette:server}));
+  await f.host.FleetTheme.refreshPalette();
+  assert.equal(calls.length,1);
+  assert.equal(calls[0].method,undefined);
+  assert.equal(f.host.FleetTheme.getPalette().light.canvas,'#EEEEEE');
+  assert.equal(JSON.parse(f.values.get('fleet-theme-palette-v1')).light.canvas,'#EEEEEE');
+});
+test('legacy palette imports only into an empty server and accepts a concurrent winner', async () => {
+  const f=fixture(null,false,false,{light:{canvas:'#EEEEEE'}});
+  const winner=f.host.FleetTheme.paletteDefaults;
+  winner.light.accent='#345678';
+  const calls=paletteNetwork(f,request=>request.method ? {palette:winner} : {palette:null});
+  await f.host.FleetTheme.refreshPalette();
+  assert.equal(calls.length,2);
+  assert.equal(calls[1].method,'PUT');
+  assert.equal(calls[1].body.ifAbsent,true);
+  assert.equal(calls[1].body.palette.light.canvas,'#EEEEEE');
+  assert.equal(f.host.FleetTheme.getPalette().light.accent,'#345678');
+  const fresh=fixture();
+  const reads=paletteNetwork(fresh,()=>({palette:null}));
+  await fresh.host.FleetTheme.refreshPalette();
+  assert.equal(reads.length,1);
+  assert.equal(fresh.values.has('fleet-theme-palette-v1'),false,'unset defaults must not claim migration priority');
+});
+test('saving waits for server acknowledgement and failures preserve the last palette', async () => {
+  const f=fixture();
+  const next=f.host.FleetTheme.paletteDefaults;
+  next.light.canvas='#123456';
+  let complete;
+  const calls=paletteNetwork(f,()=>new Promise(resolve=>{complete=resolve;}));
+  const save=f.host.FleetTheme.savePalette(next);
+  await Promise.resolve();
+  assert.equal(f.host.FleetTheme.getPalette().light.canvas,'#FAFAFA');
+  complete({palette:next});
+  await save;
+  assert.equal(calls[0].method,'PUT');
+  assert.equal(f.host.FleetTheme.getPalette().light.canvas,'#123456');
+  paletteNetwork(f,()=>({status:500,body:{error:'write failed'}}));
+  next.light.canvas='#654321';
+  await assert.rejects(f.host.FleetTheme.savePalette(next),/write failed/);
+  assert.equal(f.host.FleetTheme.getPalette().light.canvas,'#123456');
+  assert.equal(JSON.parse(f.values.get('fleet-theme-palette-v1')).light.canvas,'#123456');
+});
+test('palette reads and saves serialize so a delayed read cannot overwrite a save', async () => {
+  const f=fixture();
+  let complete;
+  const old=f.host.FleetTheme.paletteDefaults;
+  const next=f.host.FleetTheme.paletteDefaults;
+  next.dark.canvas='#223344';
+  const calls=paletteNetwork(f,request=>request.method ? {palette:request.body.palette} : new Promise(resolve=>{complete=resolve;}));
+  const refresh=f.host.FleetTheme.refreshPalette();
+  const save=f.host.FleetTheme.savePalette(next);
+  await Promise.resolve();
+  assert.equal(calls.length,1);
+  complete({palette:old});
+  await refresh; await save;
+  assert.equal(f.host.FleetTheme.getPalette().dark.canvas,'#223344');
+});
+test('malformed server palette fails instead of replacing valid cached values', async () => {
+  const f=fixture(null,false,false,{light:{canvas:'#EEEEEE'}});
+  paletteNetwork(f,()=>({palette:{light:{canvas:'bad'}}}));
+  await assert.rejects(f.host.FleetTheme.refreshPalette());
+  assert.equal(f.host.FleetTheme.getPalette().light.canvas,'#EEEEEE');
+});
+
+test('standalone pages load server colors at startup and refresh on focus without polling', async () => {
+  const payload={palette:{light:{canvas:'#EEEEEE',accent:'#356B5B',highlight:'#C99A2E',text:'#18211F'},dark:{canvas:'#222222',accent:'#78B59D',highlight:'#E0B84F',text:'#F4F7F6'}}};
+  let calls=0;
+  const f=fixture(null,false,false,null,async()=>{calls++;return {ok:true,json:async()=>payload};});
+  await f.host.FleetTheme.refreshPalette();
+  assert.equal(calls,1,'startup and manual refresh should coalesce');
+  assert.equal(f.styleValues['--bg'],'#EEEEEE');
+  payload.palette.light.canvas='#AABBCC';
+  await f.listeners.focus();
+  assert.equal(calls,2);
+  assert.equal(f.styleValues['--bg'],'#AABBCC');
 });

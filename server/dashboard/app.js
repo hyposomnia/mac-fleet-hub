@@ -792,13 +792,16 @@ function readAppearancePalette() {
   }
   return palette;
 }
-function saveAppearanceSettings() {
+async function saveAppearanceSettings() {
+  const button = $('#appearance-save');
+  button.disabled = true;
   try {
-    const palette = FleetTheme.setPalette(readAppearancePalette());
+    const palette = await FleetTheme.savePalette(readAppearancePalette());
     fillAppearancePalette(palette);
     closeOverlay('appearance-modal');
     toast('配色已保存', 'ok');
-  } catch (error) { toast(error.message, 'err'); }
+  } catch (error) { toast('配色保存失败：' + error.message, 'err'); }
+  finally { button.disabled = false; }
 }
 function wireAppearanceSettings() {
   $$('[data-palette-color]').forEach(input => {
@@ -828,7 +831,7 @@ async function refreshSettings() {
   try {
     const r = await fetch(`${BASE}/api/settings`, { cache: 'no-store' });
     if (r.ok) {
-      const {deviceAppearance, ...settings} = await r.json();
+      const {deviceAppearance, palette, ...settings} = await r.json();
       state.settings = { ...SETTINGS_DEFAULT, ...settings }; evictChatCache(); return;
     }
   } catch (_) {}

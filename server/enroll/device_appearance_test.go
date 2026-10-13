@@ -14,10 +14,15 @@ import (
 func appearanceTestFiles(t *testing.T) {
 	t.Helper()
 	previousAppearance, previousSettings := deviceAppearanceFile, settingsFile
+	previousPalette := themePaletteFile
 	dir := t.TempDir()
 	deviceAppearanceFile = filepath.Join(dir, "device-appearance.json")
 	settingsFile = filepath.Join(dir, "settings.json")
-	t.Cleanup(func() { deviceAppearanceFile, settingsFile = previousAppearance, previousSettings })
+	themePaletteFile = filepath.Join(dir, "palette.json")
+	t.Cleanup(func() {
+		deviceAppearanceFile, settingsFile = previousAppearance, previousSettings
+		themePaletteFile = previousPalette
+	})
 }
 
 func appearanceRequest(method, body string) *httptest.ResponseRecorder {

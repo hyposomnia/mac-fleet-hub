@@ -479,6 +479,7 @@ func saveSettingsLocked(s dashSettings) error {
 }
 
 func handleSettings(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Cache-Control", "no-store")
 	switch r.Method {
 	case http.MethodGet:
 		appearance, err := loadDeviceAppearance()
@@ -487,10 +488,19 @@ func handleSettings(w http.ResponseWriter, r *http.Request) {
 			writeErr(w, 500, "设备外观读取失败")
 			return
 		}
+		palette, err := loadThemePalette()
+		if err != nil {
+			log.Printf("读取配色失败: %v", err)
+			writeErr(w, 500, "配色读取失败")
+			return
+		}
 		writeJSON(w, 200, struct {
 			dashSettings
 			DeviceAppearance map[string]deviceAppearance `json:"deviceAppearance"`
-		}{loadSettings(), appearance})
+			Palette          *themePalette               `json:"palette"`
+		}{loadSettings(), appearance, palette})
+	case http.MethodPut:
+		handleThemePalette(w, r)
 	case http.MethodPatch:
 		handleDeviceAppearance(w, r)
 	case http.MethodPost:

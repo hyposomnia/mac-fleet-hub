@@ -761,7 +761,7 @@ test('appearance settings expose four configurable seed colors for light and dar
       assert.match(indexHTML, new RegExp(`data-palette-hex="${mode}\\.${field}"`));
     }
   }
-  assert.match(appSrc, /FleetTheme\.setPalette\(readAppearancePalette\(\)\)/);
+  assert.match(appSrc, /await FleetTheme\.savePalette\(readAppearancePalette\(\)\)/);
   assert.match(appSrc, /FleetTheme\.paletteDefaults/);
   assert.match(styleCSS, /\.appearance-palette-grid\s*\{[^}]*grid-template-columns:\s*repeat\(2,/s);
 });
