@@ -507,8 +507,6 @@ body:has(#appearance-modal:not([hidden])) .pwa-update { visibility: hidden; }
 .message-record-label { margin-bottom: 4px; color: var(--text-2); font-size: var(--t-caption); font-weight: 700; }
 .message-record-copy { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; color: var(--text-1); font-size: var(--t-secondary); line-height: 1.5; }
 
-.records-head { padding-inline: max(18px, calc((100vw - 1180px) / 2)); }
-.records-head > .automation-doc-link { margin-left: auto; }
 .records-main { width: min(100% - 36px, 1180px); margin: 0 auto; padding: 30px 0 40px; }
 .records-filters { padding: 20px; background: var(--surface-1); border-radius: var(--radius-panel); }
 .records-filter-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; }
