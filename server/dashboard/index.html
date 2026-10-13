@@ -5,18 +5,18 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content" />
   <!-- theme-color 与共享 Titanium 主题控制器同步。 -->
   <meta name="theme-color" content="#FAFAFA" />
-  <script src="/theme.js?v=217"></script>
+  <script src="/theme.js?v=218"></script>
   <title>mac fleet hub</title>
   <link rel="manifest" href="manifest.webmanifest" />
-  <link rel="icon" href="icons/favicon.svg?v=217" type="image/svg+xml" />
-  <link rel="apple-touch-icon" href="icons/icon-180.png?v=217" sizes="180x180" />
+  <link rel="icon" href="icons/favicon.svg?v=218" type="image/svg+xml" />
+  <link rel="apple-touch-icon" href="icons/icon-180.png?v=218" sizes="180x180" />
   <meta name="mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <meta name="apple-mobile-web-app-title" content="fleet hub" />
   <!-- theme.js 在样式加载前同步应用已保存的外观，默认浅色。 -->
   <link rel="stylesheet" href="vendor/codemirror/lib/codemirror.css?v=5.65.20" />
-  <link rel="stylesheet" href="style.css?v=217" />
+  <link rel="stylesheet" href="style.css?v=218" />
 </head>
 <body>
   <!-- DeepSeek 官方 whale mark，来源与 MIT 许可见 icons/deepseek/LICENSE.md。 -->
@@ -510,16 +510,12 @@
       </div>
     </div>
 
-    <!-- ───────── 自动化（访问密钥 + API 消息记录） ───────── -->
+    <!-- ───────── 自动化 ───────── -->
     <div id="automation-modal" class="overlay" hidden>
       <div class="modal automation-modal-card">
-        <div class="modal-head"><svg class="ic" viewBox="0 0 24 24" style="width:18px;height:18px"><path d="M8 3h8v5H8zM5 16h6v5H5zM13 16h6v5h-6zM12 8v4M8 12h8M8 12v4M16 12v4"/></svg><span>自动化</span><a class="automation-doc-link" href="/automation-guide.html" target="_blank" rel="noopener">使用文档 ↗</a><button class="iconbtn bare x" data-close="automation-modal"><svg class="ic" viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button></div>
+        <div class="modal-head"><svg class="ic" viewBox="0 0 24 24" style="width:18px;height:18px"><path d="M8 3h8v5H8zM5 16h6v5H5zM13 16h6v5h-6zM12 8v4M8 12h8M8 12v4M16 12v4"/></svg><span>自动化</span><div class="automation-head-links"><a id="automation-records-link" class="automation-doc-link" href="/automation-records.html" target="_blank" rel="noopener noreferrer">消息记录 ↗</a><a class="automation-doc-link" href="/automation-guide.html" target="_blank" rel="noopener">使用文档 ↗</a></div><button class="iconbtn bare x" data-close="automation-modal"><svg class="ic" viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button></div>
         <div class="modal-body">
-          <div class="seg set-tabs" role="tablist" aria-label="自动化设置">
-            <button data-automation-tab="keys" role="tab" aria-selected="true">访问密钥</button>
-            <button data-automation-tab="messages" role="tab" aria-selected="false">消息记录</button>
-          </div>
-          <section class="set-group set-panel" data-automation-panel="keys">
+          <section class="set-group">
             <div class="set-group-title automation-panel-title"><span>访问密钥</span><button id="automation-key-create" class="btn sm primary" type="button">新建密钥</button></div>
             <p class="hint">可逐级限定设备、AI 客户端、项目和会话；后续层级留空表示不限制。绑定到具体会话后，密钥名称可作为 alias 调用。</p>
             <form id="automation-key-form" class="automation-key-form" hidden>
@@ -539,12 +535,6 @@
             </form>
             <div id="automation-key-list" class="automation-key-list"><div class="message-record-empty">正在加载…</div></div>
             <p class="hint warn">未绑定的密钥可向所有已纳管设备的项目会话发送消息。密钥应放在 <code>Authorization: Bearer …</code> 请求头中。</p>
-          </section>
-          <section class="set-group set-panel message-records-panel" data-automation-panel="messages" hidden>
-            <div class="set-group-title automation-panel-title"><span>API 消息记录</span><button id="automation-message-refresh" class="btn sm" type="button">刷新</button></div>
-            <div class="automation-message-filter"><label for="automation-message-key-filter">访问密钥</label><select id="automation-message-key-filter" class="input"><option value="">全部密钥</option></select></div>
-            <p class="hint">显示最近 100 条公网 API 请求。记录含用户消息与最终 AI 回复，终态记录默认在网关保留 7 天。</p>
-            <div id="automation-message-records" class="message-records"><div class="message-record-empty">尚未加载</div></div>
           </section>
         </div>
       </div>
@@ -631,14 +621,14 @@
   <script src="vendor/codemirror/mode/yaml/yaml.js?v=5.65.20"></script>
   <script src="vendor/codemirror/mode/toml/toml.js?v=5.65.20"></script>
   <script src="vendor/codemirror/mode/properties/properties.js?v=5.65.20"></script>
-  <script src="markdown.js?v=217"></script>
-  <script src="preview.js?v=217"></script>
-  <script src="chat_model.js?v=217"></script>
-  <script src="upload_model.js?v=217"></script>
-  <script src="device_appearance.js?v=217"></script>
+  <script src="markdown.js?v=218"></script>
+  <script src="preview.js?v=218"></script>
+  <script src="chat_model.js?v=218"></script>
+  <script src="upload_model.js?v=218"></script>
+  <script src="device_appearance.js?v=218"></script>
   <script src="sidebar_layout.js?v=186"></script>
-  <script src="workspace_tabs.js?v=217"></script>
+  <script src="workspace_tabs.js?v=218"></script>
   <script src="compact_composer.js?v=186"></script>
-  <script src="app.js?v=217"></script>
+  <script src="app.js?v=218"></script>
 </body>
 </html>

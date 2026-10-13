@@ -459,12 +459,12 @@ HMAC-SHA256(signing_key, X-Fleet-Timestamp + "." + raw_request_body)
 
 ## 8. 网页自动化管理
 
-一级「自动化」菜单包含「访问密钥」和「消息记录」两个页签。访问密钥页包括：
+一级「自动化」菜单打开访问密钥弹窗，标题栏的「消息记录 ↗」文字链接在新浏览器窗口打开独立记录页。访问密钥页包括：
 
 - 多个密钥的名称、完整密钥、创建时间和最近使用时间。
 - 新建、查看、复制、改名和删除操作。
 - 权限警告：持有者可向所有已纳管设备的 Codex/DeepSeek 会话发送消息。
-- 消息记录按密钥筛选。
+- 消息记录页按密钥、设备、客户端、项目、会话、状态、日期及其他结构化字段组合筛选，并搜索消息正文。
 
 这些管理接口继续由 Authelia 登录态保护，不接受访问密钥本身：
 
@@ -499,7 +499,18 @@ HMAC-SHA256(signing_key, X-Fleet-Timestamp + "." + raw_request_body)
 
 ### `GET /api/automation/message-records?access_key_id={key_id}`
 
-返回最近消息记录；`access_key_id` 省略时返回全部，传入时只返回该密钥创建的任务。
+返回按创建时间和消息 ID 倒序的一页记录。`access_key_id` 省略时不过滤密钥，`__legacy__` 查询未标记密钥的旧记录。
+
+- `limit` 默认为 25，允许 1–100。响应包含 `messages`、`has_more` 和 `next_cursor`；下一页传 `cursor`，不使用偏移量，切换筛选须重新从第一页开始。
+- `view=summary` 返回最多 180 字符的 `message_preview`，不返回完整用户消息或 AI 回复。独立页面仅显示当前页，点击上一页/下一页才加载，无后台轮询。
+- `detail=<message_id>` 返回单条完整管理记录 `{ "message": ... }`。只在展开时请求，当前页再次展开复用已有详情；记录过期返回 404。
+- `q` 搜索用户消息、AI 回复和错误说明，大小写不敏感。
+- `filters` 为 JSON 条件数组，例如 `[{"field":"status","op":"eq","value":"failed"},{"field":"created_at","op":"gte","value":"2026-10-01T00:00:00Z"}]`。条件取交集，日期/数字支持 `eq/gte/lte`，字符串支持 `eq/contains`，枚举/布尔支持 `eq`，所有字段支持 `empty/not_empty`。
+- `include_filters=1` 返回 `filter_fields`（字段名称、标签、类型、操作和枚举选项）、设备及当前/历史密钥名称，供页面生成控件；不读取 Mac 会话列表，也不返回密钥原文、哈希或回调签名密钥。
+- 可筛选字段覆盖消息 ID/状态、设备 ID/名称、客户端、项目路径/名称、会话 ID/名称、别名、访问密钥 ID/名称、Turn/投递队列 ID、幂等键、四个执行时间、回调地址/状态/次数/最近及下次尝试时间/错误、错误码/说明/可重试标记。角色和格式等固定协议常量不作为条件。
+- 非法字段、操作、值、页大小及游标返回 400；响应使用 `Cache-Control: no-store`。
+
+完整验收见 [独立页面规格](2026-10-13-automation-records-page.md)。
 
 访问密钥及其摘要不得混入现有 `GET /api/settings` 的 dashboard 偏好 JSON，防止普通设置保存时意外覆盖。
 

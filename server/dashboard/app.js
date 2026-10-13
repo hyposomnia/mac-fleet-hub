@@ -864,7 +864,6 @@ async function saveSettings() {
 }
 
 let automationAccessKeys = [];
-let automationRecordKeys = [];
 let automationEditingKey = null;
 let automationBindingSessions = [];
 let automationBindingLoadSeq = 0;
@@ -883,28 +882,8 @@ async function settingsJSON(url, options) {
 }
 
 function openAutomation() {
-  showAutomationTab('keys');
+  refreshAccessKeys();
   openOverlay('automation-modal');
-}
-function showAutomationTab(tab) {
-  const key = tab === 'messages' ? 'messages' : 'keys';
-  $$('[data-automation-tab]').forEach((button) => button.setAttribute('aria-selected', String(button.dataset.automationTab === key)));
-  $$('[data-automation-panel]').forEach((panel) => { panel.hidden = panel.dataset.automationPanel !== key; });
-  if (key === 'keys') refreshAccessKeys();
-  else refreshAccessKeys().then(refreshMessageRecords);
-}
-function renderAccessKeyFilter() {
-  const select = $('#automation-message-key-filter');
-  const selected = select.value;
-  select.replaceChildren(h('option', { value: '', text: '全部密钥' }));
-  const keys = new Map();
-  for (const key of [...automationAccessKeys, ...automationRecordKeys]) {
-    if (key.id) keys.set(key.id, key);
-  }
-  for (const key of keys.values()) {
-    select.append(h('option', { value: key.id, text: key.name || key.prefix || key.id }));
-  }
-  if ($$(`option`, select).some((option) => option.value === selected)) select.value = selected;
 }
 function renderAccessKeys() {
   const root = $('#automation-key-list');
@@ -1117,10 +1096,8 @@ async function refreshAccessKeys() {
     const result = await settingsJSON(`${BASE}/api/automation/access-keys`, { cache: 'no-store' });
     automationAccessKeys = result?.keys || [];
     renderAccessKeys();
-    renderAccessKeyFilter();
   } catch (error) {
     automationAccessKeys = [];
-    renderAccessKeyFilter();
     if (root) root.replaceChildren(h('div', { class: 'message-record-empty', text: '加载失败：' + error.message }));
   }
 }
@@ -1179,60 +1156,6 @@ async function copyAccessKeyRequest(key) {
     window.prompt('复制请求', request);
   }
 }
-function messageStatusLabel(status) {
-  return ({ queued: '队列中', running: '执行中', failed: '失败', completed: '完成' })[status] || status || '未知';
-}
-function messageRecordSection(label, content, className = '') {
-  return h('div', { class: 'message-record-section' },
-    h('div', { class: 'message-record-label', text: label }),
-    h('pre', { class: `message-record-copy ${className}`.trim(), text: content || '—' }));
-}
-function renderMessageRecords(messages) {
-  const root = $('#automation-message-records');
-  root.replaceChildren();
-  if (!messages.length) {
-    root.append(h('div', { class: 'message-record-empty', text: '暂无 API 消息记录' }));
-    return;
-  }
-  for (const item of messages) {
-    const device = item.device?.name || item.device?.id || '未知设备';
-    const project = item.project_name || projName(item.project);
-    const title = (item.message || '').split('\n')[0] || '(空消息)';
-    const details = h('details', { class: 'message-record' });
-    const summary = h('summary', {},
-      h('span', { class: `message-status ${item.status || ''}`, text: messageStatusLabel(item.status) }),
-      h('span', { class: 'message-record-main' },
-        h('div', { class: 'message-record-title', text: title }),
-        h('div', { class: 'message-record-meta', text: `${device} · ${item.ai_client || ''} · ${project} · ${item.access_key?.name || '旧记录'}` })),
-      h('time', { class: 'message-record-time', text: settingsDate(item.created_at) }));
-    const body = h('div', { class: 'message-record-body' },
-      messageRecordSection('Message ID', item.message_id, 'message-record-id'),
-      messageRecordSection('项目', `${item.project_name || '—'}\n${item.project || '—'}`),
-      messageRecordSection('会话', `${item.session_name || '—'}\n${item.session_id || '尚未创建'}`),
-      messageRecordSection('用户消息', item.message));
-    if (item.ai_message?.content !== undefined) body.append(messageRecordSection('AI 回复', item.ai_message.content));
-    if (item.error) body.append(messageRecordSection('错误', `${item.error.code || ''}\n${item.error.message || ''}`));
-    if (item.callback_url) body.append(messageRecordSection('回调', `${item.callback?.status || 'pending'}\n${item.callback_url}`));
-    details.append(summary, body);
-    root.append(details);
-  }
-}
-async function refreshMessageRecords() {
-  const root = $('#automation-message-records');
-  root.replaceChildren(h('div', { class: 'message-record-empty', text: '正在加载…' }));
-  try {
-    const keyID = $('#automation-message-key-filter').value;
-    const query = new URLSearchParams({ limit: '100' });
-    if (keyID) query.set('access_key_id', keyID);
-    const result = await settingsJSON(`${BASE}/api/automation/message-records?${query}`, { cache: 'no-store' });
-    automationRecordKeys = result?.access_keys || [];
-    renderAccessKeyFilter();
-    renderMessageRecords(result?.messages || []);
-  } catch (error) {
-    root.replaceChildren(h('div', { class: 'message-record-empty', text: '加载失败：' + error.message }));
-  }
-}
-
 function formatBytes(bytes) {
   const n = Math.max(0, Number(bytes) || 0);
   if (n < 1024) return `${Math.round(n)} B`;
@@ -8101,7 +8024,11 @@ function init() {
   });
   wireAppearanceSettings();
   $('#st-save').onclick = saveSettings;
-  $$('[data-automation-tab]').forEach((b) => { b.onclick = () => showAutomationTab(b.dataset.automationTab); });
+  $('#automation-records-link').onclick = (event) => {
+    if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+    event.preventDefault();
+    window.open(event.currentTarget.href, '_blank', 'noopener,noreferrer,width=1280,height=900');
+  };
   $('#automation-key-create').onclick = () => openAccessKeyForm();
   $('#automation-key-cancel').onclick = closeAccessKeyForm;
   $('#automation-key-form').onsubmit = saveAccessKey;
@@ -8132,8 +8059,6 @@ function init() {
     updateAccessKeyBindingFields();
     renderAccessKeySessionOptions();
   };
-  $('#automation-message-refresh').onclick = refreshMessageRecords;
-  $('#automation-message-key-filter').onchange = refreshMessageRecords;
   $('#m-info-btn').onclick = () => { if (state.macId) openHostModal(state.macId); };
 
   // 弹窗 / 抽屉

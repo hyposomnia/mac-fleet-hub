@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html class="automation-doc-root" lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="theme-color" content="#FAFAFA" />
+  <script src="/theme.js?v=218"></script>
+  <link rel="icon" href="/icons/favicon.svg?v=218" type="image/svg+xml" />
+  <link rel="stylesheet" href="/style.css?v=218" />
+  <title>消息记录 · fleet hub</title>
+  <script type="module" src="/automation-records.js?v=218"></script>
+</head>
+<body class="automation-doc-page records-page">
+  <header class="automation-doc-head records-head">
+    <a class="automation-doc-back" href="/" aria-label="返回 fleet hub">←</a>
+    <div><div class="eyebrow">fleet hub · 自动化</div><strong>消息记录</strong></div>
+    <a class="automation-doc-link" href="/automation-guide.html" target="_blank" rel="noopener">使用文档 ↗</a>
+  </header>
+  <main class="records-main">
+    <form id="records-filters" class="records-filters">
+      <div class="records-filter-grid">
+        <label class="records-search">关键词<input name="q" class="input" type="search" maxlength="1024" placeholder="搜索用户消息、AI 回复或错误说明" /></label>
+        <label>消息状态<select name="status" class="input"><option value="">全部状态</option><option value="queued">队列中</option><option value="running">执行中</option><option value="completed">完成</option><option value="failed">失败</option></select></label>
+        <label>设备<select name="device_id" class="input"><option value="">全部设备</option></select></label>
+        <label>AI 客户端<select name="ai_client" class="input"><option value="">全部客户端</option><option value="codex">ChatGPT (Codex)</option><option value="deepseek">DeepSeek</option></select></label>
+        <label>访问密钥<select name="access_key_id" class="input"><option value="">全部密钥</option></select></label>
+        <label>项目名称<input name="project_name" class="input" maxlength="2048" placeholder="包含项目名称" /></label>
+        <label>会话名称<input name="session_name" class="input" maxlength="2048" placeholder="包含会话名称" /></label>
+        <label>创建时间起<input name="created_from" class="input" type="datetime-local" step="1" /></label>
+        <label>创建时间止<input name="created_to" class="input" type="datetime-local" step="1" /></label>
+      </div>
+      <details class="records-advanced">
+        <summary>更多字段筛选</summary>
+        <div id="records-conditions"></div>
+        <button id="records-add-condition" class="btn sm" type="button" disabled>添加条件</button>
+      </details>
+      <div class="records-filter-actions">
+        <span class="hint">条件取交集；日期使用本地时间。正文在展开记录时加载。</span>
+        <button class="btn sm" type="reset">重置</button>
+        <button class="btn sm primary" type="submit">筛选</button>
+      </div>
+    </form>
+    <div class="records-toolbar">
+      <p id="records-status" role="status" aria-live="polite">正在加载…</p>
+      <label>每页<select id="records-page-size" class="input"><option value="25">25 条</option><option value="50">50 条</option><option value="100">100 条</option></select></label>
+      <button id="records-refresh" class="btn sm" type="button">刷新</button>
+    </div>
+    <p id="records-error" class="hint warn" role="alert" hidden></p>
+    <section id="records-list" class="message-records" aria-label="API 消息记录" aria-busy="true"></section>
+    <nav class="records-pagination" aria-label="消息记录分页">
+      <button id="records-previous" class="btn" type="button" disabled>上一页</button>
+      <span id="records-page-number">第 1 页</span>
+      <button id="records-next" class="btn" type="button" disabled>下一页</button>
+    </nav>
+    <p class="hint records-retention">终态记录默认保留 7 天，执行中的任务继续保留。刷新或重新筛选可查看最新状态。</p>
+  </main>
+</body>
+</html>

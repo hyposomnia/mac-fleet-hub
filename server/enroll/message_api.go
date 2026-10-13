@@ -1042,54 +1042,6 @@ func validIdempotencyKey(value string) bool {
 	return true
 }
 
-func (a *messageAPI) handleMessageRecords(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-	limit := 100
-	if parsed, err := strconv.Atoi(r.URL.Query().Get("limit")); err == nil && parsed > 0 && parsed <= 500 {
-		limit = parsed
-	}
-	accessKeyID := strings.TrimSpace(r.URL.Query().Get("access_key_id"))
-	a.mu.Lock()
-	jobs := make([]*messageJob, 0, len(a.jobs))
-	recordKeyNames := map[string]string{}
-	hasLegacy := false
-	for _, job := range a.jobs {
-		if job.AccessKeyID == "" {
-			hasLegacy = true
-		} else {
-			recordKeyNames[job.AccessKeyID] = job.AccessKeyName
-		}
-		if accessKeyID == "__legacy__" && job.AccessKeyID != "" {
-			continue
-		}
-		if accessKeyID != "" && accessKeyID != "__legacy__" && job.AccessKeyID != accessKeyID {
-			continue
-		}
-		jobs = append(jobs, cloneMessageJob(job))
-	}
-	a.mu.Unlock()
-	sort.Slice(jobs, func(i, j int) bool { return jobs[i].CreatedAt.After(jobs[j].CreatedAt) })
-	if len(jobs) > limit {
-		jobs = jobs[:limit]
-	}
-	items := make([]map[string]interface{}, 0, len(jobs))
-	for _, job := range jobs {
-		items = append(items, publicMessage(job, true))
-	}
-	recordKeys := make([]map[string]string, 0, len(recordKeyNames)+1)
-	for id, name := range recordKeyNames {
-		recordKeys = append(recordKeys, map[string]string{"id": id, "name": name})
-	}
-	sort.Slice(recordKeys, func(i, j int) bool { return recordKeys[i]["name"] < recordKeys[j]["name"] })
-	if hasLegacy {
-		recordKeys = append(recordKeys, map[string]string{"id": "__legacy__", "name": "旧记录（未标记密钥）"})
-	}
-	writeJSON(w, http.StatusOK, map[string]interface{}{"messages": items, "access_keys": recordKeys})
-}
-
 func publicMessage(job *messageJob, admin bool) map[string]interface{} {
 	result := map[string]interface{}{
 		"message_id": job.ID, "status": job.Status,
@@ -1137,6 +1089,13 @@ func publicMessage(job *messageJob, admin bool) map[string]interface{} {
 		result["message"] = job.Message
 		result["callback_url"] = job.CallbackURL
 		result["turn_id"] = job.TurnID
+		result["agent_queue_id"] = job.AgentQueueID
+		result["idempotency_key"] = job.IdempotencyKey
+		if job.CallbackURL != "" {
+			callback := result["callback"].(map[string]interface{})
+			callback["next_attempt_at"] = omitZeroTime(job.Callback.NextAttemptAt)
+			callback["last_error"] = job.Callback.LastError
+		}
 		result["access_key"] = map[string]string{"id": job.AccessKeyID, "name": job.AccessKeyName}
 	}
 	return result

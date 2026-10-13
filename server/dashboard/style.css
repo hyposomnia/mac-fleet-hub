@@ -461,8 +461,9 @@ svg.ic.fill { fill: currentColor; stroke: none; }
 body:has(#appearance-modal:not([hidden])) .pwa-install,
 body:has(#appearance-modal:not([hidden])) .pwa-update { visibility: hidden; }
 #automation-modal .modal { max-width: 840px; }
-#automation-modal .automation-doc-link { margin-left: auto; color: var(--accent-text); font-size: var(--t-secondary); font-weight: 600; text-decoration: none; white-space: nowrap; }
-#automation-modal .automation-doc-link:hover { text-decoration: underline; }
+.automation-doc-link { color: var(--accent-text); font-size: var(--t-secondary); font-weight: 600; text-decoration: none; white-space: nowrap; }
+.automation-doc-link:hover { text-decoration: underline; }
+.automation-head-links { display: flex; flex-wrap: wrap; align-items: center; gap: 18px; margin-left: auto; }
 #automation-modal .modal-head .x { margin-left: 0; }
 .set-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: var(--s4); }
 .api-key-reveal { margin-top: var(--s4); padding: var(--s3); border: 0; border-radius: var(--radius-panel); background: var(--accent-soft); }
@@ -488,9 +489,6 @@ body:has(#appearance-modal:not([hidden])) .pwa-update { visibility: hidden; }
 .automation-key-title span { color: var(--text-2); font-size: var(--t-caption); }
 .automation-key-actions { display: flex; gap: 7px; flex: none; }
 .automation-key-meta { display: flex; flex-wrap: wrap; gap: 6px 18px; color: var(--text-2); font-size: var(--t-caption); }
-.automation-message-filter { display: grid; grid-template-columns: auto minmax(180px, 280px); align-items: center; justify-content: end; gap: 9px; margin-top: var(--s3); }
-.automation-message-filter label { color: var(--text-2); font-size: var(--t-secondary); font-weight: 600; }
-.message-records-title { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
 .message-records { display: grid; gap: 8px; margin-top: var(--s3); }
 .message-record-empty { padding: 24px 12px; text-align: center; color: var(--text-2); border: 0; border-radius: var(--radius-card); }
 .message-record { border: 0; border-radius: var(--radius-card); background: var(--surface-2); overflow: hidden; }
@@ -508,7 +506,33 @@ body:has(#appearance-modal:not([hidden])) .pwa-update { visibility: hidden; }
 .message-record-section { padding-top: 10px; }
 .message-record-label { margin-bottom: 4px; color: var(--text-2); font-size: var(--t-caption); font-weight: 700; }
 .message-record-copy { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; color: var(--text-1); font-size: var(--t-secondary); line-height: 1.5; }
-.message-record-id { font-family: var(--mono); font-size: var(--t-caption); color: var(--text-2); word-break: break-all; }
+
+.records-head { padding-inline: max(18px, calc((100vw - 1180px) / 2)); }
+.records-head > .automation-doc-link { margin-left: auto; }
+.records-main { width: min(100% - 36px, 1180px); margin: 0 auto; padding: 30px 0 40px; }
+.records-filters { padding: 20px; background: var(--surface-1); border-radius: var(--radius-panel); }
+.records-filter-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; }
+.records-filters label { display: grid; gap: 6px; min-width: 0; color: var(--text-1); font-size: var(--t-secondary); }
+.records-filters .input { width: 100%; min-width: 0; }
+.records-search { grid-column: span 2; }
+.records-advanced { margin-top: 18px; }
+.records-advanced > summary { color: var(--accent-text); font-size: var(--t-secondary); font-weight: 600; cursor: pointer; padding: 5px 0; }
+.records-advanced > .btn { margin-top: 12px; }
+#records-conditions { display: grid; gap: 10px; margin-top: 10px; }
+.records-condition { display: grid; grid-template-columns: minmax(140px, 1fr) 150px minmax(150px, 1.5fr) auto; align-items: center; gap: 10px; }
+.records-condition-value { min-width: 0; }
+.records-filter-actions { display: flex; align-items: center; gap: 10px; margin-top: 18px; }
+.records-filter-actions .hint { margin: 0 auto 0 0; }
+.records-toolbar { display: flex; align-items: center; gap: 12px; padding: 22px 0 14px; color: var(--text-2); font-size: var(--t-secondary); }
+.records-toolbar > p { margin-right: auto; }
+.records-toolbar label { display: flex; align-items: center; gap: 8px; white-space: nowrap; }
+.records-toolbar .input { min-width: 90px; }
+.records-pagination { display: flex; align-items: center; justify-content: center; gap: 18px; margin-top: 24px; color: var(--text-2); font-size: var(--t-secondary); }
+.records-retention { margin-top: 20px; text-align: center; }
+.records-page .message-record-body { padding: 4px 18px 20px; }
+.records-page .message-record-copy { max-height: 50vh; overflow: auto; }
+.records-page .btn:disabled { opacity: .45; cursor: not-allowed; }
+.records-page .btn:disabled:active { transform: none; }
 
 /* 自动化使用文档：独立的、可滚动的轻量说明页。 */
 html.automation-doc-root, html.automation-doc-root body { height: auto; min-height: 100%; overflow: auto; overscroll-behavior: auto; }
@@ -1527,7 +1551,6 @@ html[data-workspace-tab="true"] .preview-actions .iconbtn { width: 26px; height:
   .automation-binding-grid { grid-template-columns: 1fr; }
   .automation-key-actions { width: 100%; }
   .automation-key-actions .btn { flex: 1; }
-  .automation-message-filter { grid-template-columns: 1fr; justify-content: stretch; }
   .automation-doc-head { padding-inline: 14px; }
   .automation-doc-main { width: min(100% - 28px, 900px); padding: 36px 0 56px; }
   .automation-doc-hero h1 { font-size: var(--t-page); }
@@ -2263,3 +2286,21 @@ html[data-workspace-tab="true"] .preview-actions .iconbtn { width: 26px; height:
 .device-letter-input { width: 112px; }
 .device-letter-error { color: var(--danger); font-size: var(--t-secondary); }
 #hm-letter-field[hidden], .device-letter-error[hidden] { display: none; }
+
+@media (max-width: 900px) {
+  .records-filter-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .records-condition { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+}
+@media (max-width: 600px) {
+  .records-main { width: calc(100% - 24px); padding-top: 18px; }
+  .records-filters { padding: 14px; }
+  .records-filter-grid { grid-template-columns: minmax(0, 1fr); }
+  .records-search { grid-column: auto; }
+  .records-filter-actions { flex-wrap: wrap; justify-content: flex-end; }
+  .records-filter-actions .hint { flex-basis: 100%; }
+  .records-toolbar { flex-wrap: wrap; gap: 8px; }
+  .records-toolbar > p { flex-basis: 100%; }
+  .records-page .message-record > summary { grid-template-columns: auto minmax(0, 1fr); }
+  .records-page .message-record-time { grid-column: 2; }
+  .automation-head-links { gap: 10px; }
+}

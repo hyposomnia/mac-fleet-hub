@@ -746,9 +746,8 @@ test('session settings expose chat cache without terminal controls', () => {
   assert.match(indexHTML, /id="st-chat-cache-max"/);
   assert.doesNotMatch(indexHTML, /data-settings-tab|data-settings-panel/);
   assert.match(indexHTML, /id="automation-modal"/);
-  assert.match(indexHTML, /data-automation-tab="keys"/);
-  assert.match(indexHTML, /data-automation-tab="messages"/);
-  assert.match(indexHTML, /id="automation-message-key-filter"/);
+  assert.match(indexHTML, /id="automation-records-link"[^>]*href="\/automation-records\.html"[^>]*target="_blank"/);
+  assert.doesNotMatch(appSrc, /refreshMessageRecords|automation\/message-records/);
   assert.doesNotMatch(indexHTML, /data-settings-tab="terminal"|data-assistant="claude"|id="st-selfdraw"|id="st-dmax"/);
   assert.doesNotMatch(appSrc, /SELF_DRAW_KEY|setSelfDraw|用终端打开/);
 });
@@ -773,7 +772,7 @@ test('automation modal links to a concise cached API guide', () => {
   assert.match(automationGuideHTML, /Idempotency-Key/);
   assert.match(automationGuideHTML, /callback_url/);
   assert.match(serviceWorker, /'\/automation-guide\.html'/);
-  assert.match(serviceWorker, /navigationKey = url\.pathname === '\/automation-guide\.html'/);
+  assert.match(serviceWorker, /'\/automation-guide\.html', '\/automation-records\.html'\]\.includes\(url\.pathname\)/);
   assert.match(styleCSS, /\.automation-doc-main\s*\{/);
 });
 
