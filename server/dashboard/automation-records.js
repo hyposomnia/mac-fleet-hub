@@ -1,4 +1,4 @@
-import { createRecordsPager } from './record_pager.js?v=219';
+import { createRecordsPager } from './record_pager.js?v=220';
 
 const $ = (selector) => document.querySelector(selector);
 const form = $('#records-filters');
@@ -179,7 +179,7 @@ function applyFilters() {
   if (form.reportValidity()) pager.reset(filterQuery());
 }
 form.onsubmit = (event) => { event.preventDefault(); applyFilters(); };
-form.onreset = () => { conditions.replaceChildren(); queueMicrotask(applyFilters); };
+$('#records-reset').onclick = () => { conditions.replaceChildren(); form.reset(); applyFilters(); };
 $('#records-add-condition').onclick = addCondition;
 $('#records-refresh').onclick = applyFilters;
 $('#records-page-size').onchange = applyFilters;

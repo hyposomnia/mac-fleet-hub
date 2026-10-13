@@ -9,7 +9,7 @@
 | REC-3 | 所有管理记录的结构化字段均可筛选，多条件取交集；字符串支持精确/包含，日期和数字支持范围，缺失值可筛选；正文支持关键词搜索 | message_records_test.go / 字段注册表、automation-records.js |
 | REC-4 | 列表只返回摘要；展开时单独读取完整记录，不泄露访问密钥原文、摘要或回调签名密钥；不存在的记录返回 404 | message_records_test.go / 现有受保护 message-records 端点 |
 | REC-5 | 未知字段、非法操作/值、页大小或游标返回 400；切换筛选后不能沿用旧游标 | message_records_test.go / 请求解析 |
-| REC-6 | 筛选通过提交按钮请求；翻页只展示当前页，无轮询或自动全量加载；新请求取消旧请求，旧响应不能覆盖新结果，失败可重试 | automation-records.test.mjs、Chrome / 分页请求控制器 |
+| REC-6 | 筛选通过提交按钮请求；翻页只展示当前页，无轮询或自动全量加载；新请求取消旧请求，旧响应不能覆盖新结果，失败可重试；重置先清空表单再查询第一页 | record_pager.test.mjs、Chrome / 分页请求控制器 |
 
 管理端点保持 `/api/automation/message-records`，不改变公网 Bearer API、Mac 协议或持久化格式。
 新增 `view=summary`、`cursor`、`filters`（JSON 条件数组）、`q`、`include_filters=1`；完整详情使用同端点 `detail=<message_id>`。
