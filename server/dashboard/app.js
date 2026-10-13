@@ -450,11 +450,11 @@ function syncThemeControls() { FleetTheme.syncControls(); }
 function setThemePreference(preference) { FleetTheme.setPreference(preference); }
 function renderThemeChoices() {
   const choices = [
-    { value: 'light', label: '浅色', parts: [{ attrs: { d: 'M20.9 13a9 9 0 0 1-9.9-9.9A9 9 0 1 0 20.9 13Z' } }] },
-    { value: 'dark', label: '深色', parts: [
+    { value: 'light', label: '浅色', parts: [
       { tag: 'circle', attrs: { cx: 12, cy: 12, r: 4 } },
       { attrs: { d: 'M12 2v2M12 20v2M2 12h2M20 12h2M4.93 4.93l1.42 1.42M17.65 17.65l1.42 1.42M4.93 19.07l1.42-1.42M17.65 6.35l1.42-1.42' } },
     ] },
+    { value: 'dark', label: '深色', parts: [{ attrs: { d: 'M20.9 13a9 9 0 0 1-9.9-9.9A9 9 0 1 0 20.9 13Z' } }] },
     { value: 'system', label: '跟随系统', parts: [
       { tag: 'rect', attrs: { x: 3, y: 4, width: 18, height: 13, rx: 2 } },
       { attrs: { d: 'M8 21h8M12 17v4' } },
