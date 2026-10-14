@@ -251,3 +251,9 @@ body:has(#fleet-settings-modal:not([hidden])) .pwa-update { visibility: hidden; 
 .account-auth .account-theme button { display: inline-flex; align-items: center; justify-content: center; min-width: 44px; min-height: 44px; padding: 0; }
 
 .account-auth .account-theme button svg.ic { width: 18px; height: 18px; stroke-width: 1.6; flex: none; }
+
+[data-theme-choice="light"]:is(:hover, [aria-pressed="true"]) svg.ic circle,
+[data-theme-choice="dark"]:is(:hover, [aria-pressed="true"]) svg.ic path,
+[data-theme-choice="system"]:is(:hover, [aria-pressed="true"]) svg.ic rect {
+  fill: currentColor;
+}
