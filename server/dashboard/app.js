@@ -13,6 +13,7 @@ let fileLoadSeq = 0;    // 文件目录请求序号：切设备/目录时丢弃�
 let fileColumnLoadSeq = 0; // 分栏子目录请求序号：切列/视图时丢弃旧响应
 let fileColumnAncestorLoadSeq = 0; // 重建根目录链路；逐层展开子目录不会取消上级列加载
 let sessionSearchTimer = null;
+let newSessionProjectRequestSeq = 0;
 
 // ============================================================
 const $ = (s, r = document) => r.querySelector(s);
@@ -567,6 +568,7 @@ function activateConcreteMac(id) {
 
 function setSessionDevice(id) {
   if (id !== 'all' && !MACS.some((m) => m.id === id)) return;
+  closeOverlay('new-project-modal');
   const fileDeviceChanged = id !== 'all' && rememberFileDevice(id);
   if (state.sessionMacId === id) {
     if (fileDeviceChanged) persistUIState();
@@ -719,6 +721,7 @@ async function refreshAssistantCapabilities() {
   if (state.mode === 'sessions' && state.assistant === 'dsh' && dshChanged) {
     renderSessionResults({ preserveScroll: true });
   }
+  ensureDesktopNewSession();
 }
 
 // DeepSeek 入口显隐：拿不到 info 就藏起来（旧 agent / 探测失败），不露半成品入口。
@@ -1220,6 +1223,7 @@ function applyScrollbackToPool() {
 // ============================================================
 function setMode(mode) {
   mode = mode === 'files' ? 'files' : 'sessions';
+  closeOverlay('new-project-modal');
   let sessionDeviceChanged = false;
   if (mode !== state.mode) {
     if (mode === 'files' && state.sessionMacId !== 'all') {
@@ -1256,6 +1260,7 @@ function setMode(mode) {
 }
 
 function setAssistant(assistant) {
+  closeOverlay('new-project-modal');
   window.FleetWorkspaceTabs?.activateSession?.('');
   state.assistant = normalizeAssistant(assistant);
   state.selectedSid = null;
@@ -1264,7 +1269,7 @@ function setAssistant(assistant) {
   state.sessionResults = [];
   state.sessionCursors = {};
   state.sessionErrors = {};
-  closeChatPane();
+  showEmpty();
   $$('[data-assistant]').forEach((b) => b.setAttribute('aria-selected', String(b.dataset.assistant === state.assistant)));
   updateSessionFilterUI();
   persistUIState();
@@ -1426,6 +1431,7 @@ function syncNewSessionAvailability() {
   $$('[data-new-session-mac]').forEach((button) => {
     button.disabled = sessionDeviceUnavailable(button.dataset.newSessionMac);
   });
+  if (state.chat?.pendingStart) updateChatComposerState();
 }
 
 function sessionHasMore() {
@@ -1541,6 +1547,7 @@ function renderSessionResults(opts = {}) {
   }
   syncNewSessionAvailability();
   syncDshBanner(); // 降级横幅放列表顶部（幂等：先摘掉旧的再加）
+  ensureDesktopNewSession();
   if (opts.preserveScroll) wrap.scrollTop = previousScrollTop;
   requestAnimationFrame(maybeLoadMoreSessions);
 }
@@ -2059,7 +2066,7 @@ function poolShow(entry) {
 }
 
 // 空态：隐藏所有 iframe，复位头部。
-function showEmpty() {
+function showEmpty({ compose = true } = {}) {
   closeChatPane();
   state.current = null;
   state.termSid = state.termUrl = state.termSessionId = null;
@@ -2072,6 +2079,15 @@ function showEmpty() {
   stopWatch(); hideBanner();
   const tt = $('#win-title'); clear(tt); tt.append(h('span', { class: 'ttl', text: '选择一个会话' }));
   $('#win-meta').textContent = '';
+  if (compose) ensureDesktopNewSession();
+}
+
+function ensureDesktopNewSession() {
+  if (state.mode !== 'sessions' || isMobile() || state.chat || state.selectedSid ||
+      $('#win')?.dataset.workspacePreview === 'true') return;
+  const macId = state.sessionMacId === 'all' ? (state.fileMacId || state.macId) : state.sessionMacId;
+  if (!MACS.some((mac) => mac.id === macId) || !canSelfDrawChat(state.assistant, macId)) return;
+  openPendingChatSession('', { macId, unscoped: true });
 }
 
 // 新建一个池条目（新 iframe）并显示，随后按上限 LRU 回收。
@@ -2119,7 +2135,7 @@ async function connect(sessionId, title, cwd, mode, macId = state.macId, assista
 function openPendingChatSession(cwd, { macId = state.macId, unscoped = false } = {}) {
   const draftId = `draft-${Date.now()}-${Math.random().toString(16).slice(2)}`;
   const assistant = state.assistant;
-  openChatSession({
+  return openChatSession({
     assistant, macId, sessionId: draftId, cwd,
     title: unscoped ? `新${assistantLabel(assistant)}会话 · 无项目` : `新${assistantLabel(assistant)}会话 · ${projName(cwd)}`,
     mtime: Date.now(), pendingStart: true, unscoped,
@@ -2131,10 +2147,118 @@ async function newSessionIn(cwd, { macId = state.macId, unscoped = false } = {})
   activateConcreteMac(macId);
   // 当前设备已切到 macId，故这里用无参形式判能力
   if (canSelfDrawChat()) {
-    openPendingChatSession(cwd, { macId, unscoped });
-    return;
+    if (unscoped && isMobile()) return openNewSessionProjects(macId);
+    return openPendingChatSession(cwd, { macId, unscoped });
   }
   toast(`${assistantLabel()} 桌面端未运行，暂时无法新建会话`, 'err');
+}
+
+function normalizeNewSessionProjects(projects) {
+  const seen = new Set();
+  return (projects || []).filter((project) => {
+    if (typeof project.cwd !== 'string' || !project.cwd.startsWith('/') || seen.has(project.cwd)) return false;
+    seen.add(project.cwd);
+    return true;
+  }).map((project) => ({ cwd: project.cwd, name: project.name || project.projectName || projName(project.cwd) }))
+    .sort((a, b) => a.name.localeCompare(b.name, 'zh-CN'));
+}
+
+function setPendingChatProject(chat, cwd) {
+  if (!chat?.pendingStart || chat.starting || state.chat !== chat ||
+      typeof cwd !== 'string' || (cwd && !cwd.startsWith('/'))) return false;
+  chat.cwd = cwd;
+  chat.unscoped = !cwd;
+  chat.skillsCwd = cwd;
+  chat.title = `新${assistantLabel(chat.assistant)}会话 · ${cwd ? projName(cwd) : '无项目'}`;
+  showChatPane(chat.title, cwd);
+  return true;
+}
+
+async function loadPendingChatProjects(chat) {
+  if (!chat?.pendingStart || chat.projectsLoaded) return;
+  if (chat.projectsPromise) return chat.projectsPromise;
+  chat.projectsLoading = true;
+  chat.projectsError = '';
+  const task = (async () => {
+    try {
+      const data = await api(chat.macId, `projects?assistant=${chat.assistant}`);
+      chat.projects = normalizeNewSessionProjects(data.projects);
+      chat.projectsLoaded = true;
+    } catch (error) {
+      chat.projectsError = error.message;
+    } finally {
+      chat.projectsLoading = false;
+      if (state.chat === chat) syncPendingChatProject();
+    }
+  })();
+  chat.projectsPromise = task;
+  syncPendingChatProject();
+  try { await task; }
+  finally { if (chat.projectsPromise === task) chat.projectsPromise = null; }
+}
+
+function syncPendingChatProject() {
+  const row = $('#chat-project-context');
+  if (!row) return;
+  const chat = state.chat;
+  row.hidden = !chat?.pendingStart;
+  if (row.hidden) return;
+  const select = $('#chat-project-select');
+  const mobile = $('#chat-project-mobile');
+  select.hidden = isMobile();
+  mobile.hidden = !isMobile();
+  select.replaceChildren(h('option', { value: '', text: '选择项目（可不选）' }));
+  for (const project of chat.projects || []) {
+    select.append(h('option', { value: project.cwd, text: project.name, title: project.cwd }));
+  }
+  if (chat.cwd && !(chat.projects || []).some((project) => project.cwd === chat.cwd)) {
+    select.append(h('option', { value: chat.cwd, text: projName(chat.cwd), title: chat.cwd }));
+  }
+  select.value = chat.cwd || '';
+  select.title = chat.cwd || '不选择项目时使用设备主目录';
+  select.disabled = !!chat.starting || !!chat.projectsLoading || sessionDeviceUnavailable(chat.macId);
+  mobile.disabled = !!chat.starting || sessionDeviceUnavailable(chat.macId);
+  mobile.textContent = chat.cwd ? projName(chat.cwd) : '无项目';
+  mobile.title = chat.cwd || '选择项目';
+  $('#chat-project-device').textContent = state.sessionMacId === 'all' ? macName(chat.macId) : '';
+  const status = $('#chat-project-status');
+  status.textContent = chat.projectsError ? '项目加载失败' : (chat.projectsLoading ? '正在加载项目…' : '');
+  status.title = chat.projectsError || '';
+  $('#chat-project-retry').hidden = !chat.projectsError;
+}
+
+async function openNewSessionProjects(macId, { chat = null } = {}) {
+  if (sessionDeviceUnavailable(macId) || !canSelfDrawChat(state.assistant, macId)) return;
+  const req = ++newSessionProjectRequestSeq;
+  const assistant = state.assistant;
+  const modal = $('#new-project-modal');
+  const wrap = $('#new-project-options');
+  $('#new-project-device').textContent = macName(macId);
+  const current = () => req === newSessionProjectRequestSeq && !modal.hidden && state.mode === 'sessions' && state.assistant === assistant &&
+    (!chat || (state.chat === chat && chat.pendingStart && !chat.starting));
+  const option = (cwd, name) => h('button', {
+    type: 'button', class: 'new-project-option', dataset: { cwd },
+    onclick: () => {
+      if (!current() || sessionDeviceUnavailable(macId)) return;
+      if (chat) setPendingChatProject(chat, cwd);
+      else openPendingChatSession(cwd, { macId, unscoped: !cwd });
+      closeOverlay('new-project-modal');
+    },
+  }, h('strong', { text: name }), h('small', { text: cwd || '在设备主目录开始会话' }));
+  wrap.replaceChildren(option('', '无项目'), h('div', { class: 'empty', text: '正在加载项目…' }));
+  openOverlay('new-project-modal');
+  try {
+    const data = await api(macId, `projects?assistant=${assistant}`);
+    if (!current()) return;
+    const projects = normalizeNewSessionProjects(data.projects);
+    wrap.replaceChildren(option('', '无项目'), ...projects.map((project) => option(project.cwd, project.name)));
+  } catch (error) {
+    if (!current()) return;
+    wrap.replaceChildren(option('', '无项目'), h('div', { class: 'empty session-unavailable', text: '项目加载失败' }),
+      h('button', { type: 'button', class: 'btn sm', text: '重新加载', title: error.message,
+        onclick: () => openNewSessionProjects(macId, { chat }),
+      }));
+  }
 }
 
 // 终端头：状态点 + 标题（bypass/auto 追加权限徽标）+ 权限模式 meta
@@ -2796,6 +2920,7 @@ function showChatPane(title, cwd) {
   $('#reconnect-btn').hidden = true;
   $('#fullscreen-btn').hidden = false;
   $('#chat-pane').hidden = false;
+  syncPendingChatProject();
   const tt = $('#win-title'); clear(tt);
   tt.append(h('span', { class: 'ttl', text: title || `${assistantLabel()} 会话` }));
   $('#win-meta').textContent = '';
@@ -4611,7 +4736,8 @@ function chatComposerAction(chat, hasContent) {
 }
 
 function chatMutationsBlocked(chat = state.chat) {
-  return !chat || !chat.controlReady || chat.accessMode !== 'read_write' || chat.starting || chat.releasingWriter || chat.changingAccess;
+  return !chat || !chat.controlReady || chat.accessMode !== 'read_write' || chat.starting || chat.releasingWriter || chat.changingAccess ||
+    (chat.pendingStart && sessionDeviceUnavailable(chat.macId));
 }
 
 function chatControlActionsBlocked(chat = state.chat) {
@@ -4626,14 +4752,21 @@ function updateChatComposerState() {
   const blocked = attachments.some((att) => att.uploading || att.error || (!att.id && !att.pendingUpload));
   const hasContent = Boolean(input?.value.trim()) || attachments.length > 0;
   const action = chatComposerAction(state.chat, hasContent);
-  const mutationBlocked = action === 'readonly' || action === 'transition' || action === 'loading';
+  const unavailable = state.chat?.pendingStart && sessionDeviceUnavailable(state.chat.macId);
+  const mutationBlocked = unavailable || action === 'readonly' || action === 'transition' || action === 'loading';
+  if (state.chat?.pendingStart) {
+    const project = $('#chat-project-select');
+    if (project) project.disabled = mutationBlocked || !!state.chat.projectsLoading;
+    const mobileProject = $('#chat-project-mobile');
+    if (mobileProject) mobileProject.disabled = mutationBlocked;
+  }
   send.dataset.action = action;
   if (input) {
     input.disabled = mutationBlocked;
-    input.placeholder = action === 'readonly' ? 'Fleet 已释放此会话'
+    input.placeholder = unavailable ? '无法连接' : (action === 'readonly' ? 'Fleet 已释放此会话'
       : (action === 'transition' ? '正在切换会话访问状态…'
         : (action === 'loading' ? '正在同步会话控制状态…'
-          : (isChatRunning(state.chat) ? '继续追问' : `给 ${assistantLabel()} 发送消息…`)));
+          : (isChatRunning(state.chat) ? '继续追问' : `给 ${assistantLabel()} 发送消息…`))));
   }
   const attach = $('#chat-attach');
   const options = $('#chat-options-trigger');
@@ -4814,7 +4947,7 @@ async function openChatSession(s) {
   state.selectedSid = s.sessionId;
   state.selectedSessionMacId = macId;
   state.selectedSessionAssistant = state.assistant;
-  markSessionRead({ ...s, macId, assistant: state.assistant });
+  if (!s.pendingStart) markSessionRead({ ...s, macId, assistant: state.assistant });
   $$('.ses').forEach((el) => el.classList.toggle('sel',
     el.dataset.sid === s.sessionId && el.dataset.mac === macId && el.dataset.assistant === state.assistant));
   closeChatPane();
@@ -4891,6 +5024,7 @@ async function openChatSession(s) {
   if (chat.pendingStart) {
     setChatApprovalEnabled(chat, true);
     $('#chat-options').hidden = true;
+    loadPendingChatProjects(chat);
   } else if (chat.historyReady) {
     setChatApprovalEnabled(chat, true);
     renderChatOptions(chat);
@@ -7816,7 +7950,7 @@ function init() {
     }
   }, onRevealFile: revealWorkspaceFile, onSelectChat: restoreTermOrEmpty, onCloseChat: ({hasFiles}) => {
     state.selectedSid = state.selectedSessionMacId = null;
-    showEmpty();
+    showEmpty({ compose: !hasFiles });
     if (hasFiles) $('#fullscreen-btn').hidden = false;
     $$('.ses.sel').forEach(row => row.classList.remove('sel'));
     persistUIState();
@@ -7863,6 +7997,11 @@ function init() {
   $$('#new-session, #new-session-mobile').forEach((button) => {
     button.onclick = requestNewSession;
   });
+  $('#chat-project-select').onchange = (event) => setPendingChatProject(state.chat, event.target.value);
+  $('#chat-project-mobile').onclick = () => {
+    if (state.chat?.pendingStart) openNewSessionProjects(state.chat.macId, { chat: state.chat });
+  };
+  $('#chat-project-retry').onclick = () => loadPendingChatProjects(state.chat);
   $$('[data-dsh-native-open]').forEach((button) => {
     button.onclick = openDshNativeUI;
   });
@@ -8165,6 +8304,8 @@ function init() {
     if (state.mode === 'sessions' && state.termSid) $('#mobile-input').hidden = !isMobile();
     if (!$('#file-settings-menu').hidden) positionFileSettings(fileSettingsTrigger);
     if (!$('#chat-image-viewer').hidden) syncChatImageViewerLayout();
+    syncPendingChatProject();
+    ensureDesktopNewSession();
     syncChatTurnPin();
   });
   // iOS 26 simultaneously shrinks the layout viewport and pans VisualViewport on focus.

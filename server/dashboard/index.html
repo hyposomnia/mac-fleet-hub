@@ -5,18 +5,18 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content" />
   <!-- theme-color 与共享 Titanium 主题控制器同步。 -->
   <meta name="theme-color" content="#FAFAFA" />
-  <script src="/theme.js?v=224"></script>
+  <script src="/theme.js?v=225"></script>
   <title>mac fleet hub</title>
   <link rel="manifest" href="manifest.webmanifest" />
-  <link rel="icon" href="icons/favicon.svg?v=224" type="image/svg+xml" />
-  <link rel="apple-touch-icon" href="icons/icon-180.png?v=224" sizes="180x180" />
+  <link rel="icon" href="icons/favicon.svg?v=225" type="image/svg+xml" />
+  <link rel="apple-touch-icon" href="icons/icon-180.png?v=225" sizes="180x180" />
   <meta name="mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <meta name="apple-mobile-web-app-title" content="fleet hub" />
   <!-- theme.js 在样式加载前同步应用已保存的外观，默认浅色。 -->
   <link rel="stylesheet" href="vendor/codemirror/lib/codemirror.css?v=5.65.20" />
-  <link rel="stylesheet" href="style.css?v=224" />
+  <link rel="stylesheet" href="style.css?v=225" />
 </head>
 <body>
   <!-- DeepSeek 官方 whale mark，来源与 MIT 许可见 icons/deepseek/LICENSE.md。 -->
@@ -322,6 +322,14 @@
                 <span id="chat-preview-output-text"></span>
               </button>
               <div id="chat-followups" hidden></div>
+              <div id="chat-project-context" class="chat-project-context" hidden>
+                <label for="chat-project-select">项目</label>
+                <select id="chat-project-select" aria-label="选择会话项目"><option value="">选择项目（可不选）</option></select>
+                <button id="chat-project-mobile" type="button" class="chat-project-mobile" aria-label="选择会话项目" hidden>无项目</button>
+                <span id="chat-project-device" class="chat-project-device"></span>
+                <span id="chat-project-status" class="chat-project-status" role="status"></span>
+                <button id="chat-project-retry" type="button" class="chat-project-retry" hidden>重试</button>
+              </div>
               <div class="chat-composer-inner">
                 <div id="chat-attachments" hidden></div>
                 <div id="chat-skill-menu" class="chat-skill-menu" role="listbox" aria-label="Skills" hidden></div>
@@ -550,6 +558,16 @@
       </div>
     </div>
 
+    <div id="new-project-modal" class="overlay" hidden>
+      <div class="modal new-project-modal" role="dialog" aria-modal="true" aria-labelledby="new-project-title">
+        <div class="modal-head"><span id="new-project-title">选择项目</span><button class="iconbtn bare x" type="button" data-close="new-project-modal" aria-label="关闭项目选择"><svg class="ic" viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button></div>
+        <div class="modal-body">
+          <p id="new-project-device" class="hint"></p>
+          <div id="new-project-options" class="new-project-options"></div>
+        </div>
+      </div>
+    </div>
+
     <!-- ───────── 文件命名（新建文件夹 / 重命名共用） ───────── -->
     <div id="file-name-modal" class="overlay" hidden>
       <div class="modal">
@@ -620,14 +638,14 @@
   <script src="vendor/codemirror/mode/yaml/yaml.js?v=5.65.20"></script>
   <script src="vendor/codemirror/mode/toml/toml.js?v=5.65.20"></script>
   <script src="vendor/codemirror/mode/properties/properties.js?v=5.65.20"></script>
-  <script src="markdown.js?v=224"></script>
-  <script src="preview.js?v=224"></script>
-  <script src="chat_model.js?v=224"></script>
-  <script src="upload_model.js?v=224"></script>
-  <script src="device_appearance.js?v=224"></script>
+  <script src="markdown.js?v=225"></script>
+  <script src="preview.js?v=225"></script>
+  <script src="chat_model.js?v=225"></script>
+  <script src="upload_model.js?v=225"></script>
+  <script src="device_appearance.js?v=225"></script>
   <script src="sidebar_layout.js?v=186"></script>
-  <script src="workspace_tabs.js?v=224"></script>
+  <script src="workspace_tabs.js?v=225"></script>
   <script src="compact_composer.js?v=186"></script>
-  <script src="app.js?v=224"></script>
+  <script src="app.js?v=225"></script>
 </body>
 </html>

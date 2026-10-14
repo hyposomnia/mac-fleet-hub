@@ -93,6 +93,7 @@ const appSandbox = {
   AbortController,
   setTimeout,
   clearTimeout,
+  matchMedia: () => ({ matches: false }),
 };
 vm.createContext(appSandbox);
 vm.runInContext(themeSrc, appSandbox);
@@ -893,6 +894,7 @@ function sessionConnectionHarness() {
     },
     FleetChatModel: sandbox.globalThis.FleetChatModel,
     FleetUploadModel: uploadSandbox.globalThis.FleetUploadModel,
+    matchMedia: () => ({ matches: false }),
     requestAnimationFrame() {},
   };
   vm.createContext(context);
@@ -923,6 +925,7 @@ function sessionConnectionHarness() {
 test('unreachable session scope replaces empty or stale results and blocks creation until recovery', async () => {
   const f = sessionConnectionHarness();
   f.state.sessionResults = [{ sessionId: 'cached', macId: 'm7' }];
+  f.state.selectedSid = 'cached';
   f.renderSessionResults();
   assert.equal(f.wrap.children.length, 1);
   assert.equal(nodeText(f.wrap), '无法连接');
@@ -936,6 +939,7 @@ test('unreachable session scope replaces empty or stale results and blocks creat
   f.renderSessionResults();
   assert.equal(nodeText(f.wrap), '没有未归档会话');
   assert.ok(f.buttons.every((button) => !button.disabled));
+  assert.equal(f.opened.length, 0);
   f.requestNewSession();
   assert.equal(f.opened.length, 1);
 });
@@ -972,6 +976,139 @@ test('soft session refresh detects disconnection with existing rows and re-enabl
   await f.refreshSessionsSoft();
   assert.ok(f.buttons.every((button) => !button.disabled));
   assert.equal(f.context.sessionsTest.reloads, 1);
+});
+
+function newSessionProjectHarness() {
+  const f = sessionConnectionHarness();
+  f.state.sessionErrors = {};
+  const elements = new Map();
+  const element = (selector) => {
+    if (!elements.has(selector)) {
+      const node = testElement('div');
+      node.hidden = true;
+      node.classList = { remove() {}, add() {}, toggle() {} };
+      elements.set(selector, node);
+    }
+    return elements.get(selector);
+  };
+  f.context.document.querySelector = element;
+  f.context.matchMedia = () => ({ matches: !!f.context.mobile });
+  vm.runInContext(`globalThis.projectTest = {
+    state, newSessionIn, showEmpty, ensureDesktopNewSession,
+    setPendingChatProject, loadPendingChatProjects, openNewSessionProjects, ensurePendingChatStarted, updateChatComposerState,
+    pending: [], opened: [],
+  };
+  openPendingChatSession = (cwd, opts) => projectTest.opened.push({ cwd, ...opts });
+  api = (macId, path, options) => new Promise((resolve, reject) => projectTest.pending.push({ macId, path, options, resolve, reject }));
+  closeChatPane = () => { state.chat = null; };
+  stopWatch = hideBanner = () => {};
+  showChatPane = () => {};
+  syncPendingChatProject = () => {};
+  startChatEvents = startChatSubagentSync = () => {};
+  `, f.context);
+  Object.assign(f.state, { sessionMacId: 'm7', macId: 'm7', fileMacId: 'm7', selectedSid: null });
+  return { ...f, ...f.context.projectTest, element };
+}
+
+test('desktop empty sessions and unscoped creation offer a local composer while mobile starts with project selection', async () => {
+  const f = newSessionProjectHarness();
+  f.showEmpty();
+  assert.equal(f.opened.length, 1);
+  assert.equal(f.opened[0].unscoped, true);
+  assert.equal(f.pending.length, 0);
+  await f.newSessionIn('', { macId: 'm7', unscoped: true });
+  assert.equal(f.opened.length, 2);
+  f.context.mobile = true;
+  f.showEmpty();
+  assert.equal(f.opened.length, 2);
+  const choosing = f.newSessionIn('', { macId: 'm7', unscoped: true });
+  assert.equal(f.element('#new-project-modal').hidden, false);
+  assert.equal(f.opened.length, 2);
+  f.pending[0].resolve({ projects: [{ cwd: '/work/project', name: 'Project' }] });
+  await choosing;
+  const options = f.element('#new-project-options').children;
+  options.find((option) => option.dataset.cwd === '/work/project').onclick();
+  assert.equal(f.opened.at(-1).cwd, '/work/project');
+  assert.equal(f.element('#new-project-modal').hidden, true);
+});
+
+test('selecting a draft project preserves text, attachments and approval and cannot change a started thread', () => {
+  const f = newSessionProjectHarness();
+  const attachments = [{ name: 'draft.png', pendingUpload: true }];
+  const chat = { pendingStart: true, unscoped: true, cwd: '', assistant: 'codex',
+    draft: 'keep this draft', attachments, approvalMode: 'full-access' };
+  f.state.chat = chat;
+  assert.equal(f.setPendingChatProject(chat, '/different/project'), true);
+  assert.equal(chat.cwd, '/different/project');
+  assert.equal(chat.unscoped, false);
+  assert.equal(chat.draft, 'keep this draft');
+  assert.equal(chat.attachments, attachments);
+  assert.equal(chat.approvalMode, 'full-access');
+  assert.equal(f.setPendingChatProject(chat, ''), true);
+  assert.equal(chat.unscoped, true);
+  chat.starting = true;
+  assert.equal(f.setPendingChatProject(chat, '/locked'), false);
+  chat.starting = false;
+  chat.pendingStart = false;
+  assert.equal(f.setPendingChatProject(chat, '/locked'), false);
+  assert.equal(chat.cwd, '');
+});
+
+test('an offline desktop empty page still offers the composer but cannot send or start a thread', async () => {
+  const f = newSessionProjectHarness();
+  f.state.nodes.m7 = false;
+  f.showEmpty();
+  assert.equal(f.opened.length, 1);
+  f.state.chat = { pendingStart: true, macId: 'm7', controlReady: true, accessMode: 'read_write', turnPhase: 'idle' };
+  f.element('#chat-input').value = 'keep this draft';
+  f.updateChatComposerState();
+  assert.equal(f.element('#chat-input').disabled, true);
+  assert.equal(f.element('#chat-send').disabled, true);
+  await f.newSessionIn('', { macId: 'm7', unscoped: true });
+  assert.equal(f.opened.length, 1);
+  assert.equal(f.pending.length, 0);
+});
+
+test('project catalogs belong to the draft device and assistant and a dismissed mobile chooser ignores late results', async () => {
+  const f = newSessionProjectHarness();
+  const chat = { pendingStart: true, macId: 'm9', assistant: 'dsh', cwd: '' };
+  const loading = f.loadPendingChatProjects(chat);
+  assert.equal(f.pending[0].macId, 'm9');
+  assert.equal(f.pending[0].path, 'projects?assistant=dsh');
+  f.pending[0].resolve({ projects: [{ cwd: '/work/one' }, { cwd: '/work/one' }, { cwd: '' }] });
+  await loading;
+  assert.deepEqual(Array.from(chat.projects, (project) => project.cwd), ['/work/one']);
+  const choosing = f.openNewSessionProjects('m7');
+  f.element('#new-project-modal').hidden = true;
+  const count = f.element('#new-project-options').children.length;
+  f.pending[1].resolve({ projects: [{ cwd: '/late' }] });
+  await choosing;
+  assert.equal(f.element('#new-project-modal').hidden, true);
+  assert.equal(f.element('#new-project-options').children.length, count);
+  assert.equal(f.opened.length, 0);
+});
+
+test('first submission creates the thread in the selected project without resolving the home directory', async () => {
+  const f = newSessionProjectHarness();
+  f.state.chat = null;
+  const chat = { cacheKey: 'm7\ndraft-project', macId: 'm7', sessionId: 'draft-project', assistant: 'codex',
+    pendingStart: true, unscoped: false, cwd: '/work/chosen-project', title: 'New project',
+    approvalMode: 'on-request', approvalConfirmedMode: 'on-request',
+    models: [], efforts: [], serviceTiers: [], selectedModel: '', selectedEffort: '', selectedServiceTier: '',
+  };
+  f.state.chatCache.set(chat.cacheKey, chat);
+  const starting = f.ensurePendingChatStarted(chat);
+  assert.equal(f.pending.length, 1);
+  assert.equal(f.pending[0].path, 'chat/start');
+  assert.equal(JSON.parse(f.pending[0].options.body).cwd, '/work/chosen-project');
+  f.pending[0].resolve({ sessionId: 'thread-project', cwd: '/work/chosen-project',
+    control: { serverEpoch: 'project-epoch', snapshotVersion: 1, accessMode: 'read_write',
+      approvalMode: 'on-request', writerOwner: 'fleet', turnPhase: 'idle', items: [] },
+  });
+  await starting;
+  assert.equal(chat.pendingStart, false);
+  assert.equal(chat.sessionId, 'thread-project');
+  assert.equal(f.pending.length, 1);
 });
 
 test('fresh Codex detail starts locally and creates its thread on first submit', () => {
@@ -2235,7 +2372,7 @@ test('composer queues non-empty running input and only stops when empty', () => 
   assert.match(appSrc, /enqueueServerChatMessage\(chat, item, deliveryMode\)/);
   assert.match(appSrc, /submitChatInput\(\{ deliveryMode = 'next' \} = \{\}\)/);
   assert.doesNotMatch(appSrc, /external_turn_running|flushChatFollowups/);
-  assert.match(appSrc, /input\.placeholder = action === 'readonly' \? 'Fleet 已释放此会话'/);
+  assert.match(appSrc, /input\.placeholder = unavailable \? '无法连接' : \(action === 'readonly' \? 'Fleet 已释放此会话'/);
   assert.match(appSrc, /attach\.disabled = mutationBlocked/);
   assert.match(appSrc, /approval\.disabled = mutationBlocked/);
   assert.match(appSrc, /function chatMutationsBlocked/);
