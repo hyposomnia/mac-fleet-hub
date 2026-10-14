@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 )
@@ -125,6 +126,9 @@ func TestClientCLIAndAgentAgainstRealHTTPServer(t *testing.T) {
 	defer log.Close()
 	command := exec.CommandContext(ctx, cli, "login", "--no-open", server.options.Origin)
 	command.Env = environment
+	// The CLI intentionally prefers /dev/tty for interactive confirmation. Give
+	// this fixture its own session so a release runner's PTY cannot consume input.
+	command.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
 	command.Stdin = strings.NewReader("y\n")
 	command.Stdout = log
 	command.Stderr = log
