@@ -1240,11 +1240,11 @@ test('external Codex writer keeps Fleet visible and queues confirmed input witho
   assert.doesNotMatch(appSrc, /acquireChatWriter/);
   assert.match(appSrc, /writerOwner:\s*''/);
   assert.match(appSrc, /isDesktopChatOwned/);
-  assert.match(appSrc, /ChatGPT 桌面端已打开此会话/);
+  assert.match(appSrc, /Fleet 同步中/);
   assert.match(appSrc, /enqueueServerChatMessage/);
   assert.match(appSrc, /deliveryMode/);
   assert.match(appSrc, /chat\/resume/);
-  assert.match(styleCSS, /\.chat-desktop-running/);
+  assert.doesNotMatch(appSrc, /chat-desktop-running/);
 });
 
 test('normal Fleet writer ownership does not show an ownership warning', () => {
@@ -1284,7 +1284,7 @@ test('server queue states map to distinct native UI treatments and actions', () 
   assert.match(appSrc, /uncertain/);
   assert.match(appSrc, /正在插入当前任务/);
   assert.doesNotMatch(appSrc, /服务器已保存 · 当前任务结束后发送/);
-  assert.match(appSrc, /等待释放/);
+  assert.match(appSrc, /可排队等待/);
   assert.match(appSrc, /Fleet 当前只读；恢复 Fleet 写入后才会发送/);
   assert.match(appSrc, /上次投递结果未知/);
   assert.match(appSrc, /恢复 Fleet 写入/);
@@ -2110,7 +2110,7 @@ test('composer queues non-empty running input and only stops when empty', () => 
   assert.equal(chatComposerAction(readOnly, true), 'readonly');
   assert.equal(chatComposerAction(releasing, true), 'transition');
   assert.match(appSrc, /submitChatInput\(\)/);
-  assert.match(appSrc, /ChatGPT 桌面端正在输出/);
+  assert.match(appSrc, /桌面端正在回复/);
   assert.match(appSrc, /chatComposerAction[\s\S]*queue-desktop/);
   assert.match(appSrc, /enqueueServerChatMessage\(chat, item, deliveryMode\)/);
   assert.match(appSrc, /submitChatInput\(\{ deliveryMode = 'next' \} = \{\}\)/);

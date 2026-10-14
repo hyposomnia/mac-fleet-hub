@@ -2379,7 +2379,9 @@ function chatOwnershipPresentation(chat) {
     };
   }
   if (isDesktopChatOwned(chat)) {
-    return { className: 'readonly', text: `其他 ${assistantLabel()} 客户端正在使用 · Fleet 只读同步`, action: '' };
+    return { className: 'readonly', text: isDesktopChatRunning(chat)
+      ? `${assistantLabel()} 桌面端正在回复 · Fleet 同步中`
+      : `其他 ${assistantLabel()} 客户端正在使用 · Fleet 同步中`, action: '' };
   }
   return null;
 }
@@ -2528,8 +2530,8 @@ const CHAT_QUEUE_UI = Object.freeze({
   queued: { placement: 'transcript', label: '消息已保存' },
   steering: { placement: 'transcript', label: '正在插入当前任务…' },
   waiting_turn: { placement: 'followup', label: '已排队' },
-  writer_confirmation_required: { placement: 'transcript', label: '此会话正在其他 ChatGPT 客户端中使用。等待释放，或确认强制接管。' },
-  waiting_writer: { placement: 'transcript', label: '已由服务器排队，等待其他 ChatGPT 客户端释放会话。' },
+  writer_confirmation_required: { placement: 'transcript', label: '此会话正在其他 ChatGPT 客户端中使用。可排队等待，或确认强制接管。' },
+  waiting_writer: { placement: 'transcript', label: '消息已排队，等待当前任务结束或会话可用。' },
   waiting_access: { placement: 'transcript', label: 'Fleet 当前只读；恢复 Fleet 写入后才会发送。' },
   takeover_check: { placement: 'transcript', label: '正在检查目标 Mac 上受影响的任务…' },
   takeover_confirmation_required: { placement: 'transcript', label: '强制接管会中断目标 Mac 上以下任务' },
@@ -3242,15 +3244,6 @@ function renderChat({ preserveScroll = false, forceBottom = false } = {}) {
   const model = chat.model || FleetChatModel.createChatState();
   renderChatPendingInteraction(chat);
   renderChatOwnershipHead(chat);
-  if (isDesktopChatOwned(chat)) {
-    const running = isDesktopChatRunning(chat);
-    stack.append(tagChatRenderNode(h('div', { class: 'chat-desktop-running' },
-      h('strong', { text: running ? 'ChatGPT 桌面端正在输出' : 'ChatGPT 桌面端已打开此会话' }),
-      h('span', { text: running
-        ? 'Fleet 会保持同步。现在提交的内容会排队等待 Desktop 释放会话，Desktop 始终优先。'
-        : 'Fleet 当前保持只读。提交内容需再次确认，并会在 Desktop 切换或关闭此会话后自动发送。' })),
-    'state:desktop', running));
-  }
   const metaVisible = chatMessageMetaVisibility(model);
   const entries = model.messages
     .map((id) => ({ id, item: model.items[id] }))
