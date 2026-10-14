@@ -307,6 +307,21 @@
         const colorChoices = node('div', '', { className: 'device-color-choices account-device-color-choices' });
         colorChoices.setAttribute('role', 'group');
         colorChoices.setAttribute('aria-label', '设备颜色');
+        const textField = node('label', '文字图标', { className: 'account-device-name-field' });
+        const textInput = node('input', '', { name: 'device-icon-text', type: 'text', maxLength: 4,
+          autocomplete: 'off', autocapitalize: 'none', spellcheck: false });
+        const textHint = node('span', '1–4 个英文字母或数字，保留输入的大小写。', { className: 'hint' });
+        const textError = node('span', '请输入 1–4 个英文字母或数字。', { className: 'device-letter-error', hidden: true });
+        textError.setAttribute('role', 'status');
+        textField.append(textInput, textHint, textError);
+        function validText() { return draft.icon !== 'text' || !!root.FleetDeviceAppearance.letterText(draft.text); }
+        function syncText() {
+          textField.hidden = draft.icon !== 'text';
+          textError.hidden = validText();
+          textInput.setAttribute('aria-invalid', String(!validText()));
+          save.disabled = !validText();
+        }
+        textInput.oninput = () => { draft = { ...draft, text: textInput.value }; renderChoices(); };
         function renderChoices() {
           iconChoices.replaceChildren();
           for (const choice of (root.FleetDeviceAppearance?.icons || [])) {
@@ -318,13 +333,22 @@
             option.append(deviceIcon({ ...draft, icon: choice.id, text: undefined }), node('span', choice.label));
             iconChoices.append(option);
           }
+          const textOption = node('button', '', { type: 'button', className: 'device-icon-choice' });
+          textOption.dataset.deviceIcon = 'text';
+          textOption.setAttribute('aria-label', '文字图标');
+          textOption.setAttribute('aria-pressed', String(draft.icon === 'text'));
+          textOption.onclick = () => { draft = { ...draft, icon: 'text', text: draft.text || 'A' }; renderChoices(); };
+          textOption.append(deviceIcon({ icon: 'text', text: root.FleetDeviceAppearance.letterText(draft.text) || 'A', color: draft.color }), node('span', '文字'));
+          iconChoices.append(textOption);
+          textInput.value = draft.icon === 'text' ? draft.text || '' : '';
+          syncText();
           colorChoices.replaceChildren();
           for (const choice of (root.FleetDeviceAppearance?.colors || [])) {
             const option = node('button', '', { type: 'button', className: 'device-color-choice' });
             option.dataset.deviceColorChoice = choice.id;
             option.setAttribute('aria-label', choice.label);
             option.setAttribute('aria-pressed', String(draft.color === choice.id));
-            option.onclick = () => { draft = deviceAppearance({ ...draft, color: choice.id }); renderChoices(); };
+            option.onclick = () => { draft = { ...draft, color: choice.id }; renderChoices(); };
             const swatch = node('span', '', { className: 'device-color-swatch' });
             swatch.dataset.deviceColor = choice.id;
             option.append(swatch);
@@ -338,6 +362,8 @@
         cancel.onclick = () => { draft = { ...savedAppearance }; nameInput.value = device.name || ''; editor.hidden = true; row.draggable = true; };
         edit.onclick = () => { draft = { ...savedAppearance }; renderChoices(); editor.hidden = false; row.draggable = false; nameInput.focus(); };
         save.onclick = async () => {
+          if (!validText()) { syncText(); textInput.focus(); return; }
+          draft = deviceAppearance(draft);
           save.disabled = true;
           status.textContent = '';
           try {
@@ -370,7 +396,7 @@
           } catch (error) { status.textContent = error.message; remove.disabled = false; }
         };
         actions.append(remove, cancel, save);
-        editor.append(nameLabel, node('span', '图标', { className: 'account-device-editor-label' }), iconChoices,
+        editor.append(nameLabel, node('span', '图标', { className: 'account-device-editor-label' }), iconChoices, textField,
           node('span', '颜色', { className: 'account-device-editor-label' }), colorChoices, actions);
         iconSlot.append(deviceIcon(savedAppearance));
         row.append(summary, editor);
@@ -477,8 +503,8 @@
         const result = await post('/api/auth/recovery-codes', values);
         showCodes(result.recovery_codes, showAccount);
       }, recovery);
-      if (auth.user.role === 'admin') content.append(link('管理', '/admin'));
-      button('退出登录', () => auth.logout(), content, true);
+      const logout = button('退出登录', () => auth.logout(), content);
+      logout.className = 'account-logout-link';
     }
 
     async function showAdmin() {
@@ -604,7 +630,6 @@
           };
         }
         nav.replaceChildren(link('Fleet', '/'), accountLink, deviceLink);
-        if (auth.user.role === 'admin') nav.append(link('管理', '/admin', page === 'admin'));
         if (page === 'account') await showAccount();
         else if (page === 'add-device') await showAddDevice();
         else if (page === 'admin') await showAdmin();

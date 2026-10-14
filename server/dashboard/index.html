@@ -410,6 +410,7 @@
           <button class="iconbtn bare x" data-close="host-modal"><svg class="ic" viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
         </div>
         <div class="modal-body">
+          <div class="field"><label for="hm-name">设备名称（留空恢复默认）</label><input id="hm-name" class="input" placeholder="Mac N" maxlength="40" /></div>
           <section class="device-appearance-editor" aria-label="设备外观">
             <div class="device-appearance-heading"><strong>设备外观</strong><button id="hm-appearance-reset" class="btn sm" type="button">恢复默认</button></div>
             <div class="field"><span class="device-choice-label">图标</span><div id="hm-icon-choices" class="device-icon-choices" role="group" aria-label="设备图标"></div></div>
@@ -433,7 +434,6 @@
           <div class="field"><label>HTTP 代理</label><input id="hm-http" class="input mono" placeholder="http://127.0.0.1:7897" /></div>
           <div class="field"><label>HTTPS 代理</label><input id="hm-https" class="input mono" placeholder="http://127.0.0.1:7897" /></div>
           <p class="hint">仅对新开或重开的会话生效；请先启动本机代理。</p>
-          <div class="field"><label>显示名（留空恢复默认）</label><input id="hm-name" class="input" placeholder="Mac N" maxlength="40" /></div>
         </div>
         <div class="modal-foot">
           <button class="btn sm" data-close="host-modal">取消</button>

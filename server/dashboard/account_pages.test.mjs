@@ -3,10 +3,12 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import vm from 'node:vm';
 
+const appearanceSource = await readFile(new URL('./device_appearance.js', import.meta.url), 'utf8');
 const source = await readFile(new URL('./account.js', import.meta.url), 'utf8').catch(() => '');
 class Element {
   constructor(tag) { this.tagName = tag; this.children = []; this.attributes = {}; this.dataset = {}; this.value = ''; this.checked = false; this.disabled = false; this.textContent = ''; }
   append(...children) { for (const child of children) { this.children.push(child); if (child && typeof child === 'object') child.parentElement = this; } }
+  appendChild(child) { this.append(child); return child; }
   replaceChildren(...children) { this.children = []; this.append(...children); }
   insertBefore(child, before) { const old = this.children.indexOf(child); if (old >= 0) this.children.splice(old, 1); const index = this.children.indexOf(before); this.children.splice(index < 0 ? this.children.length : index, 0, child); child.parentElement = this; }
   setAttribute(key, value) { this.attributes[key] = String(value); }
@@ -28,12 +30,8 @@ function harness({ page = 'auth', path = '/auth', search = '', role = 'user', re
   const status = new Element('p');
   const nav = new Element('nav');
   const document = { createElement: (tag) => new Element(tag), querySelector: (selector) => ({ '#page-content': content, '#page-status': status, '#page-nav': nav })[selector], documentElement: { dataset: {} } };
-  sandbox.FleetDeviceAppearance = {
-    icons: [{ id: 'monitor', label: '显示器' }, { id: 'laptop', label: '笔记本' }],
-    colors: [{ id: 'steel', label: '钢蓝' }, { id: 'teal', label: '青碧' }],
-    normalize: value => ({ icon: value?.icon === 'laptop' ? 'laptop' : 'monitor', color: value?.color === 'teal' ? 'teal' : 'steel' }),
-    createIcon: value => { const icon = new Element('span'); icon.className = 'device-icon'; icon.dataset.deviceColor = value?.color || 'steel'; icon.textContent = value?.icon || 'monitor'; return icon; },
-  };
+  sandbox.document = { ...document, createElementNS: (_ns, tag) => new Element(tag) };
+  vm.runInContext(appearanceSource, sandbox);
   const calls = [];
   const redirects = [];
   const location = { origin, pathname: path, search, replace: (target) => redirects.push(target) };
@@ -579,15 +577,55 @@ test('recovery acknowledgment renders its checkbox before the label and still re
   assert.equal(current.redirects[0], '/');
 });
 
-test('private navigation identifies only the current page and keeps administrator visibility scoped', async () => {
+test('private navigation keeps account selection without exposing an admin entry', async () => {
   for (const page of ['account', 'admin']) {
     const current = harness({ page, path: `/${page}`, role: 'admin' });
     await current.start();
     const selected = all(current.nav, (node) => node.attributes['aria-current'] === 'page');
-    assert.equal(selected.length, 1);
-    assert.equal(selected[0].href, `/${page}`);
+    assert.equal(selected.length, page === 'account' ? 1 : 0);
+    if (page === 'account') assert.equal(selected[0].href, '/account');
+    assert.equal(all(current.nav, node => node.href === '/admin').length, 0);
+    assert.equal(all(current.content, node => node.href === '/admin').length, 0);
   }
   const current = harness({ page: 'account', path: '/account' });
   await current.start();
   assert.equal(all(current.nav, (node) => node.href === '/admin').length, 0);
+});
+
+test('device editor supports case-preserving text icons and rejects invalid text', async () => {
+  const current = harness({ page: 'add-device', devices: [{ id: 'm2', name: 'Air' }],
+    appearances: { m2: { icon: 'text', text: 'Air', color: 'rose' } } });
+  await current.start();
+  const row = current.find(node => node.className === 'account-device-row');
+  const find = predicate => all(row, predicate)[0];
+  find(n => n.textContent === '编辑').onclick();
+  const input = find(n => n.name === 'device-icon-text');
+  assert.ok(input);
+  assert.equal(input.value, 'Air');
+  const save = find(n => n.textContent === '保存');
+  input.value = '五'; input.oninput();
+  assert.equal(save.disabled, true);
+  await save.onclick();
+  assert.equal(current.calls.filter(c => c.method === 'PATCH').length, 0);
+  find(n => n.dataset?.deviceColorChoice === 'teal').onclick();
+  assert.equal(input.value, '五');
+  assert.equal(save.disabled, true);
+  input.value = 'mB4'; input.oninput();
+  assert.equal(save.disabled, false);
+  await save.onclick();
+  const call = current.calls.find(c => c.method === 'PATCH' && c.body?.appearance);
+  assert.deepEqual(JSON.parse(JSON.stringify(call.body)), {id:'m2', appearance:{icon:'text', text:'mB4', color:'teal'}});
+  find(n => n.textContent === '编辑').onclick();
+  find(n => n.dataset?.deviceIcon === 'laptop').onclick();
+  find(n => n.dataset?.deviceIcon === 'text').onclick();
+  assert.equal(input.value, 'A');
+});
+
+test('account logout is a text action that uses the existing logout flow', async () => {
+  const current = harness({ page:'account', role:'admin' });
+  await current.start();
+  const logout = current.find(n => n.textContent === '退出登录');
+  assert.equal(logout.className, 'account-logout-link');
+  await logout.onclick();
+  assert.ok(current.calls.some(c => c.url === '/api/auth/logout'));
 });

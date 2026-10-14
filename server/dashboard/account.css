@@ -243,3 +243,7 @@ body:has(#fleet-settings-modal:not([hidden])) .pwa-update { visibility: hidden; 
 @media (prefers-reduced-motion: reduce), (pointer: coarse) {
   .auth-stars { display: none; }
 }
+
+.account-logout-link { border: 0; background: transparent; padding: 8px 0; color: var(--danger); font: inherit; cursor: pointer; text-decoration: underline; text-underline-offset: 3px; }
+
+.account-device-name-field[hidden] { display: none; }
