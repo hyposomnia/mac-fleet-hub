@@ -9,6 +9,7 @@ import (
 	"crypto/tls"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -18,6 +19,8 @@ import (
 	"strings"
 	"time"
 )
+
+var errMessageDeviceUnavailable = errors.New("device temporarily unavailable")
 
 type agentQueueItem struct {
 	ID              string `json:"id"`
@@ -208,6 +211,7 @@ func (a *messageAPI) schedule() {
 		}
 		if !terminalAt.IsZero() && now.Sub(terminalAt) >= 7*24*time.Hour && !a.activeCallback[id] {
 			delete(a.jobs, id)
+			delete(a.retryScopeAt, id)
 			dirty = true
 		}
 	}
@@ -234,7 +238,7 @@ func (a *messageAPI) schedule() {
 			if available == 0 {
 				break
 			}
-			if job.Status != messageQueued || a.activeExec[job.ID] {
+			if job.Status != messageQueued || a.activeExec[job.ID] || now.Before(a.retryScopeAt[job.ID]) {
 				continue
 			}
 			key := ""
@@ -320,6 +324,17 @@ func (a *messageAPI) executeJob(id string) {
 	if a.scopeJob != nil {
 		scoped, release, err := a.scopeJob(ctx, job)
 		if err != nil {
+			if errors.Is(err, errMessageDeviceUnavailable) {
+				// No request has been sent yet: keep identity and queue state,
+				// release the worker slot, and retry only authorization later.
+				a.mu.Lock()
+				if a.retryScopeAt == nil {
+					a.retryScopeAt = map[string]time.Time{}
+				}
+				a.retryScopeAt[id] = time.Now().Add(5 * time.Second)
+				a.mu.Unlock()
+				return
+			}
 			a.failJob(id, "device_not_found", "目标设备已撤销或不属于当前用户", false)
 			return
 		}

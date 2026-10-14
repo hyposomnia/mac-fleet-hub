@@ -5,9 +5,11 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -19,6 +21,9 @@ func serverOptionsFromEnv() (multiuser.Options, error) {
 	options := multiuser.Options{Origin: os.Getenv("FLEET_ORIGIN"), StateDir: envOr("FLEET_STATE_DIR", "/var/lib/fleet-enroll"), StaticDir: envOr("FLEET_STATIC_DIR", "/var/www/fleet"), KeyFile: os.Getenv("FLEET_KEY_FILE"), LoginServer: loginServer, AgentPort: envInt("ENROLL_AGENT_PORT", 7682), TerminalPort: envInt("ENROLL_TTYD_PORT", envInt("TTYD_PORT", 7681)), FilesPort: envInt("ENROLL_FB_PORT", envInt("FB_PORT", 8080))}
 	if options.Origin == "" {
 		return options, errors.New("必须配置 FLEET_ORIGIN，服务仅运行统一多用户入口")
+	}
+	if err := authPolicyFromEnv(&options); err != nil {
+		return options, err
 	}
 	options.MeshProxy = os.Getenv("FLEET_MESH_PROXY")
 	if _, err := multiuser.NewDeviceTransport(options.MeshProxy); err != nil {
@@ -37,6 +42,78 @@ func serverOptionsFromEnv() (multiuser.Options, error) {
 		options.Network = multiuser.NewHeadscale(base, strings.TrimSpace(string(key)), gatewayIP, options.TerminalPort, options.FilesPort, options.AgentPort)
 	}
 	return options, nil
+}
+
+// Explicit invalid policies fail startup instead of silently relaxing authentication.
+func authPolicyFromEnv(options *multiuser.Options) error {
+	graceSeconds := 120
+	if raw := os.Getenv("FLEET_DEVICE_OUTAGE_GRACE_SECONDS"); raw != "" {
+		value, err := strconv.Atoi(raw)
+		if err != nil || value < 0 || value > 600 {
+			return errors.New("invalid FLEET_DEVICE_OUTAGE_GRACE_SECONDS (expected 0..600)")
+		}
+		graceSeconds = value
+	}
+	grace := time.Duration(graceSeconds) * time.Second
+	options.DeviceOutageGrace = &grace
+
+	for _, item := range []struct {
+		name              string
+		target            *time.Duration
+		fallback, minimum time.Duration
+	}{
+		{"FLEET_SESSION_LIFETIME", &options.SessionLifetime, 30 * 24 * time.Hour, time.Minute},
+		{"FLEET_AUTH_WINDOW", &options.AuthWindow, 15 * time.Minute, time.Second},
+	} {
+		value := item.fallback
+		if raw := os.Getenv(item.name); raw != "" {
+			parsed, err := time.ParseDuration(raw)
+			if err != nil || parsed < item.minimum {
+				return fmt.Errorf("invalid %s", item.name)
+			}
+			value = parsed
+		}
+		*item.target = value
+	}
+	for _, item := range []struct {
+		name     string
+		target   *int
+		fallback int
+	}{
+		{"FLEET_AUTH_ATTEMPTS", &options.AuthAttempts, 8}, {"FLEET_AUTH_CONCURRENCY", &options.AuthConcurrency, 4},
+	} {
+		value := item.fallback
+		if raw := os.Getenv(item.name); raw != "" {
+			parsed, err := strconv.Atoi(raw)
+			if err != nil || parsed < 1 {
+				return fmt.Errorf("invalid %s", item.name)
+			}
+			value = parsed
+		}
+		*item.target = value
+	}
+	options.SessionSliding = true
+	if raw := os.Getenv("FLEET_SESSION_SLIDING"); raw != "" {
+		value, err := strconv.ParseBool(raw)
+		if err != nil {
+			return errors.New("invalid FLEET_SESSION_SLIDING")
+		}
+		options.SessionSliding = value
+	}
+	if raw, present := os.LookupEnv("FLEET_TRUSTED_PROXIES"); present {
+		options.TrustedProxies = []string{}
+		for _, part := range strings.Split(raw, ",") {
+			cidr := strings.TrimSpace(part)
+			if cidr == "" {
+				continue
+			}
+			if _, _, err := net.ParseCIDR(cidr); err != nil {
+				return errors.New("invalid FLEET_TRUSTED_PROXIES")
+			}
+			options.TrustedProxies = append(options.TrustedProxies, cidr)
+		}
+	}
+	return nil
 }
 
 func runUnifiedServer() error {

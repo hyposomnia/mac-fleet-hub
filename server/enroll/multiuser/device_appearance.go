@@ -198,11 +198,29 @@ func (server *Server) handlePreferences(writer http.ResponseWriter, request *htt
 		fields := map[string]*int{"desktopMaxWindows": &preferences.DesktopMaxWindows, "desktopScrollback": &preferences.DesktopScrollback,
 			"mobileMaxWindows": &preferences.MobileMaxWindows, "mobileScrollback": &preferences.MobileScrollback,
 			"autoCloseMinutes": &preferences.AutoCloseMinutes, "chatCacheMaxSessions": &preferences.ChatCacheMaxSessions}
-		limits := map[string][2]int{"desktopMaxWindows": {1, 30}, "desktopScrollback": {200, 100000}, "mobileMaxWindows": {1, 12}, "mobileScrollback": {200, 100000}, "autoCloseMinutes": {1, 1440}, "chatCacheMaxSessions": {1, 20}}
-		for key, bounds := range limits {
-			if value := input[key]; value != 0 {
-				*fields[key] = min(bounds[1], max(bounds[0], value))
+		for key, field := range fields {
+			value, provided := input[key]
+			if !provided {
+				continue
 			}
+			minimum := 1
+			if key == "autoCloseMinutes" {
+				minimum = 0
+			}
+			if value < minimum {
+				reject(writer, 400, "设置值不能小于允许的最小值")
+				return
+			}
+			// Scrollback has a per-terminal allocation cost; connection/cache counts
+			// are eviction targets, not a limit on how many sessions users can open.
+			if key == "desktopScrollback" || key == "mobileScrollback" {
+				value = min(100000, max(200, value))
+			}
+			if key == "autoCloseMinutes" && int64(value) > 2147483647/60 {
+				reject(writer, 400, "空闲回收时间过大")
+				return
+			}
+			*field = value
 		}
 	}
 	if request.Method != "GET" {

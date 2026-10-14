@@ -441,15 +441,22 @@ func clampOr(v, lo, hi, def int) int {
 	return v
 }
 
-// normalize：把任意输入收敛到合法范围，缺省项回退默认。上限留足余量（真正天花板是系统 pty 池）。
+// normalize keeps connection counts as eviction targets; only scrollback allocation and timer overflow are bounded.
 func (s *dashSettings) normalize() {
 	d := defaultSettings()
-	s.DesktopMaxWindows = clampOr(s.DesktopMaxWindows, 1, 30, d.DesktopMaxWindows)
-	s.MobileMaxWindows = clampOr(s.MobileMaxWindows, 1, 12, d.MobileMaxWindows)
+	s.DesktopMaxWindows = connectionTarget(s.DesktopMaxWindows, d.DesktopMaxWindows)
+	s.MobileMaxWindows = connectionTarget(s.MobileMaxWindows, d.MobileMaxWindows)
 	s.DesktopScrollback = clampOr(s.DesktopScrollback, 200, 100000, d.DesktopScrollback)
 	s.MobileScrollback = clampOr(s.MobileScrollback, 200, 100000, d.MobileScrollback)
-	s.AutoCloseMinutes = clampOr(s.AutoCloseMinutes, 1, 1440, d.AutoCloseMinutes) // 1 分钟 ~ 24 小时
-	s.ChatCacheMaxSessions = clampOr(s.ChatCacheMaxSessions, 1, 20, d.ChatCacheMaxSessions)
+	s.AutoCloseMinutes = min(2147483647/60, max(0, s.AutoCloseMinutes)) // 0 disables idle reclamation
+	s.ChatCacheMaxSessions = connectionTarget(s.ChatCacheMaxSessions, d.ChatCacheMaxSessions)
+}
+
+func connectionTarget(value, fallback int) int {
+	if value == 0 {
+		return fallback
+	}
+	return max(1, value)
 }
 
 var settingsMu sync.Mutex
@@ -457,9 +464,11 @@ var settingsMu sync.Mutex
 func loadSettings() dashSettings {
 	settingsMu.Lock()
 	defer settingsMu.Unlock()
-	s := dashSettings{}
+	s := defaultSettings()
 	if b, err := os.ReadFile(settingsFile); err == nil {
-		json.Unmarshal(b, &s)
+		if json.Unmarshal(b, &s) != nil {
+			s = defaultSettings()
+		}
 	}
 	s.normalize() // 缺文件/缺字段都回退默认
 	return s
@@ -482,7 +491,7 @@ func handleSettings(w http.ResponseWriter, r *http.Request) {
 	case http.MethodGet:
 		writeJSON(w, 200, loadSettings())
 	case http.MethodPost:
-		var req dashSettings
+		req := loadSettings()
 		if json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<12)).Decode(&req) != nil {
 			writeErr(w, 400, "请求格式错误")
 			return

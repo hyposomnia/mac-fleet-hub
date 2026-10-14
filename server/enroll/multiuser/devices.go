@@ -165,13 +165,14 @@ func (server *Server) handleDevices(writer http.ResponseWriter, request *http.Re
 
 func (server *Server) revokeDevice(writer http.ResponseWriter, request *http.Request, actor int64, device Device) {
 	server.mu.Lock()
-	defer server.mu.Unlock()
 	if _, err := server.db.Exec("UPDATE devices SET status='revoked',online=0 WHERE device_index=?", device.Index); err != nil {
+		server.mu.Unlock()
 		server.failure(writer, err)
 		return
 	}
 	server.cancelScopes(device.UserID, device.ID)
 	server.audit(actor, device.UserID, "device_revoked:"+device.ID)
+	server.mu.Unlock()
 	if server.options.Network != nil {
 		if err := server.syncNetwork(request.Context()); err != nil {
 			respond(writer, 503, map[string]any{"error": "设备访问已撤销，网络策略等待重试", "access_revoked": true})
@@ -314,7 +315,17 @@ func (server *Server) handleAdmin(writer http.ResponseWriter, request *http.Requ
 			server.failure(writer, err)
 			return
 		}
-		rows, err := server.db.Query("SELECT actor_id,action,created_at FROM audit_events WHERE target_id=? ORDER BY id DESC LIMIT 50", userID)
+		eventPage, _ := strconv.Atoi(request.URL.Query().Get("event_page"))
+		if eventPage < 1 {
+			eventPage = 1
+		}
+		eventSearch := "%" + request.URL.Query().Get("event_search") + "%"
+		var eventTotal int
+		if err = server.db.QueryRow("SELECT COUNT(*) FROM audit_events WHERE target_id=? AND action LIKE ?", userID, eventSearch).Scan(&eventTotal); err != nil {
+			server.failure(writer, err)
+			return
+		}
+		rows, err := server.db.Query("SELECT actor_id,action,created_at FROM audit_events WHERE target_id=? AND action LIKE ? ORDER BY id DESC LIMIT 50 OFFSET ?", userID, eventSearch, (eventPage-1)*50)
 		if err != nil {
 			server.failure(writer, err)
 			return
@@ -327,7 +338,7 @@ func (server *Server) handleAdmin(writer http.ResponseWriter, request *http.Requ
 			events = append(events, map[string]any{"actor_id": actorID, "action": action, "created_at": created})
 		}
 		rows.Close()
-		respond(writer, 200, map[string]any{"user": user, "devices": devices, "events": events})
+		respond(writer, 200, map[string]any{"user": user, "devices": devices, "events": events, "event_page": eventPage, "event_total": eventTotal, "event_page_size": 50})
 		return
 	}
 	if request.Method != "PATCH" {
@@ -364,7 +375,10 @@ func (server *Server) handleAdmin(writer http.ResponseWriter, request *http.Requ
 	}
 	server.audit(actor.ID, userID, "account_"+input.Status)
 	if server.options.Network != nil {
-		if err = server.syncNetwork(request.Context()); err != nil {
+		server.mu.Unlock()
+		err = server.syncNetwork(request.Context())
+		server.mu.Lock()
+		if err != nil {
 			reject(writer, 503, "账号状态已更新，网络策略等待重试")
 			return
 		}

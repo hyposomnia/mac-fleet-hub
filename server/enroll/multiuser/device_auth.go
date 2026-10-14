@@ -123,8 +123,28 @@ func (server *Server) handleDeviceAuth(writer http.ResponseWriter, request *http
 		} else {
 			idleSeconds = int64(preferences.AutoCloseMinutes) * 60
 		}
-		respond(writer, status, map[string]any{"device_id": device.ID, "device_name": device.Name, "owner_email": user.Email, "state": device.Status, "lease_until": lease, "idleSec": idleSeconds})
+		respond(writer, status, map[string]any{"device_id": device.ID, "device_name": device.Name, "owner_email": user.Email, "state": device.Status, "lease_until": lease, "lease_seconds": deviceLeaseSeconds(status), "outage_grace_seconds": server.deviceOutageGraceSeconds(), "idleSec": idleSeconds})
 		return
 	}
 	reject(writer, 401, "设备凭据无效")
+}
+
+func deviceLeaseSeconds(status int) int {
+	if status == http.StatusOK {
+		return 45
+	}
+	return 0
+}
+
+// A bounded grace only applies to transport/service outages on already valid
+// credentials. Clients must immediately honor explicit denial and revocation.
+func (server *Server) deviceOutageGraceSeconds() int {
+	value := server.options.DeviceOutageGrace
+	if value == nil {
+		return 120
+	}
+	if *value < 0 || *value > 600*time.Second {
+		return 120
+	}
+	return int(*value / time.Second)
 }

@@ -74,9 +74,7 @@ func (server *Server) handleProxy(writer http.ResponseWriter, request *http.Requ
 	server.scopeMu.Unlock()
 	stopSession := context.AfterFunc(sessionScope.context, cancel)
 	defer stopSession()
-	duration := time.Duration(session.Expires-server.now().Unix()) * time.Second
-	timer := time.AfterFunc(duration, cancel)
-	defer timer.Stop()
+	server.watchSessionExpiry(ctx, cancel, session.Hash, session.Expires)
 	currentDevice, authorizationErr := server.AuthorizedDevice(user.ID, device.ID)
 	_, _, sessionErr := server.authenticate(request, true)
 	if authorizationErr != nil || sessionErr != nil || currentDevice.NodeID != device.NodeID || currentDevice.IP != device.IP {
@@ -104,6 +102,11 @@ func (server *Server) handleProxy(writer http.ResponseWriter, request *http.Requ
 	if err != nil {
 		reject(writer, 503, "设备网络配置不可用")
 		return true
+	}
+	// Health probes should fail promptly; cold assistant initialization may take
+	// longer. ResponseHeaderTimeout never limits an established SSE/WebSocket.
+	if upstreamPath == "/api/health" {
+		transport.ResponseHeaderTimeout = 5 * time.Second
 	}
 	proxy.Transport = transport
 	defer proxy.Transport.(*http.Transport).CloseIdleConnections()
@@ -135,4 +138,27 @@ func (server *Server) handleProxy(writer http.ResponseWriter, request *http.Requ
 	}
 	proxy.ServeHTTP(writer, request.WithContext(ctx))
 	return true
+}
+
+// A connection does not renew a login. At its previous deadline, honor a renewal
+// made by an authenticated request instead of closing a still-valid session.
+func (server *Server) watchSessionExpiry(ctx context.Context, cancel context.CancelFunc, hash string, expires int64) {
+	go func() {
+		timer := time.NewTimer(time.Duration(expires-server.now().Unix()) * time.Second)
+		defer timer.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-timer.C:
+				var current int64
+				err := server.db.QueryRowContext(ctx, "SELECT expires_at FROM sessions WHERE token_hash=?", hash).Scan(&current)
+				if err != nil || current <= server.now().Unix() {
+					cancel()
+					return
+				}
+				timer.Reset(time.Duration(current-server.now().Unix()) * time.Second)
+			}
+		}
+	}()
 }

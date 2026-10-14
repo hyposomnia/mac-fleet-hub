@@ -2,22 +2,25 @@ package main
 
 import (
 	"context"
-	"crypto/subtle"
 	"encoding/json"
 	"errors"
 	"fleet-enroll/multiuser"
 	"fmt"
 	"io"
+	"log"
 	"net"
 	"net/http"
+	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 )
 
 type applicationRegistry interface {
 	Users() ([]multiuser.User, error)
+	User(int64) (multiuser.User, error)
 	Devices(int64) ([]multiuser.Device, error)
 	AuthorizedDevice(int64, string) (multiuser.Device, error)
 	ProxyCredential(int64, string) (string, error)
@@ -33,6 +36,10 @@ type userApplications struct {
 	cancel      context.CancelFunc
 	runners     sync.WaitGroup
 	closeOnce   sync.Once
+	startOnce   sync.Once
+	startErr    error
+	keyOwners   map[string]map[int64]bool
+	ownerKeys   map[int64][]string
 	agentPort   int
 	concurrency int
 	meshProxy   string
@@ -42,24 +49,83 @@ func newUserApplications(stateDir string) *userApplications {
 	ctx, cancel := context.WithCancel(context.Background())
 	return &userApplications{
 		stateDir: stateDir, apis: map[int64]*messageAPI{}, ctx: ctx, cancel: cancel,
+		keyOwners: map[string]map[int64]bool{}, ownerKeys: map[int64][]string{},
 		agentPort: envInt("ENROLL_AGENT_PORT", 7682), concurrency: envInt("ENROLL_MESSAGE_CONCURRENCY", 4),
 	}
 }
 
+// Start recovers persisted jobs once. A broken tenant is isolated and can retry
+// initialization through its own authenticated management request after repair.
 func (apps *userApplications) Start() error {
-	if apps.server == nil {
-		return errors.New("application registry is not configured")
-	}
-	users, err := apps.server.Users()
-	if err != nil {
-		return err
-	}
-	for _, user := range users {
-		if _, err := apps.application(user.ID); err != nil {
-			return err
+	apps.startOnce.Do(func() {
+		if apps.server == nil {
+			apps.startErr = errors.New("application registry is not configured")
+			return
+		}
+		users, err := apps.server.Users()
+		if err != nil {
+			apps.startErr = err
+			return
+		}
+		for _, user := range users {
+			apps.mu.Lock()
+			loaded := apps.apis[user.ID]
+			apps.mu.Unlock()
+			if loaded != nil {
+				apps.indexKeys(user.ID, loaded)
+				continue
+			}
+			directory := filepath.Join(apps.stateDir, "users", strconv.FormatInt(user.ID, 10))
+			keys := &messageAPI{keyFile: filepath.Join(directory, "access-key.json")}
+			if err := keys.loadKeys(); err != nil {
+				log.Printf("automation keys unavailable for user %d: %v", user.ID, err)
+				continue
+			}
+			apps.indexKeys(user.ID, keys)
+			// Key-only users are initialized on demand. Persisted jobs need a
+			// worker at startup even when no browser or API client connects.
+			if user.Status != "active" {
+				continue
+			}
+			if _, err := os.Stat(filepath.Join(directory, "message-jobs.json")); os.IsNotExist(err) {
+				continue
+			}
+			if _, err := apps.application(user.ID); err != nil {
+				log.Printf("automation store unavailable for user %d: %v", user.ID, err)
+			}
+		}
+	})
+	return apps.startErr
+}
+
+func (apps *userApplications) indexKeys(owner int64, api *messageAPI) {
+	api.mu.Lock()
+	defer api.mu.Unlock()
+	apps.indexKeyStates(owner, api.keys)
+}
+
+func (apps *userApplications) indexKeyStates(owner int64, keys []accessKeyState) {
+	hashes := make([]string, 0, len(keys))
+	for _, key := range keys {
+		if key.Hash != "" {
+			hashes = append(hashes, key.Hash)
 		}
 	}
-	return nil
+	apps.mu.Lock()
+	defer apps.mu.Unlock()
+	for _, hash := range apps.ownerKeys[owner] {
+		delete(apps.keyOwners[hash], owner)
+		if len(apps.keyOwners[hash]) == 0 {
+			delete(apps.keyOwners, hash)
+		}
+	}
+	apps.ownerKeys[owner] = hashes
+	for _, hash := range hashes {
+		if apps.keyOwners[hash] == nil {
+			apps.keyOwners[hash] = map[int64]bool{}
+		}
+		apps.keyOwners[hash][owner] = true
+	}
 }
 
 func (apps *userApplications) application(owner int64) (*messageAPI, error) {
@@ -75,6 +141,8 @@ func (apps *userApplications) application(owner int64) (*messageAPI, error) {
 	if err != nil {
 		return nil, err
 	}
+	api.keysChanged = func(keys []accessKeyState) { apps.indexKeyStates(owner, keys) }
+	api.client.Timeout = 2 * time.Minute
 	api.agentPort = apps.agentPort
 	api.maxConcurrent = apps.concurrency
 	if api.maxConcurrent < 1 {
@@ -109,14 +177,12 @@ func (apps *userApplications) activeOwner(owner int64) error {
 	if apps.server == nil || apps.ctx.Err() != nil {
 		return errors.New("application unavailable")
 	}
-	users, err := apps.server.Users()
+	user, err := apps.server.User(owner)
 	if err != nil {
 		return err
 	}
-	for _, user := range users {
-		if user.ID == owner && user.Status == "active" {
-			return nil
-		}
+	if user.ID == owner && user.Status == "active" {
+		return nil
 	}
 	return errors.New("owner is not active")
 }
@@ -227,6 +293,16 @@ func (apps *userApplications) authorizedPin(owner int64, pin applicationDevicePi
 	}
 	device, err := apps.server.AuthorizedDevice(owner, pin.ID)
 	if err != nil {
+		// A missing snapshot is recoverable only for the same pinned identity;
+		// never defer ownership changes, revocation or recycled addresses.
+		devices, listErr := apps.server.Devices(owner)
+		if listErr == nil {
+			for _, candidate := range devices {
+				if candidate.ID == pin.ID && candidate.UserID == owner && candidate.NodeID == pin.NodeID && candidate.IP == pin.IP && candidate.Status == "unavailable" {
+					return errMessageDeviceUnavailable
+				}
+			}
+		}
 		return err
 	}
 	if device.UserID != owner || device.ID != pin.ID || device.Status != "active" || device.NodeID != pin.NodeID || device.IP != pin.IP {
@@ -399,40 +475,16 @@ func (apps *userApplications) ServeHTTP(writer http.ResponseWriter, request *htt
 		writeAPIProblem(writer, &apiProblem{Status: 503, Code: "application_unavailable", Message: "自动化服务暂时不可用"})
 		return
 	}
-	users, err := apps.server.Users()
-	if err != nil {
-		writeAPIProblem(writer, &apiProblem{Status: 503, Code: "application_unavailable", Message: "自动化服务暂时不可用"})
-		return
-	}
 	provided := hashString(strings.TrimSpace(header[7:]))
-	var matched *messageAPI
 	var owner int64
-	for _, user := range users {
-		if user.Status != "active" {
-			continue
-		}
-		api, err := apps.application(user.ID)
-		if err != nil {
-			writeAPIProblem(writer, &apiProblem{Status: 503, Code: "application_unavailable", Message: "自动化服务暂时不可用"})
-			return
-		}
-		api.mu.Lock()
-		found := false
-		for _, key := range api.keys {
-			if key.Hash != "" && subtle.ConstantTimeCompare([]byte(provided), []byte(key.Hash)) == 1 {
-				found = true
-			}
-		}
-		api.mu.Unlock()
-		if found {
-			if matched != nil {
-				writeAPIProblem(writer, &apiProblem{Status: 401, Code: "invalid_access_key", Message: "访问密钥无效或已撤销"})
-				return
-			}
-			matched, owner = api, user.ID
+	apps.mu.Lock()
+	if owners := apps.keyOwners[provided]; len(owners) == 1 {
+		for id := range owners {
+			owner = id
 		}
 	}
-	if matched == nil {
+	apps.mu.Unlock()
+	if owner == 0 {
 		writeAPIProblem(writer, &apiProblem{Status: 401, Code: "invalid_access_key", Message: "访问密钥无效或已撤销"})
 		return
 	}
@@ -442,6 +494,11 @@ func (apps *userApplications) ServeHTTP(writer http.ResponseWriter, request *htt
 		return
 	}
 	defer cancel()
+	matched, err := apps.application(owner)
+	if err != nil {
+		writeAPIProblem(writer, &apiProblem{Status: 503, Code: "application_unavailable", Message: "此账号的自动化数据暂时不可用"})
+		return
+	}
 	request = request.Clone(ctx)
 	request.URL.Path = path
 	matched.handleMessages(writer, request)

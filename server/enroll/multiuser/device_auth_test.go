@@ -21,7 +21,7 @@ func deviceRequest(server *Server, method, path, token string) *httptest.Respons
 
 func TestDeviceStatusUsesOwnerIdleSettings(t *testing.T) {
 	server, now := newTestServer(t)
-	for index, minutes := range []int{7, 41} {
+	for index, minutes := range []int{0, 7, 41, 2000} {
 		browser, user, _, _ := registerBrowser(t, server, *now, fmt.Sprintf("idle-%d@example.com", index))
 		addAppearanceDevice(t, server, user, index+1, "active")
 		token, _, err := server.issueDeviceCredentials(int64(index + 1))
@@ -220,5 +220,21 @@ func TestDeviceCredentialsAreScopedPrivateAndRetryable(t *testing.T) {
 	}
 	if response = deviceRequest(server, "GET", "/api/device/status", token); response.Code != 410 {
 		t.Fatalf("revoked device retained lease %d", response.Code)
+	}
+}
+
+func TestDeviceStatusAdvertisesRelativeLease(t *testing.T) {
+	server, now := newTestServer(t)
+	_, user, _, _ := registerBrowser(t, server, *now, "relative@example.com")
+	addAppearanceDevice(t, server, user, 1, "active")
+	token, _, err := server.issueDeviceCredentials(1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	response := deviceRequest(server, "GET", "/api/device/status", token)
+	var body map[string]any
+	json.Unmarshal(response.Body.Bytes(), &body)
+	if body["lease_seconds"] != float64(45) || body["outage_grace_seconds"] != float64(120) {
+		t.Fatalf("missing relative lease: %s", response.Body.String())
 	}
 }

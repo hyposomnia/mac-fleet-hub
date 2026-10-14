@@ -1,18 +1,19 @@
 package multiuser
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"crypto/subtle"
 	"encoding/base64"
 	"errors"
 	"image/png"
-	"net"
 	"net/http"
 	"net/mail"
 	"net/url"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/pquerna/otp"
 	"github.com/pquerna/otp/totp"
@@ -32,7 +33,9 @@ func validEmail(value string) bool {
 	address, err := mail.ParseAddress(value)
 	return err == nil && address.Address == value && len(value) <= 254 && strings.Contains(value, "@")
 }
-func validPassword(value string) bool { return len(value) >= 12 && len(value) <= 256 }
+func validPassword(value string) bool {
+	return utf8.ValidString(value) && utf8.RuneCountInString(value) >= 12 && len(value) <= 256
+}
 func hashPassword(value string) string {
 	salt := make([]byte, 16)
 	if _, err := rand.Read(salt); err != nil {
@@ -65,10 +68,10 @@ func (server *Server) newSession(writer http.ResponseWriter, request *http.Reque
 	token := randomToken()
 	duration := 15 * time.Minute
 	if stage == "full" {
-		duration = 30 * 24 * time.Hour
+		duration = server.options.SessionLifetime
 	}
 	now := server.now()
-	ip, _, _ := net.SplitHostPort(request.RemoteAddr)
+	ip := server.clientIP(request)
 	_, err := server.db.Exec("INSERT INTO sessions(token_hash,user_id,csrf,stage,created_at,expires_at,last_seen,agent,ip) VALUES(?,?,?,?,?,?,?,?,?)", digest(token), userID, randomToken(), stage, now.Unix(), now.Add(duration).Unix(), now.Unix(), request.UserAgent(), ip)
 	if err != nil {
 		return err
@@ -116,21 +119,24 @@ func totpURI(email, secret string) string {
 }
 
 func (server *Server) allowedAuth(request *http.Request, email string) bool {
-	ip, _, _ := net.SplitHostPort(request.RemoteAddr)
+	ip := server.clientIP(request)
 	key := ip + "/" + digest(email)
 	server.failMu.Lock()
 	defer server.failMu.Unlock()
 	now := server.now()
 	for existing, times := range server.failures {
-		if len(times) == 0 || now.Sub(times[len(times)-1]) > 15*time.Minute {
+		if len(times) == 0 || now.Sub(times[len(times)-1]) > server.options.AuthWindow {
 			delete(server.failures, existing)
 		}
 	}
 	times := server.failures[key]
+	for len(times) > 0 && !times[0].Add(server.options.AuthWindow).After(now) {
+		times = times[1:]
+	}
 	if len(times) == 0 && len(server.failures) >= 4096 {
 		return false
 	}
-	if len(times) >= 8 && now.Sub(times[len(times)-8]) < 15*time.Minute {
+	if len(times) >= server.options.AuthAttempts && now.Sub(times[len(times)-server.options.AuthAttempts]) < server.options.AuthWindow {
 		return false
 	}
 	server.failures[key] = append(times, now)
@@ -138,7 +144,7 @@ func (server *Server) allowedAuth(request *http.Request, email string) bool {
 }
 
 func (server *Server) clearAuthFailures(request *http.Request, identity string) {
-	ip, _, _ := net.SplitHostPort(request.RemoteAddr)
+	ip := server.clientIP(request)
 	server.failMu.Lock()
 	delete(server.failures, ip+"/"+digest(identity))
 	server.failMu.Unlock()
@@ -155,7 +161,8 @@ func (server *Server) handleAuth(writer http.ResponseWriter, request *http.Reque
 		case server.authSlots <- struct{}{}:
 			defer func() { <-server.authSlots }()
 		default:
-			reject(writer, 429, "请稍后重试")
+			writer.Header().Set("Retry-After", "2")
+			reject(writer, 429, "请求繁忙，请在 2 秒后重试")
 			return
 		}
 		server.handleCredentials(writer, request, path)
@@ -172,10 +179,28 @@ func (server *Server) handleAuth(writer http.ResponseWriter, request *http.Reque
 			return
 		}
 		if !server.allowedAuth(request, "verify/"+user.Email) {
-			reject(writer, 429, "尝试次数过多")
+			server.rejectAuthLimit(writer, request, "verify/"+user.Email)
 			return
 		}
 		server.verifyLogin(writer, request, session, user)
+		return
+	}
+	if path == "state" && request.Method == "GET" {
+		if session.Stage == "setup" {
+			var sealed []byte
+			if err := server.db.QueryRow("SELECT totp FROM users WHERE id=?", user.ID).Scan(&sealed); err != nil {
+				server.failure(writer, err)
+				return
+			}
+			secret, err := server.unseal(sealed)
+			if err != nil {
+				server.failure(writer, err)
+				return
+			}
+			server.setupResponse(writer, user, secret)
+			return
+		}
+		respond(writer, 200, map[string]any{"state": session.Stage})
 		return
 	}
 	if path == "qr" && request.Method == "GET" {
@@ -190,6 +215,7 @@ func (server *Server) handleAuth(writer http.ResponseWriter, request *http.Reque
 		reject(writer, 403, "安全令牌不合法")
 		return
 	}
+	server.renewSession(writer, request, session)
 	if path == "me" && request.Method == "GET" {
 		respond(writer, 200, map[string]any{"user": user, "csrf_token": session.CSRF})
 		return
@@ -207,7 +233,8 @@ func (server *Server) handleAuth(writer http.ResponseWriter, request *http.Reque
 		case server.authSlots <- struct{}{}:
 			defer func() { <-server.authSlots }()
 		default:
-			reject(writer, 429, "请稍后重试")
+			writer.Header().Set("Retry-After", "2")
+			reject(writer, 429, "请求繁忙，请在 2 秒后重试")
 			return
 		}
 	}
@@ -250,7 +277,7 @@ func (server *Server) handleCredentials(writer http.ResponseWriter, request *htt
 	}
 	email := normalizeEmail(input.Email)
 	if !server.allowedAuth(request, email) {
-		reject(writer, 429, "尝试次数过多，请稍后重试")
+		server.rejectAuthLimit(writer, request, email)
 		return
 	}
 	if path == "register" {
@@ -342,8 +369,23 @@ func (server *Server) handleCredentials(writer http.ResponseWriter, request *htt
 		server.audit(id, id, "account_recovery")
 		ctx, cancel := context.WithTimeout(request.Context(), 15*time.Second)
 		defer cancel()
-		if err = server.syncNetwork(ctx); err != nil {
+		server.mu.Unlock()
+		err = server.syncNetwork(ctx)
+		server.mu.Lock()
+		if err != nil {
 			reject(writer, 503, "账号已进入恢复状态，网络策略等待重试；请重新登录")
+			return
+		}
+	}
+	user, err = server.user(id)
+	if err != nil || user.Status == "disabled" {
+		reject(writer, 401, "账号状态已变化，请重新登录")
+		return
+	}
+	if path == "recover" {
+		var currentSecret []byte
+		if err = server.db.QueryRow("SELECT password,totp FROM users WHERE id=?", id).Scan(&currentEncoded, &currentSecret); err != nil || currentEncoded != encoded || !bytes.Equal(currentSecret, sealed) || user.Status != "setup" {
+			reject(writer, 401, "恢复状态已变化，请重新登录")
 			return
 		}
 	}
@@ -529,7 +571,7 @@ func (server *Server) handleSecurity(writer http.ResponseWriter, request *http.R
 		return
 	}
 	if !server.allowedAuth(request, "security/"+user.Email) {
-		reject(writer, 429, "尝试次数过多")
+		server.rejectAuthLimit(writer, request, "security/"+user.Email)
 		return
 	}
 	if path == "totp/confirm" {
@@ -544,7 +586,7 @@ func (server *Server) handleSecurity(writer http.ResponseWriter, request *http.R
 		}
 		valid, validationErr := totp.ValidateCustom(input.Code, secret, server.now(), totp.ValidateOpts{Period: 30, Skew: 1, Digits: otp.DigitsSix, Algorithm: otp.AlgorithmSHA1})
 		if validationErr != nil || !valid {
-			reject(writer, 401, "验证码错误")
+			reject(writer, 422, "验证码错误")
 			return
 		}
 		if _, err = server.db.Exec("UPDATE users SET totp=?,totp_step=? WHERE id=?", session.Pending, server.now().Unix()/30, user.ID); err != nil {
@@ -556,10 +598,22 @@ func (server *Server) handleSecurity(writer http.ResponseWriter, request *http.R
 			server.failure(writer, err)
 			return
 		}
-		server.revokeUserSessions(user.ID)
+		if err = server.revokeUserSessions(user.ID); err != nil {
+			server.failure(writer, err)
+			return
+		}
+		if err = server.newSession(writer, request, user.ID, "full"); err != nil {
+			server.failure(writer, err)
+			return
+		}
 		server.audit(user.ID, user.ID, "totp_changed")
 		server.clearAuthFailures(request, "security/"+user.Email)
-		respond(writer, 200, map[string]any{"recovery_codes": codes, "login_required": true})
+		var csrf string
+		if err = server.db.QueryRow("SELECT csrf FROM sessions WHERE user_id=? AND stage='full'", user.ID).Scan(&csrf); err != nil {
+			server.failure(writer, err)
+			return
+		}
+		respond(writer, 200, map[string]any{"user": user, "csrf_token": csrf, "recovery_codes": codes, "login_required": false})
 		return
 	}
 	password := input.Password
@@ -576,7 +630,7 @@ func (server *Server) handleSecurity(writer http.ResponseWriter, request *http.R
 		return
 	}
 	if !checkPassword(password, encoded) {
-		reject(writer, 401, "凭据不正确")
+		reject(writer, 422, "凭据不正确")
 		return
 	}
 	valid, err := server.consumeCode(user.ID, input.Code)
@@ -585,7 +639,7 @@ func (server *Server) handleSecurity(writer http.ResponseWriter, request *http.R
 		return
 	}
 	if !valid {
-		reject(writer, 401, "验证码错误或已使用")
+		reject(writer, 422, "验证码错误或已使用")
 		return
 	}
 	server.clearAuthFailures(request, "security/"+user.Email)

@@ -168,6 +168,7 @@ func (p *apiProblem) Error() string { return p.Code + ": " + p.Message }
 type messageAPI struct {
 	mu                sync.Mutex
 	keys              []accessKeyState
+	keysChanged       func([]accessKeyState)
 	rateLimits        map[string][]time.Time
 	jobs              map[string]*messageJob
 	keyFile           string
@@ -177,6 +178,7 @@ type messageAPI struct {
 	client            *http.Client
 	wake              chan struct{}
 	activeExec        map[string]bool
+	retryScopeAt      map[string]time.Time
 	activeCallback    map[string]bool
 	maxConcurrent     int
 	resolveTarget     func(context.Context, submitMessageRequest) (resolvedTarget, *apiProblem)
@@ -228,7 +230,7 @@ func newMessageAPI(keyFile, jobsFile string, macIPs []string) (*messageAPI, erro
 	return api, nil
 }
 
-func (a *messageAPI) load() error {
+func (a *messageAPI) loadKeys() error {
 	if raw, err := os.ReadFile(a.keyFile); err == nil {
 		var disk accessKeyStoreDisk
 		if err := json.Unmarshal(raw, &disk); err != nil {
@@ -284,6 +286,13 @@ func (a *messageAPI) load() error {
 			}
 		}
 	} else if !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	return nil
+}
+
+func (a *messageAPI) load() error {
+	if err := a.loadKeys(); err != nil {
 		return err
 	}
 	if raw, err := os.ReadFile(a.jobsFile); err == nil {
@@ -343,7 +352,13 @@ func (a *messageAPI) saveKeysLocked() error {
 	if keys == nil {
 		keys = []accessKeyState{}
 	}
-	return writePrivateJSON(a.keyFile, accessKeyStoreDisk{Version: 3, Keys: keys})
+	if err := writePrivateJSON(a.keyFile, accessKeyStoreDisk{Version: 3, Keys: keys}); err != nil {
+		return err
+	}
+	if a.keysChanged != nil {
+		a.keysChanged(keys)
+	}
+	return nil
 }
 
 func (a *messageAPI) saveJobsLocked() error {

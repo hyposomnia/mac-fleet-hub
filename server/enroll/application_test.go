@@ -822,3 +822,147 @@ func TestUserApplicationsLegacyMigrationRejectsUntrustedMapping(t *testing.T) {
 		})
 	}
 }
+
+func TestCorruptTenantDoesNotBlockHealthyAutomation(t *testing.T) {
+	dir := t.TempDir()
+	broken := filepath.Join(dir, "users", "2")
+	if err := os.MkdirAll(broken, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(broken, "message-jobs.json"), []byte("{broken"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	apps := newUserApplications(dir)
+	apps.server = newApplicationTestRegistry()
+	defer apps.Close()
+	if err := apps.Start(); err != nil {
+		t.Fatalf("one corrupt tenant blocked startup: %v", err)
+	}
+	response := applicationTestRequest(apps.Handler(multiuser.User{ID: 1}), "GET", "/api/automation/access-keys", "", "")
+	if response.Code != 200 {
+		t.Fatalf("healthy tenant: %d %s", response.Code, response.Body.String())
+	}
+	response = applicationTestRequest(apps.Handler(multiuser.User{ID: 2}), "GET", "/api/automation/access-keys", "", "")
+	if response.Code != 503 {
+		t.Fatalf("corrupt tenant: %d", response.Code)
+	}
+}
+
+func (registry *applicationTestRegistry) User(id int64) (multiuser.User, error) {
+	registry.mu.Lock()
+	defer registry.mu.Unlock()
+	for _, user := range registry.users {
+		if user.ID == id {
+			return user, nil
+		}
+	}
+	return multiuser.User{}, errors.New("not found")
+}
+
+type countedApplicationRegistry struct {
+	*applicationTestRegistry
+	lists atomic.Int64
+}
+
+func (registry *countedApplicationRegistry) Users() ([]multiuser.User, error) {
+	registry.lists.Add(1)
+	return registry.applicationTestRegistry.Users()
+}
+func TestAutomationKeyIndexTracksCreationRotationAndRevocation(t *testing.T) {
+	registry := &countedApplicationRegistry{applicationTestRegistry: newApplicationTestRegistry()}
+	apps := newUserApplications(t.TempDir())
+	apps.server = registry
+	defer apps.Close()
+	if err := apps.Start(); err != nil {
+		t.Fatal(err)
+	}
+	handler := apps.Handler(multiuser.User{ID: 1})
+	first := applicationTestKey(t, handler)
+	check := func(key string, want int) {
+		t.Helper()
+		response := applicationTestRequest(apps, "GET", "/api/v1/messages/nonexistent", key, "")
+		if response.Code != want {
+			t.Fatalf("key lookup: %d want%d %s", response.Code, want, response.Body.String())
+		}
+	}
+	check(first, 404)
+	second := applicationTestKey(t, handler)
+	check(first, 401)
+	check(second, 404)
+	response := applicationTestRequest(handler, "DELETE", "/api/settings/access-key", "", "")
+	if response.Code != 204 {
+		t.Fatalf("delete key: %d %s", response.Code, response.Body.String())
+	}
+	check(second, 401)
+	if calls := registry.lists.Load(); calls != 1 {
+		t.Fatalf("requests scanned all users: %d list calls", calls)
+	}
+}
+
+func TestAutomationStartupIsLazyAndDisabledKeyCanRecover(t *testing.T) {
+	registry := newApplicationTestRegistry()
+	registry.users[0].Status = "disabled"
+	dir := t.TempDir()
+	stored, err := newMessageAPIAt(filepath.Join(dir, "users", "1"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	key, err := newAccessKey("persisted")
+	if err != nil {
+		t.Fatal(err)
+	}
+	stored.keys = []accessKeyState{key}
+	if err = stored.saveKeysLocked(); err != nil {
+		t.Fatal(err)
+	}
+	apps := newUserApplications(dir)
+	apps.server = registry
+	defer apps.Close()
+	if err = apps.Start(); err != nil {
+		t.Fatal(err)
+	}
+	if len(apps.apis) != 0 {
+		t.Fatal("key-only users initialized full workers")
+	}
+	response := applicationTestRequest(apps, "GET", "/api/v1/messages/nonexistent", key.Secret, "")
+	if response.Code != 401 {
+		t.Fatal("disabled key accepted")
+	}
+	registry.mu.Lock()
+	registry.users[0].Status = "active"
+	registry.mu.Unlock()
+	response = applicationTestRequest(apps, "GET", "/api/v1/messages/nonexistent", key.Secret, "")
+	if response.Code != 404 {
+		t.Fatalf("reenabled key cannot work without browser: %d %s", response.Code, response.Body.String())
+	}
+}
+
+func TestUnavailableDevicePausesUnsentAutomationWithoutFailingIt(t *testing.T) {
+	registry := newApplicationTestRegistry()
+	registry.devices[0].Status = "unavailable"
+	apps := newUserApplications(t.TempDir())
+	apps.server = registry
+	defer apps.Close()
+	job := &messageJob{ID: "waiting", Status: messageQueued, DeviceID: "m3", DeviceNodeID: "node-3", DeviceIP: "127.0.0.1", CreatedAt: time.Now()}
+	_, _, err := apps.jobContext(context.Background(), 1, job)
+	if err == nil {
+		t.Fatal("unavailable device allowed")
+	}
+	api, err := newMessageAPIAt(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	api.jobs[job.ID] = job
+	api.scopeJob = func(ctx context.Context, job *messageJob) (context.Context, context.CancelFunc, error) {
+		return apps.jobContext(ctx, 1, job)
+	}
+	api.executeJob(job.ID)
+	if job.Status != messageQueued || job.Error != nil {
+		t.Fatalf("temporary absence failed unsent job: %+v", job)
+	}
+	registry.revoke(1, "m3")
+	api.executeJob(job.ID)
+	if job.Status != messageFailed {
+		t.Fatal("explicit revocation was treated as a temporary outage")
+	}
+}

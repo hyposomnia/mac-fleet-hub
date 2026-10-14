@@ -4,8 +4,11 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"log"
 	"net/http"
+	"reflect"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -24,8 +27,17 @@ func (server *Server) handleEnrollment(writer http.ResponseWriter, request *http
 	if !decode(writer, request, &input) {
 		return
 	}
-	server.mu.Lock()
-	defer server.mu.Unlock()
+	// Only requests for the same pairing serialize. A slow grant must not
+	// block another user's start/confirmation or account settings.
+	lockKey := input.ID
+	if path == "start" {
+		lockKey = ""
+	}
+	if path == "confirm" {
+		_ = server.db.QueryRow("SELECT id FROM enrollments WHERE code=?", strings.ToUpper(strings.TrimSpace(input.Code))).Scan(&lockKey)
+	}
+	release := server.lockEnrollment(lockKey)
+	defer release()
 	if path == "start" {
 		if !server.allowedAuth(request, "enrollment-start") {
 			reject(writer, 429, "请求过于频繁")
@@ -138,6 +150,10 @@ func (server *Server) handleEnrollment(writer http.ResponseWriter, request *http
 				reject(writer, 503, "签发入网凭据失败，请重试")
 				return
 			}
+			if !server.enrollmentStillValid(input.ID, owner.Int64, index.Int64) {
+				reject(writer, 410, "设备授权已变更，请重新关联")
+				return
+			}
 			sealed, err = server.seal(grant.Key)
 			if err != nil {
 				server.failure(writer, err)
@@ -171,13 +187,21 @@ func (server *Server) handleEnrollment(writer http.ResponseWriter, request *http
 		respond(writer, 202, map[string]string{"state": "installing"})
 		return
 	}
-	if _, err = server.db.Exec("UPDATE devices SET node_id=?,ip=?,online=?,last_seen=?,status='active' WHERE device_index=? AND user_id=?", node.ID, node.IP, node.Online, node.LastSeen, index.Int64, owner.Int64); err != nil {
+	if !server.enrollmentStillValid(input.ID, owner.Int64, index.Int64) {
+		reject(writer, 410, "设备授权已变更，请重新关联")
+		return
+	}
+	if _, err = server.db.Exec("UPDATE devices SET node_id=?,ip=?,online=?,last_seen=?,status='active' WHERE device_index=? AND user_id=? AND status!='revoked' AND EXISTS(SELECT 1 FROM users WHERE id=devices.user_id AND status='active')", node.ID, node.IP, node.Online, node.LastSeen, index.Int64, owner.Int64); err != nil {
 		server.failure(writer, err)
 		return
 	}
 	if err = server.syncNetwork(ctx); err != nil {
-		server.db.Exec("UPDATE devices SET status='installing' WHERE device_index=?", index.Int64)
+		server.db.Exec("UPDATE devices SET status='installing' WHERE device_index=? AND status='active'", index.Int64)
 		reject(writer, 503, "网络策略尚未生效，请重试完成绑定")
+		return
+	}
+	if !server.enrollmentStillValid(input.ID, owner.Int64, index.Int64) {
+		reject(writer, 410, "设备授权已变更，请重新关联")
 		return
 	}
 	transaction, err := server.db.Begin()
@@ -202,10 +226,22 @@ func (server *Server) handleEnrollment(writer http.ResponseWriter, request *http
 	respond(writer, 200, map[string]any{"ok": true, "device_id": fmt.Sprintf("m%d", index.Int64)})
 }
 
+// enrollmentStillValid prevents an in-flight grant/discovery from restoring a
+// device revoked, expired or disabled while Headscale was responding.
+func (server *Server) enrollmentStillValid(id string, owner, index int64) bool {
+	var count int
+	err := server.db.QueryRow(`SELECT COUNT(*) FROM enrollments e JOIN devices d ON d.device_index=e.device_index JOIN users u ON u.id=e.user_id WHERE e.id=? AND e.user_id=? AND e.device_index=? AND e.expires_at>? AND d.status!='revoked' AND u.status='active'`, id, owner, index, server.now().Unix()).Scan(&count)
+	return err == nil && count == 1
+}
+
 func (server *Server) syncNetwork(ctx context.Context) (err error) {
 	if server.options.Network == nil {
 		return nil
 	}
+	// Serialize policy writes, not account traffic. If state changes during an
+	// external write, reconcile a fresh snapshot before declaring it synchronized.
+	server.networkMu.Lock()
+	defer server.networkMu.Unlock()
 	defer func() {
 		if err != nil {
 			server.networkSync.Store(0)
@@ -213,15 +249,92 @@ func (server *Server) syncNetwork(ctx context.Context) (err error) {
 			server.networkSync.Store(server.now().Unix())
 		}
 	}()
-	devices, err := server.Devices(0)
-	if err != nil {
+	for {
+		if err = ctx.Err(); err != nil {
+			return err
+		}
+		devices, e := server.Devices(0)
+		if e != nil {
+			return e
+		}
+		users, e := server.Users()
+		if e != nil {
+			return e
+		}
+		if err = server.options.Network.Reconcile(ctx, devices, users); err != nil {
+			return err
+		}
+		latestDevices, e := server.Devices(0)
+		if e != nil {
+			return e
+		}
+		latestUsers, e := server.Users()
+		if e != nil {
+			return e
+		}
+		if reflect.DeepEqual(policySnapshot(devices, users), policySnapshot(latestDevices, latestUsers)) {
+			return nil
+		}
+	}
+}
+
+func (server *Server) refreshNetwork(ctx context.Context) error {
+	var revoked []string
+	if snapshot, ok := server.options.Network.(interface {
+		Nodes(context.Context) ([]Node, error)
+	}); ok {
+		nodes, err := snapshot.Nodes(ctx)
+		if err != nil {
+			return err
+		}
+		byID := make(map[string]Node, len(nodes))
+		for _, node := range nodes {
+			byID[node.ID] = node
+		}
+		server.mu.Lock()
+		devices, err := server.Devices(0)
+		if err != nil {
+			server.mu.Unlock()
+			return err
+		}
+		for _, device := range devices {
+			if device.Status == "revoked" {
+				if device.NodeID != "" {
+					revoked = append(revoked, device.NodeID)
+				}
+				continue
+			}
+			if device.Status != "active" && device.Status != "unavailable" {
+				continue
+			}
+			node, found := byID[device.NodeID]
+			if !found {
+				_, err = server.db.Exec("UPDATE devices SET online=0,status='unavailable' WHERE device_index=? AND status IN ('active','unavailable')", device.Index)
+				if device.Status == "active" {
+					server.cancelScopes(device.UserID, device.ID)
+				}
+			} else {
+				if node.IP != device.IP {
+					server.cancelScopes(device.UserID, device.ID)
+				}
+				_, err = server.db.Exec("UPDATE devices SET online=?,last_seen=?,ip=?,status='active' WHERE device_index=? AND status IN ('active','unavailable')", node.Online, node.LastSeen, node.IP, device.Index)
+			}
+			if err != nil {
+				server.mu.Unlock()
+				return err
+			}
+		}
+		server.mu.Unlock()
+	}
+	if err := server.syncNetwork(ctx); err != nil {
 		return err
 	}
-	users, err := server.Users()
-	if err != nil {
-		return err
+	for _, nodeID := range revoked {
+		if err := server.options.Network.Revoke(ctx, nodeID); err != nil {
+			return err
+		}
 	}
-	return server.options.Network.Reconcile(ctx, devices, users)
+	return nil
 }
 
 func (server *Server) Run(ctx context.Context) error {
@@ -232,67 +345,12 @@ func (server *Server) Run(ctx context.Context) error {
 	ticker := time.NewTicker(15 * time.Second)
 	defer ticker.Stop()
 	for {
-		server.mu.Lock()
 		bounded, cancel := context.WithTimeout(ctx, 10*time.Second)
-		var revoked []string
-		if snapshot, ok := server.options.Network.(interface {
-			Nodes(context.Context) ([]Node, error)
-		}); ok {
-			nodes, err := snapshot.Nodes(bounded)
-			if err != nil {
-				cancel()
-				server.mu.Unlock()
-				return err
-			}
-			devices, err := server.Devices(0)
-			if err != nil {
-				cancel()
-				server.mu.Unlock()
-				return err
-			}
-			for _, device := range devices {
-				if device.Status == "active" {
-					found := false
-					for _, node := range nodes {
-						if node.ID == device.NodeID {
-							if node.IP != device.IP {
-								server.cancelScopes(device.UserID, device.ID)
-							}
-							if _, err = server.db.Exec("UPDATE devices SET online=?,last_seen=?,ip=? WHERE device_index=?", node.Online, node.LastSeen, node.IP, device.Index); err != nil {
-								cancel()
-								server.mu.Unlock()
-								return err
-							}
-							found = true
-							break
-						}
-					}
-					if !found {
-						if _, err = server.db.Exec("UPDATE devices SET online=0,status='revoked' WHERE device_index=?", device.Index); err != nil {
-							cancel()
-							server.mu.Unlock()
-							return err
-						}
-						server.cancelScopes(device.UserID, device.ID)
-						server.audit(0, device.UserID, "node_missing:"+device.ID)
-					}
-				} else if device.Status == "revoked" && device.NodeID != "" {
-					revoked = append(revoked, device.NodeID)
-				}
-			}
-		}
-		err := server.syncNetwork(bounded)
-		if err == nil {
-			for _, nodeID := range revoked {
-				if err = server.options.Network.Revoke(bounded, nodeID); err != nil {
-					break
-				}
-			}
-		}
+		err := server.refreshNetwork(bounded)
 		cancel()
-		server.mu.Unlock()
 		if err != nil {
-			return err
+			server.networkSync.Store(0)
+			log.Printf("network reconciliation will retry: %v", err)
 		}
 		select {
 		case <-ctx.Done():
@@ -302,4 +360,62 @@ func (server *Server) Run(ctx context.Context) error {
 		case <-ticker.C:
 		}
 	}
+}
+
+type enrollmentLock struct {
+	mu         sync.Mutex
+	references int
+}
+
+func (server *Server) lockEnrollment(key string) func() {
+	if key == "" {
+		return func() {}
+	}
+	server.enrollmentMu.Lock()
+	if server.enrollmentLocks == nil {
+		server.enrollmentLocks = map[string]*enrollmentLock{}
+	}
+	lock := server.enrollmentLocks[key]
+	if lock == nil {
+		lock = &enrollmentLock{}
+		server.enrollmentLocks[key] = lock
+	}
+	lock.references++
+	server.enrollmentMu.Unlock()
+	lock.mu.Lock()
+	return func() {
+		lock.mu.Unlock()
+		server.enrollmentMu.Lock()
+		lock.references--
+		if lock.references == 0 {
+			delete(server.enrollmentLocks, key)
+		}
+		server.enrollmentMu.Unlock()
+	}
+}
+
+// Only access-policy inputs participate in revalidation. Login timestamps,
+// display names and online telemetry must not keep a successful ACL write busy.
+type policyDevice struct {
+	Owner    int64
+	Node, IP string
+}
+type accessPolicySnapshot struct {
+	Users   map[int64]bool
+	Devices map[int]policyDevice
+}
+
+func policySnapshot(devices []Device, users []User) accessPolicySnapshot {
+	result := accessPolicySnapshot{Users: map[int64]bool{}, Devices: map[int]policyDevice{}}
+	for _, user := range users {
+		if user.Status == "active" {
+			result.Users[user.ID] = true
+		}
+	}
+	for _, device := range devices {
+		if device.Status == "active" && result.Users[device.UserID] {
+			result.Devices[device.Index] = policyDevice{device.UserID, device.NodeID, device.IP}
+		}
+	}
+	return result
 }

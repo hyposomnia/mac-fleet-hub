@@ -54,7 +54,12 @@ func (server *Server) ResetPassword(email, password string) error {
 	}
 	encoded := hashPassword(password)
 	server.mu.Lock()
-	defer server.mu.Unlock()
+	locked := true
+	defer func() {
+		if locked {
+			server.mu.Unlock()
+		}
+	}()
 	var id int64
 	if err := server.db.QueryRow("SELECT id FROM users WHERE email=?", normalizeEmail(email)).Scan(&id); err != nil {
 		return errors.New("账号不存在")
@@ -84,5 +89,7 @@ func (server *Server) ResetPassword(email, password string) error {
 	server.audit(id, id, "local_account_reset")
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
+	server.mu.Unlock()
+	locked = false
 	return server.syncNetwork(ctx)
 }

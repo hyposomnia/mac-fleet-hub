@@ -53,7 +53,7 @@ func TestMissingNodeCannotProxyReassignedIP(t *testing.T) {
 	if _, err := server.AuthorizedDevice(user.ID, "m1"); err == nil {
 		t.Fatal("missing node retains authorization to recycled IP")
 	}
-	if len(network.policy) != 1 || network.policy[0].Status != "revoked" {
+	if len(network.policy) != 1 || network.policy[0].Status != "unavailable" {
 		t.Fatalf("missing node retained policy %+v", network.policy)
 	}
 }
@@ -190,5 +190,188 @@ func TestAuthenticationLimiterHasBoundedIdentityStorage(t *testing.T) {
 	}
 	if len(server.failures) > 4096 {
 		t.Fatalf("unbounded auth identities: %d", len(server.failures))
+	}
+}
+
+func TestMissingNodeRecoversWithoutReenrollment(t *testing.T) {
+	server, now := newTestServer(t)
+	_, user, _, _ := registerBrowser(t, server, *now, "snapshot-recovery@example.com")
+	if _, err := server.db.Exec("INSERT INTO devices(user_id,node_id,ip,name,status,created_at) VALUES(?,'1','100.64.0.10','Mac','active',?)", user.ID, now.Unix()); err != nil {
+		t.Fatal(err)
+	}
+	for _, present := range []bool{false, true} {
+		ctx, cancel := context.WithCancel(context.Background())
+		network := &snapshotNetwork{cancel: cancel}
+		if present {
+			network.nodes = []Node{{ID: "1", IP: "100.64.0.10", Online: true}}
+		}
+		server.options.Network = network
+		server.Run(ctx)
+		cancel()
+		devices, err := server.Devices(user.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		expected := "unavailable"
+		if present {
+			expected = "active"
+		}
+		if len(devices) != 1 || devices[0].Status != expected {
+			t.Fatalf("present=%v devices=%+v", present, devices)
+		}
+	}
+}
+
+type blockedSnapshotNetwork struct {
+	testNetwork
+	entered, release chan struct{}
+}
+
+func (network *blockedSnapshotNetwork) Nodes(ctx context.Context) ([]Node, error) {
+	close(network.entered)
+	select {
+	case <-network.release:
+		return nil, nil
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+}
+func TestNetworkInventoryDoesNotHoldAccountLock(t *testing.T) {
+	server, _ := newTestServer(t)
+	network := &blockedSnapshotNetwork{entered: make(chan struct{}), release: make(chan struct{})}
+	server.options.Network = network
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := make(chan struct{})
+	go func() { server.Run(ctx); close(done) }()
+	<-network.entered
+	available := server.mu.TryLock()
+	if available {
+		server.mu.Unlock()
+	}
+	cancel()
+	close(network.release)
+	<-done
+	if !available {
+		t.Fatal("slow Headscale inventory blocks account state")
+	}
+}
+
+type blockedIssueNetwork struct {
+	testNetwork
+	entered, release chan struct{}
+}
+
+func (network *blockedIssueNetwork) Issue(ctx context.Context, owner int64, index int) (Grant, error) {
+	close(network.entered)
+	select {
+	case <-ctx.Done():
+		return Grant{}, ctx.Err()
+	case <-network.release:
+		return Grant{Key: "test-grant", KeyID: "1"}, nil
+	}
+}
+func TestEnrollmentRechecksRevocationAfterSlowGrant(t *testing.T) {
+	server, now := newTestServer(t)
+	browser, user, _, _ := registerBrowser(t, server, *now, "slow-grant@example.com")
+	network := &blockedIssueNetwork{entered: make(chan struct{}), release: make(chan struct{})}
+	server.options.Network = network
+	installer := &testBrowser{server: server}
+	response := installer.request("POST", "/api/enrollment/start", map[string]string{"name": "Mac"})
+	var start map[string]any
+	json.Unmarshal(response.Body.Bytes(), &start)
+	if response = browser.request("POST", "/api/enrollment/confirm", map[string]any{"code": start["code"]}); response.Code != 200 {
+		t.Fatal(response.Body.String())
+	}
+	done := make(chan *httptest.ResponseRecorder, 1)
+	go func() {
+		done <- installer.request("POST", "/api/enrollment/claim", map[string]any{"request_id": start["request_id"], "claim_token": start["claim_token"]})
+	}()
+	<-network.entered
+	otherDone := make(chan *httptest.ResponseRecorder, 1)
+	go func() {
+		otherDone <- (&testBrowser{server: server}).request("POST", "/api/enrollment/start", map[string]string{"name": "Other Mac"})
+	}()
+	select {
+	case other := <-otherDone:
+		if other.Code != 200 {
+			t.Errorf("unrelated pairing start: %d", other.Code)
+		}
+	case <-time.After(time.Second):
+		close(network.release)
+		<-done
+		t.Fatal("slow grant blocked unrelated pairing")
+	}
+	if _, err := server.db.Exec("UPDATE devices SET status='revoked' WHERE user_id=?", user.ID); err != nil {
+		t.Fatal(err)
+	}
+	close(network.release)
+	if response = <-done; response.Code != 410 {
+		t.Fatalf("revoked device received grant: %d %s", response.Code, response.Body.String())
+	}
+	var count int
+	server.db.QueryRow("SELECT COUNT(*) FROM device_credentials").Scan(&count)
+	if count != 0 {
+		t.Fatal("revoked device issued credentials")
+	}
+}
+
+type blockedPolicyNetwork struct {
+	testNetwork
+	entered, release chan struct{}
+	calls            int
+	users            []User
+}
+
+func (network *blockedPolicyNetwork) Reconcile(ctx context.Context, _ []Device, users []User) error {
+	network.calls++
+	if network.calls == 1 {
+		close(network.entered)
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-network.release:
+		}
+	}
+	network.users = users
+	return nil
+}
+func TestPolicyReconcilesStateChangedDuringNetworkWrite(t *testing.T) {
+	server, now := newTestServer(t)
+	_, user, _, _ := registerBrowser(t, server, *now, "policy-race@example.com")
+	network := &blockedPolicyNetwork{entered: make(chan struct{}), release: make(chan struct{})}
+	server.options.Network = network
+	done := make(chan error, 1)
+	go func() { done <- server.syncNetwork(context.Background()) }()
+	<-network.entered
+	if _, err := server.db.Exec("UPDATE users SET status='disabled' WHERE id=?", user.ID); err != nil {
+		t.Fatal(err)
+	}
+	close(network.release)
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	if network.calls != 2 || len(network.users) != 1 || network.users[0].Status != "disabled" {
+		t.Fatalf("stale final policy calls=%d users=%+v", network.calls, network.users)
+	}
+}
+
+func TestPolicyIgnoresConcurrentDisplayMetadataChanges(t *testing.T) {
+	server, now := newTestServer(t)
+	_, user, _, _ := registerBrowser(t, server, *now, "policy-metadata@example.com")
+	network := &blockedPolicyNetwork{entered: make(chan struct{}), release: make(chan struct{})}
+	server.options.Network = network
+	done := make(chan error, 1)
+	go func() { done <- server.syncNetwork(context.Background()) }()
+	<-network.entered
+	if _, err := server.db.Exec("UPDATE users SET email='renamed@example.com' WHERE id=?", user.ID); err != nil {
+		t.Fatal(err)
+	}
+	close(network.release)
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	if network.calls != 1 {
+		t.Fatalf("display metadata triggered redundant ACL writes: %d", network.calls)
 	}
 }

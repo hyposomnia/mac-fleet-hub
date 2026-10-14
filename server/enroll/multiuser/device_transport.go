@@ -10,7 +10,7 @@ import (
 
 func NewDeviceTransport(meshProxy string) (*http.Transport, error) {
 	transport := &http.Transport{DialContext: (&net.Dialer{Timeout: 5 * time.Second, KeepAlive: 30 * time.Second}).DialContext,
-		ResponseHeaderTimeout: 15 * time.Second, MaxIdleConnsPerHost: 4}
+		ResponseHeaderTimeout: 2 * time.Minute, MaxIdleConnsPerHost: 4}
 	if meshProxy == "" {
 		return transport, nil
 	}

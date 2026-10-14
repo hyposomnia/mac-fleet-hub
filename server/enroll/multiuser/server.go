@@ -19,6 +19,11 @@ import (
 )
 
 type Options struct {
+	DeviceOutageGrace                                 *time.Duration
+	SessionLifetime, AuthWindow                       time.Duration
+	SessionSliding                                    bool
+	AuthAttempts, AuthConcurrency                     int
+	TrustedProxies                                    []string
 	StateDir, StaticDir, Origin, KeyFile, LoginServer string
 	Key                                               []byte
 	Now                                               func() time.Time
@@ -35,17 +40,20 @@ type scope struct {
 	cancel  context.CancelFunc
 }
 type Server struct {
-	options     Options
-	db          *sql.DB
-	mu          sync.Mutex
-	scopeMu     sync.Mutex
-	scopes      map[string]scope
-	root        context.Context
-	cancel      context.CancelFunc
-	authSlots   chan struct{}
-	failMu      sync.Mutex
-	failures    map[string][]time.Time
-	networkSync atomic.Int64
+	options         Options
+	db              *sql.DB
+	mu              sync.Mutex
+	networkMu       sync.Mutex
+	enrollmentMu    sync.Mutex
+	enrollmentLocks map[string]*enrollmentLock
+	scopeMu         sync.Mutex
+	scopes          map[string]scope
+	root            context.Context
+	cancel          context.CancelFunc
+	authSlots       chan struct{}
+	failMu          sync.Mutex
+	failures        map[string][]time.Time
+	networkSync     atomic.Int64
 }
 
 func New(options Options) (*Server, error) {
@@ -107,8 +115,11 @@ func New(options Options) (*Server, error) {
 	if options.FilesPort == 0 {
 		options.FilesPort = 8080
 	}
+	if err := normalizeAuthOptions(&options); err != nil {
+		return nil, err
+	}
 	root, cancel := context.WithCancel(context.Background())
-	server := &Server{options: options, root: root, cancel: cancel, scopes: map[string]scope{}, authSlots: make(chan struct{}, 4), failures: map[string][]time.Time{}}
+	server := &Server{options: options, root: root, cancel: cancel, scopes: map[string]scope{}, authSlots: make(chan struct{}, options.AuthConcurrency), failures: map[string][]time.Time{}}
 	if err = server.openStore(); err != nil {
 		cancel()
 		if server.db != nil {
@@ -270,6 +281,7 @@ func (server *Server) ServeHTTP(writer http.ResponseWriter, request *http.Reques
 		}
 		return
 	}
+	server.renewSession(writer, request, session)
 	if unsafeMethod(request.Method) {
 		match := devicePath.FindStringSubmatch(path)
 		embedded := len(match) > 0 && (match[2] == "files" || match[2] == "dsh" || (match[2] == "api" && strings.HasPrefix(match[3], "/dsh-native/")))
