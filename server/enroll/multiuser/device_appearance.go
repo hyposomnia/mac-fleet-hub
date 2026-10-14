@@ -10,11 +10,36 @@ import (
 )
 
 var deviceIconTextRe = regexp.MustCompile(`^[A-Za-z0-9]{1,4}$`)
+var paletteColorRe = regexp.MustCompile(`^#[0-9a-fA-F]{6}$`)
 
 type deviceAppearance struct {
 	Icon  string `json:"icon"`
 	Text  string `json:"text,omitempty"`
 	Color string `json:"color"`
+}
+
+type paletteColors struct {
+	Canvas    string `json:"canvas"`
+	Accent    string `json:"accent"`
+	Highlight string `json:"highlight"`
+	Text      string `json:"text"`
+}
+
+type themePalette struct {
+	Light paletteColors `json:"light"`
+	Dark  paletteColors `json:"dark"`
+}
+
+func (palette *themePalette) validate() bool {
+	for _, colors := range []*paletteColors{&palette.Light, &palette.Dark} {
+		for _, color := range []*string{&colors.Canvas, &colors.Accent, &colors.Highlight, &colors.Text} {
+			if !paletteColorRe.MatchString(*color) {
+				return false
+			}
+			*color = strings.ToUpper(*color)
+		}
+	}
+	return true
 }
 
 func (appearance *deviceAppearance) validate() bool {
@@ -43,10 +68,11 @@ type dashboardPreferences struct {
 	AutoCloseMinutes     int                         `json:"autoCloseMinutes"`
 	ChatCacheMaxSessions int                         `json:"chatCacheMaxSessions"`
 	DeviceAppearance     map[string]deviceAppearance `json:"deviceAppearance"`
+	Palette              *themePalette               `json:"palette"`
 }
 
-// Caller holds server.mu so settings POST and appearance PATCH cannot lose
-// each other's fields. Existing integer-only preference rows remain readable.
+// Caller holds server.mu so settings POST, appearance PATCH and palette PUT
+// cannot lose each other's fields. Existing integer-only preference rows remain readable.
 func (server *Server) loadDashboardPreferences(userID int64) (dashboardPreferences, error) {
 	preferences := dashboardPreferences{DesktopMaxWindows: 10, DesktopScrollback: 5000,
 		MobileMaxWindows: 4, MobileScrollback: 5000, AutoCloseMinutes: 30, ChatCacheMaxSessions: 6,
@@ -71,6 +97,9 @@ func (server *Server) loadDashboardPreferences(userID int64) (dashboardPreferenc
 		}
 		preferences.DeviceAppearance[id] = appearance
 	}
+	if preferences.Palette != nil && !preferences.Palette.validate() {
+		return preferences, fmt.Errorf("invalid theme palette")
+	}
 	return preferences, nil
 }
 
@@ -87,7 +116,7 @@ func validDeviceID(id string) bool {
 }
 
 func (server *Server) handlePreferences(writer http.ResponseWriter, request *http.Request, user User) {
-	if request.Method != "GET" && request.Method != "POST" && request.Method != "PATCH" {
+	if request.Method != "GET" && request.Method != "POST" && request.Method != "PATCH" && request.Method != "PUT" {
 		reject(writer, 405, "不支持的方法")
 		return
 	}
@@ -109,7 +138,22 @@ func (server *Server) handlePreferences(writer http.ResponseWriter, request *htt
 			owned[device.ID] = true
 		}
 	}
-	if request.Method == "PATCH" {
+	if request.Method == "PUT" {
+		var input struct {
+			Palette  *themePalette `json:"palette"`
+			IfAbsent bool          `json:"ifAbsent"`
+		}
+		if !decode(writer, request, &input) {
+			return
+		}
+		if input.Palette == nil || !input.Palette.validate() {
+			reject(writer, 400, "配色须包含浅色和深色的八个 #RRGGBB 颜色")
+			return
+		}
+		if preferences.Palette == nil || !input.IfAbsent {
+			preferences.Palette = input.Palette
+		}
+	} else if request.Method == "PATCH" {
 		var input struct {
 			ID         string            `json:"id"`
 			Appearance *deviceAppearance `json:"appearance"`

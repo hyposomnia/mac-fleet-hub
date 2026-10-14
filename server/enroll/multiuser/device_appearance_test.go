@@ -10,6 +10,7 @@ import (
 type appearanceSettingsResponse struct {
 	ChatCacheMaxSessions int                          `json:"chatCacheMaxSessions"`
 	DeviceAppearance     map[string]map[string]string `json:"deviceAppearance"`
+	Palette              *themePalette                `json:"palette"`
 }
 
 func readAppearanceSettings(t *testing.T, response *httptest.ResponseRecorder) appearanceSettingsResponse {
@@ -109,6 +110,54 @@ func TestDeviceAppearancePersistsWithoutReplacingChatSettingsOrOtherDevices(t *t
 	}
 }
 
+func TestThemePaletteIsOwnerScopedAndPreservesOtherPreferences(t *testing.T) {
+	server, now := newTestServer(t)
+	owner, user, _, _ := registerBrowser(t, server, *now, "palette-owner@example.com")
+	other, _, _, _ := registerBrowser(t, server, *now, "palette-other@example.com")
+	addAppearanceDevice(t, server, user, 1, "active")
+	palette := map[string]any{
+		"light": map[string]string{"canvas": "#eeeeee", "accent": "#145da0", "highlight": "#ffee11", "text": "#18211f"},
+		"dark":  map[string]string{"canvas": "#222222", "accent": "#78b59d", "highlight": "#e0b84f", "text": "#f4f7f6"},
+	}
+	result := readAppearanceSettings(t, owner.request("PUT", "/api/settings", map[string]any{"palette": palette}))
+	if result.Palette == nil || result.Palette.Light.Canvas != "#EEEEEE" || result.Palette.Dark.Highlight != "#E0B84F" {
+		t.Fatalf("palette was not normalized and saved: %+v", result.Palette)
+	}
+	if got := readAppearanceSettings(t, other.request("GET", "/api/settings", nil)); got.Palette != nil {
+		t.Fatalf("palette leaked across owners: %+v", got.Palette)
+	}
+	update := map[string]any{"id": "m1", "appearance": map[string]string{"icon": "mini", "color": "teal"}}
+	readAppearanceSettings(t, owner.request("PATCH", "/api/settings", update))
+	readAppearanceSettings(t, owner.request("POST", "/api/settings", map[string]int{"chatCacheMaxSessions": 9}))
+	winner := readAppearanceSettings(t, owner.request("PUT", "/api/settings", map[string]any{
+		"palette": map[string]any{
+			"light": map[string]string{"canvas": "#ffffff", "accent": "#246810", "highlight": "#aabbcc", "text": "#112233"},
+			"dark":  map[string]string{"canvas": "#000000", "accent": "#123456", "highlight": "#abcdef", "text": "#ffffff"},
+		},
+		"ifAbsent": true,
+	}))
+	if winner.Palette == nil || winner.Palette.Light.Canvas != "#EEEEEE" || winner.ChatCacheMaxSessions != 9 || winner.DeviceAppearance["m1"]["icon"] != "mini" {
+		t.Fatalf("palette migration replaced saved data or lost preferences: %+v", winner)
+	}
+}
+
+func TestThemePaletteRejectsIncompleteOrInvalidColors(t *testing.T) {
+	server, now := newTestServer(t)
+	owner, _, _, _ := registerBrowser(t, server, *now, "palette-invalid@example.com")
+	for _, palette := range []any{
+		nil,
+		map[string]any{"light": map[string]string{"canvas": "#123456"}},
+		map[string]any{
+			"light": map[string]string{"canvas": "url(secret)", "accent": "#145DA0", "highlight": "#FFEE11", "text": "#18211F"},
+			"dark":  map[string]string{"canvas": "#222222", "accent": "#78B59D", "highlight": "#E0B84F", "text": "#F4F7F6"},
+		},
+	} {
+		if response := owner.request("PUT", "/api/settings", map[string]any{"palette": palette}); response.Code != 400 {
+			t.Fatalf("invalid palette accepted: %d %s", response.Code, response.Body.String())
+		}
+	}
+}
+
 func TestDeviceAppearanceRejectsInvalidInputAndCorruptStoredPreferences(t *testing.T) {
 	server, now := newTestServer(t)
 	owner, user, _, _ := registerBrowser(t, server, *now, "appearance-invalid@example.com")
@@ -126,10 +175,15 @@ func TestDeviceAppearanceRejectsInvalidInputAndCorruptStoredPreferences(t *testi
 	if _, err := server.db.Exec("INSERT INTO preferences(user_id,value) VALUES(?,?)", user.ID, "broken-json"); err != nil {
 		t.Fatal(err)
 	}
-	for _, method := range []string{"GET", "POST", "PATCH"} {
+	for _, method := range []string{"GET", "POST", "PATCH", "PUT"} {
 		body := any(map[string]int{"chatCacheMaxSessions": 2})
 		if method == "PATCH" {
 			body = map[string]any{"id": "m1", "appearance": map[string]string{"icon": "monitor", "color": "steel"}}
+		} else if method == "PUT" {
+			body = map[string]any{"palette": map[string]any{
+				"light": map[string]string{"canvas": "#EEEEEE", "accent": "#145DA0", "highlight": "#FFEE11", "text": "#18211F"},
+				"dark":  map[string]string{"canvas": "#222222", "accent": "#78B59D", "highlight": "#E0B84F", "text": "#F4F7F6"},
+			}}
 		}
 		if response := owner.request(method, "/api/settings", body); response.Code != 500 {
 			t.Fatalf("corrupt preferences silently replaced by %s: %d", method, response.Code)

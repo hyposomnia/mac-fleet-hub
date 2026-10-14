@@ -749,9 +749,8 @@ test('session settings expose chat cache without terminal controls', () => {
   assert.doesNotMatch(indexHTML, /data-settings-tab/);
   assert.match(indexHTML, /data-settings-panel="sessions"/);
   assert.match(indexHTML, /id="automation-modal"/);
-  assert.match(indexHTML, /data-automation-tab="keys"/);
-  assert.match(indexHTML, /data-automation-tab="messages"/);
-  assert.match(indexHTML, /id="automation-message-key-filter"/);
+	assert.match(indexHTML, /id="automation-records-link"[^>]*href="\/automation-records\.html"[^>]*target="_blank"/);
+	assert.doesNotMatch(appSrc, /refreshMessageRecords|automation\/message-records/);
   assert.doesNotMatch(indexHTML, /data-settings-tab="terminal"|data-assistant="claude"|id="st-selfdraw"|id="st-dmax"/);
   assert.doesNotMatch(appSrc, /SELF_DRAW_KEY|setSelfDraw|用终端打开/);
 });
@@ -765,7 +764,7 @@ test('appearance settings expose four configurable seed colors for light and dar
       assert.match(indexHTML, new RegExp(`data-palette-hex="${mode}\\.${field}"`));
     }
   }
-  assert.match(appSrc, /FleetTheme\.setPalette\(readAppearancePalette\(\)\)/);
+	assert.match(appSrc, /await FleetTheme\.savePalette\(readAppearancePalette\(\)\)/);
   assert.match(appSrc, /FleetTheme\.paletteDefaults/);
   assert.match(accountCSS, /\.appearance-palette-grid\s*\{[^}]*grid-template-columns:\s*repeat\(2,/s);
 });
@@ -776,7 +775,7 @@ test('automation modal links to a concise cached API guide', () => {
   assert.match(automationGuideHTML, /Idempotency-Key/);
   assert.match(automationGuideHTML, /callback_url/);
   assert.match(serviceWorker, /'\/automation-guide\.html'/);
-  assert.match(serviceWorker, /navigationKey = url\.pathname === '\/automation-guide\.html'/);
+	assert.match(serviceWorker, /'\/automation-guide\.html', '\/automation-records\.html'\]\.includes\(url\.pathname\)/);
   assert.match(styleCSS, /\.automation-doc-main\s*\{/);
 });
 
@@ -2320,6 +2319,7 @@ test('follow-up acknowledgement uses the Codex client message id', () => {
 
 test('self-drawn composer contains native stop control and follow-up queue', () => {
   assert.match(indexHTML, /id="chat-followups"/);
+	assert.match(appSrc, /isChatRunning\(state\.chat\) \? '继续追问'/);
   assert.match(indexHTML, /class="ic chat-stop-icon"/);
   assert.match(indexHTML, /chat-stop-icon"[^>]*><rect x="6" y="6" width="12" height="12" rx="1\.5"/);
   assert.match(indexHTML, /data-action="send"/);

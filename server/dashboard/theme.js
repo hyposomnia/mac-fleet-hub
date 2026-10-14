@@ -21,6 +21,7 @@
     }
     return result;
   }
+  const validPalette = value => ['light', 'dark'].every(mode => PALETTE_FIELDS.every(field => normalizedHex(value?.[mode]?.[field])));
   function contrastColor(hex) {
     const values = hex.slice(1).match(/../g).map(value => parseInt(value, 16) / 255)
       .map(value => value <= .04045 ? value / 12.92 : ((value + .055) / 1.055) ** 2.4);
@@ -55,11 +56,13 @@
   function createController(target) {
     let preference = 'light';
     let palette = normalizePalette();
+    let hasSavedPalette = false;
     let media;
     const subscribers = new Set();
     function readPalette() {
       let saved;
       try { saved = JSON.parse(target.localStorage.getItem(PALETTE_KEY) || 'null'); } catch (_) {}
+      hasSavedPalette = ['light', 'dark'].some(mode => PALETTE_FIELDS.some(field => normalizedHex(saved?.[mode]?.[field])));
       palette = normalizePalette(saved);
       return palette;
     }
@@ -104,15 +107,57 @@
     }
     function setPalette(value) {
       palette = normalizePalette(value);
+      hasSavedPalette = true;
       try { target.localStorage.setItem(PALETTE_KEY, JSON.stringify(palette)); } catch (_) {}
       apply();
       return clone(palette);
     }
     function resetPalette() {
       palette = normalizePalette();
+      hasSavedPalette = false;
       try { target.localStorage.removeItem(PALETTE_KEY); } catch (_) {}
       apply();
       return clone(palette);
+    }
+    let operations = Promise.resolve(), refreshTask;
+    function enqueue(operation) {
+      const task = operations.then(operation);
+      operations = task.catch(() => {});
+      return task;
+    }
+    async function requestPalette(update) {
+      const controller = new target.AbortController();
+      const timeout = target.setTimeout(() => controller.abort(), 10000);
+      try {
+        const response = await target.fetch('/api/settings', {
+          cache: 'no-store', signal: controller.signal,
+          ...(update ? {method: 'PUT', headers: {'content-type': 'application/json'}, body: JSON.stringify(update)} : {}),
+        });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data?.error?.message || data?.error || `HTTP ${response.status}`);
+        if (data.palette !== null && !validPalette(data.palette)) throw new Error('服务器未返回有效配色');
+        return data.palette;
+      } finally { target.clearTimeout(timeout); }
+    }
+    function refreshPalette() {
+      if (refreshTask) return refreshTask;
+      refreshTask = enqueue(async () => {
+        let server = await requestPalette();
+        if (server === null && hasSavedPalette) server = await requestPalette({palette: clone(palette), ifAbsent: true});
+        if (server === null) { palette = normalizePalette(); apply(); }
+        else setPalette(server);
+        return clone(palette);
+      }).finally(() => { refreshTask = undefined; });
+      return refreshTask;
+    }
+    function savePalette(value) {
+      if (!validPalette(value)) return Promise.reject(new Error('配色格式错误'));
+      const next = normalizePalette(value);
+      return enqueue(async () => {
+        const server = await requestPalette({palette: next});
+        if (server === null) throw new Error('服务器未确认保存配色');
+        return setPalette(server);
+      });
     }
     target.addEventListener?.('storage', event => {
       if (event.key === PALETTE_KEY) { readPalette(); apply(); return; }
@@ -128,8 +173,13 @@
       });
     });
     refresh();
+    if (typeof target.fetch === 'function') {
+      // Cached seeds render immediately; an offline read never discards them.
+      refreshPalette().catch(() => {});
+      target.addEventListener?.('focus', () => refreshPalette().catch(() => {}));
+    }
     return {
-      refresh, apply, syncControls, setPreference, resolvedTheme, setPalette, resetPalette,
+      refresh, apply, syncControls, setPreference, resolvedTheme, setPalette, resetPalette, refreshPalette, savePalette,
       normalizeColor: normalizedHex,
       getPalette: () => clone(palette),
       get paletteDefaults() { return clone(PALETTE_DEFAULTS); },

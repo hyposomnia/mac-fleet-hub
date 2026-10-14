@@ -5,11 +5,11 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content" />
   <!-- theme-color 与共享主题控制器、Titanium 页面底色同步。 -->
   <meta name="theme-color" content="#FAFAFA" />
-  <script src="/theme.js?v=218"></script>
+  <script src="/theme.js?v=223"></script>
   <title>mac fleet hub</title>
   <link rel="manifest" href="manifest.webmanifest" />
-  <link rel="icon" href="icons/favicon.svg?v=218" type="image/svg+xml" />
-  <link rel="apple-touch-icon" href="icons/icon-180.png?v=218" sizes="180x180" />
+  <link rel="icon" href="icons/favicon.svg?v=223" type="image/svg+xml" />
+  <link rel="apple-touch-icon" href="icons/icon-180.png?v=223" sizes="180x180" />
   <meta name="mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
@@ -17,8 +17,8 @@
   <!-- theme.js 在样式加载前同步应用已保存的外观，默认浅色。 -->
 
   <link rel="stylesheet" href="vendor/codemirror/lib/codemirror.css?v=5.65.20" />
-  <link rel="stylesheet" href="style.css?v=218" />
-  <link rel="stylesheet" href="account.css?v=218" />
+  <link rel="stylesheet" href="style.css?v=223" />
+  <link rel="stylesheet" href="account.css?v=223" />
 </head>
 <body>
   <div id="auth-status" role="status"><span id="auth-status-message">正在验证登录…</span><a href="">重新加载</a></div>
@@ -474,7 +474,6 @@
           </section>
           <section class="set-group">
             <div class="set-group-title">配色</div>
-            <p class="hint">设置四个基础颜色；页面、会话列表、正文和文件区域统一使用页面背景，输入框及其他控件的层级色自动生成。配色保存在当前浏览器。</p>
             <div class="appearance-palette-grid">
               <fieldset class="appearance-palette-card">
                 <legend>浅色</legend>
@@ -520,16 +519,12 @@
       </div>
     </section>
 
-    <!-- ───────── 自动化（访问密钥 + API 消息记录） ───────── -->
+    <!-- ───────── 自动化 ───────── -->
     <section id="automation-modal" class="fleet-settings-panel" data-settings-panel="automation" role="tabpanel" aria-labelledby="settings-tab-automation" hidden>
       <div class="settings-panel-card automation-modal-card">
-        <div class="automation-panel-tools"><a class="automation-doc-link" href="/automation-guide.html" target="_blank" rel="noopener">使用文档 ↗</a></div>
+        <div class="automation-panel-tools"><a id="automation-records-link" class="automation-doc-link" href="/automation-records.html" target="_blank" rel="noopener noreferrer">消息记录 ↗</a><a class="automation-doc-link" href="/automation-guide.html" target="_blank" rel="noopener">使用文档 ↗</a></div>
         <div class="modal-body">
-          <div class="seg set-tabs" role="tablist" aria-label="自动化设置">
-            <button data-automation-tab="keys" role="tab" aria-selected="true">访问密钥</button>
-            <button data-automation-tab="messages" role="tab" aria-selected="false">消息记录</button>
-          </div>
-          <section class="set-group set-panel" data-automation-panel="keys">
+          <section class="set-group">
             <div class="set-group-title automation-panel-title"><span>访问密钥</span><button id="automation-key-create" class="btn sm primary" type="button">新建密钥</button></div>
             <form id="automation-key-form" class="automation-key-form" hidden>
               <strong id="automation-key-form-title">新建密钥</strong>
@@ -548,12 +543,6 @@
             </form>
             <div id="automation-key-list" class="automation-key-list"><div class="message-record-empty">正在加载…</div></div>
             <p class="hint warn">未限定范围的密钥可向你的全部设备会话发送消息，请妥善保管。</p>
-          </section>
-          <section class="set-group set-panel message-records-panel" data-automation-panel="messages" hidden>
-            <div class="set-group-title automation-panel-title"><span>API 消息记录</span><button id="automation-message-refresh" class="btn sm" type="button">刷新</button></div>
-            <div class="automation-message-filter"><label for="automation-message-key-filter">访问密钥</label><select id="automation-message-key-filter" class="input"><option value="">全部密钥</option></select></div>
-            <p class="hint">最近 100 条请求及 AI 回复；结束后的记录保留 7 天。</p>
-            <div id="automation-message-records" class="message-records"><div class="message-record-empty">尚未加载</div></div>
           </section>
         </div>
       </div>
@@ -644,20 +633,20 @@
   <script src="vendor/codemirror/mode/yaml/yaml.js?v=5.65.20"></script>
   <script src="vendor/codemirror/mode/toml/toml.js?v=5.65.20"></script>
   <script src="vendor/codemirror/mode/properties/properties.js?v=5.65.20"></script>
-  <script src="auth-client.js?v=218"></script>
-  <script src="account.js?v=219"></script>
-  <script src="settings_dialog.js?v=218"></script>
-  <script src="markdown.js?v=218"></script>
-  <script src="preview.js?v=218"></script>
-  <script src="chat_model.js?v=218"></script>
-  <script src="upload_model.js?v=218"></script>
-  <script src="device_appearance.js?v=218"></script>
-  <script src="sidebar_layout.js?v=218"></script>
-  <script src="workspace_tabs.js?v=218"></script>
-  <script src="compact_composer.js?v=218"></script>
-  <script src="fleet_core.js?v=218"></script>
-  <script src="app.js?v=218"></script>
-  <script src="workspace.js?v=218"></script>
-  <script src="native_bridge.js?v=218"></script>
+  <script src="auth-client.js?v=223"></script>
+  <script src="account.js?v=223"></script>
+  <script src="settings_dialog.js?v=223"></script>
+  <script src="markdown.js?v=223"></script>
+  <script src="preview.js?v=223"></script>
+  <script src="chat_model.js?v=223"></script>
+  <script src="upload_model.js?v=223"></script>
+  <script src="device_appearance.js?v=223"></script>
+  <script src="sidebar_layout.js?v=223"></script>
+  <script src="workspace_tabs.js?v=223"></script>
+  <script src="compact_composer.js?v=223"></script>
+  <script src="fleet_core.js?v=223"></script>
+  <script src="app.js?v=223"></script>
+  <script src="workspace.js?v=223"></script>
+  <script src="native_bridge.js?v=223"></script>
 </body>
 </html>

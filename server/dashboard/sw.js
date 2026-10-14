@@ -1,5 +1,5 @@
 // PWA 外壳缓存。终端、API 与用户文件必须实时，明确不进入 Cache Storage。
-const CACHE = 'fleet-shell-v218';
+const CACHE = 'fleet-shell-v223';
 const FILE_TYPE_ICONS = [
   'audio', 'c', 'console', 'cpp', 'csharp', 'css', 'dart', 'database', 'docker',
   'document', 'exe', 'font', 'git', 'go', 'html', 'image', 'java', 'javascript',
@@ -14,15 +14,15 @@ const CODEMIRROR_ASSETS = [
   'javascript', 'xml', 'jsx', 'css', 'go', 'python', 'ruby', 'shell', 'yaml', 'toml', 'properties',
 ].map((name, index) => index < 2 ? name : `/vendor/codemirror/mode/${name}/${name}.js?v=5.65.20`);
 const SHELL = [
-  '/', '/index.html', '/automation-guide.html', '/theme.js?v=218', '/device_appearance.js?v=218', '/style.css?v=218', '/account.css?v=218', '/auth-client.js?v=218',
+  '/', '/index.html', '/automation-guide.html', '/automation-records.html', '/automation-records.js?v=223', '/record_pager.js?v=223', '/theme.js?v=223', '/device_appearance.js?v=223', '/style.css?v=223', '/account.css?v=223', '/auth-client.js?v=223',
   '/vendor/purify.min.js?v=3.2.6', '/vendor/marked.min.js?v=15.0.12',
   ...CODEMIRROR_ASSETS,
-  "/fleet_core.js?v=218", "/workspace.js?v=218", "/native_bridge.js?v=218", "/native.css?v=218", "/titanium.css?v=218", "/icons/logo.svg?v=218",
-  '/markdown.js?v=218', '/preview.js?v=218', '/chat_model.js?v=218',
-  '/account.js?v=218', '/settings_dialog.js?v=218', '/auth_effects.js?v=218',
-  '/upload_model.js?v=218', '/sidebar_layout.js?v=218', '/workspace_tabs.js?v=218', '/compact_composer.js?v=218', '/app.js?v=218',
-  '/manifest.webmanifest', '/icons/icon.svg?v=218', '/icons/favicon.svg?v=218', '/icons/icon-180.png?v=218', '/icons/icon-192.png?v=218',
-  '/icons/icon-512.png?v=218', '/icons/icon-maskable-512.png?v=218',
+  "/fleet_core.js?v=223", "/workspace.js?v=223", "/native_bridge.js?v=223", "/native.css?v=223", "/titanium.css?v=223", "/icons/logo.svg?v=223",
+  '/markdown.js?v=223', '/preview.js?v=223', '/chat_model.js?v=223',
+  '/account.js?v=223', '/settings_dialog.js?v=223', '/auth_effects.js?v=223',
+  '/upload_model.js?v=223', '/sidebar_layout.js?v=223', '/workspace_tabs.js?v=223', '/compact_composer.js?v=223', '/app.js?v=223',
+  '/manifest.webmanifest', '/icons/icon.svg?v=223', '/icons/favicon.svg?v=223', '/icons/icon-180.png?v=223', '/icons/icon-192.png?v=223',
+  '/icons/icon-512.png?v=223', '/icons/icon-maskable-512.png?v=223',
   ...FILE_TYPE_ICONS,
 ];
 const SHELL_KEYS = new Set(SHELL);
@@ -72,7 +72,7 @@ self.addEventListener('fetch', (event) => {
   if (request.mode === 'navigate') {
     event.respondWith((async () => {
       const cache = await caches.open(CACHE);
-      const navigationKey = url.pathname === '/automation-guide.html' ? '/automation-guide.html' : '/index.html';
+      const navigationKey = ['/automation-guide.html', '/automation-records.html'].includes(url.pathname) ? url.pathname : '/index.html';
       try {
         const response = await fetch(request, { cache: 'no-cache' });
         if (response.ok && !response.redirected) await cache.put(navigationKey, response.clone());

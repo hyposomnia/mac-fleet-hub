@@ -149,7 +149,7 @@ body.account-auth { background: var(--surface); isolation: isolate; }
 .fleet-settings-panel .account-table-scroll { background: var(--surface-1); }
 .fleet-settings-panel .account-table tbody tr:nth-child(odd) { background: var(--surface-2); }
 .fleet-settings-panel .account-table { font-size: 12px; }
-.automation-panel-tools { display: flex; align-items: center; justify-content: flex-end; min-height: 44px; margin-top: -12px; padding-right: 52px; margin-bottom: 12px; }
+.automation-panel-tools { display: flex; align-items: center; justify-content: flex-end; gap: 18px; min-height: 44px; margin-top: -12px; padding-right: 52px; margin-bottom: 12px; }
 .fleet-settings-panel .modal-body { padding: 0; }
 .fleet-settings-panel .modal-foot { padding: 20px 0 0; }
 .fleet-settings-panel .input { background: var(--settings-input); }
