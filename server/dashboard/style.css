@@ -464,8 +464,7 @@ svg.ic.fill { fill: currentColor; stroke: none; }
 .automation-key-form .input { width: 100%; min-width: 0; }
 .automation-key-form .input[hidden] { display: none; }
 .automation-key-form-actions { display: flex; justify-content: flex-end; gap: 8px; }
-.automation-key-card { display: grid; gap: 10px; padding: 13px; border: 0; border-radius: var(--radius-card); background: #fff; }
-[data-theme="dark"] .automation-key-card { background: var(--surface-1); }
+.automation-key-card { display: grid; gap: 10px; padding: 13px; border: 0; border-radius: var(--radius-card); background: var(--settings-surface, var(--surface-1)); }
 .automation-key-card > .api-key-copy-row .input { background: transparent; }
 .automation-key-card > .automation-key-form { margin-top: 2px; padding: 14px 0 0; border: 0;  border-radius: 0; background: transparent; }
 .automation-key-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
