@@ -892,8 +892,7 @@ function openUnifiedSettings(page, trigger) {
   if (!FleetSettingsDialog.active) {
     FleetSettingsDialog.active = FleetSettingsDialog.create({
       document, overlay: $('#fleet-settings-modal'), panels: $$('[data-settings-panel]'), buttons: $$('[data-settings-page]'),
-      title: $('#fleet-settings-title'), status: $('#fleet-settings-status'), confirm: message => window.confirm(message),
-      discardPrompt: { container: $('#settings-discard-prompt'), cancel: $('#settings-keep-editing'), discard: $('#settings-discard') },
+      title: $('#fleet-settings-title'), status: $('#fleet-settings-status'),
       load: async (selected, container) => {
         if (selected === 'appearance') { prepareAppearanceSettings(); return null; }
         if (selected === 'sessions') { prepareSessionSettings(); return null; }

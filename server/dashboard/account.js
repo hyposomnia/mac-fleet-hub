@@ -15,11 +15,12 @@
     return release;
   }
   function createPages({ document, auth, location, history, confirm, content: suppliedContent, status: suppliedStatus, nav: suppliedNav, onDevicesChanged }) {
-    const content = suppliedContent || document.querySelector('#page-content');
+    let content = suppliedContent || document.querySelector('#page-content');
     const status = suppliedStatus || document.querySelector('#page-status');
     const nav = suppliedNav || document.querySelector('#page-nav');
     let flowLocked = false;
     let submittingForms = 0;
+    let securityDialog = null;
     const next = auth.safeNext(new URLSearchParams(location.search).get('next'));
 
     function node(tag, text = '', props = {}) {
@@ -34,7 +35,9 @@
       return element;
     }
     function heading(title, description) {
-      content.replaceChildren(node('h1', title, { className: suppliedContent && ['账号设置', '设备'].includes(title) ? 'settings-primary-title' : '' }));
+      const heading = node('h1', title, { className: suppliedContent && ['账号设置', '设备'].includes(title) ? 'settings-primary-title' : '' });
+      if (securityDialog) heading.id = 'auth-security-title';
+      content.replaceChildren(heading);
       if (description) content.append(node('p', description, { className: 'account-muted' }));
       status.textContent = '';
     }
@@ -139,7 +142,8 @@
       if (totp?.secret) {
         content.append(node('p', '无法扫码时，手动输入密钥：'), node('code', totp.secret, { className: 'account-secret' }));
       }
-      form(name, [otpField()], '验证并完成设置', submit);
+      const verification = form(name, [otpField()], '验证并完成设置', submit);
+      if (securityDialog) verification.inputs.get('code').focus();
     }
     async function completeAuthentication(result) {
       if (!result?.user) throw new Error('验证未完成，请重试。');
@@ -151,9 +155,23 @@
       else if (result?.state === 'challenge') showAuth('verify');
       else throw new Error('登录流程响应无效，请重试。');
     }
+    function openSecurityDialog() {
+      if (suppliedContent || securityDialog) return;
+      securityDialog = node('dialog', '', { className: 'account-security-dialog' });
+      securityDialog.setAttribute('aria-labelledby', 'auth-security-title');
+      securityDialog.setAttribute('aria-modal', 'true');
+      securityDialog.setAttribute('closedby', 'none');
+      securityDialog.oncancel = event => event.preventDefault();
+      const body = node('div', '', { className: 'account-security-content' });
+      securityDialog.append(body, status);
+      content.replaceChildren(securityDialog);
+      content = body;
+      securityDialog.showModal();
+    }
     function showAuth(step, totp) {
       history.replaceState(null, '', authURL(step));
       if (step === 'setup') {
+        openSecurityDialog();
         heading('设置 Authenticator');
         showTOTP(totp, 'verify', async (values) => completeAuthentication(await post('/api/auth/verify', values)));
       } else if (step === 'verify') {

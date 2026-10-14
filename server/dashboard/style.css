@@ -1,4 +1,4 @@
-@import url("titanium.css?v=224");
+@import url("titanium.css?v=225");
 
 /* ============================================================
    mac fleet hub —— 设计系统 v2（令牌 + 组件 + 布局）
@@ -464,7 +464,9 @@ svg.ic.fill { fill: currentColor; stroke: none; }
 .automation-key-form .input { width: 100%; min-width: 0; }
 .automation-key-form .input[hidden] { display: none; }
 .automation-key-form-actions { display: flex; justify-content: flex-end; gap: 8px; }
-.automation-key-card { display: grid; gap: 10px; padding: 13px; border: 0; border-radius: var(--radius-card); background: var(--surface-2); }
+.automation-key-card { display: grid; gap: 10px; padding: 13px; border: 0; border-radius: var(--radius-card); background: #fff; }
+[data-theme="dark"] .automation-key-card { background: var(--surface-1); }
+.automation-key-card > .api-key-copy-row .input { background: transparent; }
 .automation-key-card > .automation-key-form { margin-top: 2px; padding: 14px 0 0; border: 0;  border-radius: 0; background: transparent; }
 .automation-key-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
 .automation-key-title { display: grid; gap: 3px; min-width: 0; }
@@ -565,6 +567,12 @@ html.automation-doc-root, html.automation-doc-root body { height: auto; min-heig
 .menu button:disabled { color: var(--text-2); cursor: not-allowed; opacity: .48; }
 .menu button:disabled:hover { background: transparent; color: var(--text-2); }
 .menu button.danger:hover { background: var(--danger-soft); color: var(--danger); }
+#usermenu button:hover, #m-menu button:hover,
+#usermenu button[aria-pressed="true"], #m-menu button[aria-pressed="true"] { background: transparent; color: var(--text-1); }
+#usermenu button:hover > .ic, #m-menu button:hover > .ic,
+#usermenu button[aria-pressed="true"] > .ic, #m-menu button[aria-pressed="true"] > .ic { color: var(--accent-text); }
+#usermenu .menu-check, #m-menu .menu-check { background: transparent; }
+#usermenu .menu-check::after, #m-menu .menu-check::after { border-color: var(--accent-text); }
 .menu .sep { height: 1px; background: var(--border); margin: 5px 4px; }
 
 /* ============================================================
@@ -722,7 +730,8 @@ html.automation-doc-root, html.automation-doc-root body { height: auto; min-heig
 
 .railfoot { margin-top: auto; display: flex; flex-direction: column; gap: 6px; padding-top: var(--s3); border: 0; position: relative; }
 .userrow { display: flex; align-items: center; gap: 9px; padding: 8px 10px; border-radius: var(--radius-control); width: 100%; transition: background var(--dur-1) var(--ease); }
-.userrow:hover { background: var(--surface-hover); }
+.userrow:hover { background: transparent; }
+.userrow:hover .ic { color: var(--accent-text); }
 .avatar { width: 28px; height: 28px; display: grid; place-items: center; font-size: var(--t-secondary); font-weight: 600; background: transparent; color: var(--accent-text); flex: none; }
 .avatar svg.ic { width: 24px; height: 24px; }
 .userrow .un { flex: 1; font-weight: 500; font-size: var(--t-body); text-align: left; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

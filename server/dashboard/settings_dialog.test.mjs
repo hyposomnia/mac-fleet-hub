@@ -27,7 +27,7 @@ function element(dataset = {}) {
     querySelectorAll() { return this.controls; }, replaceChildren(...children) { this.children = children; },
     append(...children) { this.children.push(...children); }, focus() { this.focused = true; }, addEventListener() {} };
 }
-function fixture(load = async () => null, confirm = () => true, inline = false) {
+function fixture(load = async () => null) {
   assert.ok(source, 'unified settings controller missing');
   const sandbox = {};
   vm.runInNewContext(source, sandbox);
@@ -37,9 +37,8 @@ function fixture(load = async () => null, confirm = () => true, inline = false) 
   const overlay = element();
   const status = element();
   const document = { createElement: () => element(), addEventListener() {}, activeElement: element() };
-  const discardPrompt = inline ? { container: element(), cancel: element(), discard: element() } : null;
-  const dialog = sandbox.FleetSettingsDialog.create({ document, overlay, panels, buttons, title: element(), status, confirm, load, discardPrompt });
-  return { dialog, panels, buttons, overlay, status, discardPrompt };
+  const dialog = sandbox.FleetSettingsDialog.create({ document, overlay, panels, buttons, title: element(), status, load });
+  return { dialog, panels, buttons, overlay, status };
 }
 
 test('all settings share one overlay and select only the requested panel', async () => {
@@ -76,17 +75,17 @@ test('security recovery flow blocks closing and switching until acknowledged', a
   assert.equal(current.dialog.close(), true);
 });
 
-test('edited settings are not discarded when confirmation is declined', async () => {
-  const current = fixture(async () => null, () => false);
+test('switching settings immediately discards unsaved edits', async () => {
+  const current = fixture();
   const input = { value: '', checked: false };
   current.panels[3].controls.push(input);
   await current.dialog.open('sessions');
   input.value = '5';
-  assert.equal(current.dialog.close(), false);
-  await current.dialog.open('automation');
-  assert.equal(current.dialog.page, 'sessions');
-  current.dialog.reset();
-  assert.equal(current.overlay.hidden, true);
+  assert.equal(await current.dialog.open('automation'), true);
+  assert.equal(current.dialog.page, 'automation');
+  assert.equal(input.value, '');
+  await current.dialog.open('sessions');
+  assert.equal(input.value, '');
 });
 
 test('escape and tab are trapped before dashboard shortcuts and close restores focus', async () => {
@@ -101,18 +100,19 @@ test('escape and tab are trapped before dashboard shortcuts and close restores f
   assert.equal(trigger.focused, true);
 });
 
-test('inline discard prompt never invokes a blocking native browser confirmation', async () => {
-  const current = fixture(async () => null, () => { throw Error('native confirm should not run'); }, true);
+test('closing settings discards edits while markSaved preserves submitted values', async () => {
+  const current = fixture();
   const input = { value: '', checked: false };
   current.panels[3].controls.push(input);
   await current.dialog.open('sessions');
   input.value = '7';
-  assert.equal(current.dialog.close(), false);
-  assert.equal(current.discardPrompt.container.hidden, false);
-  current.discardPrompt.cancel.onclick();
-  assert.equal(current.discardPrompt.container.hidden, true);
-  assert.equal(current.dialog.page, 'sessions');
-  assert.equal(current.dialog.close(), false);
-  await current.discardPrompt.discard.onclick();
+  assert.equal(current.dialog.close(), true);
   assert.equal(current.overlay.hidden, true);
+  assert.equal(input.value, '');
+  await current.dialog.open('sessions');
+  input.value = '9';
+  current.dialog.markSaved();
+  input.value = '10';
+  assert.equal(current.dialog.close(), true);
+  assert.equal(input.value, '9');
 });

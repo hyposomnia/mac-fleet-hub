@@ -12,6 +12,7 @@ class Element {
   setAttribute(key, value) { this.attributes[key] = String(value); }
   getAttribute(key) { return this.attributes[key]; }
   focus() { this.focused = true; }
+  showModal() { this.open = true; this.modal = true; }
   getBoundingClientRect() { return { top: 0, height: 40 }; }
 }
 function text(node) { return typeof node === 'string' ? node : (node?.textContent || '') + (node?.children || []).map(text).join(' '); }
@@ -89,7 +90,37 @@ test('registration has exactly three fields, sends exact contract, and requires 
   assert.equal(current.location.pathname, '/auth/setup');
   assert.match(text(current.content), /Authenticator/);
   assert.equal(current.find((node) => node.tagName === 'img').src, '/api/auth/qr');
+  const dialog = current.find(node => node.tagName === 'dialog');
+  assert.equal(dialog.modal, true);
+  assert.equal(dialog.attributes.closedby, 'none');
+  assert.equal(dialog.attributes['aria-modal'], 'true');
+  assert.equal(dialog.attributes['aria-labelledby'], current.find(node => node.tagName === 'h1').id);
+  let cancelled = false;
+  dialog.oncancel({ preventDefault() { cancelled = true; } });
+  assert.equal(cancelled, true);
+  assert.equal(dialog.open, true);
+  assert.equal(dialog.onclick, undefined, 'backdrop clicks must not dismiss setup');
+  assert.equal(current.pages.canLeave(), false);
   assert.equal(current.redirects.length, 0);
+});
+
+test('registration modal stays open through verification failures and recovery acknowledgment', async () => {
+  const current = harness({ path: '/auth/setup', respond: (_, { body }) => {
+    if (body.code !== '123456') throw Error('验证码错误');
+    return { user: { id: 'u1' }, recovery_codes: ['TEST-ONLY'] };
+  } });
+  await current.start();
+  const dialog = current.find(node => node.tagName === 'dialog');
+  await current.submit('verify', { code: '000000' });
+  assert.equal(dialog.open, true);
+  assert.ok(current.form('verify'));
+  await current.submit('verify', { code: '123456' });
+  assert.ok(current.form('recovery-ack'));
+  assert.equal(dialog.open, true);
+  assert.equal(current.pages.canLeave(), false);
+  assert.equal(current.find(node => node.tagName === 'h1').id, dialog.attributes['aria-labelledby']);
+  await current.submit('recovery-ack', { saved: true });
+  assert.equal(current.redirects[0], '/');
 });
 
 test('account inputs use valid autocomplete and security forms identify the current account without changing payloads', async () => {

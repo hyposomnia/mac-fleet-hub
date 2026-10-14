@@ -1,40 +1,30 @@
 (function (host) {
   'use strict';
   const labels = { account: '账号设置', 'add-device': '设备', appearance: '外观', automation: '自动化', sessions: '会话设置' };
-  function create({ document, overlay, panels, buttons, title, status, confirm, load, discardPrompt }) {
+  function create({ document, overlay, panels, buttons, title, status, load }) {
     let page = null;
     let generation = 0;
     let flow = null;
     let trigger = null;
     let baseline = new Map();
     let inertSiblings = [];
-    let pendingLeave = null;
-    let previousFocus = null;
     const panelFor = selected => panels.find(panel => panel.dataset.settingsPanel === selected);
     const controls = () => [...(panelFor(page)?.querySelectorAll('input, textarea, select') || [])]
       .filter(control => !control.readOnly && !control.disabled && !control.closest?.('[hidden]'));
     const snapshot = () => { baseline = new Map(controls().map(control => [control, [control.value, control.checked]])); };
-    function hideDiscard() {
-      if (discardPrompt) discardPrompt.container.hidden = true;
-      pendingLeave = null;
-      previousFocus?.focus();
+    function discardChanges() {
+      for (const [control, [value, checked]] of baseline) {
+        control.value = value;
+        control.checked = checked;
+      }
+      baseline.clear();
     }
-    function canLeave(action, discard = false) {
+    function canLeave() {
       if (flow?.canLeave && !flow.canLeave()) {
         status.textContent = '请先完成验证并保存恢复码，再离开此页。';
         return false;
       }
-      const dirty = controls().some(control => {
-        const original = baseline.get(control) || [control.defaultValue || '', control.defaultChecked || false];
-        return control.value !== original[0] || Boolean(control.checked) !== Boolean(original[1]);
-      });
-      if (!dirty || discard) return true;
-      if (!discardPrompt) return confirm('离开此页并放弃未提交的设置？');
-      pendingLeave = action;
-      previousFocus = document.activeElement;
-      discardPrompt.container.hidden = false;
-      discardPrompt.cancel.focus();
-      return false;
+      return true;
     }
     function clearPrivate() {
       for (const panel of panels) {
@@ -46,31 +36,31 @@
       generation++;
       overlay.hidden = true;
       panels.forEach(panel => { panel.hidden = true; });
+      discardChanges();
       clearPrivate();
-      baseline.clear();
       status.textContent = '';
       page = null;
-      hideDiscard();
       for (const [element, previous] of inertSiblings) element.inert = previous;
       inertSiblings = [];
     }
-    function close(discard = false) {
+    function close() {
       if (overlay.hidden) return true;
-      if (!canLeave(() => close(true), discard)) return false;
+      if (!canLeave()) return false;
       reset();
       trigger?.focus();
       return true;
     }
-    async function open(selected, source, discard = false) {
+    async function open(selected, source) {
       if (!Object.hasOwn(labels, selected)) return false;
       if (!overlay.hidden && page === selected) return true;
-      if (!overlay.hidden && !canLeave(() => open(selected, source, true), discard)) return false;
+      if (!overlay.hidden && !canLeave()) return false;
       if (overlay.hidden) {
         trigger = source || document.activeElement;
         inertSiblings = [...(overlay.parentElement?.children || [])].filter(element => element !== overlay).map(element => [element, element.inert]);
         inertSiblings.forEach(([element]) => { element.inert = true; });
       }
       const revision = ++generation;
+      discardChanges();
       clearPrivate();
       page = selected;
       title.textContent = labels[selected];
@@ -102,11 +92,9 @@
       if (event.key === 'Escape') {
         event.preventDefault();
         event.stopImmediatePropagation();
-        if (pendingLeave) hideDiscard();
-        else close();
+        close();
       } else if (event.key === 'Tab') {
-        const focusRoot = pendingLeave ? discardPrompt.container : overlay;
-        const focusable = [...focusRoot.querySelectorAll('button, a[href], input, select, textarea, [tabindex="0"]')]
+        const focusable = [...overlay.querySelectorAll('button, a[href], input, select, textarea, [tabindex="0"]')]
           .filter(element => !element.disabled && !element.closest?.('[hidden]') && element.getClientRects?.().length);
         const first = focusable[0];
         const last = focusable[focusable.length - 1];
@@ -124,14 +112,6 @@
       }
     }
     document.addEventListener('keydown', keydown, true);
-    if (discardPrompt) {
-      discardPrompt.cancel.onclick = hideDiscard;
-      discardPrompt.discard.onclick = () => {
-        const action = pendingLeave;
-        hideDiscard();
-        return action?.();
-      };
-    }
     buttons.forEach(button => { button.onclick = () => open(button.dataset.settingsPage); });
     return { open, close, reset, markSaved: snapshot, keydown, get page() { return page; } };
   }
