@@ -3486,7 +3486,7 @@ function applyChatMetadataDefaults(chat) {
   for (const id of model.messages || []) {
     const item = model.items[id];
     if (!item || item.type !== 'assistant') continue;
-    if (!item.model && chat.selectedModel) item.model = chat.selectedModel;
+    if (!item.model && chat.selectedModel) item.model = selectedChatModel(chat)?.model || chat.selectedModel;
     if (!item.effort && chat.selectedEffort) item.effort = chat.selectedEffort;
   }
 }
@@ -4918,7 +4918,7 @@ const CHAT_APPROVAL_OPTIONS = [
 ];
 
 function selectedChatModel(chat) {
-  return chat.models.find((item) => item.value === chat.selectedModel);
+  return chat.models?.find((item) => item.value === chat.selectedModel);
 }
 
 function chatModelLabel(model, compact = false) {
@@ -5150,6 +5150,7 @@ function renderChatOptionChoice(kind, option, selected) {
   const description = kind === 'speed' ? chatServiceTierDescription(option) : option.description;
   const button = h('button', {
     type: 'button', class: 'chat-option-choice' + (selected ? ' selected' : ''), role: 'menuitemradio',
+    disabled: option.unavailable ? '' : null,
     'aria-checked': String(selected), dataset: { chatOptionKind: kind, chatOptionValue: value },
   }, h('span', { class: 'chat-option-choice-copy' },
     h('span', { class: 'chat-option-choice-label', text: label }),
@@ -5185,7 +5186,7 @@ function openChatOptionsPanel(kind) {
 function selectChatOption(kind, value) {
   const chat = state.chat;
   if (!chat) return;
-  if (kind === 'model' && chat.models.some((model) => model.value === value)) {
+  if (kind === 'model' && chat.models.some((model) => model.value === value && !model.unavailable)) {
     chat.selectedModel = value;
     const model = selectedChatModel(chat);
     configureChatEfforts(chat, model?.defaultEffort || '');
@@ -5215,7 +5216,8 @@ function renderChatOptions(chat) {
   $('#chat-options-model-value').textContent = chatModelLabel(model, true);
   $('#chat-options-effort-value').textContent = effort;
   $('#chat-options-speed-value').textContent = chatServiceTierLabel(tier);
-  $('[data-chat-options-panel="model"]').disabled = chat.models.length === 0;
+  $('[data-chat-options-panel="model"]').disabled = !chat.models.some((model) => !model.unavailable);
+  $('[data-chat-options-panel="model"]').title = chat.modelsError || '';
   $('[data-chat-options-panel="effort"]').disabled = chat.efforts.length === 0;
   $('[data-chat-options-panel="speed"]').disabled = chat.serviceTiers.length === 0;
 }
@@ -5228,8 +5230,10 @@ function configureChatOptions(chat, resumed) {
   chat.approvalUpdateSeq = Number(chat.approvalUpdateSeq) || 0;
 
   const models = Array.isArray(resumed.models) ? resumed.models.slice() : [];
+  chat.modelsError = resumed.modelsError || '';
   if (resumed.model && !models.some((m) => m.value === resumed.model)) {
-    models.unshift({ value: resumed.model, displayName: resumed.model, defaultEffort: '', supportedEfforts: [], serviceTiers: [] });
+    models.unshift({ value: resumed.model, displayName: resumed.model, defaultEffort: '', supportedEfforts: [], serviceTiers: [],
+      unavailable: state.assistant === 'dsh' && Boolean(chat.modelsError || Array.isArray(resumed.models)) });
   }
   chat.models = models.filter((model) => model?.value);
   chat.selectedModel = resumed.model || (models.find((m) => m.isDefault)?.value || models[0]?.value || '');
@@ -5241,6 +5245,7 @@ function configureChatOptions(chat, resumed) {
   if (state.chat === chat) {
     setChatApprovalEnabled(chat, true);
     renderChatOptions(chat);
+    if (chat.modelsError) toast(chat.modelsError, 'err');
   }
 }
 

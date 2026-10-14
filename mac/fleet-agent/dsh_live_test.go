@@ -42,6 +42,53 @@ func liveCtx(t *testing.T) (context.Context, context.CancelFunc) {
 	return context.WithTimeout(context.Background(), 30*time.Second)
 }
 
+func TestLiveDSHModelCatalog(t *testing.T) {
+	client := liveDSHClient(t)
+	ctx, cancel := liveCtx(t)
+	defer cancel()
+	raw, err := client.call(ctx, "session/modelCatalog", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var wire struct {
+		Groups []struct {
+			ID     string `json:"id"`
+			Models []struct {
+				ID string `json:"id"`
+			} `json:"models"`
+		} `json:"groups"`
+	}
+	if err := json.Unmarshal(raw, &wire); err != nil {
+		t.Fatal(err)
+	}
+	backend := newDSHChatBackend("", "", "")
+	catalog, err := backend.modelCatalog(ctx, client)
+	if err != nil {
+		t.Fatal(err)
+	}
+	expected := make(map[string]bool)
+	for _, group := range wire.Groups {
+		for _, model := range group.Models {
+			expected[group.ID+"\x00"+model.ID] = true
+		}
+	}
+	options := catalog.options()
+	if len(options) != len(expected) {
+		t.Fatalf("options=%d actual catalog identities=%d", len(options), len(expected))
+	}
+	for _, option := range options {
+		key := option.Provider + "\x00" + option.Model
+		if !expected[key] {
+			t.Fatalf("unexpected option: %+v", option)
+		}
+		delete(expected, key)
+	}
+	if len(expected) != 0 {
+		t.Fatalf("missing identities: %v", expected)
+	}
+	t.Logf("真实目录验证通过：%d 个提供商，%d 个模型选项", len(wire.Groups), len(options))
+}
+
 func truncateJSON(raw []byte, n int) string {
 	if len(raw) <= n {
 		return string(raw)

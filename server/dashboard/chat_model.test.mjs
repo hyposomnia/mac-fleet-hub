@@ -114,6 +114,36 @@ vm.runInContext(`globalThis.__chatIncrementalTest = {
   reconcileChatActivityItems: typeof reconcileChatActivityItems === 'function' ? reconcileChatActivityItems : null,
 };`, appSandbox);
 const { chatActivityScrollTop, reconcileChatActivityItems } = appSandbox.__chatIncrementalTest;
+vm.runInContext('globalThis.__modelCatalogTest = { configureChatOptions, renderChatOptionChoice };', appSandbox);
+const { configureChatOptions, renderChatOptionChoice } = appSandbox.__modelCatalogTest;
+
+test('DSH provider identities remain distinct and metadata uses the model ID', () => {
+  const chat = { model: { messages: ['reply'], items: { reply: { type: 'assistant' } } } };
+  configureChatOptions(chat, {
+    model: 'b/shared', models: [
+      { value: 'a/shared', model: 'shared', provider: 'a', displayName: 'Shared · A' },
+      { value: 'b/shared', model: 'shared', provider: 'b', displayName: 'Shared · B' },
+    ],
+  });
+  assert.equal(chat.models.length, 2);
+  assert.equal(chat.selectedModel, 'b/shared');
+  applyChatMetadataDefaults(chat);
+  assert.equal(chat.model.items.reply.model, 'shared');
+});
+
+test('a failed DSH catalog keeps the historical model visible without offering it as a choice', () => {
+  const previousAssistant = appState.assistant;
+  appState.assistant = 'dsh';
+  try {
+    const chat = {};
+    configureChatOptions(chat, { model: 'historical', modelsError: '目录读取失败' });
+    assert.equal(chat.selectedModel, 'historical');
+    assert.equal(chat.modelsError, '目录读取失败');
+    assert.equal(chat.models[0].unavailable, true);
+    const choice = renderChatOptionChoice('model', chat.models[0], true);
+    assert.equal(choice.attributes.disabled, '');
+  } finally { appState.assistant = previousAssistant; }
+});
 function toolLabelText(item) {
   const status = chatToolStatus(item.status);
   return chatToolActivityLabel(item, status, chatToolDuration(item.durationMs)).map(nodeText).join('');
