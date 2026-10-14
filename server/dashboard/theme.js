@@ -142,6 +142,8 @@
     function refreshPalette() {
       if (refreshTask) return refreshTask;
       refreshTask = enqueue(async () => {
+        // Authentication steps have no full session yet; keep their local palette.
+        if (/^\/auth(?:\/|$)/.test(target.location?.pathname || '')) return clone(palette);
         let server = await requestPalette();
         if (server === null && hasSavedPalette) server = await requestPalette({palette: clone(palette), ifAbsent: true});
         if (server === null) { palette = normalizePalette(); apply(); }

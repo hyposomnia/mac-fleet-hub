@@ -3,15 +3,16 @@ import assert from 'node:assert/strict';
 import vm from 'node:vm';
 import { readFile } from 'node:fs/promises';
 const source = await readFile(new URL('./theme.js', import.meta.url), 'utf8');
+const authSource = await readFile(new URL('./auth-client.js', import.meta.url), 'utf8');
 const styleSource = await readFile(new URL('./style.css', import.meta.url), 'utf8');
-function fixture(stored = null, light = false, blocked = false, savedPalette = null, network = null) {
+function fixture(stored = null, light = false, blocked = false, savedPalette = null, network = null, pathname = '/account') {
   const listeners = {}, media = { matches: light, addEventListener: (type, fn) => { listeners.media = fn; } };
   const values = new Map();
   if (stored !== null) values.set('fleet-theme', stored);
   if (savedPalette !== null) values.set('fleet-theme-palette-v1', JSON.stringify(savedPalette));
   const styleValues = {};
   const attrs = {}, meta = {}, controls = ['light', 'dark', 'system'].map(themeChoice => ({dataset:{themeChoice}, setAttribute(key,value) { this[key]=value; }}));
-  const host = { document: { documentElement: {style:{setProperty:(key,value)=>{styleValues[key]=value;}},setAttribute: (key,value) => {attrs[key]=value;}}, querySelector: () => meta, querySelectorAll: () => controls, addEventListener() {} },
+  const host = { location: { pathname }, document: { documentElement: {style:{setProperty:(key,value)=>{styleValues[key]=value;}},setAttribute: (key,value) => {attrs[key]=value;}}, querySelector: () => meta, querySelectorAll: () => controls, addEventListener() {} },
     localStorage: {getItem(key) {if (blocked) throw Error('blocked'); return values.get(key) ?? null;}, setItem(key,value) {if(blocked) throw Error('blocked'); values.set(key,value);}, removeItem(key) {if(blocked) throw Error('blocked'); values.delete(key);}},
     matchMedia: () => media, addEventListener: (type,fn) => {listeners[type]=fn;} };
   if (network) Object.assign(host,{fetch:network,AbortController,setTimeout,clearTimeout});
@@ -176,4 +177,49 @@ test('standalone pages load server colors at startup and refresh on focus withou
   await f.listeners.focus();
   assert.equal(calls,2);
   assert.equal(f.styleValues['--bg'],'#AABBCC');
+});
+
+
+test('authentication pages retain local colors without requesting private settings at startup or focus', async () => {
+  for (const path of ['/auth', '/auth/', '/auth/register', '/auth/verify', '/auth/setup', '/auth/recovery']) {
+    const requests = [];
+    const f = fixture('dark', false, false, {dark: {canvas: '#123456'}}, async url => {
+      requests.push(url);
+      return {ok: false, json: async () => ({error: 'unauthorized'})};
+    }, path);
+    await f.host.FleetTheme.refreshPalette();
+    await f.listeners.focus();
+    await f.host.FleetTheme.refreshPalette();
+    assert.deepEqual(requests, [], path);
+    assert.equal(f.styleValues['--bg'], '#123456');
+    f.host.FleetTheme.setPreference('light');
+    assert.equal(f.attrs['data-theme'], 'light');
+  }
+});
+
+test('focus after the password step preserves the pending challenge and permits OTP verification', async () => {
+  const f = fixture(null, false, false, null, async () => Response.json({palette: null}), '/auth');
+  await f.host.FleetTheme.refreshPalette();
+  const sandbox = {URL, Headers};
+  vm.runInNewContext(authSource, sandbox);
+  const redirects = [], requests = [];
+  const location = {origin: 'https://fleet.test', pathname: '/auth', search: '?next=%2Faccount', replace: url => redirects.push(url)};
+  const client = sandbox.FleetAuth.createClient({location, fetch: async url => {
+    requests.push(url);
+    if (url === '/api/auth/login') return Response.json({state: 'challenge'});
+    if (url === '/api/auth/verify') return Response.json({user: {id: 'alice'}});
+    return new Response('', {status: 401});
+  }});
+  f.host.fetch = client.fetch;
+  f.host.location = location;
+  await client.json('/api/auth/login', {method: 'POST', body: {email: 'alice@example.com', password: 'test-password'}});
+  location.pathname = '/auth/verify';
+  await f.listeners.focus();
+  await f.host.FleetTheme.refreshPalette();
+  assert.deepEqual(redirects, []);
+  assert.equal(location.pathname, '/auth/verify');
+  assert.equal(location.search, '?next=%2Faccount');
+  await client.json('/api/auth/verify', {method: 'POST', body: {code: '123456'}});
+  assert.deepEqual(requests, ['/api/auth/login', '/api/auth/verify']);
+  assert.equal(client.user.id, 'alice');
 });
