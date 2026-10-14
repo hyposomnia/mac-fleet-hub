@@ -7,7 +7,6 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"testing"
 )
@@ -133,38 +132,62 @@ func TestFileImageContentPreservesHEICAndWebP(t *testing.T) {
 	}
 }
 
-func TestFilePreviewRejectsOutsideRootAndSymlinkEscape(t *testing.T) {
+func TestFilePreviewReadsOSAccessiblePathsOutsideBrowserRoot(t *testing.T) {
 	root := t.TempDir()
 	outside := t.TempDir()
-	secret := filepath.Join(outside, "secret.md")
-	if err := os.WriteFile(secret, []byte("secret"), 0600); err != nil {
+	path := filepath.Join(outside, "result.log")
+	if err := os.WriteFile(path, []byte("verified log"), 0600); err != nil {
 		t.Fatal(err)
 	}
 	usePreviewRoot(t, root)
-
-	for name, path := range map[string]string{"absolute": secret} {
-		t.Run(name, func(t *testing.T) {
-			req := httptest.NewRequest(http.MethodGet, "/api/file/preview?path="+urlQueryEscape(path), nil)
-			rr := httptest.NewRecorder()
-			handleFilePreview(rr, req)
-			if rr.Code != http.StatusForbidden || !strings.Contains(rr.Body.String(), "file_outside_root") {
-				t.Fatalf("status=%d body=%s", rr.Code, rr.Body.String())
-			}
-		})
-	}
-
-	if runtime.GOOS == "windows" {
-		return
-	}
-	link := filepath.Join(root, "linked.md")
-	if err := os.Symlink(secret, link); err != nil {
+	link := filepath.Join(root, "linked.log")
+	if err := os.Symlink(path, link); err != nil {
 		t.Fatal(err)
 	}
-	req := httptest.NewRequest(http.MethodGet, "/api/file/preview?path="+urlQueryEscape(link), nil)
-	rr := httptest.NewRecorder()
-	handleFilePreview(rr, req)
-	if rr.Code != http.StatusForbidden || !strings.Contains(rr.Body.String(), "file_outside_root") {
-		t.Fatalf("symlink status=%d body=%s", rr.Code, rr.Body.String())
+	for _, target := range []string{path, link, path + ":12:4"} {
+		rr := httptest.NewRecorder()
+		handleFilePreview(rr, httptest.NewRequest(http.MethodGet, "/api/file/preview?path="+urlQueryEscape(target), nil))
+		if rr.Code != http.StatusOK || !strings.Contains(rr.Body.String(), "verified log") {
+			t.Fatalf("%s: %d %s", target, rr.Code, rr.Body.String())
+		}
+		rr = httptest.NewRecorder()
+		handleFileContent(rr, httptest.NewRequest(http.MethodGet, "/api/file/content?download=1&path="+urlQueryEscape(target), nil))
+		if rr.Code != http.StatusOK || rr.Body.String() != "verified log" {
+			t.Fatalf("download %s: %d %s", target, rr.Code, rr.Body.String())
+		}
+	}
+}
+
+func TestFilePreviewDistinguishesMissingAndOSDeniedFiles(t *testing.T) {
+	usePreviewRoot(t, t.TempDir())
+	outside := t.TempDir()
+	denied := filepath.Join(outside, "denied.log")
+	if err := os.WriteFile(denied, []byte("private"), 0000); err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		path   string
+		status int
+		code   string
+	}{
+		{filepath.Join(outside, "missing.log"), http.StatusNotFound, "file_not_found"},
+		{denied, http.StatusForbidden, "file_permission_denied"},
+	} {
+		if tc.path == denied && os.Geteuid() == 0 {
+			continue
+		} // Root bypasses mode permissions.
+		for _, content := range []bool{false, true} {
+			rr := httptest.NewRecorder()
+			req := httptest.NewRequest(http.MethodGet, "/api/file/preview?download=1&path="+urlQueryEscape(tc.path), nil)
+			if content {
+				handleFileContent(rr, req)
+			} else {
+				handleFilePreview(rr, req)
+			}
+			if rr.Code != tc.status || !strings.Contains(rr.Body.String(), tc.code) {
+				t.Fatalf("content=%v %s: %d %s", content, tc.path, rr.Code, rr.Body.String())
+			}
+		}
 	}
 }
 

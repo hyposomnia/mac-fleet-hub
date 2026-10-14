@@ -114,6 +114,10 @@ func handleFilePreview(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	info, err := os.Stat(path)
+	if os.IsPermission(err) {
+		writePreviewPathError(w, err)
+		return
+	}
 	if err != nil || !info.Mode().IsRegular() {
 		writeErr(w, http.StatusNotFound, "file_not_found", "文件不存在或不是普通文件。")
 		return
@@ -129,12 +133,20 @@ func handleFilePreview(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		file, openErr := os.Open(path)
+		if os.IsPermission(openErr) {
+			writePreviewPathError(w, openErr)
+			return
+		}
 		if openErr != nil {
 			writeErr(w, http.StatusNotFound, "file_not_found", "无法读取文件。")
 			return
 		}
 		content, readErr := io.ReadAll(io.LimitReader(file, maxPreviewTextBytes+1))
 		closeErr := file.Close()
+		if os.IsPermission(readErr) {
+			writePreviewPathError(w, readErr)
+			return
+		}
 		if readErr != nil {
 			writeErr(w, http.StatusNotFound, "file_not_found", "无法读取文件。")
 			return
@@ -174,12 +186,20 @@ func handleFileContent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	file, err := os.Open(path)
+	if os.IsPermission(err) {
+		writePreviewPathError(w, err)
+		return
+	}
 	if err != nil {
 		writeErr(w, http.StatusNotFound, "file_not_found", "文件不存在。")
 		return
 	}
 	defer file.Close()
 	info, err := file.Stat()
+	if os.IsPermission(err) {
+		writePreviewPathError(w, err)
+		return
+	}
 	if err != nil || !info.Mode().IsRegular() {
 		writeErr(w, http.StatusNotFound, "file_not_found", "文件不存在或不是普通文件。")
 		return
@@ -244,19 +264,6 @@ func resolvePreviewRequestPath(rawPath, cwd string) (string, int, int, error) {
 }
 
 func resolvePreviewPath(rawPath, cwd string) (string, error) {
-	root := cfg.FileRoot
-	if root == "" {
-		root, _ = os.UserHomeDir()
-	}
-	rootAbs, err := filepath.Abs(root)
-	if err != nil {
-		return "", errPreviewOutsideRoot
-	}
-	rootReal, err := filepath.EvalSymlinks(rootAbs)
-	if err != nil {
-		return "", errPreviewOutsideRoot
-	}
-
 	candidate := rawPath
 	if candidate == "~" {
 		candidate, _ = os.UserHomeDir()
@@ -266,23 +273,24 @@ func resolvePreviewPath(rawPath, cwd string) (string, error) {
 	} else if !filepath.IsAbs(candidate) {
 		base := cwd
 		if base == "" {
-			base = rootReal
+			base = cfg.FileRoot
+		}
+		if base == "" {
+			base, _ = os.UserHomeDir()
 		}
 		candidate = filepath.Join(base, candidate)
 	}
 	candidateAbs, err := filepath.Abs(candidate)
-	if err != nil || (!pathWithinRoot(rootAbs, candidateAbs) && !pathWithinRoot(rootReal, candidateAbs)) {
-		return "", errPreviewOutsideRoot
+	if err != nil {
+		return "", err
 	}
+	// Read-only previews follow OS permissions independently of the file browser root.
 	candidateReal, err := filepath.EvalSymlinks(candidateAbs)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return "", errPreviewNotFound
 		}
-		return "", errPreviewNotFound
-	}
-	if !pathWithinRoot(rootReal, candidateReal) {
-		return "", errPreviewOutsideRoot
+		return "", err
 	}
 	return candidateReal, nil
 }
@@ -294,6 +302,8 @@ func pathWithinRoot(root, target string) bool {
 
 func writePreviewPathError(w http.ResponseWriter, err error) {
 	switch {
+	case os.IsPermission(err):
+		writeErr(w, http.StatusForbidden, "file_permission_denied", "系统拒绝读取该文件，请检查 Fleet Agent 的磁盘访问权限及文件权限。")
 	case errors.Is(err, errPreviewOutsideRoot):
 		writeErr(w, http.StatusForbidden, "file_outside_root", "该路径不在 Fleet 允许预览的目录内。")
 	case errors.Is(err, errPreviewNotFound):

@@ -47,7 +47,7 @@ import (
 // ---------------- 配置 ----------------
 type Config struct {
 	Listen            string // 绑定地址，如 100.x.x.x:7682
-	FileRoot          string // Fleet 文件预览许可访问的根目录（与 filebrowser root 一致）
+	FileRoot          string // 文件浏览器操作根目录；预览相对路径的默认基准
 	ClaudeHome        string // ~/.claude
 	ClaudeBin         string // claude 可执行文件
 	CodexHome         string // ~/.codex
