@@ -88,6 +88,14 @@ struct SettingsView: View {
                 HStack {
                     Text(page.rawValue).font(.system(size: 24, weight: .semibold))
                     Spacer()
+                    if let version = updater.availableVersion, page != .about {
+                        Button { page = .about } label: {
+                            Label("可升级到 \(version)", systemImage: "arrow.down.circle.fill")
+                                .font(.system(size: 12, weight: .semibold))
+                        }
+                        .buttonStyle(.plain).foregroundStyle(theme.accent)
+                        .accessibilityHint("前往关于页安装升级")
+                    }
                     if page == .connection, model.status?.binding != nil {
                         Button("解除关联") { confirmLogout = true }
                             .buttonStyle(.link).foregroundStyle(theme.danger).disabled(updater.sessionActive)
@@ -138,6 +146,7 @@ struct SettingsView: View {
                 catch { operationError = error.localizedDescription }
             }
             await model.refresh()
+            await updater.checkAvailability()
             if FleetSetupAction.startsAfterInstallation(arguments: CommandLine.arguments), model.status != nil, !updater.recoveryPending {
                 do { try await management.setAutoStart(model.autoStart) }
                 catch { operationError = error.localizedDescription }
@@ -392,7 +401,12 @@ struct SettingsView: View {
                     Text(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "开发版本")
                         .foregroundStyle(theme.secondaryText)
                     if !management.layout.requiresInstallation {
-                        Button("检查更新") { Task { await updater.check() } }.disabled(updater.sessionActive)
+                        if let version = updater.availableVersion {
+                            Button("升级到 \(version)") { Task { await updater.check() } }
+                                .buttonStyle(.borderedProminent).disabled(updater.sessionActive)
+                        } else {
+                            Button("检查更新") { Task { await updater.check() } }.disabled(updater.sessionActive)
+                        }
                     }
                 }
                 .frame(maxWidth: .infinity).padding(.vertical, 28)

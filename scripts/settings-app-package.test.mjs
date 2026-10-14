@@ -26,6 +26,20 @@ test('runtime details show version and process without a disclosure control', ()
   assert.match(overview, /row\("进程", String\(current\.pid\)/);
 });
 
+test('settings discovers newer signed releases on launch and surfaces an upgrade prompt', () => {
+  const updater = read('../mac/settings-app/Sources/FleetHub/AppUpdater.swift');
+  const discovery = updater.slice(updater.indexOf('private func validatedCandidate'), updater.indexOf('func check()'));
+  assert.match(discovery, /NativeRelease\.fetch/);
+  assert.match(discovery, /candidate\.validate/);
+  assert.match(discovery, /func checkAvailability/);
+  assert.doesNotMatch(discovery, /checkForUpdates/);
+
+  const view = read('../mac/settings-app/Sources/FleetHub/SettingsView.swift');
+  assert.match(view, /await updater\.checkAvailability\(\)/);
+  assert.match(view, /updater\.availableVersion/);
+  assert.match(view, /可升级到/);
+});
+
 test('SDK preparation replaces a tampered extracted cache from the verified archive', {
   skip: process.platform !== 'darwin' || !process.env.FLEET_SPARKLE_ARCHIVE,
 }, () => {

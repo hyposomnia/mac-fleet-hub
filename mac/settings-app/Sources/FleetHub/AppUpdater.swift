@@ -8,6 +8,7 @@ final class AppUpdater: NSObject, ObservableObject, SPUUpdaterDelegate {
     @Published private(set) var message = ""
     @Published private(set) var busy = false
     @Published private(set) var sessionActive = false
+    @Published private(set) var availableVersion: String?
     private let management: NativeManagement
     private var controller: SPUStandardUpdaterController?
     private var release: NativeRelease?
@@ -38,26 +39,54 @@ final class AppUpdater: NSObject, ObservableObject, SPUUpdaterDelegate {
         management.layout.state.appendingPathComponent("updates/\(record.directory.uuidString)/Fleet Hub.app")
     }
 
+    private var hasUpdateSigningKey: Bool {
+        guard let key = Bundle.main.object(forInfoDictionaryKey: "SUPublicEDKey") as? String else { return false }
+        return Data(base64Encoded: key)?.count == 32
+    }
+
+    private func validatedCandidate() async throws -> (origin: String, release: NativeRelease) {
+        let status = try await management.status()
+        let candidateOrigin = try FleetSettings.validatedOrigin(status.settings.origin)
+        let candidate = try await NativeRelease.fetch(origin: candidateOrigin)
+        #if arch(arm64)
+        let architecture = "arm64"
+        #else
+        let architecture = "x86_64"
+        #endif
+        let system = ProcessInfo.processInfo.operatingSystemVersion
+        try candidate.validate(currentBuild: currentBuild, architecture: architecture,
+                               system: "\(system.majorVersion).\(system.minorVersion).\(system.patchVersion)")
+        return (candidateOrigin, candidate)
+    }
+
+    func checkAvailability() async {
+        availableVersion = nil
+        guard !management.layout.requiresInstallation, !recoveryPending, hasUpdateSigningKey else { return }
+        do {
+            let candidate = try await validatedCandidate().release
+            if candidate.build > currentBuild { availableVersion = candidate.version }
+        } catch {
+            // Passive discovery stays quiet when the device or update server is unavailable.
+        }
+    }
+
     func check() async {
         guard !busy, controller?.updater.sessionInProgress != true else { return }
         busy = true
         defer { busy = false }
         do {
             guard !management.layout.requiresInstallation else { throw FleetError.message("请先安装到应用程序，再检查升级。") }
-            guard let key = Bundle.main.object(forInfoDictionaryKey: "SUPublicEDKey") as? String,
-                  Data(base64Encoded: key)?.count == 32 else { throw FleetError.message("当前是开发构建，未配置正式升级签名公钥，不执行安装。") }
+            guard hasUpdateSigningKey else { throw FleetError.message("当前是开发构建，未配置正式升级签名公钥，不执行安装。") }
             guard !FileManager.default.fileExists(atPath: journal.path) else { throw FleetError.message("上次升级尚未完成健康验证，请先重新打开应用。") }
-            let status = try await management.status()
-            origin = try FleetSettings.validatedOrigin(status.settings.origin)
-            let candidate = try await NativeRelease.fetch(origin: origin)
-            #if arch(arm64)
-            let architecture = "arm64"
-            #else
-            let architecture = "x86_64"
-            #endif
-            let system = ProcessInfo.processInfo.operatingSystemVersion
-            try candidate.validate(currentBuild: currentBuild, architecture: architecture, system: "\(system.majorVersion).\(system.minorVersion).\(system.patchVersion)")
-            guard candidate.build > currentBuild else { message = "当前已是该服务器提供的最新版本。"; return }
+            let candidateInfo = try await validatedCandidate()
+            origin = candidateInfo.origin
+            let candidate = candidateInfo.release
+            guard candidate.build > currentBuild else {
+                availableVersion = nil
+                message = "当前已是该服务器提供的最新版本。"
+                return
+            }
+            availableVersion = candidate.version
             release = candidate
             preparation = UpdatePreparation()
             let updater = SPUStandardUpdaterController(startingUpdater: false, updaterDelegate: self, userDriverDelegate: nil)
