@@ -80,7 +80,7 @@ test('owned device discovery uses /api/devices, logout uses POST client, and bot
   assert.doesNotMatch(roster, /ids\.sort/, 'dashboard must preserve the account device order returned by the server');
   assert.match(account, /button\('退出登录', \(\) => auth\.logout\(\)/);
   assert.doesNotMatch(app, /\/auth\/logout\?rd/);
-  assert.equal([...index.matchAll(/data-act="settings"/g)].length, 2);
+  assert.match(app, /button.onclick = \(\) => openUnifiedSettings\('account', button\)/);
   assert.doesNotMatch(index, /data-act="(?:account|admin|add-device|automation|logout)"/);
   for (const page of ['account', 'add-device', 'automation', 'sessions', 'appearance']) {
     assert.match(index, new RegExp(`data-settings-page="${page}"`));

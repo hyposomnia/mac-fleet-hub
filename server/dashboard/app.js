@@ -1326,13 +1326,11 @@ function updateSessionFilterUI() {
 }
 
 function updateSettingsMenus() {
-  const unavailable = state.mode === 'files';
-  $$('.archive-menu-action').forEach((button) => {
-    button.hidden = unavailable;
-    button.disabled = unavailable;
-    button.setAttribute('aria-pressed', String(state.scope === 'all'));
-    button.title = unavailable ? '仅在会话页可用' : '';
-  });
+  const button = $('#session-archive-toggle');
+  if (!button) return;
+  button.setAttribute('aria-pressed', String(state.scope === 'all'));
+  button.title = state.scope === 'all' ? '显示未归档会话' : '显示已归档会话';
+  button.setAttribute('aria-label', button.title);
 }
 
 function toggleArchivedSessions() {
@@ -1498,6 +1496,7 @@ function syncDshBanner() {
 }
 
 function renderSessionResults(opts = {}) {
+  syncEmptyChatComposer();
   const wrap = $('#session-groups');
   const previousScrollTop = opts.preserveScroll ? wrap.scrollTop : 0;
   const sessions = [...(state.sessionResults || [])].sort((a, b) =>
@@ -1767,7 +1766,6 @@ function sessionStatus(session, running = !!session?.pty || FleetChatModel.chatP
   if (sessionHasVisibleRequest(session)) return { label: '等待回复', className: 'waiting' };
   if (running) return { label: '进行中', className: 'running' };
   if (sessionIsUnread(session)) return { label: '未读', className: 'unread' };
-  if (state.scope === 'all') return { label: '已归档', className: 'archived' };
   return { label: '已读', className: 'read' };
 }
 
@@ -2047,6 +2045,60 @@ function poolShow(entry) {
   startWatch();
 }
 
+function emptyChatProjects(macId) {
+  const projects = new Map();
+  for (const item of [...state.sessionProjects, ...state.sessionResults]) {
+    if (item.macId === macId && item.cwd && !projects.has(item.cwd)) {
+      projects.set(item.cwd, { cwd: item.cwd, name: item.name || projName(item.cwd) });
+    }
+  }
+  return [...projects.values()];
+}
+
+function syncEmptyChatComposer() {
+  const device = $('#empty-chat-device');
+  const project = $('#empty-chat-project');
+  if (!device || !project) return;
+  const macId = state.sessionMacId !== 'all' ? state.sessionMacId : device.value;
+  const selectedProject = project.dataset.macId === macId ? project.value : '';
+  device.replaceChildren(h('option', { value: '', text: '选择设备' }),
+    ...MACS.map(mac => h('option', { value: mac.id, text: macName(mac.id) })));
+  device.value = MACS.some(mac => mac.id === macId) ? macId : '';
+  device.disabled = state.sessionMacId !== 'all';
+  project.replaceChildren(h('option', { value: '', text: '无项目' }),
+    ...emptyChatProjects(device.value).map(item => h('option', { value: item.cwd, text: item.name })));
+  project.dataset.macId = device.value;
+  project.value = emptyChatProjects(device.value).some(item => item.cwd === selectedProject) ? selectedProject : '';
+  $('#empty-chat-send').disabled = !device.value || !state.nodes[device.value];
+}
+
+async function submitEmptyChat(event) {
+  event.preventDefault();
+  const input = $('#empty-chat-input');
+  const text = input.value.trim();
+  const macId = $('#empty-chat-device').value;
+  const cwd = $('#empty-chat-project').value;
+  if (!text || !macId || !state.nodes[macId]) return;
+  if (!canSelfDrawChat(state.assistant, macId)) {
+    toast(`${assistantLabel()} 桌面端未运行，暂时无法新建会话`, 'err');
+    return;
+  }
+  const button = $('#empty-chat-send');
+  if (button.disabled) return;
+  button.disabled = true;
+  try {
+    await newSessionIn(cwd, { macId, unscoped: !cwd });
+    const chat = state.chat;
+    if (!chat?.pendingStart || chat.macId !== macId) return;
+    $('#chat-input').value = text;
+    chat.draft = text;
+    input.value = '';
+    resizeChatInput();
+    await submitChatInput();
+  } catch (error) { toast('新建会话失败：' + error.message, 'err'); }
+  finally { button.disabled = false; }
+}
+
 // 空态：隐藏所有 iframe，复位头部。
 function showEmpty() {
   closeChatPane();
@@ -2055,6 +2107,7 @@ function showEmpty() {
   for (const e of state.pool) e.iframe.classList.remove('show');
   $('#frame').classList.remove('show');
   $('#empty-state').hidden = false;
+  syncEmptyChatComposer();
   $('#reconnect-btn').hidden = true;
   $('#fullscreen-btn').hidden = true;
   $('#mobile-input').hidden = true;
@@ -2108,7 +2161,7 @@ async function connect(sessionId, title, cwd, mode, macId = state.macId, assista
 function openPendingChatSession(cwd, { macId = state.macId, unscoped = false } = {}) {
   const draftId = `draft-${Date.now()}-${Math.random().toString(16).slice(2)}`;
   const assistant = state.assistant;
-  openChatSession({
+  return openChatSession({
     assistant, macId, sessionId: draftId, cwd,
     title: unscoped ? `新${assistantLabel(assistant)}会话 · 无项目` : `新${assistantLabel(assistant)}会话 · ${projName(cwd)}`,
     mtime: Date.now(), pendingStart: true, unscoped,
@@ -2120,8 +2173,7 @@ async function newSessionIn(cwd, { macId = state.macId, unscoped = false } = {})
   activateConcreteMac(macId);
   // 当前设备已切到 macId，故这里用无参形式判能力
   if (canSelfDrawChat()) {
-    openPendingChatSession(cwd, { macId, unscoped });
-    return;
+    return openPendingChatSession(cwd, { macId, unscoped });
   }
   toast(`${assistantLabel()} 桌面端未运行，暂时无法新建会话`, 'err');
 }
@@ -7542,47 +7594,9 @@ function closeOverlay(id) {
   if (['fleet-settings-modal', 'settings-modal', 'automation-modal'].includes(id)) return globalThis.FleetSettingsDialog?.active?.close();
   $('#' + id).hidden = true;
 }
-let globalMenu = null;
-function closeMenus({ restoreFocus = false } = {}) {
-  const trigger = globalMenu?.trigger;
-  $('#usermenu').hidden = true;
-  $('#m-menu').hidden = true;
-  trigger?.setAttribute('aria-expanded', 'false');
-  globalMenu = null;
+function closeMenus() {
   $$('.ses-menu').forEach((menu) => { menu.hidden = true; });
   closeFileSettings();
-  if (restoreFocus) trigger?.focus();
-}
-function globalMenuItems(menu) { return [...menu.querySelectorAll('button:not(:disabled):not([hidden])')]; }
-function toggleMenu(id, e) {
-  if (e) e.stopPropagation();
-  const menu = $('#' + id);
-  const willOpen = menu.hidden;
-  const trigger = e?.currentTarget || $('#' + (id === 'usermenu' ? 'user-btn' : 'm-menu-btn'));
-  closeMenus();
-  updateSettingsMenus();
-  menu.hidden = !willOpen;
-  if (willOpen) {
-    globalMenu = { id, trigger };
-    trigger?.setAttribute('aria-expanded', 'true');
-    if (e?.detail === 0 || e?.key) globalMenuItems(menu)[0]?.focus();
-  }
-}
-function handleGlobalMenuKeydown(e) {
-  if (!globalMenu) return false;
-  if (e.key === 'Escape') {
-    e.preventDefault();
-    closeMenus({ restoreFocus: true });
-    return true;
-  }
-  const items = globalMenuItems($('#' + globalMenu.id));
-  const index = items.indexOf(document.activeElement);
-  if (index < 0 || !['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(e.key)) return false;
-  e.preventDefault();
-  const next = e.key === 'Home' ? 0 : e.key === 'End' ? items.length - 1 :
-    (index + (e.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length;
-  items[next]?.focus();
-  return true;
 }
 
 // ============================================================
@@ -7849,7 +7863,13 @@ function init() {
     persistUIState();
     renderSessionResults();
   };
-  $$('#new-session, #new-session-mobile').forEach((button) => {
+  $('#empty-chat-form').onsubmit = submitEmptyChat;
+  $('#empty-chat-device').onchange = syncEmptyChatComposer;
+  $('#empty-chat-input').onkeydown = (event) => {
+    if (event.key === 'Enter' && !event.shiftKey && !event.isComposing) submitEmptyChat(event);
+  };
+  $('#session-archive-toggle').onclick = toggleArchivedSessions;
+  $$('#new-session-mobile').forEach((button) => {
     button.onclick = requestNewSession;
   });
   $$('[data-dsh-native-open]').forEach((button) => {
@@ -8031,37 +8051,10 @@ function init() {
     toggleChatSubagentList();
   });
 
-  // 全局设置菜单（桌面侧栏与移动端共用同一组动作）
-  $('#user-btn').onclick = (e) => toggleMenu('usermenu', e);
-  $('#m-menu-btn').onclick = (e) => toggleMenu('m-menu', e);
-  $$('.mobile-menu-trigger').forEach((button) => {
-    button.onclick = (event) => {
-      $('#m-menu').classList.add('mobile-global-menu');
-      toggleMenu('m-menu', event);
-    };
-  });
   $$('#user-btn, #m-menu-btn, .mobile-menu-trigger').forEach((button) => {
-    button.setAttribute('aria-haspopup', 'true');
-    button.setAttribute('aria-controls', button.id === 'user-btn' ? 'usermenu' : 'm-menu');
-    button.setAttribute('aria-expanded', 'false');
-    button.addEventListener('keydown', (event) => {
-      if (!['ArrowDown', 'ArrowUp'].includes(event.key)) return;
-      event.preventDefault();
-      const id = button.id === 'user-btn' ? 'usermenu' : 'm-menu';
-      if ($('#' + id).hidden) toggleMenu(id, event);
-      const items = globalMenuItems($('#' + id));
-      (event.key === 'ArrowUp' ? items.at(-1) : items[0])?.focus();
-    });
-  });
-  $$('#usermenu button, #m-menu button').forEach((b) => {
-    if (!b.dataset.act && !b.dataset.themeChoice) return;
-    b.onclick = () => {
-      const trigger = globalMenu?.trigger || document.activeElement;
-      closeMenus({ restoreFocus: Boolean(b.dataset.themeChoice) });
-      if (b.dataset.themeChoice) setThemePreference(b.dataset.themeChoice);
-      else if (b.dataset.act === 'archive') toggleArchivedSessions();
-      else if (b.dataset.act === 'settings') openUnifiedSettings('account', trigger);
-    };
+    button.setAttribute('aria-haspopup', 'dialog');
+    button.setAttribute('aria-controls', 'fleet-settings-modal');
+    button.onclick = () => openUnifiedSettings('account', button);
   });
   wireAppearanceSettings();
   $('#st-save').onclick = saveSettings;
@@ -8121,7 +8114,6 @@ function init() {
   });
   document.addEventListener('keydown', (e) => {
     if (handleChatImageViewerKeydown(e)) return;
-    if (handleGlobalMenuKeydown(e)) return;
     if (e.key !== 'Escape') return;
     if (state.chat?.subagentPanelMode && state.chat.subagentPanelMode !== 'closed') {
       setChatSubagentPanel(state.chat, 'closed');

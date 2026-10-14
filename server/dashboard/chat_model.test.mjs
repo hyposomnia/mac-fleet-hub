@@ -713,35 +713,15 @@ test('Sub Agent activity keeps identity in the model but remains internal to the
   assert.equal(isInternalChatTool(item), true);
 });
 
-test('settings menu owns archive browsing and session settings', () => {
+test('session toolbar exposes archive and recent filters while settings open directly', () => {
   const header = indexHTML.match(/<header class="sc-head">[\s\S]*?<\/header>/)?.[0] || '';
-  assert.ok(header);
-  assert.match(header, /class="session-search-row"[\s\S]*id="session-search"[\s\S]*id="new-session"/);
-  assert.doesNotMatch(header.match(/<div class="sc-head-actions">[\s\S]*?<\/div>/)?.[0] || '', /id="new-session"/);
-  assert.match(header, /data-device-scope-slot="sessions"/);
-  assert.match(header, /id="session-view-toggle"[\s\S]*id="session-search"[\s\S]*id="new-session-mobile"/);
-  assert.doesNotMatch(header, /session-summary|session-count|session-view-label|个未归档|按项目分组/);
-  assert.doesNotMatch(header, /id="refresh-btn"/);
-  assert.doesNotMatch(indexHTML, /data-scope=/);
-  assert.match(indexHTML, /id="user-name">设置</);
-  assert.deepEqual(
-    [...indexHTML.matchAll(/<button data-act="([^"]+)"/g)].map((match) => match[1]),
-    ['settings', 'archive', 'settings', 'archive'],
-  );
-  assert.deepEqual(
-    [...indexHTML.matchAll(/data-theme-controls/g)].map(() => true),
-    [true, true, true],
-  );
-  assert.equal((indexHTML.match(/role="group" aria-label="外观"/g) || []).length, 2);
-  assert.equal((indexHTML.match(/>显示已归档会话</g) || []).length, 2);
-  assert.equal((indexHTML.match(/>会话设置</g) || []).length, 1);
-  assert.doesNotMatch(indexHTML, /data-settings-tab="sessions"|id="st-show-archived"/);
-  assert.match(appSrc, /SESSION_ARCHIVE_KEY\s*=\s*'fleet-show-archived-sessions'/);
-  assert.match(appSrc, /localStorage\.setItem\(SESSION_ARCHIVE_KEY/);
-  assert.match(appSrc, /const unavailable = state\.mode === 'files';[\s\S]*?button\.hidden = unavailable;/);
-  assert.match(appSrc, /else if \(b\.dataset\.act === 'archive'\) toggleArchivedSessions\(\)/);
-  assert.match(styleCSS, /\.menu button:disabled\s*\{[^}]*opacity:\s*\.48;/s);
-  assert.match(styleCSS, /\.sc-head-actions\s*\{/);
+  assert.match(header, /id="sessions-collapse"[\s\S]*id="session-archive-toggle"[\s\S]*id="session-view-toggle"[\s\S]*id="session-search"[\s\S]*id="new-session-mobile"/);
+  assert.doesNotMatch(header, /id="new-session"/);
+  assert.doesNotMatch(indexHTML, /id="usermenu"|id="m-menu"|data-act="archive"/);
+  assert.match(appSrc, /button.onclick = \(\) => openUnifiedSettings\('account', button\)/);
+  assert.match(appSrc, /\$\('#session-archive-toggle'\).onclick = toggleArchivedSessions/);
+  assert.match(indexHTML, /id="empty-chat-form"/);
+  assert.match(indexHTML, /id="empty-chat-project"[\s\S]*无项目/);
 });
 
 test('session settings expose chat cache without terminal controls', () => {
@@ -837,7 +817,7 @@ test('automation uses the key name as a session alias without a separate editor'
 test('mobile session toolbar keeps square actions on both sides of search', () => {
   assert.match(
     styleCSS,
-    /@media \(max-width: 860px\)[\s\S]*?\.session-search-row\s*\{[^}]*grid-template-columns:\s*46px minmax\(0, 1fr\) 46px;/s,
+    /@media \(max-width: 860px\)[\s\S]*?\.session-search-row\s*\{[^}]*grid-template-columns:\s*46px 46px minmax\(0, 1fr\) 46px;/s,
   );
   assert.match(
     styleCSS,
@@ -927,7 +907,7 @@ test('session grouping omits aggregate badges and the view toggle has a visible 
   assert.doesNotMatch(source, /class:\s*'gc badge'/);
   assert.doesNotMatch(styleCSS, /\.grp-h \.gc/);
   assert.match(styleCSS, /#session-view-toggle\[aria-pressed="true"\]\s*\{[^}]*background:\s*var\(--accent-soft\)/s);
-  assert.match(styleCSS, /@media \(max-width:\s*860px\)[\s\S]*?\.session-search-row\s*\{\s*grid-template-columns:\s*46px\s*minmax\(0,\s*1fr\)\s*46px/s);
+  assert.match(styleCSS, /@media \(max-width:\s*860px\)[\s\S]*?\.session-search-row\s*\{\s*grid-template-columns:\s*46px\s*46px\s*minmax\(0,\s*1fr\)\s*46px/s);
 });
 
 test('session pagination loads automatically near the scroll boundary', () => {
@@ -1073,7 +1053,7 @@ test('session rows remove redundant device, assistant, and idle labels', () => {
     assert.equal(nodesWithClass(recent, 'session-project-name')[0]?.textContent, 'mac-fleet-hub');
 
     appState.scope = 'all';
-    assert.equal(sessionStatus({ status: 'idle' }).label, '已归档');
+    assert.equal(sessionStatus({ status: 'idle' }).label, '已读');
   } finally {
     appState.sessionMacId = previousMac;
     appState.scope = previousScope;
@@ -1108,7 +1088,7 @@ test('special session states use trailing indicators and never render relative t
   assert.equal(waitingDot?.attributes['aria-label'], '等待回复');
   assert.equal(runningDot?.attributes['aria-label'], '进行中');
   assert.equal(unreadDot?.attributes['aria-label'], '未读');
-  assert.equal(archivedDot?.attributes['aria-label'], '已归档');
+  assert.equal(archivedDot?.attributes['aria-label'], '已读');
   assert.ok(String(waitingDot?.className).includes('waiting'));
   assert.ok(String(runningDot?.className).includes('running'));
   for (const [row, indicator] of [[waiting, waitingDot], [running, runningDot], [unread, unreadDot], [archived, archivedDot]]) {
@@ -3957,34 +3937,6 @@ test('DeepSeek capability discovery refreshes existing rows only when capabiliti
   }
 });
 
-test('global menu keyboard navigation skips disabled actions and Escape restores its trigger', () => {
-  const previousQuery = appSandbox.document.querySelector;
-  const previousQueryAll = appSandbox.document.querySelectorAll;
-  vm.runInContext('globalThis.__titaniumMenuOriginals = { closeFileSettings, updateSettingsMenus }; closeFileSettings = () => {}; updateSettingsMenus = () => {};', appSandbox);
-  const trigger = testElement('button'), first = testElement('button'), second = testElement('button'), disabled = testElement('button');
-  disabled.disabled = true;
-  const menu = testElement('div'); menu.hidden = true; menu.querySelectorAll = selector => {
-    assert.equal(selector, 'button:not(:disabled):not([hidden])');
-    return [first, disabled, second].filter(button => !button.disabled && !button.hidden);
-  };
-  const mobileMenu = testElement('div'); mobileMenu.hidden = true;
-  appSandbox.document.querySelector = selector => ({'#usermenu':menu,'#m-menu':mobileMenu,'#user-btn':trigger})[selector] || null;
-  appSandbox.document.querySelectorAll = () => [];
-  try {
-    const {toggleMenu, handleGlobalMenuKeydown} = vm.runInContext('({toggleMenu, handleGlobalMenuKeydown})', appSandbox);
-    toggleMenu('usermenu', {currentTarget: trigger, detail:0, stopPropagation(){}});
-    assert.equal(menu.hidden,false); assert.equal(trigger.getAttribute('aria-expanded'),'true'); assert.equal(first.focused,true);
-    appSandbox.document.activeElement=first;
-    handleGlobalMenuKeydown({key:'ArrowDown', preventDefault(){}}); assert.equal(second.focused,true); assert.equal(disabled.focused,undefined);
-    handleGlobalMenuKeydown({key:'Escape', preventDefault(){}});
-    assert.equal(menu.hidden,true); assert.equal(trigger.getAttribute('aria-expanded'),'false'); assert.equal(trigger.focused,true);
-  } finally {
-    appSandbox.document.querySelector=previousQuery; appSandbox.document.querySelectorAll=previousQueryAll;
-    vm.runInContext('({closeFileSettings, updateSettingsMenus} = __titaniumMenuOriginals);', appSandbox);
-  }
-});
-
-
 test('session hover reveals actions without drawing an outline', () => {
   const hoverRules = [...styleCSS.matchAll(/([^{}]*\.ses:hover[^{}]*)\{([^}]*)\}/g)];
   assert.ok(hoverRules.length);
@@ -4172,5 +4124,47 @@ test('older history paging serializes gestures and advances the returned cursor'
   } finally {
     vm.runInContext(`({api, renderChat, applyChatMetadataDefaults} = __pagingOriginals);
       state.chat = __pagingOriginals.chat;`, appSandbox);
+  }
+});
+
+test('desktop new conversation projects are scoped to the chosen device and allow no project', () => {
+  const saved = {projects: appState.sessionProjects, results: appState.sessionResults};
+  appState.sessionProjects = [{macId:'m1',cwd:'/repo/one',name:'One'}, {macId:'m2',cwd:'/repo/two',name:'Two'}];
+  appState.sessionResults = [{macId:'m1',cwd:'/repo/one'}, {macId:'m1',cwd:'/repo/extra'}];
+  try {
+    const paths = vm.runInContext("emptyChatProjects('m1').map(item => item.cwd)", appSandbox);
+    assert.deepEqual(Array.from(paths), ['/repo/one','/repo/extra']);
+    assert.equal(vm.runInContext("emptyChatProjects('m3').length", appSandbox), 0);
+  } finally { appState.sessionProjects=saved.projects; appState.sessionResults=saved.results; }
+});
+
+
+test('desktop empty composer sends through the normal pending session flow with explicit project choice', async () => {
+  const previousQuery = appSandbox.document.querySelector;
+  const fields = {'#empty-chat-input':{value:'  hello  '}, '#empty-chat-device':{value:'m1'},
+    '#empty-chat-project':{value:''}, '#empty-chat-send':{disabled:false}, '#chat-input':{value:''}};
+  appSandbox.document.querySelector = selector => fields[selector] || null;
+  vm.runInContext(`globalThis.__emptyOriginals = {newSessionIn, submitChatInput, resizeChatInput, canSelfDrawChat, nodes:state.nodes, chat:state.chat};
+    globalThis.__emptyCalls = []; state.nodes = {m1:true}; canSelfDrawChat = () => true;
+    resizeChatInput = () => {};
+    newSessionIn = async (cwd, options) => { __emptyCalls.push({cwd, ...options}); state.chat = {pendingStart:true,macId:options.macId}; };
+    submitChatInput = async () => { __emptyCalls.push({text:$('#chat-input').value}); };`, appSandbox);
+  try {
+    await vm.runInContext('submitEmptyChat({preventDefault(){}})', appSandbox);
+    assert.deepEqual(JSON.parse(JSON.stringify(appSandbox.__emptyCalls)), [{cwd:'',macId:'m1',unscoped:true},{text:'hello'}]);
+    assert.equal(fields['#empty-chat-input'].value, '');
+    fields['#empty-chat-input'].value='project message'; fields['#empty-chat-project'].value='/repo/one';
+    await vm.runInContext('submitEmptyChat({preventDefault(){}})', appSandbox);
+    assert.equal(appSandbox.__emptyCalls[2].cwd, '/repo/one');
+    assert.equal(appSandbox.__emptyCalls[2].unscoped, false);
+    fields['#empty-chat-input'].value=' '; await vm.runInContext('submitEmptyChat({preventDefault(){}})', appSandbox);
+    assert.equal(appSandbox.__emptyCalls.length,4);
+    fields['#empty-chat-input'].value='offline'; fields['#empty-chat-device'].value='m2';
+    await vm.runInContext('submitEmptyChat({preventDefault(){}})', appSandbox);
+    assert.equal(appSandbox.__emptyCalls.length,4);
+    assert.equal(fields['#empty-chat-input'].value,'offline');
+  } finally {
+    appSandbox.document.querySelector=previousQuery;
+    vm.runInContext(`({newSessionIn,submitChatInput,resizeChatInput,canSelfDrawChat}=__emptyOriginals); state.nodes=__emptyOriginals.nodes; state.chat=__emptyOriginals.chat;`,appSandbox);
   }
 });
