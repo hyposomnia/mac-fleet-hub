@@ -339,7 +339,13 @@ func (server *Server) ServeHTTP(writer http.ResponseWriter, request *http.Reques
 		server.serveFile(writer, request, "admin.html")
 	case "/enroll/confirm", "/enroll/confirm/", "/oauth/consent":
 		server.serveFile(writer, request, "enroll.html")
-	case "/", "/index.html":
+	case "/view/":
+		target := "/view"
+		if request.URL.RawQuery != "" {
+			target += "?" + request.URL.RawQuery
+		}
+		http.Redirect(writer, request, target, http.StatusTemporaryRedirect)
+	case "/", "/index.html", "/view":
 		server.serveFile(writer, request, "index.html")
 	default:
 		if strings.Contains(path, "..") || strings.HasPrefix(path, "/enroll/") {
