@@ -1,7 +1,7 @@
 'use strict';
 
 (function (root) {
-  const PRIVATE_KEYS = ['fleet-session-read-v2', 'fleet-show-archived-sessions', 'fleet-ui-state-v1', 'fleet-pool'];
+  const PRIVATE_KEYS = ['fleet-session-read-v2', 'fleet-show-archived-sessions', 'fleet-ui-state-v1', 'fleet-pool', 'fleet-theme-palette-v1'];
   const PENDING_PATHS = new Set(['/api/auth/register', '/api/auth/login', '/api/auth/verify', '/api/auth/recover']);
 
   function createClient(environment) {
@@ -9,6 +9,8 @@
     let csrfToken = '';
     let expired = false;
     let generation = 0;
+    let rotating = false;
+    let recoveryPending = false;
     const origin = environment.location.origin;
     const sessionError = () => Object.assign(new Error('登录已失效，请重新登录。'), { status: 401 });
     const prefix = (identity) => `fleet-user:${encodeURIComponent(identity)}:`;
@@ -68,6 +70,7 @@
         credentials: 'same-origin', cache: 'no-store' });
       if (started !== generation) throw sessionError();
       if (response.status === 401 && !pending) {
+        if (rotating && url.pathname !== '/api/auth/totp/confirm') throw sessionError();
         invalidate();
         throw sessionError();
       }
@@ -75,6 +78,15 @@
     }
 
     async function json(url, options = {}) {
+      if (url !== '/api/auth/totp/confirm') return performJSON(url, options);
+      if (rotating) throw new Error('正在更换验证器，请稍候。');
+      rotating = true;
+      generation++;
+      try { return await performJSON(url, options); }
+      finally { generation++; rotating = false; }
+    }
+
+    async function performJSON(url, options = {}) {
       const headers = new Headers(options.headers);
       let body = options.body;
       if (body != null && typeof body === 'object') {
@@ -88,6 +100,11 @@
       if (!response.ok) {
         const message = data?.message || data?.error?.message || (typeof data?.error === 'string' ? data.error : `请求失败（${response.status}）。`);
         throw Object.assign(new Error(message), { status: response.status });
+      }
+      if (url === '/api/auth/totp/confirm' && data?.user && data.csrf_token) {
+        user = data.user;
+        csrfToken = data.csrf_token;
+        broadcastChange();
       }
       if (url === '/api/auth/verify' && data?.user) {
         clearPrivate();
@@ -107,6 +124,7 @@
       }
       user = data.user;
       csrfToken = data.csrf_token;
+      environment.onIdentity?.(user);
       clearPrivate(null);
       return data;
     }
@@ -121,7 +139,9 @@
       return prefix(user.id) + key;
     }
 
-    return { fetch: request, json, me, logout, invalidate, clearPrivate, storageKey, safeNext,
+    return { fetch: request, json, me, resumeAuth: () => json('/api/auth/state'), logout, invalidate, clearPrivate, storageKey, safeNext,
+      setRecoveryPending(value) { recoveryPending = Boolean(value); },
+      get recoveryPending() { return recoveryPending; },
       get user() { return user; }, get csrfToken() { return csrfToken; } };
   }
 
@@ -140,6 +160,7 @@
     const nativeFetch = root.fetch.bind(root);
     const client = createClient({ fetch: nativeFetch, location: root.location,
       get localStorage() { return root.localStorage; }, get sessionStorage() { return root.sessionStorage; },
+      onIdentity: () => { root.FleetTheme?.refresh(); root.FleetTheme?.refreshPalette().catch(() => {}); },
       onUnauthorized: () => {
         root.document.documentElement.dataset.auth = 'expired';
         root.document.querySelectorAll('#app, #preview-page, #page-content').forEach((node) => { node.hidden = true; });
@@ -153,7 +174,15 @@
     root.addEventListener('pageshow', (event) => {
       if (event.persisted) {
         root.document.documentElement.dataset.auth = 'checking';
-        client.me().then(() => { root.document.documentElement.dataset.auth = 'ready'; }).catch(() => {});
+        const checking = /^\/auth(?:\/|$)/.test(root.location.pathname)
+          ? client.resumeAuth().then(result => {
+            if (result.state === 'full' && !client.recoveryPending) root.location.replace(client.safeNext(new URLSearchParams(root.location.search).get('next')));
+            else if (result.state !== 'full') {
+              const step = result.state === 'setup' ? 'setup' : 'verify';
+              if (root.location.pathname !== `/auth/${step}`) root.location.replace(`/auth/${step}${root.location.search}`);
+            }
+          }) : client.me();
+        checking.then(() => { root.document.documentElement.dataset.auth = 'ready'; }).catch(() => {});
       }
     });
   }

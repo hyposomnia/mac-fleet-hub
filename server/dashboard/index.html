@@ -179,6 +179,7 @@
                 </div>
               </div>
               <div id="file-upload-queue-mobile" class="file-upload-queue file-upload-queue-inline" aria-label="上传队列" hidden></div>
+              <form id="file-path-form" class="file-path-form"><input id="file-path-input" class="input mono" aria-label="前往文件夹的绝对路径" placeholder="输入路径，例如 /Volumes" autocomplete="off" /><button type="submit" class="btn sm">前往</button></form>
               <nav id="file-breadcrumbs" class="file-breadcrumbs" aria-label="路径"></nav>
             </header>
             <div class="file-table-head" role="row">
@@ -307,6 +308,15 @@
                 <span id="chat-preview-output-text"></span>
               </button>
               <div id="chat-followups" hidden></div>
+              <p id="chat-connection-status" class="hint" role="status" hidden></p>
+              <div id="chat-project-context" class="chat-project-context" hidden>
+                <label for="chat-project-select">项目</label>
+                <select id="chat-project-select" aria-label="选择会话项目"><option value="">选择项目（可不选）</option></select>
+                <button id="chat-project-mobile" type="button" class="chat-project-mobile" aria-label="选择会话项目" hidden>无项目</button>
+                <span id="chat-project-device" class="chat-project-device"></span>
+                <span id="chat-project-status" class="chat-project-status" role="status"></span>
+                <button id="chat-project-retry" type="button" class="chat-project-retry" hidden>重试</button>
+              </div>
               <div class="chat-composer-inner">
                 <div id="chat-attachments" hidden></div>
                 <div id="chat-skill-menu" class="chat-skill-menu" role="listbox" aria-label="Skills" hidden></div>
@@ -493,11 +503,14 @@
         <div class="modal-body">
           <section class="set-group">
             <div class="set-group-title">聊天设置</div>
-            <div class="field"><label>保持连接的会话缓存数</label><input id="st-chat-cache-max" class="input tnum" type="number" min="1" max="20" inputmode="numeric" /></div>
+            <div class="field"><label>保持连接的会话缓存数</label><input id="st-chat-cache-max" class="input tnum" type="number" min="1" inputmode="numeric" /></div>
+            <div class="field"><label for="st-auto-close">空闲连接回收（分钟，0 表示永不自动关闭）</label><input id="st-auto-close" class="input tnum" type="number" min="0" inputmode="numeric" /></div>
+            <div class="field"><label for="st-desktop-windows">电脑端保留的终端连接</label><input id="st-desktop-windows" class="input tnum" type="number" min="1" inputmode="numeric" /></div>
+            <div class="field"><label for="st-mobile-windows">手机端保留的终端连接</label><input id="st-mobile-windows" class="input tnum" type="number" min="1" inputmode="numeric" /></div>
             <div class="kv set-cache-stat"><span class="k">当前缓存</span><span id="st-chat-cache-count" class="v tnum">0 / 0</span></div>
             <div class="kv set-cache-stat"><span class="k">估算内存</span><span id="st-chat-cache-bytes" class="v tnum">0 KB</span></div>
             <div class="kv set-cache-stat"><span class="k">平均单个缓存</span><span id="st-chat-cache-each" class="v tnum">0 KB</span></div>
-            <p class="hint">保留会话连接以加快切换；缓存越多，占用内存越多。</p>
+            <p class="hint">按需回收不活跃连接，再次打开会自动连接。草稿和正在执行的任务不会因聊天缓存回收而丢失；缓存越多，占用内存越多。</p>
           </section>
         </div>
         <div id="settings-footer" class="modal-foot">
@@ -547,6 +560,16 @@
         <div class="modal-body">
           <p id="device-modal-subtitle" class="hint device-picker-hint">选择内容所在的 Mac</p>
           <div id="device-options" class="device-options"></div>
+        </div>
+      </div>
+    </div>
+
+    <div id="new-project-modal" class="overlay" hidden>
+      <div class="modal new-project-modal" role="dialog" aria-modal="true" aria-labelledby="new-project-title">
+        <div class="modal-head"><span id="new-project-title">选择项目</span><button class="iconbtn bare x" type="button" data-close="new-project-modal" aria-label="关闭项目选择"><svg class="ic" viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button></div>
+        <div class="modal-body">
+          <p id="new-project-device" class="hint"></p>
+          <div id="new-project-options" class="new-project-options"></div>
         </div>
       </div>
     </div>

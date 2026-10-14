@@ -223,3 +223,23 @@ test('focus after the password step preserves the pending challenge and permits 
   assert.deepEqual(requests, ['/api/auth/login', '/api/auth/verify']);
   assert.equal(client.user.id, 'alice');
 });
+
+test('account palette never imports an unattributed browser palette into another account', async () => {
+ const calls=[];
+ const f=fixture(null,false,false,{light:{accent:'#123456'}}, async (url,options)=>{calls.push(options);return {ok:true,json:async()=>({palette:null})};});
+ f.host.FleetAuth={user:{id:'bob'},storageKey:key=>`fleet-user:bob:${key}`};
+ await f.host.FleetTheme.refreshPalette();
+ assert.equal(calls.filter(call=>call.method==='PUT').length,0);
+ assert.equal(f.host.FleetTheme.getPalette().light.accent,'#356B5B');
+ f.host.FleetTheme.setPalette(f.host.FleetTheme.paletteDefaults);
+ assert.ok(f.values.has('fleet-user:bob:fleet-theme-palette-v1'));
+});
+
+test('a palette body arriving after account switch is discarded before persisting', async () => {
+ let release,received;
+ const began=new Promise(resolve=>{received=resolve});
+ const f=fixture(null,false,false,null,async()=>({ok:true,json:()=>{received();return new Promise(resolve=>{release=resolve})}}));
+ let identity='alice';f.host.FleetAuth={get user(){return {id:identity}},storageKey:key=>`fleet-user:${identity}:${key}`};
+ const refresh=f.host.FleetTheme.refreshPalette();await began;identity='bob';release({palette:f.host.FleetTheme.paletteDefaults});
+ await assert.rejects(refresh);assert.equal(f.values.has('fleet-user:bob:fleet-theme-palette-v1'),false);
+});

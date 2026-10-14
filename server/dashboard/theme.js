@@ -59,9 +59,13 @@
     let hasSavedPalette = false;
     let media;
     const subscribers = new Set();
+    function paletteKey() {
+      if (!target.FleetAuth) return target.document.documentElement.dataset?.auth ? 'fleet-theme-palette-anonymous' : PALETTE_KEY;
+      return target.FleetAuth.user ? target.FleetAuth.storageKey(PALETTE_KEY) : 'fleet-theme-palette-anonymous';
+    }
     function readPalette() {
       let saved;
-      try { saved = JSON.parse(target.localStorage.getItem(PALETTE_KEY) || 'null'); } catch (_) {}
+      try { saved = JSON.parse(target.localStorage.getItem(paletteKey()) || 'null'); } catch (_) {}
       hasSavedPalette = ['light', 'dark'].some(mode => PALETTE_FIELDS.some(field => normalizedHex(saved?.[mode]?.[field])));
       palette = normalizePalette(saved);
       return palette;
@@ -108,14 +112,14 @@
     function setPalette(value) {
       palette = normalizePalette(value);
       hasSavedPalette = true;
-      try { target.localStorage.setItem(PALETTE_KEY, JSON.stringify(palette)); } catch (_) {}
+      try { target.localStorage.setItem(paletteKey(), JSON.stringify(palette)); } catch (_) {}
       apply();
       return clone(palette);
     }
     function resetPalette() {
       palette = normalizePalette();
       hasSavedPalette = false;
-      try { target.localStorage.removeItem(PALETTE_KEY); } catch (_) {}
+      try { target.localStorage.removeItem(paletteKey()); } catch (_) {}
       apply();
       return clone(palette);
     }
@@ -126,6 +130,7 @@
       return task;
     }
     async function requestPalette(update) {
+      const identity = paletteKey();
       const controller = new target.AbortController();
       const timeout = target.setTimeout(() => controller.abort(), 10000);
       try {
@@ -134,6 +139,7 @@
           ...(update ? {method: 'PUT', headers: {'content-type': 'application/json'}, body: JSON.stringify(update)} : {}),
         });
         const data = await response.json();
+        if (identity !== paletteKey()) throw new Error('账号已切换，忽略旧配色响应');
         if (!response.ok) throw new Error(data?.error?.message || data?.error || `HTTP ${response.status}`);
         if (data.palette !== null && !validPalette(data.palette)) throw new Error('服务器未返回有效配色');
         return data.palette;
@@ -143,9 +149,11 @@
       if (refreshTask) return refreshTask;
       refreshTask = enqueue(async () => {
         // Authentication steps have no full session yet; keep their local palette.
-        if (/^\/auth(?:\/|$)/.test(target.location?.pathname || '')) return clone(palette);
+        if (/^\/auth(?:\/|$)/.test(target.location?.pathname || '') || ((target.FleetAuth || target.document.documentElement.dataset?.auth) && !target.FleetAuth?.user)) return clone(palette);
+        const identity = paletteKey();
         let server = await requestPalette();
-        if (server === null && hasSavedPalette) server = await requestPalette({palette: clone(palette), ifAbsent: true});
+        if (server === null && hasSavedPalette && !target.FleetAuth) server = await requestPalette({palette: clone(palette), ifAbsent: true});
+        if (identity !== paletteKey()) throw new Error('账号已切换，忽略旧配色响应');
         if (server === null) { palette = normalizePalette(); apply(); }
         else setPalette(server);
         return clone(palette);
@@ -155,14 +163,17 @@
     function savePalette(value) {
       if (!validPalette(value)) return Promise.reject(new Error('配色格式错误'));
       const next = normalizePalette(value);
+      const identity = paletteKey();
       return enqueue(async () => {
+        if (identity !== paletteKey()) throw new Error('账号已切换，请重新保存配色');
         const server = await requestPalette({palette: next});
+        if (identity !== paletteKey()) throw new Error('账号已切换，忽略旧配色响应');
         if (server === null) throw new Error('服务器未确认保存配色');
         return setPalette(server);
       });
     }
     target.addEventListener?.('storage', event => {
-      if (event.key === PALETTE_KEY) { readPalette(); apply(); return; }
+      if (event.key === paletteKey()) { readPalette(); apply(); return; }
       if (event.key !== THEME_KEY && event.key !== null) return;
       if (event.key === null) { refresh(); return; }
       preference = validPreference(event.newValue) ? event.newValue : 'light';
@@ -185,7 +196,7 @@
       normalizeColor: normalizedHex,
       getPalette: () => clone(palette),
       get paletteDefaults() { return clone(PALETTE_DEFAULTS); },
-      get paletteStorageKey() { return PALETTE_KEY; },
+      get paletteStorageKey() { return paletteKey(); },
       get preference() { return preference; },
       subscribe(listener) { subscribers.add(listener); return () => subscribers.delete(listener); },
     };

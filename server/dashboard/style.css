@@ -2298,3 +2298,22 @@ html[data-workspace-tab="true"] .preview-actions .iconbtn { width: 26px; height:
 .empty-chat-compose { display: flex; align-items: flex-end; gap: 10px; padding: 16px; background: var(--surface-1); border-radius: var(--radius-card); box-shadow: var(--e2); }
 .empty-chat-compose textarea { flex: 1; min-width: 0; resize: none; border: 0; background: transparent; outline: none; }
 .empty-chat-compose svg { width: 20px; height: 20px; }
+
+/* New-session project context, shared with self-hosted UI. */
+.chat-project-context { display: flex; align-items: center; gap: 8px; min-height: 32px; margin: 0 8px 6px; color: var(--chat-text-2); font-size: var(--t-body); }
+.chat-project-context[hidden] { display: none; }
+.chat-project-context label { flex: none; }
+.chat-project-device { margin-left: auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chat-project-status { font-size: var(--t-secondary); }
+.chat-project-retry { color: var(--accent-text); font: inherit; }
+.new-project-options { display: flex; flex-direction: column; gap: 4px; }
+.new-project-option { display: flex; flex-direction: column; gap: 4px; width: 100%; padding: 12px; border-radius: var(--radius-control); text-align: left; color: var(--text); }
+.new-project-option:hover { background: var(--surface-hover); }
+.new-project-option strong { font-size: var(--t-body); font-weight: 500; }
+.new-project-option small { font-size: var(--t-secondary); color: var(--text-2); overflow-wrap: anywhere; }
+
+#chat-project-select, .chat-project-mobile { min-width: 0; max-width: 50%; padding: 4px 6px; border: 0; border-radius: var(--radius-compact); background: var(--chat-bg); color: var(--chat-text); font: inherit; }
+#chat-project-select:disabled, .chat-project-mobile:disabled { color: var(--chat-text-3); cursor: not-allowed; }
+
+.file-path-form { display: flex; gap: 8px; width: 100%; }
+.file-path-form input { min-width: 0; flex: 1; }

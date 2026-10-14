@@ -133,7 +133,7 @@ test('repeated session settings saves keep shared objects out of integer prefere
   const source = app.match(/async function saveSettings\(\) \{[\s\S]*?^\}/m)?.[0];
   const requests = [];
   const sandbox = { BASE: '', SETTINGS_DEFAULT: {chatCacheMaxSessions: 6}, state: {settings: {chatCacheMaxSessions: 6}},
-    $: () => ({value: '9'}), closeOverlay() {}, toast() {}, evictChatCache() {},
+    $: selector => ({value: selector === '#st-auto-close' ? '0' : '9'}), closeOverlay() {}, toast() {}, evictChatCache() {},
     fetch: async (_, options) => {
       requests.push(JSON.parse(options.body));
       return {ok: true, json: async () => ({chatCacheMaxSessions: 9, deviceAppearance: {m1: {icon: 'mini', color: 'teal'}}, deviceOrder: ['m1'], palette: {light: {}, dark: {}}})};
@@ -142,6 +142,6 @@ test('repeated session settings saves keep shared objects out of integer prefere
   await sandbox.saveSettings();
   await sandbox.saveSettings();
   assert.equal(requests.length, 2);
-  for (const request of requests) assert.deepEqual(request, {chatCacheMaxSessions: 9});
+  for (const request of requests) assert.deepEqual(request, {chatCacheMaxSessions: 9, autoCloseMinutes: 0, desktopMaxWindows: 9, mobileMaxWindows: 9});
   assert.equal(Object.hasOwn(sandbox.state.settings, 'deviceAppearance'), false);
 });

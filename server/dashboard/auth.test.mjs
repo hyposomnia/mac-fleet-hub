@@ -143,3 +143,43 @@ test('successful verification signals other tabs to discard their previous user 
   assert.ok(current.localStorage.getItem('fleet-auth-event'));
   assert.equal(current.client.user.id, 'bob');
 });
+
+ test('pending authentication can resume without requesting a full session', async () => {
+ const f=harness(url => url === '/api/auth/state' ? {state:'challenge'} : new Response('{}',{status:401}));
+ assert.equal((await f.client.resumeAuth()).state,'challenge'); assert.deepEqual(f.redirects,[]);
+ });
+
+test('BFCache restoration checks pending stage and does not redirect a valid OTP challenge', async () => {
+ const listeners={},redirects=[],requests=[];
+ const root={URL,URLSearchParams,Headers,Response,Event,
+ location:{origin:'https://fleet.test',pathname:'/auth/verify',search:'?next=%2Faccount',replace:url=>redirects.push(url)},
+ document:{documentElement:{classList:{contains:()=>false},dataset:{}},querySelectorAll:()=>[],dispatchEvent(){}},
+ addEventListener:(name,fn)=>{listeners[name]=fn},localStorage:storage(),sessionStorage:storage(),
+ fetch:async url=>{requests.push(url);return url==='/api/auth/state'?Response.json({state:'challenge'}):new Response('{}',{status:401})}};
+ vm.runInNewContext(source,root);listeners.pageshow({persisted:true});
+ await new Promise(resolve=>setImmediate(resolve));
+ assert.deepEqual(requests,['/api/auth/state']);assert.deepEqual(redirects,[]);assert.equal(root.document.documentElement.dataset.auth,'ready');
+});
+
+test('TOTP rotation updates CSRF from the successful response without an extra request before recovery codes', async () => {
+ const f=harness(url=>url==='/api/auth/totp/confirm'?{user:{id:'alice'},csrf_token:'rotated',recovery_codes:['SAVE']}:{user:{id:'alice'},csrf_token:'old'});
+ await f.client.me();const result=await f.client.json('/api/auth/totp/confirm',{method:'POST',body:{code:'123456'}});
+ assert.equal(f.client.csrfToken,'rotated');assert.deepEqual(result.recovery_codes,['SAVE']);assert.equal(f.requests.length,2);
+});
+
+test('an old in-flight 401 cannot invalidate credentials rotated by TOTP confirmation', async () => {
+ let release;
+ const f=harness(url=>url==='/api/slow'?new Promise(resolve=>{release=resolve}):url==='/api/auth/totp/confirm'?{user:{id:'alice'},csrf_token:'new',recovery_codes:['KEEP']}:{user:{id:'alice'},csrf_token:'old'});
+ await f.client.me();const old=f.client.json('/api/slow');
+ await f.client.json('/api/auth/totp/confirm',{method:'POST',body:{code:'123456'}});
+ release(new Response('{}',{status:401}));await assert.rejects(old);assert.deepEqual(f.redirects,[]);assert.equal(f.client.csrfToken,'new');
+});
+
+test('BFCache does not navigate away from unacknowledged recovery codes', async () => {
+ const listeners={},redirects=[];
+ const root={URL,URLSearchParams,Headers,Response,Event,
+ location:{origin:'https://fleet.test',pathname:'/auth/setup',search:'',replace:url=>redirects.push(url)},
+ document:{documentElement:{classList:{contains:()=>false},dataset:{}},querySelectorAll:()=>[],dispatchEvent(){}},
+ addEventListener:(name,fn)=>{listeners[name]=fn},localStorage:storage(),sessionStorage:storage(),fetch:async()=>Response.json({state:'full'})};
+ vm.runInNewContext(source,root);root.FleetAuth.setRecoveryPending(true);listeners.pageshow({persisted:true});await new Promise(resolve=>setImmediate(resolve));assert.deepEqual(redirects,[]);
+});

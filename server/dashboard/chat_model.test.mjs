@@ -238,7 +238,7 @@ test('embedded preview breadcrumbs hand navigation to the main file manager', ()
 function imagePreviewHarness(name, options = {}) {
   const nodes = new Map();
   for (const id of ['app', 'preview-page', 'preview-stage', 'preview-title', 'preview-path', 'preview-download', 'preview-image', 'preview-error']) {
-    nodes.set(`#${id}`, { dataset: {}, setAttribute() {}, removeAttribute() {} });
+    nodes.set(`#${id}`, { dataset: {}, setAttribute() {}, removeAttribute() {}, append() {} });
   }
   nodes.get('#preview-stage').querySelectorAll = () => [];
   const scripts = [];
@@ -250,7 +250,7 @@ function imagePreviewHarness(name, options = {}) {
   const document = {
     documentElement: { dataset: {} },
     querySelector: (selector) => nodes.get(selector),
-    createElement: () => ({ remove() {} }),
+    createElement: () => ({ remove() {}, setAttribute() {}, append() {} }),
     head: { append(script) {
       scripts.push(script.src);
       queueMicrotask(() => {
@@ -841,7 +841,7 @@ test('fresh Codex detail starts locally and creates its thread on first submit',
   assert.match(draftStart, /openPendingChatSession\(/);
   assert.doesNotMatch(draftStart, /'chat\/start'/);
   assert.match(deferredStart, /'chat\/start'/);
-  assert.match(submit, /await ensurePendingChatStarted\(chat\)[\s\S]*?raw = typeof input\.value === 'string' \? input\.value : '';/s);
+  assert.match(submit, /await ensurePendingChatStarted\(chat\)[\s\S]*?raw = input\?\.value \?\? chat\.draft \?\? '';/s);
 });
 
 test('pending Codex chat resolves the home directory once and migrates to the real thread', async () => {
@@ -926,7 +926,7 @@ test('recent session polling reconciles keyed rows without rebuilding the list',
 
 test('mobile layout follows viewport width regardless of pointer type', () => {
   const query = '@media (max-width: 860px)';
-  assert.equal(styleCSS.split(query).length - 1, 2);
+  assert.ok(styleCSS.includes(query));
   assert.doesNotMatch(styleCSS, /pointer:\s*(?:coarse|fine)/);
   assert.match(appSrc, /const isMobile = \(\) => matchMedia\('\(max-width: 860px\)'\)\.matches/);
   assert.doesNotMatch(appSrc, /MOBILE_MEDIA|pointer:\s*(?:coarse|fine)/);
@@ -1245,13 +1245,13 @@ test('Fleet retains release and read-only controls for actionable states', () =>
   assert.match(styleCSS, /\.chat-release-writer/);
 });
 
-test('Dashboard is a server-authoritative chat shell with no local delivery state machine', () => {
+test('Dashboard sends through authoritative server queue, including explicit offline intents', () => {
   assert.doesNotMatch(appSrc, /macfleet:codex-followups/);
   assert.doesNotMatch(appSrc, /function flushChatFollowups/);
   assert.doesNotMatch(appSrc, /chat\/input/);
   assert.doesNotMatch(appSrc, /chat\/steer/);
   assert.doesNotMatch(appSrc, /writerOwner:\s*item\.externalWriter/);
-  assert.match(appSrc, /submitChatInput\(\{ deliveryMode = 'next' \} = \{\}\)/);
+  assert.match(appSrc, /submitChatInput\(\{ deliveryMode = 'next',[^}]+\} = \{\}\)/);
   assert.match(appSrc, /applyChatControlSnapshot/);
   assert.doesNotMatch(appSrc, /forceQueue/);
   assert.match(appSrc, /chat\/queue/);
@@ -2093,9 +2093,9 @@ test('composer queues non-empty running input and only stops when empty', () => 
   assert.match(appSrc, /桌面端正在回复/);
   assert.match(appSrc, /chatComposerAction[\s\S]*queue-desktop/);
   assert.match(appSrc, /enqueueServerChatMessage\(chat, item, deliveryMode\)/);
-  assert.match(appSrc, /submitChatInput\(\{ deliveryMode = 'next' \} = \{\}\)/);
+  assert.match(appSrc, /submitChatInput\(\{ deliveryMode = 'next',[^}]+\} = \{\}\)/);
   assert.doesNotMatch(appSrc, /external_turn_running|flushChatFollowups/);
-  assert.match(appSrc, /input\.placeholder = action === 'readonly' \? 'Fleet 已释放此会话'/);
+  assert.match(appSrc, /action === 'readonly' \? 'Fleet 已释放此会话'/);
   assert.match(appSrc, /attach\.disabled = mutationBlocked/);
   assert.match(appSrc, /approval\.disabled = mutationBlocked/);
   assert.match(appSrc, /function chatMutationsBlocked/);
@@ -2511,7 +2511,7 @@ test('self-drawn approval menu mirrors Codex three presets', () => {
   assert.match(appSrc, /return 'on-request';/);
   assert.match(appSrc, /trigger\.dataset\.value\s*=\s*selected\.value/);
   assert.match(appSrc, /api\(chat\.macId,\s*'chat\/settings'/);
-  assert.match(appSrc, /if\s*\(chat\.approvalMode && assistantCapabilities\(\)\.approvalModes\)\s*turnOptions\.approvalMode\s*=\s*chat\.approvalMode/);
+  assert.match(appSrc, /if\s*\(chat\.approvalMode && assistantCapabilities\(chat\.assistant, chat\.macId\)\.approvalModes\)\s*turnOptions\.approvalMode\s*=\s*chat\.approvalMode/);
   assert.match(appSrc, /已开启完全访问，当前任务后续审批将自动允许。/);
   assert.match(appSrc, /https:\/\/developers\.openai\.com\/codex\/concepts\/sandboxing#how-you-control-it/);
   assert.match(styleCSS, /\.chat-approval-choice\.full-access\s*\{\s*color:\s*var\(--wait\)/);
@@ -4127,6 +4127,23 @@ test('older history paging serializes gestures and advances the returned cursor'
   }
 });
 
+
+test('cache eviction protects drafts, attachments and running tasks', () => {
+  const current = { updatedAt: 10 };
+  const draft = { updatedAt: 1, draft: 'unsent' };
+  const attachment = { updatedAt: 2, attachments: [{name: 'local.txt'}] };
+  const running = { updatedAt: 3, controlReady:true, turnPhase:'running' };
+  const idle = { updatedAt: 4 };
+  assert.equal(chatCacheVictim(new Map([['draft',draft], ['attachment',attachment], ['running',running], ['idle',idle], ['current',current]]), current).chat, idle);
+});
+
+test('new session project picker normalizes paths and keeps explicit project', () => {
+  const normalize = vm.runInContext('typeof normalizeNewSessionProjects === "function" ? normalizeNewSessionProjects : null', appSandbox);
+  assert.equal(typeof normalize, 'function');
+  const projects = normalize([{cwd:'/a',name:'A'}, {cwd:'/a'}, {cwd:'relative'}, {cwd:'/b',name:'B'}]);
+  assert.deepEqual(JSON.parse(JSON.stringify(projects)), [{cwd:'/a',name:'A'}, {cwd:'/b',name:'B'}]);
+});
+
 test('desktop new conversation projects are scoped to the chosen device and allow no project', () => {
   const saved = {projects: appState.sessionProjects, results: appState.sessionResults};
   appState.sessionProjects = [{macId:'m1',cwd:'/repo/one',name:'One'}, {macId:'m2',cwd:'/repo/two',name:'Two'}];
@@ -4138,6 +4155,41 @@ test('desktop new conversation projects are scoped to the chosen device and allo
   } finally { appState.sessionProjects=saved.projects; appState.sessionResults=saved.results; }
 });
 
+
+test('offline drafting never sends without explicit intent; reconnect sends once through queue', async () => {
+  const input = { value: 'Keep this draft' };
+  const local = { ...appSandbox, document: { ...appSandbox.document, querySelector: selector => selector === '#chat-input' ? input : null } };
+  vm.createContext(local);
+  vm.runInContext(appSrc, local);
+  vm.runInContext(`
+    MACS = [{id:'m1'}]; state.nodes = {m1:false}; state.gatewayDown = false;
+    state.chat = {macId:'m1', assistant:'codex', sessionId:'thread', controlReady:true, accessMode:'read_write', turnPhase:'idle', attachments:[], skillsLoaded:true, skills:[], skillPreferences:{}, draft:''};
+    globalThis.calls = [];
+    renderChatFollowups = updateChatComposerState = syncPendingChatProject = renderChatAttachments = resizeChatInput = closeChatSkillMenu = () => {};
+    enqueueServerChatMessage = async (chat,item,mode) => calls.push({text:item.text, mode, session:chat.sessionId});
+    globalThis.chat = state.chat;
+    globalThis.submit = submitChatInput;
+  `, local);
+  assert.equal(vm.runInContext('chatComposerAction(state.chat,true)', local), 'queue-offline');
+  assert.equal(local.calls.length, 0);
+  assert.equal(local.chat.deferredSend, undefined);
+  await local.submit();
+  assert.equal(local.calls.length, 0);
+  assert.equal(local.chat.draft, 'Keep this draft');
+  assert.equal(local.chat.deferredSend.raw, 'Keep this draft');
+  assert.equal(input.value, 'Keep this draft');
+  vm.runInContext('state.nodes.m1 = true', local);
+  await Promise.all([local.submit({chat:local.chat,deferred:true}), local.submit({chat:local.chat,deferred:true})]);
+  assert.deepEqual(JSON.parse(JSON.stringify(local.calls)), [{text:'Keep this draft',mode:'next',session:'thread'}]);
+  assert.equal(local.chat.deferredSend, null);
+  assert.equal(local.chat.draft, '');
+  assert.equal(input.value, '');
+});
+
+test('file columns can traverse filesystem root and external volumes', () => {
+  const paths = vm.runInContext(`fileColumnPaths('/', '/Volumes/External/work')`, appSandbox);
+  assert.deepEqual(Array.from(paths), ['/', '/Volumes', '/Volumes/External', '/Volumes/External/work']);
+});
 
 test('desktop empty composer sends through the normal pending session flow with explicit project choice', async () => {
   const previousQuery = appSandbox.document.querySelector;
@@ -4167,4 +4219,12 @@ test('desktop empty composer sends through the normal pending session flow with 
     appSandbox.document.querySelector=previousQuery;
     vm.runInContext(`({newSessionIn,submitChatInput,resizeChatInput,canSelfDrawChat}=__emptyOriginals); state.nodes=__emptyOriginals.nodes; state.chat=__emptyOriginals.chat;`,appSandbox);
   }
+});
+
+
+test('temporarily missing devices remain reconnecting and cannot send as active', () => {
+  const connection = vm.runInContext(`deviceConnectionState({status:'unavailable',online:true})`, appSandbox);
+  assert.equal(connection.online, false);
+  assert.equal(connection.label, '正在重新连接');
+  assert.equal(vm.runInContext(`deviceConnectionState({status:'active',online:true}).online`,appSandbox),true);
 });

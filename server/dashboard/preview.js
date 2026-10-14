@@ -32,6 +32,7 @@
   let textEditor = null;
   let heicDecoderPromise = null;
   let imagePreview = null;
+  let previewRequestVersion = 0;
 
   function loadHEICDecoder() {
     if (typeof root.HeicTo === 'function') return Promise.resolve(root.HeicTo);
@@ -230,6 +231,7 @@
       path,
       cwd: options.cwd || '',
       download: options.download ? '1' : '',
+      encoding: options.encoding || '',
     }, !!options.absolute);
   }
 
@@ -305,6 +307,15 @@
     const error = document.querySelector('#preview-error');
     if (!error) return;
     error.textContent = message || '无法预览文件。';
+    const download = document.querySelector('#preview-download');
+    if (download?.href && !download.hidden && document.createElement) {
+      const action = document.createElement('a');
+      action.href = download.href;
+      action.setAttribute('download', '');
+      action.textContent = '下载原文件';
+      action.className = 'btn';
+      error.append(action);
+    }
     setPreviewState('error');
   }
 
@@ -480,6 +491,7 @@
   }
 
   async function initRoute() {
+    const version = ++previewRequestVersion;
     const request = previewRequest();
     const app = document.querySelector('#app');
     const page = document.querySelector('#preview-page');
@@ -494,15 +506,38 @@
     if (wrap) {
       wrap.onclick = () => setTextWrap(wrap.getAttribute('aria-pressed') !== 'true');
     }
+    const download = document.querySelector('#preview-download');
+    if (download) {
+      download.href = fileEndpoint('content', request.macId, request.path, { cwd: request.cwd, download: true });
+      download.setAttribute('download', '');
+      download.hidden = false;
+    }
+    let encoding = document.querySelector('#preview-encoding');
+    const textFile = isTextPreviewPath(request.path) || ['.md', '.markdown', '.html', '.htm'].includes(extensionOf(request.path));
+    if (!encoding && textFile && download?.parentNode && document.createElement) {
+      encoding = document.createElement('select');
+      encoding.id = 'preview-encoding';
+      encoding.setAttribute('aria-label', '文本编码');
+      for (const [value, label] of [['auto', '自动识别编码'], ['utf-8', 'UTF-8'], ['utf-16le', 'UTF-16 LE'], ['utf-16be', 'UTF-16 BE'], ['gb18030', 'GB18030 / GBK'], ['big5', 'Big5'], ['shift_jis', 'Shift JIS'], ['windows-1252', 'Windows-1252']]) {
+        const option = document.createElement('option');
+        option.value = value; option.textContent = label; encoding.append(option);
+      }
+      encoding.onchange = () => initRoute();
+      if (request.embed && page?.insertBefore) page.insertBefore(encoding, document.querySelector('#preview-stage'));
+      else download.parentNode.insertBefore(encoding, download);
+    }
     try {
-      const response = await fetch(fileEndpoint('preview', request.macId, request.path, { cwd: request.cwd }), { cache: 'no-store' });
+      const response = await fetch(fileEndpoint('preview', request.macId, request.path, { cwd: request.cwd, encoding: encoding?.value }), { cache: 'no-store' });
       if (!response.ok) {
         let message = `无法预览文件（HTTP ${response.status}）`;
         try { const body = await response.json(); if (body?.message) message = body.message; } catch (_) {}
         throw new Error(message);
       }
-      renderPreview(await response.json(), request);
+      const meta = await response.json();
+      if (version !== previewRequestVersion) return;
+      renderPreview(meta, request);
     } catch (error) {
+      if (version !== previewRequestVersion) return;
       showPreviewError(error?.message || '无法预览文件。');
     }
   }

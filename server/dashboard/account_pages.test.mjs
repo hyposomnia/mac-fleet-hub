@@ -36,6 +36,8 @@ function harness({ page = 'auth', path = '/auth', search = '', role = 'user', re
   const redirects = [];
   const location = { origin, pathname: path, search, replace: (target) => redirects.push(target) };
   const auth = { user: { id: 'u1', email: 'one@example.com', role, status: 'active' },
+    setRecoveryPending: value => { auth.recoveryPending = value; },
+    resumeAuth: async () => ({state: location.pathname.endsWith('/setup') ? 'setup' : 'challenge'}),
     me: async () => { calls.push({ url: '/api/auth/me' }); return { user: auth.user, csrf_token: 'token' }; },
     safeNext: (target) => target?.startsWith('/') && !target.startsWith('//') ? target : '/',
     json: async (url, options = {}) => {
@@ -347,15 +349,17 @@ test('recovery acknowledgment and TOTP pages prevent duplicate confirmation whil
   await first;
 });
 
-test('security changes that revoke the current session preserve recovery codes until acknowledged', async () => {
-  const current = harness({ page: 'account', respond: (url) => url.endsWith('/start') ? { secret: 'NEW' } : url.endsWith('/confirm') ? { recovery_codes: ['SAVE-ME'], login_required: true } : { devices: [], sessions: [] } });
+test('TOTP rotation retains the current session and preserves recovery codes until acknowledged', async () => {
+  const current = harness({ page: 'account', respond: (url) => url.endsWith('/start') ? { secret: 'NEW' } : url.endsWith('/confirm') ? { recovery_codes: ['SAVE-ME'], login_required: false } : { devices: [], sessions: [] } });
   await current.start();
   await current.submit('totp-start', { password: 'password', code: '123456' });
   await current.submit('totp-confirm', { code: '654321' });
   assert.match(text(current.content), /SAVE-ME/);
+  assert.equal(current.auth.recoveryPending, true);
   assert.equal(current.redirects.length, 0);
   await current.submit('recovery-ack', { saved: true });
-  assert.equal(current.redirects[0], '/auth?next=%2Faccount');
+  assert.equal(current.auth.recoveryPending, false);
+  assert.equal(current.redirects.length, 0);
 });
 
 test('add device offers a native DMG and explains fresh browser OAuth and background disk authorization', async () => {
@@ -628,4 +632,9 @@ test('account logout is a text action that uses the existing logout flow', async
   assert.equal(logout.className, 'account-logout-link');
   await logout.onclick();
   assert.ok(current.calls.some(c => c.url === '/api/auth/logout'));
+});
+
+test('temporarily missing enrolled nodes show reconnection rather than revoked or installing', async () => {
+ const current=harness({page:'add-device',devices:[{id:'m7',name:'Air',status:'unavailable',online:false}]});await current.start();
+ assert.match(text(current.content),/正在重新连接/);
 });

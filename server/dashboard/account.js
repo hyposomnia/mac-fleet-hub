@@ -124,11 +124,13 @@
     }
     function showCodes(codes, done) {
       flowLocked = true;
+      auth.setRecoveryPending?.(true);
       heading('保存恢复码', '每个恢复码只能使用一次。请离线保存；离开此页后无法再次查看这批恢复码。');
       content.append(node('pre', codes.join('\n'), { className: 'account-codes' }));
       form('recovery-ack', [field('saved', '我已安全保存恢复码', 'checkbox')], '继续', async ({ saved }) => {
         if (!saved) throw new Error('请先保存恢复码并勾选确认。');
         flowLocked = false;
+        auth.setRecoveryPending?.(false);
         content.replaceChildren();
         await done();
       });
@@ -218,7 +220,7 @@
     }
     const deviceColumns = [
       ['设备', (device) => device.name || device.id], ['编号', (device) => device.id],
-      ['状态', (device) => device.status], ['在线', (device) => device.online ? '在线' : '离线'],
+      ['状态', (device) => device.status === 'unavailable' ? '正在重新连接' : device.status], ['在线', (device) => device.online ? '在线' : '离线'],
       ['创建时间', (device) => formatTime(device.created_at)], ['最后在线', (device) => formatTime(device.last_seen)], ['版本', (device) => device.version],
     ];
     function devices(records, parent, administrative = false, reload) {
@@ -286,7 +288,7 @@
         handle.setAttribute('aria-hidden', 'true');
         const iconSlot = node('span', '', { className: 'account-device-icon' });
         const name = node('strong', device.name || device.id, { className: 'account-device-name' });
-        const state = node('span', device.online ? '在线' : '离线', { className: `account-device-state ${device.online ? 'online' : ''}` });
+        const state = node('span', device.status === 'unavailable' ? '正在重新连接' : device.online ? '在线' : '离线', { className: `account-device-state ${device.online ? 'online' : ''}` });
         const ip = node('span', device.ip || '—', { className: 'account-device-ip' });
         const details = node('div', '', { className: 'account-device-details' });
         details.append(name, node('span', ' · ', { className: 'account-device-separator' }), ip, node('span', ' · ', { className: 'account-device-separator' }), state);
@@ -493,7 +495,7 @@
         heading('更换 Authenticator', '扫描新二维码，并使用新的 Authenticator 验证码确认。');
         showTOTP(result, 'totp-confirm', async (verification) => {
           const confirmed = await post('/api/auth/totp/confirm', verification);
-          showCodes(confirmed.recovery_codes, confirmed.login_required ? () => auth.invalidate({ returnTo: '/account' }) : showAccount);
+          showCodes(confirmed.recovery_codes, showAccount);
         });
       }, totp);
       const recovery = section('重新生成恢复码', content, true);
@@ -514,8 +516,9 @@
       const detail = section('用户详情');
       detail.hidden = true;
       let selectedUser = null;
-      async function showUser(identity) {
-        const result = await auth.json(`/api/admin/users/${encodeURIComponent(identity)}`);
+      async function showUser(identity, eventPage = 1, eventSearch = '') {
+        const query = eventPage !== 1 || eventSearch ? `?event_page=${eventPage}&event_search=${encodeURIComponent(eventSearch)}` : '';
+        const result = await auth.json(`/api/admin/users/${encodeURIComponent(identity)}${query}`);
         if (selectedUser !== identity) return;
         detail.hidden = false;
         detail.replaceChildren(node('h2', '用户详情'));
@@ -535,8 +538,12 @@
         }, detail, true);
         devices(result.devices, detail, true, async () => { await showUser(identity); await loadDevices(); });
         const events = section('事件', detail);
+        form('admin-event-search', [field('search', '搜索事件')], '搜索事件', values => showUser(identity, 1, values.search), events);
+        events.append(node('p', `第 ${eventPage} 页 · 共 ${result.event_total ?? result.events.length} 条`));
         metadata(result.events, [['事件', (event) => event.action || event.type], ['时间', (event) => formatTime(event.created_at)],
           ['操作者', (event) => event.actor_id], ['IP', (event) => event.ip]], events);
+        button('事件上一页', () => showUser(identity, eventPage - 1, eventSearch), events, false, () => eventPage <= 1);
+        button('事件下一页', () => showUser(identity, eventPage + 1, eventSearch), events, false, () => eventPage * (result.event_page_size || 50) >= (result.event_total ?? result.events.length));
       }
       function list(kind, title) {
         const parent = section(title);
@@ -615,7 +622,11 @@
       if (page === 'auth') {
         nav.replaceChildren();
         const step = location.pathname.replace(/\/$/, '').split('/')[2] || 'login';
-        showAuth(['login', 'register', 'verify', 'setup', 'recovery'].includes(step) ? step : 'login');
+        if (['verify', 'setup'].includes(step)) {
+          const state = await auth.resumeAuth();
+          if (state.state === 'full') location.replace(next);
+          else authTransition(state);
+        } else showAuth(['login', 'register', 'recovery'].includes(step) ? step : 'login');
       } else {
         await auth.me();
         const accountLink = link('账号', '/account', page === 'account');
