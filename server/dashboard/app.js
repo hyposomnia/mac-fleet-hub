@@ -641,7 +641,6 @@ async function refreshNodes() {
       online[id] = device.online === true;
       if (device.name) macNames[id] = device.name;
     }
-    ids.sort((a, b) => (+a.slice(1)) - (+b.slice(1)));
     const previousIDs = MACS.map((m) => m.id).join(',');
     const previousOnline = JSON.stringify(state.nodes);
     MACS = ids.map((id) => ({ id }));
@@ -828,7 +827,7 @@ async function refreshSettings() {
   try {
     const r = await fetch(`${BASE}/api/settings`, { cache: 'no-store' });
     if (r.ok) {
-      const {deviceAppearance, palette, ...settings} = await r.json();
+      const {deviceAppearance, deviceOrder, palette, ...settings} = await r.json();
       state.settings = { ...SETTINGS_DEFAULT, ...settings }; evictChatCache(); return;
     }
   } catch (_) {}
@@ -859,7 +858,7 @@ async function saveSettings() {
       method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body),
     });
     if (!r.ok) throw new Error('HTTP ' + r.status);
-    const {deviceAppearance, ...settings} = await r.json();
+    const {deviceAppearance, deviceOrder, palette, ...settings} = await r.json();
     state.settings = { ...SETTINGS_DEFAULT, ...settings };
     globalThis.FleetSettingsDialog?.active?.markSaved();
     closeOverlay('settings-modal');
@@ -907,7 +906,8 @@ function openUnifiedSettings(page, trigger) {
         const nav = document.createElement('nav');
         container.append(status, content);
         const pages = FleetAccountPages.createPages({ document, auth: FleetAuth, location, history,
-          confirm: message => window.confirm(message), content, status, nav });
+          confirm: message => window.confirm(message), content, status, nav,
+          onDevicesChanged: async () => { await refreshNodes(); await refreshDeviceAppearance(); } });
         await pages.start(selected);
         return pages;
       },

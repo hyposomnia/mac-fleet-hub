@@ -68,6 +68,7 @@ type dashboardPreferences struct {
 	AutoCloseMinutes     int                         `json:"autoCloseMinutes"`
 	ChatCacheMaxSessions int                         `json:"chatCacheMaxSessions"`
 	DeviceAppearance     map[string]deviceAppearance `json:"deviceAppearance"`
+	DeviceOrder          []string                    `json:"deviceOrder"`
 	Palette              *themePalette               `json:"palette"`
 }
 
@@ -96,6 +97,13 @@ func (server *Server) loadDashboardPreferences(userID int64) (dashboardPreferenc
 			return preferences, fmt.Errorf("invalid device appearance for %q", id)
 		}
 		preferences.DeviceAppearance[id] = appearance
+	}
+	seen := map[string]bool{}
+	for _, id := range preferences.DeviceOrder {
+		if !validDeviceID(id) || seen[id] {
+			return preferences, fmt.Errorf("invalid device order")
+		}
+		seen[id] = true
 	}
 	if preferences.Palette != nil && !preferences.Palette.validate() {
 		return preferences, fmt.Errorf("invalid theme palette")
@@ -158,19 +166,28 @@ func (server *Server) handlePreferences(writer http.ResponseWriter, request *htt
 			ID         string            `json:"id"`
 			Appearance *deviceAppearance `json:"appearance"`
 			IfAbsent   bool              `json:"ifAbsent"`
+			Order      *[]string         `json:"order"`
 		}
 		if !decode(writer, request, &input) {
 			return
 		}
-		if !validDeviceID(input.ID) || input.Appearance == nil || !input.Appearance.validate() {
+		if input.Order != nil {
+			seen := map[string]bool{}
+			for _, id := range *input.Order {
+				if !validDeviceID(id) || seen[id] || !owned[id] {
+					reject(writer, 400, "设备顺序格式错误")
+					return
+				}
+				seen[id] = true
+			}
+			preferences.DeviceOrder = append([]string(nil), (*input.Order)...)
+		} else if !validDeviceID(input.ID) || input.Appearance == nil || !input.Appearance.validate() {
 			reject(writer, 400, "设备外观格式错误")
 			return
-		}
-		if !owned[input.ID] {
+		} else if !owned[input.ID] {
 			reject(writer, 404, "设备不存在")
 			return
-		}
-		if _, exists := preferences.DeviceAppearance[input.ID]; !exists || !input.IfAbsent {
+		} else if _, exists := preferences.DeviceAppearance[input.ID]; !exists || !input.IfAbsent {
 			preferences.DeviceAppearance[input.ID] = *input.Appearance
 		}
 	} else if request.Method == "POST" {

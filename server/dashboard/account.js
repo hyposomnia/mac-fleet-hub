@@ -14,7 +14,7 @@
     if (!/^[A-Za-z0-9+/]{85}[AQgw]==$/.test(release.assets.update.ed_signature || '')) return null;
     return release;
   }
-  function createPages({ document, auth, location, history, confirm, content: suppliedContent, status: suppliedStatus, nav: suppliedNav }) {
+  function createPages({ document, auth, location, history, confirm, content: suppliedContent, status: suppliedStatus, nav: suppliedNav, onDevicesChanged }) {
     const content = suppliedContent || document.querySelector('#page-content');
     const status = suppliedStatus || document.querySelector('#page-status');
     const nav = suppliedNav || document.querySelector('#page-nav');
@@ -34,7 +34,7 @@
       return element;
     }
     function heading(title, description) {
-      content.replaceChildren(node('h1', title, { className: suppliedContent && ['账号设置', '添加设备'].includes(title) ? 'settings-primary-title' : '' }));
+      content.replaceChildren(node('h1', title, { className: suppliedContent && ['账号设置', '设备'].includes(title) ? 'settings-primary-title' : '' }));
       if (description) content.append(node('p', description, { className: 'account-muted' }));
       status.textContent = '';
     }
@@ -213,18 +213,186 @@
         }, cell, true);
       });
     }
+
+    function deviceAppearance(value) {
+      return root.FleetDeviceAppearance?.normalize(value) || { icon: 'monitor', color: 'steel' };
+    }
+    function deviceIcon(value) {
+      return root.FleetDeviceAppearance?.createIcon(value) || node('span', '设备', { className: 'device-icon' });
+    }
+    async function probeDevice(id, target) {
+      if (!root.fetch || !root.AbortController) return;
+      target.textContent = '探测中';
+      target.className = 'account-device-latency pending';
+      const controller = new root.AbortController();
+      const timer = root.setTimeout(() => controller.abort(), 5000);
+      const started = root.performance?.now?.() ?? Date.now();
+      try {
+        const response = await root.fetch(`/${id}/api/health?probe=${Date.now()}`, { cache: 'no-store', signal: controller.signal });
+        const elapsed = Math.max(1, Math.round((root.performance?.now?.() ?? Date.now()) - started));
+        target.textContent = response.ok ? `${elapsed}ms` : '失败';
+        target.className = `account-device-latency ${response.ok ? (elapsed <= 80 ? 'good' : elapsed <= 200 ? 'warn' : 'bad') : 'bad'}`;
+      } catch (_) {
+        target.textContent = '超时';
+        target.className = 'account-device-latency bad';
+      } finally { root.clearTimeout(timer); }
+    }
+    function renderDeviceList(records, appearances, parent) {
+      if (!records.length) {
+        parent.append(node('p', '暂无设备。请按下方说明添加第一台 Mac。', { className: 'account-muted' }));
+        return;
+      }
+      parent.append(node('p', '拖动设备可调整会话窗口中的显示顺序。', { className: 'account-muted account-device-order-hint' }));
+      const list = node('div', '', { className: 'account-device-list' });
+      let dragged = null;
+      let orderBeforeDrag = [];
+      async function saveOrder() {
+        const order = [...list.children].map(row => row.dataset.deviceId);
+        try {
+          await auth.json('/api/settings', { method: 'PATCH', body: { order } });
+          status.textContent = '设备顺序已保存。';
+          await onDevicesChanged?.();
+        } catch (error) {
+          const rows = new Map([...list.children].map(row => [row.dataset.deviceId, row]));
+          for (const id of orderBeforeDrag) if (rows.has(id)) list.insertBefore(rows.get(id), null);
+          status.textContent = error.message;
+        }
+      }
+      for (const device of records) {
+        if (!/^m[1-9]\d*$/.test(device.id || '')) continue;
+        let savedAppearance = deviceAppearance(appearances?.[device.id]);
+        let draft = { ...savedAppearance };
+        const row = node('article', '', { className: 'account-device-row', draggable: true });
+        row.dataset.deviceId = device.id;
+        const handle = node('span', '', { className: 'account-device-drag', title: '拖动排序' });
+        handle.setAttribute('aria-hidden', 'true');
+        const iconSlot = node('span', '', { className: 'account-device-icon' });
+        const name = node('strong', device.name || device.id, { className: 'account-device-name' });
+        const state = node('span', device.online ? '在线' : '离线', { className: `account-device-state ${device.online ? 'online' : ''}` });
+        const ip = node('span', device.ip || '—', { className: 'account-device-ip' });
+        const details = node('div', '', { className: 'account-device-details' });
+        details.append(name, node('span', ' · ', { className: 'account-device-separator' }), ip, node('span', ' · ', { className: 'account-device-separator' }), state);
+        const identity = node('div', '', { className: 'account-device-identity' });
+        identity.append(iconSlot, details);
+        const latency = node('button', '—', { type: 'button', className: 'account-device-latency', title: '重新探测延迟' });
+        latency.onclick = () => probeDevice(device.id, latency);
+        const edit = node('button', '编辑', { type: 'button', className: 'account-button account-device-edit' });
+        const summary = node('div', '', { className: 'account-device-summary' });
+        summary.append(handle, identity, latency, edit);
+        const editor = node('div', '', { className: 'account-device-editor', hidden: true });
+        const nameLabel = node('label', '设备名称', { className: 'account-device-name-field' });
+        const nameInput = node('input', '', { name: 'device-name', type: 'text', value: device.name || '', maxLength: 40, autocomplete: 'off' });
+        nameLabel.append(nameInput);
+        const iconChoices = node('div', '', { className: 'device-icon-choices account-device-icon-choices' });
+        iconChoices.setAttribute('role', 'group');
+        iconChoices.setAttribute('aria-label', '设备图标');
+        const colorChoices = node('div', '', { className: 'device-color-choices account-device-color-choices' });
+        colorChoices.setAttribute('role', 'group');
+        colorChoices.setAttribute('aria-label', '设备颜色');
+        function renderChoices() {
+          iconChoices.replaceChildren();
+          for (const choice of (root.FleetDeviceAppearance?.icons || [])) {
+            const option = node('button', '', { type: 'button', className: 'device-icon-choice' });
+            option.dataset.deviceIcon = choice.id;
+            option.setAttribute('aria-label', choice.label);
+            option.setAttribute('aria-pressed', String(draft.icon === choice.id));
+            option.onclick = () => { draft = deviceAppearance({ ...draft, icon: choice.id, text: undefined }); renderChoices(); };
+            option.append(deviceIcon({ ...draft, icon: choice.id, text: undefined }), node('span', choice.label));
+            iconChoices.append(option);
+          }
+          colorChoices.replaceChildren();
+          for (const choice of (root.FleetDeviceAppearance?.colors || [])) {
+            const option = node('button', '', { type: 'button', className: 'device-color-choice' });
+            option.dataset.deviceColorChoice = choice.id;
+            option.setAttribute('aria-label', choice.label);
+            option.setAttribute('aria-pressed', String(draft.color === choice.id));
+            option.onclick = () => { draft = deviceAppearance({ ...draft, color: choice.id }); renderChoices(); };
+            const swatch = node('span', '', { className: 'device-color-swatch' });
+            swatch.dataset.deviceColor = choice.id;
+            option.append(swatch);
+            colorChoices.append(option);
+          }
+        }
+        const actions = node('div', '', { className: 'account-device-actions' });
+        const cancel = node('button', '取消', { type: 'button', className: 'account-button' });
+        const remove = node('button', '移除设备', { type: 'button', className: 'account-button danger' });
+        const save = node('button', '保存', { type: 'button', className: 'account-button primary' });
+        cancel.onclick = () => { draft = { ...savedAppearance }; nameInput.value = device.name || ''; editor.hidden = true; row.draggable = true; };
+        edit.onclick = () => { draft = { ...savedAppearance }; renderChoices(); editor.hidden = false; row.draggable = false; nameInput.focus(); };
+        save.onclick = async () => {
+          save.disabled = true;
+          status.textContent = '';
+          try {
+            if (JSON.stringify(draft) !== JSON.stringify(savedAppearance)) {
+              await auth.json('/api/settings', { method: 'PATCH', body: { id: device.id, appearance: draft } });
+              savedAppearance = { ...draft };
+            }
+            const nextName = nameInput.value.trim();
+            if (nextName !== (device.name || '')) {
+              const names = await auth.json('/api/names', { method: 'POST', body: { id: device.id, name: nextName } });
+              device.name = names?.[device.id] || nextName || device.id;
+              name.textContent = device.name;
+              nameInput.value = device.name;
+            }
+            iconSlot.replaceChildren(deviceIcon(savedAppearance));
+            editor.hidden = true;
+            row.draggable = true;
+            status.textContent = '设备设置已保存。';
+            await onDevicesChanged?.();
+          } catch (error) { status.textContent = error.message; }
+          finally { save.disabled = false; }
+        };
+        remove.onclick = async () => {
+          if (!confirm(`移除 ${device.name || device.id}？该设备将无法继续通过 Fleet 访问。`)) return;
+          remove.disabled = true;
+          try {
+            await auth.json(`/api/devices/${device.id}`, { method: 'DELETE' });
+            await showAddDevice();
+            await onDevicesChanged?.();
+          } catch (error) { status.textContent = error.message; remove.disabled = false; }
+        };
+        actions.append(remove, cancel, save);
+        editor.append(nameLabel, node('span', '图标', { className: 'account-device-editor-label' }), iconChoices,
+          node('span', '颜色', { className: 'account-device-editor-label' }), colorChoices, actions);
+        iconSlot.append(deviceIcon(savedAppearance));
+        row.append(summary, editor);
+        row.ondragstart = event => {
+          if (!row.draggable) return;
+          dragged = row;
+          orderBeforeDrag = [...list.children].map(item => item.dataset.deviceId);
+          event.dataTransfer.effectAllowed = 'move';
+          event.dataTransfer.setData('text/plain', device.id);
+        };
+        row.ondragover = event => {
+          if (!dragged || dragged === row) return;
+          event.preventDefault();
+          const box = row.getBoundingClientRect();
+          list.insertBefore(dragged, event.clientY > box.top + box.height / 2 ? row.nextElementSibling : row);
+        };
+        row.ondrop = async event => { event.preventDefault(); if (dragged) await saveOrder(); dragged = null; };
+        row.ondragend = () => { dragged = null; };
+        list.append(row);
+        void probeDevice(device.id, latency);
+      }
+      parent.append(list);
+    }
     async function showAddDevice() {
       const serviceOrigin = location.origin;
       let release = null;
       try {
         release = nativeClientRelease(await auth.json('/enroll/client-release.json'));
       } catch (_) {}
-      heading('添加设备');
-      const add = section('macOS 客户端');
+      const [deviceData, settings] = await Promise.all([auth.json('/api/devices'), auth.json('/api/settings')]);
+      heading('设备');
+      const deviceSection = section('设备列表');
+      deviceSection.id = 'devices';
+      renderDeviceList(deviceData.devices || [], settings.deviceAppearance || {}, deviceSection);
+      const add = section('新增设备');
       add.id = 'add-device';
+      add.append(node('h3', 'macOS 客户端'));
       const downloads = node('div', '', { className: 'account-downloads' });
       if (release) {
-        downloads.append(node('a', '下载 macOS 应用', { href: release.assets.dmg.path, download: 'Fleet-Agent-Settings.dmg', className: 'account-button primary' }));
+        downloads.append(node('a', '下载 Fleet Agent Settings', { href: release.assets.dmg.path, download: 'Fleet-Agent-Settings.dmg', className: 'account-button primary' }));
         add.append(downloads);
         add.append(node('p', `Fleet Agent Settings ${release.version} · macOS ${release.minimum_macos} 及以上 · ${(release.assets.dmg.size / 1048576).toFixed(1)} MB`, { className: 'account-muted' }));
       } else add.append(node('p', 'Fleet Agent Settings 尚未发布，暂不提供下载。', { className: 'account-error' }));
@@ -238,22 +406,25 @@
         '关闭应用窗口后，后台继续运行。',
       ]) steps.append(node('li', description));
       add.append(steps);
-      add.append(node('p', `本服务网页地址：${serviceOrigin}`));
-      button('复制服务器地址', async () => {
-        if (!root.navigator?.clipboard?.writeText) throw new Error('浏览器无法复制，请手动复制上方服务网页地址。');
-        await root.navigator.clipboard.writeText(serviceOrigin);
-        status.textContent = '服务器地址已复制。';
-      }, add);
+      const address = node('p', '', { className: 'account-service-address' });
+      const copy = node('button', '', { type: 'button', className: 'account-copy-icon', title: '复制服务器地址' });
+      address.append(node('span', '本服务网页地址：'), node('a', serviceOrigin, { href: serviceOrigin }), copy);
+      copy.setAttribute('aria-label', '复制服务器地址');
+      copy.onclick = async () => {
+        try {
+          if (!root.navigator?.clipboard?.writeText) throw new Error('浏览器无法复制，请手动复制上方服务网页地址。');
+          await root.navigator.clipboard.writeText(serviceOrigin);
+          status.textContent = '服务器地址已复制。';
+        } catch (error) { status.textContent = error.message; }
+      };
+      add.append(address);
       add.append(node('p', '更新：Fleet Agent Settings → 关于 → 检查更新。', { className: 'account-muted' }));
     }
 
     async function showAccount() {
-      const [deviceData, sessionData] = await Promise.all([auth.json('/api/devices'), auth.json('/api/auth/sessions')]);
+      const sessionData = await auth.json('/api/auth/sessions');
       flowLocked = false;
       heading('账号设置', auth.user.email);
-      const deviceSection = section('我的设备');
-      deviceSection.id = 'devices';
-      devices(deviceData.devices, deviceSection, false, showAccount);
       const sessions = section('登录设备', content, true);
       metadata(sessionData.sessions, [['当前', (session) => session.current ? '此设备' : '其他设备'],
         ['编号', (session) => session.id], ['创建时间', (session) => formatTime(session.created_at)],
@@ -404,7 +575,7 @@
       } else {
         await auth.me();
         const accountLink = link('账号', '/account', page === 'account');
-        const deviceLink = link('添加设备', '/account#add-device', page === 'add-device');
+        const deviceLink = link('设备', '/account#add-device', page === 'add-device');
         for (const [target, destination] of [[accountLink, 'account'], [deviceLink, 'add-device']]) {
           target.onclick = async event => {
             event.preventDefault();

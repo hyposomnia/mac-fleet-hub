@@ -4,12 +4,14 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http/httptest"
+	"reflect"
 	"testing"
 )
 
 type appearanceSettingsResponse struct {
 	ChatCacheMaxSessions int                          `json:"chatCacheMaxSessions"`
 	DeviceAppearance     map[string]map[string]string `json:"deviceAppearance"`
+	DeviceOrder          []string                     `json:"deviceOrder"`
 	Palette              *themePalette                `json:"palette"`
 }
 
@@ -107,6 +109,73 @@ func TestDeviceAppearancePersistsWithoutReplacingChatSettingsOrOtherDevices(t *t
 	var persisted appearanceSettingsResponse
 	if err := json.Unmarshal([]byte(raw), &persisted); err != nil || persisted.DeviceAppearance["m2"]["color"] != "teal" {
 		t.Fatalf("appearance not stored in account preferences: %v %s", err, raw)
+	}
+}
+
+func TestDeviceOrderIsOwnerScopedAndOrdersTheOwnedDeviceResponse(t *testing.T) {
+	server, now := newTestServer(t)
+	owner, user, _, _ := registerBrowser(t, server, *now, "order-owner@example.com")
+	other, otherUser, _, _ := registerBrowser(t, server, *now, "order-other@example.com")
+	addAppearanceDevice(t, server, user, 1, "active")
+	addAppearanceDevice(t, server, user, 3, "active")
+	addAppearanceDevice(t, server, user, 5, "revoked")
+	addAppearanceDevice(t, server, otherUser, 2, "active")
+
+	result := readAppearanceSettings(t, owner.request("PATCH", "/api/settings", map[string]any{"order": []string{"m3", "m1"}}))
+	if !reflect.DeepEqual(result.DeviceOrder, []string{"m3", "m1"}) {
+		t.Fatalf("device order was not saved: %+v", result.DeviceOrder)
+	}
+	addAppearanceDevice(t, server, user, 4, "active")
+	response := owner.request("GET", "/api/devices", nil)
+	if response.Code != 200 {
+		t.Fatalf("owned devices status=%d body=%s", response.Code, response.Body.String())
+	}
+	var owned struct {
+		Devices []struct {
+			ID string `json:"id"`
+			IP string `json:"ip"`
+		} `json:"devices"`
+	}
+	if err := json.Unmarshal(response.Body.Bytes(), &owned); err != nil {
+		t.Fatal(err)
+	}
+	if len(owned.Devices) != 3 || owned.Devices[0].ID != "m3" || owned.Devices[1].ID != "m1" || owned.Devices[2].ID != "m4" || owned.Devices[0].IP != "100.64.0.3" {
+		t.Fatalf("owned device order or IP missing: %+v", owned.Devices)
+	}
+
+	response = other.request("GET", "/api/devices", nil)
+	if response.Code != 200 {
+		t.Fatalf("other devices status=%d body=%s", response.Code, response.Body.String())
+	}
+	var isolated struct {
+		Devices []struct{ ID, IP string } `json:"devices"`
+	}
+	if err := json.Unmarshal(response.Body.Bytes(), &isolated); err != nil {
+		t.Fatal(err)
+	}
+	if len(isolated.Devices) != 1 || isolated.Devices[0].ID != "m2" || isolated.Devices[0].IP != "100.64.0.2" {
+		t.Fatalf("other owner saw wrong devices: %+v", isolated.Devices)
+	}
+	if got := readAppearanceSettings(t, other.request("GET", "/api/settings", nil)); len(got.DeviceOrder) != 0 {
+		t.Fatalf("device order leaked across owners: %+v", got.DeviceOrder)
+	}
+}
+
+func TestDeviceOrderRejectsDuplicatesAndUnavailableDevices(t *testing.T) {
+	server, now := newTestServer(t)
+	owner, user, _, _ := registerBrowser(t, server, *now, "order-invalid@example.com")
+	_, otherUser, _, _ := registerBrowser(t, server, *now, "order-invalid-other@example.com")
+	addAppearanceDevice(t, server, user, 1, "active")
+	addAppearanceDevice(t, server, user, 3, "active")
+	addAppearanceDevice(t, server, user, 5, "revoked")
+	addAppearanceDevice(t, server, otherUser, 2, "active")
+	for _, order := range [][]string{{"m1", "m1"}, {"m2"}, {"m5"}, {"invalid"}} {
+		if response := owner.request("PATCH", "/api/settings", map[string]any{"order": order}); response.Code != 400 {
+			t.Fatalf("invalid order %v accepted: %d %s", order, response.Code, response.Body.String())
+		}
+	}
+	if got := readAppearanceSettings(t, owner.request("GET", "/api/settings", nil)); len(got.DeviceOrder) != 0 {
+		t.Fatalf("invalid order changed preferences: %+v", got.DeviceOrder)
 	}
 }
 

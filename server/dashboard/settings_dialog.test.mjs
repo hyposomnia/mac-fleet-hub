@@ -16,6 +16,9 @@ test('unified settings have no visible title row and retain an accessible floati
   assert.match(styles, /\.fleet-settings-close\s*\{[^}]*position:\s*absolute[^}]*width:\s*44px[^}]*height:\s*44px/s);
   assert.match(styles, /\.fleet-settings-nav\s*\{[^}]*scrollbar-width:\s*none/s);
   assert.match(settings, /class="automation-panel-tools"[^]*使用文档 ↗/);
+  assert.match(settings, /data-settings-page="add-device"[^>]*>设备<\/button>/);
+  assert.doesNotMatch(settings, /data-settings-page="add-device"[^>]*>添加设备<\/button>/);
+  assert.match(source, /'add-device':\s*'设备'/);
 });
 
 function element(dataset = {}) {

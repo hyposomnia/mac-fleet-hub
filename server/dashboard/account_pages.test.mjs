@@ -5,22 +5,34 @@ import vm from 'node:vm';
 
 const source = await readFile(new URL('./account.js', import.meta.url), 'utf8').catch(() => '');
 class Element {
-  constructor(tag) { this.tagName = tag; this.children = []; this.attributes = {}; this.value = ''; this.checked = false; this.disabled = false; this.textContent = ''; }
-  append(...children) { this.children.push(...children); }
-  replaceChildren(...children) { this.children = children; }
+  constructor(tag) { this.tagName = tag; this.children = []; this.attributes = {}; this.dataset = {}; this.value = ''; this.checked = false; this.disabled = false; this.textContent = ''; }
+  append(...children) { for (const child of children) { this.children.push(child); if (child && typeof child === 'object') child.parentElement = this; } }
+  replaceChildren(...children) { this.children = []; this.append(...children); }
+  insertBefore(child, before) { const old = this.children.indexOf(child); if (old >= 0) this.children.splice(old, 1); const index = this.children.indexOf(before); this.children.splice(index < 0 ? this.children.length : index, 0, child); child.parentElement = this; }
   setAttribute(key, value) { this.attributes[key] = String(value); }
+  getAttribute(key) { return this.attributes[key]; }
   focus() { this.focused = true; }
+  getBoundingClientRect() { return { top: 0, height: 40 }; }
 }
 function text(node) { return typeof node === 'string' ? node : (node?.textContent || '') + (node?.children || []).map(text).join(' '); }
 function all(node, predicate) { return [node, ...(node.children || []).flatMap((child) => typeof child === 'string' ? [] : all(child, predicate))].filter(predicate); }
-function harness({ page = 'auth', path = '/auth', search = '', role = 'user', respond, confirmed = true, origin = 'https://fleet.test', released = true, transformRelease = value => value, embedded = false } = {}) {
+function harness({ page = 'auth', path = '/auth', search = '', role = 'user', respond, confirmed = true, origin = 'https://fleet.test', released = true, transformRelease = value => value, embedded = false, devices = [], appearances = {} } = {}) {
   assert.ok(source, 'shared account page implementation is missing');
-  const sandbox = { URL, URLSearchParams };
+  const clipboard = [];
+  const sandbox = { URL, URLSearchParams, AbortController, setTimeout, clearTimeout, performance,
+    navigator: { clipboard: { writeText: async value => { clipboard.push(value); } } },
+    fetch: async () => ({ ok: true, json: async () => ({ ok: true }) }) };
   vm.runInNewContext(source, sandbox);
   const content = new Element('main');
   const status = new Element('p');
   const nav = new Element('nav');
   const document = { createElement: (tag) => new Element(tag), querySelector: (selector) => ({ '#page-content': content, '#page-status': status, '#page-nav': nav })[selector], documentElement: { dataset: {} } };
+  sandbox.FleetDeviceAppearance = {
+    icons: [{ id: 'monitor', label: '显示器' }, { id: 'laptop', label: '笔记本' }],
+    colors: [{ id: 'steel', label: '钢蓝' }, { id: 'teal', label: '青碧' }],
+    normalize: value => ({ icon: value?.icon === 'laptop' ? 'laptop' : 'monitor', color: value?.color === 'teal' ? 'teal' : 'steel' }),
+    createIcon: value => { const icon = new Element('span'); icon.className = 'device-icon'; icon.dataset.deviceColor = value?.color || 'steel'; icon.textContent = value?.icon || 'monitor'; return icon; },
+  };
   const calls = [];
   const redirects = [];
   const location = { origin, pathname: path, search, replace: (target) => redirects.push(target) };
@@ -34,7 +46,10 @@ function harness({ page = 'auth', path = '/auth', search = '', role = 'user', re
         return transformRelease({ schema: 1, notarization: 'Accepted', bundle_id: 'com.macfleet.fleet-hub', version: '1.0.0', build: 1, minimum_macos: '13.0', architectures: ['arm64','x86_64'],
           assets: { dmg: { path: '/enroll/clients/1/Fleet-Hub.dmg', sha256: 'a'.repeat(64), size: 12345678 }, update: { path: '/enroll/clients/1/Fleet-Hub-update.zip', sha256: 'b'.repeat(64), size: 12345678, ed_signature: Buffer.alloc(64, 1).toString('base64') } } });
       }
-      return respond ? respond(url, options) : { sessions: [], devices: [], users: [], total: 0, page: 1 };
+      if (respond) return respond(url, options);
+      if (url === '/api/devices') return { devices };
+      if (url === '/api/settings') return { deviceAppearance: appearances, deviceOrder: devices.map(device => device.id) };
+      return { sessions: [], users: [], total: 0, page: 1 };
     }, logout: async () => { calls.push({ url: '/api/auth/logout', method: 'POST' }); } };
   auth.invalidate = (options) => { redirects.push(`/auth?next=${encodeURIComponent(options?.returnTo || '/')}`); };
   const history = { replaceState: (_, __, target) => {
@@ -60,7 +75,7 @@ function harness({ page = 'auth', path = '/auth', search = '', role = 'user', re
     assert.ok(button, `button ${label} missing`);
     await button.onclick();
   };
-  return { pages, content, status, nav, calls, redirects, location, auth, find, form, submit, click, start: () => pages.start(page) };
+  return { pages, content, status, nav, calls, redirects, location, auth, clipboard, find, form, submit, click, start: () => pages.start(page) };
 }
 
 test('registration has exactly three fields, sends exact contract, and requires Authenticator setup', async () => {
@@ -107,7 +122,7 @@ test('account security sections are native disclosures closed by default in stan
     for (const name of ['password', 'totp-start', 'recovery-codes']) {
       assert.ok(disclosures.some((disclosure) => all(disclosure, (node) => node === current.form(name)).length));
     }
-    assert.equal(current.find((node) => node.id === 'devices').tagName, 'section');
+    assert.equal(current.find((node) => node.id === 'devices'), undefined);
     assert.match(text(disclosures[3]), /旧恢复码将立即失效/);
   }
 });
@@ -125,11 +140,10 @@ test('text inputs have no focus border while buttons and disclosures retain keyb
   }
 });
 
-test('account metadata formats Unix timestamps and does not show unknown dates as epoch', async () => {
+test('account login metadata formats Unix timestamps and does not show unknown dates as epoch', async () => {
   const timestamp = 1800000000;
-  const current = harness({ page: 'account', respond: (url) => url === '/api/devices'
-    ? { devices: [{ id: 'm1', created_at: timestamp, last_seen: 0 }] }
-    : { sessions: [{ id: 'session', created_at: timestamp, last_seen: timestamp, expires_at: timestamp + 2592000 }] } });
+  const current = harness({ page: 'account', respond: () =>
+    ({ sessions: [{ id: 'session', created_at: timestamp, last_seen: timestamp, expires_at: timestamp + 2592000 }] }) });
   await current.start();
   assert.match(text(current.content), /2027/);
   assert.doesNotMatch(text(current.content), /1800000000|1802592000|1970/);
@@ -179,11 +193,11 @@ test('form errors are inline and re-enable submission; mismatched passwords neve
   assert.equal(current.find((node) => node.tagName === 'button' && node.type === 'submit').disabled, false);
 });
 
-test('account authenticates first, lists owned metadata, and sends password and recovery rotation contracts', async () => {
-  const current = harness({ page: 'account', path: '/account', respond: (url) => url.endsWith('recovery-codes') ? { recovery_codes: ['NEW-CODE'] } : { devices: [{ id: 'm1', name: 'My Mac', online: true }], sessions: [{ id: 's1', current: true }] } });
+test('account authenticates first and sends password and recovery rotation contracts', async () => {
+  const current = harness({ page: 'account', path: '/account', respond: (url) => url.endsWith('recovery-codes') ? { recovery_codes: ['NEW-CODE'] } : { sessions: [{ id: 's1', current: true }] } });
   await current.start();
   assert.equal(current.calls[0].url, '/api/auth/me');
-  assert.match(text(current.content), /My Mac/);
+  assert.ok(!current.calls.some(call => call.url === '/api/devices'));
   const password = { current_password: 'old', password: 'new-password', confirm_password: 'new-password', code: '123456' };
   await current.submit('password', password);
   assert.deepEqual(JSON.parse(JSON.stringify(current.calls.find((call) => call.url.endsWith('/password')).body)), password);
@@ -202,11 +216,13 @@ test('account TOTP rotation uses start then confirm and displays new recovery co
   assert.match(text(current.content), /ROTATED-CODE/);
 });
 
-test('account device removal and other session revocation require confirmation and use writes', async () => {
-  const current = harness({ page: 'account', respond: () => ({ devices: [{ id: 'm1', name: 'My Mac' }], sessions: [] }) });
+test('device removal and other session revocation require confirmation and use writes', async () => {
+  const devicePage = harness({ page: 'add-device', devices: [{ id: 'm1', name: 'My Mac' }] });
+  await devicePage.start();
+  await devicePage.click('移除设备');
+  assert.ok(devicePage.calls.some((call) => call.url === '/api/devices/m1' && call.method === 'DELETE'));
+  const current = harness({ page: 'account', respond: () => ({ sessions: [] }) });
   await current.start();
-  await current.click('移除 My Mac');
-  assert.ok(current.calls.some((call) => call.url === '/api/devices/m1' && call.method === 'DELETE'));
   await current.click('退出其他设备的登录');
   assert.ok(current.calls.some((call) => call.url === '/api/auth/logout-others' && call.method === 'POST'));
   const cancelled = harness({ page: 'account', confirmed: false });
@@ -321,6 +337,8 @@ test('add device offers a native DMG and explains fresh browser OAuth and backgr
   const downloads = all(add, (node) => node.tagName === 'a' && node.download);
   assert.deepEqual(downloads.map((node) => node.href), ['/enroll/clients/1/Fleet-Hub.dmg']);
   assert.equal(downloads[0].download, 'Fleet-Agent-Settings.dmg');
+  assert.equal(text(downloads[0]), '下载 Fleet Agent Settings');
+  assert.match(text(add), /11\.8 MB/);
   assert.doesNotMatch(text(add), /fleet-agent login|Homebrew|tar -|回到终端|输入 y/);
   assert.match(text(add), /https:\/\/fleet.test/);
   assert.match(text(add), /应用.*服务网页地址/);
@@ -339,6 +357,57 @@ test('add device offers a native DMG and explains fresh browser OAuth and backgr
   assert.match(text(add), /检查更新/);
   assert.ok(!current.calls.some((call) => call.url === '/api/enrollment/start'), 'web page must not initiate a client grant');
   assert.equal(current.form('enrollment-code'), undefined);
+});
+
+test('device page shows the ordered device manager before installation instructions', async () => {
+  const current = harness({ page: 'add-device', devices: [
+    { id: 'm2', name: 'Studio', ip: '100.64.0.22', online: true },
+    { id: 'm1', name: 'Laptop', ip: '100.64.0.11', online: false },
+  ], appearances: { m2: { icon: 'laptop', color: 'teal' } } });
+  await current.start();
+  const devices = current.find(node => node.id === 'devices');
+  const install = current.find(node => node.id === 'add-device');
+  assert.ok(devices && install);
+  assert.ok(current.content.children.indexOf(devices) < current.content.children.indexOf(install));
+  const rows = all(devices, node => node.className === 'account-device-row');
+  assert.deepEqual(rows.map(row => row.dataset.deviceId), ['m2', 'm1']);
+  assert.match(text(rows[0]), /Studio.*100\.64\.0\.22.*在线/);
+  assert.match(text(rows[1]), /Laptop.*100\.64\.0\.11.*离线/);
+  assert.ok(rows.every(row => row.draggable === true));
+});
+
+test('device editor saves the existing name and appearance contracts', async () => {
+  const current = harness({ page: 'add-device', devices: [{ id: 'm2', name: 'Studio', ip: '100.64.0.22', online: true }],
+    appearances: { m2: { icon: 'monitor', color: 'steel' } } });
+  await current.start();
+  const row = current.find(node => node.className === 'account-device-row');
+  const edit = all(row, node => node.tagName === 'button' && node.textContent === '编辑')[0];
+  await edit.onclick();
+  const name = all(row, node => node.name === 'device-name')[0];
+  name.value = 'Design Mac';
+  const icon = all(row, node => node.dataset?.deviceIcon === 'laptop')[0];
+  icon.onclick();
+  const color = all(row, node => node.dataset?.deviceColorChoice === 'teal')[0];
+  color.onclick();
+  const save = all(row, node => node.tagName === 'button' && node.textContent === '保存')[0];
+  await save.onclick();
+  const nameCall = current.calls.find(call => call.url === '/api/names' && call.method === 'POST');
+  const appearanceCall = current.calls.find(call => call.url === '/api/settings' && call.method === 'PATCH' && call.body?.appearance);
+  assert.deepEqual(JSON.parse(JSON.stringify(nameCall.body)), { id: 'm2', name: 'Design Mac' });
+  assert.deepEqual(JSON.parse(JSON.stringify(appearanceCall.body)), { id: 'm2', appearance: { icon: 'laptop', color: 'teal' } });
+});
+
+test('dragging devices persists their order', async () => {
+  const current = harness({ page: 'add-device', devices: [{ id: 'm1', name: 'One' }, { id: 'm2', name: 'Two' }] });
+  await current.start();
+  const list = current.find(node => node.className === 'account-device-list');
+  const [first, second] = list.children;
+  second.ondragstart({ dataTransfer: { effectAllowed: '', setData() {} } });
+  first.ondragover({ preventDefault() {}, clientY: 0 });
+  await first.ondrop({ preventDefault() {} });
+  assert.deepEqual(list.children.map(row => row.dataset.deviceId), ['m2', 'm1']);
+  const orderCall = current.calls.find(call => call.url === '/api/settings' && call.method === 'PATCH' && call.body?.order);
+  assert.deepEqual(JSON.parse(JSON.stringify(orderCall.body)), { order: ['m2', 'm1'] });
 });
 
 test('login and device setup omit redundant introductory copy without dropping account identity or security reminders', async () => {
@@ -387,7 +456,12 @@ test('native installation instructions use the current service origin', async ()
     const add = current.find((node) => node.id === 'add-device');
     assert.ok(text(add).includes(origin));
     assert.equal(all(add, (node) => node.tagName === 'pre').length, 0);
-    assert.ok(all(add, (node) => node.tagName === 'button' && node.textContent === '复制服务器地址').length);
+    assert.ok(all(add, (node) => node.tagName === 'a' && node.href === origin).length);
+    const copy = all(add, (node) => node.tagName === 'button' && node.attributes['aria-label'] === '复制服务器地址');
+    assert.equal(copy.length, 1);
+    assert.equal(copy[0].textContent, '');
+    await copy[0].onclick();
+    assert.equal(current.clipboard.at(-1), origin);
     assert.doesNotMatch(source, /10\.17\.74\.92|7443/);
   }
 });

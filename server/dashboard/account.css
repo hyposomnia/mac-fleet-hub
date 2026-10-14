@@ -65,6 +65,41 @@ details.account-section.account-disclosure { padding: 0; }
 .account-codes, .account-command { padding: 16px; background: var(--surface); border: 0; border-radius: var(--radius-card); line-height: 1.8; white-space: pre-wrap; overflow-wrap: anywhere; font-family: var(--mono); }
 .account-downloads { display: flex; flex-wrap: wrap; gap: 12px; margin-bottom: 16px; }
 .account-downloads a { display: inline-flex; align-items: center; justify-content: center; text-decoration: none; }
+.account-device-order-hint { margin-bottom: 12px !important; }
+.account-device-list { display: grid; gap: 8px; }
+.account-device-row { min-width: 0; border-radius: var(--radius-control); background: var(--surface); }
+.account-device-row[draggable="true"] { cursor: default; }
+.account-device-summary { display: grid; grid-template-columns: 18px minmax(0, 1fr) auto auto; align-items: center; gap: 12px; min-height: 64px; padding: 10px 12px; }
+.account-device-drag { width: 14px; height: 28px; cursor: grab; opacity: .45; background: radial-gradient(circle, currentColor 1.4px, transparent 1.6px) 0 0 / 7px 7px; }
+.account-device-drag:active { cursor: grabbing; }
+.account-device-identity { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.account-device-icon { display: inline-flex; flex: none; }
+.account-device-icon .device-icon { width: 26px; height: 26px; }
+.account-device-details { min-width: 0; display: flex; align-items: baseline; gap: 6px; overflow: hidden; white-space: nowrap; }
+.account-device-name { flex: 0 1 auto; overflow: hidden; text-overflow: ellipsis; font-size: var(--t-body); }
+.account-device-ip { color: var(--text-1); font-family: var(--mono); font-size: var(--t-caption); }
+.account-device-state { color: var(--text-2); font-size: var(--t-caption); }
+.account-device-state.online { color: var(--online); }
+.account-device-separator { color: var(--text-2); }
+.account-device-latency { min-width: 62px; min-height: 32px; padding: 4px 9px; border: 0; border-radius: var(--r-pill); background: var(--surface-2); color: var(--text-1); font: 12px/1 var(--mono); cursor: pointer; }
+.account-device-latency.good { background: var(--online-soft); color: var(--online); }
+.account-device-latency.warn { background: var(--wait-soft); color: var(--wait); }
+.account-device-latency.bad { background: var(--danger-soft); color: var(--danger); }
+.account-device-latency.pending { color: var(--text-2); }
+.account-device-edit { min-height: 36px; padding: 6px 10px; }
+.account-device-editor { margin: 0 12px 12px 42px; padding: 16px; border-top: 1px solid var(--border); }
+.account-device-editor[hidden] { display: none; }
+.account-device-name-field { display: grid; gap: 8px; margin-bottom: 16px; color: var(--text-1); }
+.account-device-name-field input { width: 100%; height: 44px; padding: 10px 12px; border: 0; border-radius: var(--radius-control); background: var(--settings-input); color: var(--text); font: inherit; }
+.account-device-editor-label { display: block; margin: 14px 0 8px; color: var(--text-1); font-size: var(--t-secondary); }
+.account-device-actions { display: flex; align-items: center; justify-content: flex-end; gap: 8px; margin-top: 16px; }
+.account-device-actions .danger { margin-right: auto; }
+.account-service-address { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.account-copy-icon { position: relative; width: 34px; height: 34px; flex: none; border: 0; border-radius: var(--radius-compact); background: transparent; color: var(--text-1); cursor: pointer; }
+.account-copy-icon::before, .account-copy-icon::after { content: ''; position: absolute; width: 11px; height: 13px; border: 1.5px solid currentColor; border-radius: 2px; }
+.account-copy-icon::before { left: 9px; top: 8px; }
+.account-copy-icon::after { left: 13px; top: 12px; background: var(--settings-surface); }
+.account-copy-icon:hover { background: var(--surface-hover); color: var(--text); }
 .account-steps { padding-left: 24px; margin-bottom: 20px; line-height: 1.7; }
 .account-steps li + li { margin-top: 12px; }
 .account-table-scroll { max-width: 100%; overflow-x: auto; margin: 16px 0; border-radius: var(--radius-card); background: var(--surface); }
@@ -92,6 +127,14 @@ details.account-section.account-disclosure { padding: 0; }
   .account-content h1 { font-size: 24px; }
   .account-table td { max-width: 240px; }
   .account-links { gap: 4px; }
+  .account-device-summary { grid-template-columns: 16px minmax(0, 1fr) auto; gap: 9px; }
+  .account-device-latency { grid-column: 2; justify-self: start; }
+  .account-device-edit { grid-column: 3; grid-row: 1 / span 2; }
+  .account-device-details { flex-wrap: wrap; white-space: normal; row-gap: 2px; }
+  .account-device-name { flex-basis: 100%; }
+  .account-device-details .account-device-separator:first-of-type { display: none; }
+  .account-device-editor { margin-left: 12px; }
+  .account-device-actions { flex-wrap: wrap; }
 }
 
 .account-brand .logo { display: grid; place-items: center; width: 30px; height: 30px; color: var(--accent); }

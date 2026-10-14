@@ -8,6 +8,38 @@ import (
 	"unicode"
 )
 
+type ownedDevice struct {
+	ID        string `json:"id"`
+	Index     int    `json:"index"`
+	IP        string `json:"ip"`
+	Name      string `json:"name"`
+	Status    string `json:"status"`
+	Version   string `json:"version"`
+	Online    bool   `json:"online"`
+	CreatedAt int64  `json:"created_at"`
+	LastSeen  int64  `json:"last_seen"`
+}
+
+func orderOwnedDevices(devices []Device, order []string) []Device {
+	byID := make(map[string]Device, len(devices))
+	for _, device := range devices {
+		byID[device.ID] = device
+	}
+	ordered := make([]Device, 0, len(devices))
+	for _, id := range order {
+		if device, exists := byID[id]; exists {
+			ordered = append(ordered, device)
+			delete(byID, id)
+		}
+	}
+	for _, device := range devices {
+		if _, exists := byID[device.ID]; exists {
+			ordered = append(ordered, device)
+		}
+	}
+	return ordered
+}
+
 func cleanName(value string) string {
 	value = strings.Map(func(character rune) rune {
 		if unicode.IsControl(character) {
@@ -115,7 +147,20 @@ func (server *Server) handleDevices(writer http.ResponseWriter, request *http.Re
 			visible = append(visible, device)
 		}
 	}
-	respond(writer, 200, map[string]any{"devices": visible})
+	server.mu.Lock()
+	preferences, preferenceErr := server.loadDashboardPreferences(user.ID)
+	server.mu.Unlock()
+	if preferenceErr != nil {
+		server.failure(writer, preferenceErr)
+		return
+	}
+	visible = orderOwnedDevices(visible, preferences.DeviceOrder)
+	result := make([]ownedDevice, 0, len(visible))
+	for _, device := range visible {
+		result = append(result, ownedDevice{ID: device.ID, Index: device.Index, IP: device.IP, Name: device.Name,
+			Status: device.Status, Version: device.Version, Online: device.Online, CreatedAt: device.CreatedAt, LastSeen: device.LastSeen})
+	}
+	respond(writer, 200, map[string]any{"devices": result})
 }
 
 func (server *Server) revokeDevice(writer http.ResponseWriter, request *http.Request, actor int64, device Device) {

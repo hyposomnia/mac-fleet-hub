@@ -77,6 +77,7 @@ test('owned device discovery uses /api/devices, logout uses POST client, and bot
   assert.match(roster, /\/api\/devices/);
   assert.match(roster, /\.devices/);
   assert.doesNotMatch(roster, /givenName|nodes.json/);
+  assert.doesNotMatch(roster, /ids\.sort/, 'dashboard must preserve the account device order returned by the server');
   assert.match(account, /button\('退出登录', \(\) => auth\.logout\(\)/);
   assert.doesNotMatch(app, /\/auth\/logout\?rd/);
   assert.equal([...index.matchAll(/data-act="settings"/g)].length, 2);
@@ -128,14 +129,14 @@ test('session loss stops dashboard polling, closes chat streams and clears priva
   assert.equal(sandbox.state.fileEntries.length, 0);
 });
 
-test('repeated session settings saves keep appearance objects out of integer preference requests', async () => {
+test('repeated session settings saves keep shared objects out of integer preference requests', async () => {
   const source = app.match(/async function saveSettings\(\) \{[\s\S]*?^\}/m)?.[0];
   const requests = [];
   const sandbox = { BASE: '', SETTINGS_DEFAULT: {chatCacheMaxSessions: 6}, state: {settings: {chatCacheMaxSessions: 6}},
     $: () => ({value: '9'}), closeOverlay() {}, toast() {}, evictChatCache() {},
     fetch: async (_, options) => {
       requests.push(JSON.parse(options.body));
-      return {ok: true, json: async () => ({chatCacheMaxSessions: 9, deviceAppearance: {m1: {icon: 'mini', color: 'teal'}}})};
+      return {ok: true, json: async () => ({chatCacheMaxSessions: 9, deviceAppearance: {m1: {icon: 'mini', color: 'teal'}}, deviceOrder: ['m1'], palette: {light: {}, dark: {}}})};
     } };
   vm.runInNewContext(source, sandbox);
   await sandbox.saveSettings();
