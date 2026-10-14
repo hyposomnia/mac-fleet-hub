@@ -367,7 +367,7 @@ function dshNativeTargetMac() {
 
 function dshNativeButtonState() {
   const macId = dshNativeTargetMac();
-  if (!macId) return { macId: '', enabled: false, title: '请先选择一台 Mac' };
+  if (!macId) return { macId: '', enabled: false, title: '仅选择单个设备时可用' };
   if (!state.nodes[macId]) return { macId, enabled: false, title: `${macName(macId)} 当前离线` };
   const dsh = state.assistantInfo[macId]?.dsh;
   if (!dsh) return { macId, enabled: false, title: '正在检查 DeepSeek Harness' };
