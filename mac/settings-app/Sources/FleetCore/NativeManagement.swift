@@ -133,7 +133,7 @@ public final class NativeManagement: LocalManagement {
         try await validateInstallation()
         let running = (try? await launchctl(["print", target])) != nil
         try await synchronizeBackground(launch: running)
-        if running { try await ensureCodexSharedRuntime() }
+        if (try? await launchctl(["print", target])) != nil { try await ensureCodexSharedRuntime() }
         if loginService.status == .enabled {
             let saved = try JSONDecoder().decode(FleetSettings.self, from: PrivateRuntime.read(layout.state.appendingPathComponent("settings.json")))
             try await setAutoStart(saved.autoStart)
@@ -143,9 +143,6 @@ public final class NativeManagement: LocalManagement {
     private func validateInstallation() async throws {
         guard !layout.requiresInstallation else {
             throw FleetError.message("请先安装到应用程序，不从磁盘映像启动后台。")
-        }
-        if (try? await launchctl(["print", "gui/\(getuid())/com.macfleet.fleet-agent"])) != nil {
-            throw FleetError.message("检测到已有 Fleet 后台服务；本次安装不会覆盖或停止它。")
         }
         try PrivateRuntime.ensureDirectory(layout.home.appendingPathComponent(".macfleet"))
         try PrivateRuntime.ensureDirectory(layout.state)
@@ -161,12 +158,25 @@ public final class NativeManagement: LocalManagement {
         let expected = try BackgroundIdentity.read(layout.application, identifier: "com.macfleet.fleet-hub")
         let verify = try await BackgroundRuntimeVerifier.verifier(host: layout.application, execute: execute)
         try await verify(layout.bundledBackgroundApplication)
+        let legacy = try await LegacyFleetMigration.inspect(layout: layout, execute: execute)
+        let launch = launch || legacy?.wasLoaded == true
         try BackgroundRuntimeInstaller.validateInstalled(layout.backgroundApplication)
+        if let installed = try? BackgroundIdentity.read(layout.backgroundApplication, identifier: "com.macfleet.fleet-agent"), installed.build > expected.build {
+            throw FleetError.message("已安装的 Fleet Agent 版本较新，请更新设置应用后再继续。")
+        }
         let definition = try layout.backgroundLaunchDefinition()
         let previousDefinition = FileManager.default.fileExists(atPath: layout.runtimePlist.path) ? try PrivateRuntime.read(layout.runtimePlist) : nil
         let running = (try? await launchctl(["print", target])) != nil
         let previousStatus = running ? try await status() : nil
-        if (try? await verify(layout.backgroundApplication)) != nil, previousDefinition == definition,
+        let settingsFile = layout.state.appendingPathComponent("settings.json")
+        let previousSettings = legacy != nil && FileManager.default.fileExists(atPath: settingsFile.path) ? try PrivateRuntime.read(settingsFile) : nil
+        let migratedSettings: FleetSettings?
+        if let legacy {
+            if let previousSettings { migratedSettings = try JSONDecoder().decode(FleetSettings.self, from: previousSettings) }
+            else { migratedSettings = FleetSettings(schema: 1, origin: "", autoStart: legacy.autoStart) }
+        } else { migratedSettings = nil }
+        let migratedSettingsData = try migratedSettings.map { try JSONEncoder().encode($0) }
+        if legacy == nil, (try? await verify(layout.backgroundApplication)) != nil, previousDefinition == definition,
            !running || previousStatus?.version == expected.agentVersion {
             if running || !launch { return }
         }
@@ -177,6 +187,7 @@ public final class NativeManagement: LocalManagement {
         var startedNew = false
         var definitionWritten = false
         var touchedLifecycle = false
+        var settingsWritten = false
         try await BackgroundRuntimeInstaller.deploy(source: layout.bundledBackgroundApplication, destination: layout.backgroundApplication,
             verify: verify, prepare: {
                 let currentDefinition = FileManager.default.fileExists(atPath: self.layout.runtimePlist.path) ? try PrivateRuntime.read(self.layout.runtimePlist) : nil
@@ -184,6 +195,7 @@ public final class NativeManagement: LocalManagement {
                 guard currentDefinition == previousDefinition, currentRunning == running else {
                     throw FleetError.message("后台状态已变化，未替换它，请重试。")
                 }
+                try await legacy?.prepare()
                 if running {
                     guard try await self.status().pid == previousStatus?.pid else { throw FleetError.message("后台进程已变化，未停止它，请重试。") }
                     touchedLifecycle = true
@@ -192,20 +204,28 @@ public final class NativeManagement: LocalManagement {
                     stoppedPrevious = true
                 }
             }, activate: {
+                if let migratedSettingsData, previousSettings == nil {
+                    try PrivateRuntime.write(migratedSettingsData, to: settingsFile)
+                    settingsWritten = true
+                }
                 try PrivateRuntime.write(definition, to: self.layout.runtimePlist)
                 definitionWritten = true
                 if launch {
-                    _ = try await self.launchctl(["bootstrap", self.domain, self.layout.runtimePlist.path])
                     startedNew = true
+                    _ = try await self.launchctl(["bootstrap", self.domain, self.layout.runtimePlist.path])
                     try await self.waitForRuntime(expected: expected, replacingPID: previousStatus?.pid)
                 }
             }, quiesce: {
-                if startedNew {
+                if startedNew, (try? await self.launchctl(["print", self.target])) != nil {
                     try await self.prepareForStop()
                     _ = try await self.launchctl(["bootout", self.target])
                     startedNew = false
                 }
             }, restore: {
+                if settingsWritten {
+                    guard try PrivateRuntime.read(settingsFile) == migratedSettingsData else { throw FleetError.message("迁移期间设置已变化，保留配置与备份。") }
+                    try FileManager.default.removeItem(at: settingsFile)
+                }
                 if definitionWritten || stoppedPrevious {
                     if let previousDefinition { try PrivateRuntime.write(previousDefinition, to: self.layout.runtimePlist) }
                     else if FileManager.default.fileExists(atPath: self.layout.runtimePlist.path) { try FileManager.default.removeItem(at: self.layout.runtimePlist) }
@@ -215,7 +235,12 @@ public final class NativeManagement: LocalManagement {
                     guard let previousStatus else { throw FleetError.message("缺少原后台状态。") }
                     try await self.waitForRuntime(expectedVersion: previousStatus.version, replacingPID: previousStatus.pid)
                 } else if touchedLifecycle { await self.resumeAfterCancelledStop() }
+                try await legacy?.restore()
             })
+        if let migratedSettings {
+            if let configureAutoStart { try configureAutoStart(migratedSettings.autoStart) }
+            else { try await setAutoStart(migratedSettings.autoStart) }
+        }
     }
 
     private func waitForRuntime(expected: BackgroundIdentity, replacingPID: Int?) async throws {

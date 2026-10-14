@@ -19,7 +19,7 @@
 - 服务：`com.macfleet.desktop-agent`；登录启动器：`com.macfleet.desktop-login`。
 - 自有数据：`~/.macfleet/desktop`，目录 0700、配置和控制 socket 0600；设备凭据不放进 plist 或 UI 状态。
 - 用户态 mesh、文件服务数据库、终端 socket、代理设置与消息队列均在自有目录，不复用旧 CLI 客户端状态。
-- 原有 `com.macfleet.fleet-agent` 运行时拒绝并行启动；不自动迁移、停止或替换旧客户端。
+- 已安装的设置应用将旧 `com.macfleet.fleet-agent` 纳入后台升级：验签及空闲检查后备份旧启动项，切换到独立原生 Agent；健康失败恢复原服务，停止状态保持停止，日常登录启动器不执行迁移。登录启动优先保留已有原生设置，否则沿用旧启动项的 `RunAtLoad`，由原生登录启动器接续；系统要求批准时仍须在登录项中允许。原有配置与系统 Tailscale 网络保留，旧 CLI 的系统网络不能直接作为原生 tsnet 状态；首次使用原生客户端仍须网页关联。已有原生关联与设置不变。
 - 现有 Codex shared app-server 只复用，不修改 Desktop 环境。全新 Mac 的 shared keeper 配置与可用性仍须独立验收，不能用终端/文件服务就绪推断聊天可用。
 
 FDA 只能由用户在系统设置开启。状态来自实际 launchd 后台的只读探测；普通开发子进程、后台离线、保护目标缺失均不得显示已授权。权限通过也不绕过文件权限与 ACL。

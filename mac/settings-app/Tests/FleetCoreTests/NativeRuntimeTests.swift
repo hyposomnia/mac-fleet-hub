@@ -4,6 +4,168 @@ import XCTest
 
 @MainActor
 final class NativeRuntimeTests: XCTestCase {
+    func testLegacyMigrationKeepsLoginStartupEnabled() async throws {
+        let fixture = try NativeRuntimeFixture(running: false, legacy: true)
+        defer { fixture.remove() }
+        try await fixture.management.synchronizeBackground(launch: true)
+        XCTAssertEqual(fixture.autoStartApplied, [true])
+        let settings = try JSONDecoder().decode(FleetSettings.self, from: PrivateRuntime.read(fixture.layout.state.appendingPathComponent("settings.json")))
+        XCTAssertTrue(settings.autoStart)
+    }
+
+    func testLegacyMigrationRespectsExistingNativeStartupPreferences() async throws {
+        let fixture = try NativeRuntimeFixture(running: false, legacy: true)
+        defer { fixture.remove() }
+        let settings = FleetSettings(schema: 1, origin: "https://another.example.test", autoStart: false)
+        let original = try JSONEncoder().encode(settings)
+        let destination = fixture.layout.state.appendingPathComponent("settings.json")
+        try PrivateRuntime.write(original, to: destination)
+        try await fixture.management.synchronizeBackground(launch: true)
+        XCTAssertEqual(fixture.autoStartApplied, [false])
+        XCTAssertEqual(try PrivateRuntime.read(destination), original)
+    }
+
+    func testDisabledLegacyLoginStartupIsNotReenabledDuringMigration() async throws {
+        let fixture = try NativeRuntimeFixture(running: false, legacy: true)
+        defer { fixture.remove() }
+        fixture.legacyRunning = false
+        var values = try PropertyListSerialization.propertyList(from: Data(contentsOf: fixture.legacyPlist), format: nil) as! [String: Any]
+        values["RunAtLoad"] = false
+        try PropertyListSerialization.data(fromPropertyList: values, format: .xml, options: 0).write(to: fixture.legacyPlist)
+        try await fixture.management.synchronizeBackground(launch: false)
+        XCTAssertEqual(fixture.autoStartApplied, [false])
+        XCTAssertFalse(fixture.running)
+        XCTAssertFalse(try JSONDecoder().decode(FleetSettings.self, from: PrivateRuntime.read(fixture.layout.state.appendingPathComponent("settings.json"))).autoStart)
+    }
+
+    func testMigrationIgnoresChangingLaunchStatisticsForTheSameLegacyProcess() async throws {
+        let fixture = try NativeRuntimeFixture(running: false, legacy: true)
+        defer { fixture.remove() }
+        fixture.changingLegacyStatistics = true
+        try await fixture.management.synchronizeBackground(launch: true)
+        XCTAssertTrue(fixture.running)
+        XCTAssertFalse(fixture.legacyRunning)
+    }
+
+    func testLegacyStopTimeoutRestoresTheOldServiceWhenItWasUnloaded() async throws {
+        let fixture = try NativeRuntimeFixture(running: false, legacy: true)
+        defer { fixture.remove() }
+        fixture.legacyStopTimeout = true
+        do { try await fixture.management.synchronizeBackground(launch: true); XCTFail("ignored stop timeout") }
+        catch {}
+        XCTAssertTrue(fixture.legacyRunning)
+        XCTAssertFalse(fixture.running)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: fixture.legacyPlist.path))
+    }
+
+    func testBootstrapTimeoutStopsTheNewRuntimeBeforeRestoringLegacy() async throws {
+        let fixture = try NativeRuntimeFixture(running: false, legacy: true)
+        defer { fixture.remove() }
+        fixture.bootstrapTimeout = true
+        do { try await fixture.management.synchronizeBackground(launch: true); XCTFail("ignored bootstrap timeout") }
+        catch {}
+        XCTAssertTrue(fixture.legacyRunning)
+        XCTAssertFalse(fixture.running)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: fixture.legacyPlist.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: fixture.layout.backgroundApplication.path))
+    }
+
+    func testOlderSettingsApplicationDoesNotDowngradeTheInstalledAgent() async throws {
+        let fixture = try NativeRuntimeFixture(running: true)
+        defer { fixture.remove() }
+        let metadata = fixture.layout.backgroundApplication.appendingPathComponent("Contents/Info.plist")
+        var values = try PropertyListSerialization.propertyList(from: Data(contentsOf: metadata), format: nil) as! [String: Any]
+        values["CFBundleVersion"] = "3"
+        try PropertyListSerialization.data(fromPropertyList: values, format: .xml, options: 0).write(to: metadata)
+        fixture.version = "1.0.0+3"
+        do { try await fixture.management.synchronizeBackground(launch: true); XCTFail("downgraded newer runtime") }
+        catch {}
+        XCTAssertEqual(fixture.version, "1.0.0+3")
+        XCTAssertTrue(fixture.running)
+        XCTAssertFalse(fixture.events.contains("prepare-stop"))
+        XCTAssertEqual(try fixture.identity(fixture.layout.backgroundApplication), "3")
+    }
+
+    func testLegacyServiceWithInFlightMessagesIsNotRetired() async throws {
+        for state in ["sending", "steering", "taking_over", "recovering", "takeover_check"] {
+            let fixture = try NativeRuntimeFixture(running: false, legacy: true)
+            defer { fixture.remove() }
+            let queue = fixture.layout.home.appendingPathComponent(".macfleet/chat-queue.json")
+            try PrivateRuntime.write(JSONSerialization.data(withJSONObject: ["items": [["status": state]]]), to: queue)
+            do { try await fixture.management.synchronizeBackground(launch: true); XCTFail("retired service while \(state)") }
+            catch { XCTAssertEqual(error.localizedDescription, "消息正在投递，请完成后再更新。") }
+            XCTAssertTrue(fixture.legacyRunning)
+            XCTAssertFalse(fixture.running)
+            XCTAssertFalse(fixture.events.contains("legacy-bootout"))
+        }
+    }
+
+    func testUntrustedLegacyExecutableIsNeverStoppedOrReplaced() async throws {
+        let fixture = try NativeRuntimeFixture(running: false, legacy: true)
+        defer { fixture.remove() }
+        fixture.rejectLegacySignature = true
+        do { try await fixture.management.synchronizeBackground(launch: true); XCTFail("stopped untrusted service") }
+        catch { XCTAssertEqual(error.localizedDescription, "legacy signature mismatch") }
+        XCTAssertTrue(fixture.legacyRunning)
+        XCTAssertFalse(fixture.running)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: fixture.legacyPlist.path))
+        XCTAssertFalse(fixture.events.contains("legacy-idle"))
+    }
+
+    func testLegacyServiceIsRetiredWhenInstallingTheNativeBackground() async throws {
+        let fixture = try NativeRuntimeFixture(running: false, legacy: true)
+        defer { fixture.remove() }
+        let original = try Data(contentsOf: fixture.legacyPlist)
+        try await fixture.management.synchronizeBackground(launch: false)
+        XCTAssertFalse(fixture.legacyRunning)
+        XCTAssertTrue(fixture.running)
+        XCTAssertEqual(fixture.version, "1.0.0+2")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: fixture.legacyPlist.path))
+        let backups = try FileManager.default.contentsOfDirectory(at: fixture.layout.state.appendingPathComponent("migrations"), includingPropertiesForKeys: nil)
+        XCTAssertEqual(backups.count, 1)
+        XCTAssertEqual(try Data(contentsOf: backups[0].appendingPathComponent("com.macfleet.fleet-agent.plist")), original)
+        XCTAssertEqual(fixture.events.filter { ["legacy-idle", "legacy-bootout", "bootstrap"].contains($0) }, ["legacy-idle", "legacy-bootout", "bootstrap"])
+        XCTAssertFalse(fixture.events.contains("logout"))
+    }
+
+    func testBusyLegacyServiceAndItsConfigurationRemainUntouched() async throws {
+        let fixture = try NativeRuntimeFixture(running: false, legacy: true)
+        defer { fixture.remove() }
+        let original = try Data(contentsOf: fixture.legacyPlist)
+        fixture.busy = true
+        do { try await fixture.management.synchronizeBackground(launch: true); XCTFail("replaced busy legacy service") }
+        catch { XCTAssertEqual(error.localizedDescription, "active turn") }
+        XCTAssertTrue(fixture.legacyRunning)
+        XCTAssertFalse(fixture.running)
+        XCTAssertEqual(try Data(contentsOf: fixture.legacyPlist), original)
+        XCTAssertFalse(fixture.events.contains("legacy-bootout"))
+    }
+
+    func testFailedLegacyMigrationRestoresTheOldLaunchDefinitionAndService() async throws {
+        let fixture = try NativeRuntimeFixture(running: false, legacy: true)
+        defer { fixture.remove() }
+        let original = try Data(contentsOf: fixture.legacyPlist)
+        fixture.rejectNew = true
+        do { try await fixture.management.synchronizeBackground(launch: true); XCTFail("accepted unhealthy migration") }
+        catch {}
+        XCTAssertTrue(fixture.legacyRunning)
+        XCTAssertFalse(fixture.running)
+        XCTAssertEqual(try Data(contentsOf: fixture.legacyPlist), original)
+        XCTAssertTrue(fixture.events.contains("legacy-bootstrap"))
+    }
+
+    func testStoppedLegacyServiceIsRetiredWithoutStartingEitherBackground() async throws {
+        let fixture = try NativeRuntimeFixture(running: false, legacy: true)
+        defer { fixture.remove() }
+        fixture.legacyRunning = false
+        try await fixture.management.synchronizeBackground(launch: false)
+        XCTAssertFalse(fixture.running)
+        XCTAssertFalse(fixture.legacyRunning)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: fixture.legacyPlist.path))
+        XCTAssertFalse(fixture.events.contains("bootstrap"))
+        XCTAssertFalse(fixture.events.contains("legacy-bootout"))
+    }
+
     func testStopUnloadsOnlyTheDesktopAgentAfterTheIdleCheck() async throws {
         let fixture = try NativeRuntimeFixture(running: true)
         defer { fixture.remove() }
@@ -165,22 +327,37 @@ private final class NativeRuntimeFixture {
     var rejectNew = false
     var rejectBootout = false
     var incompleteBinding = false
+    var legacyRunning: Bool
+    var changingLegacyStatistics = false
+    var legacyPrintCount = 0
+    var legacyStopTimeout = false
+    var bootstrapTimeout = false
+    var rejectLegacySignature = false
+    var autoStartApplied: [Bool] = []
+    var legacyPlist: URL { layout.home.appendingPathComponent("Library/LaunchAgents/com.macfleet.fleet-agent.plist") }
     var events: [String] = []
     var bootoutTargets: [String] = []
     var requirements: [String] = []
-    lazy var management = NativeManagement(layout: layout, execute: { [unowned self] executable, arguments, _, _ in
+    lazy var management = NativeManagement(layout: layout, configureAutoStart: { [unowned self] in autoStartApplied.append($0) }, execute: { [unowned self] executable, arguments, _, _ in
         try self.execute(executable, arguments)
     })
 
-    init(running: Bool, nested: Bool = false) throws {
+    init(running: Bool, nested: Bool = false, legacy: Bool = false) throws {
         root = FileManager.default.temporaryDirectory.appendingPathComponent("fleet-native-\(UUID().uuidString)")
         layout = RuntimeLayout(application: root.appendingPathComponent("Fleet Hub.app"), home: root.appendingPathComponent("home"))
         self.running = running
+        self.legacyRunning = legacy
         version = nested ? "1.0.0+2" : "1.0.0+1"
         try bundle(layout.application, identifier: "com.macfleet.fleet-hub", build: "2")
         try bundle(layout.bundledBackgroundApplication, identifier: "com.macfleet.fleet-agent", build: "2")
         try PrivateRuntime.ensureDirectory(layout.home.appendingPathComponent(".macfleet"))
         try PrivateRuntime.ensureDirectory(layout.state)
+        if legacy {
+            try FileManager.default.createDirectory(at: legacyPlist.deletingLastPathComponent(), withIntermediateDirectories: true)
+            let values: [String: Any] = ["Label": "com.macfleet.fleet-agent", "ProgramArguments": [layout.home.appendingPathComponent(".local/bin/fleet-agent").path],
+                                       "EnvironmentVariables": ["HOME": layout.home.path], "RunAtLoad": true, "KeepAlive": true]
+            try PropertyListSerialization.data(fromPropertyList: values, format: .xml, options: 0).write(to: legacyPlist)
+        }
         if running {
             if !nested {
                 try PrivateRuntime.ensureDirectory(layout.runtimeDirectory)
@@ -212,13 +389,35 @@ private final class NativeRuntimeFixture {
         if executable.lastPathComponent == "codesign" {
             if arguments.contains("-d") { return Data("TeamIdentifier=FAKETEAM01\n".utf8) }
             if let position = arguments.firstIndex(of: "-R") { requirements.append(arguments[position + 1]) }
+            if rejectLegacySignature, arguments.last?.hasSuffix("/.local/bin/fleet-agent") == true { throw FleetError.message("legacy signature mismatch") }
             return Data()
         }
         if executable.lastPathComponent == "spctl" { return Data() }
+        if executable.lastPathComponent == "env" {
+            XCTAssertTrue(arguments.last?.hasSuffix("check-codex-idle.sh") == true)
+            events.append("legacy-idle")
+            if busy { throw FleetError.message("active turn") }
+            return Data()
+        }
         if executable.lastPathComponent == "launchctl" {
             let action = arguments[0]
+            let legacy = arguments.last?.hasSuffix("/com.macfleet.fleet-agent") == true || arguments.last == legacyPlist.path
+            if legacy {
+                if action == "print" {
+                    guard legacyRunning else { throw FleetError.message("not loaded") }
+                    legacyPrintCount += 1
+                    return Data("path = \(legacyPlist.path)\nprogram = \(layout.home.appendingPathComponent(".local/bin/fleet-agent").path)\npid = 99\nruns = \(changingLegacyStatistics ? legacyPrintCount : 1)\n".utf8)
+                }
+                events.append("legacy-" + action)
+                if action == "bootout" {
+                    legacyRunning = false
+                    if legacyStopTimeout { throw FleetError.message("legacy stop timeout") }
+                }
+                if action == "bootstrap" { legacyRunning = true }
+                return Data()
+            }
             if action == "print" {
-                if arguments.last?.hasSuffix("/com.macfleet.fleet-agent") == true || !running { throw FleetError.message("not loaded") }
+                if !running { throw FleetError.message("not loaded") }
                 return Data()
             }
             events.append(action)
@@ -233,6 +432,7 @@ private final class NativeRuntimeFixture {
                 else { version = "1.0.0+2" }
                 running = true
                 pid = pid == 100 ? 200 : 300
+                if bootstrapTimeout { throw FleetError.message("bootstrap timeout") }
             }
             return Data()
         }
