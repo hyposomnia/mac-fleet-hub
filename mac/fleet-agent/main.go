@@ -47,7 +47,7 @@ import (
 // ---------------- 配置 ----------------
 type Config struct {
 	Listen            string // 绑定地址，如 100.x.x.x:7682
-	FileRoot          string // 文件浏览器操作根目录；预览相对路径的默认基准
+	FileRoot          string // 默认目录与相对路径基准；实际访问遵循系统权限
 	ClaudeHome        string // ~/.claude
 	ClaudeBin         string // claude 可执行文件
 	CodexHome         string // ~/.codex
@@ -169,7 +169,7 @@ var idleSec atomic.Int64
 // 未配置（旧装机 / 未开启）则空 → configSync 不启动，沿用 FLEET_IDLE_SEC 默认。
 func configURL() string { return strings.TrimSpace(os.Getenv("FLEET_CONFIG_URL")) }
 
-// fetchIdleSec：GET 网关 /agent-config 解析 {idleSec}。越界(<=0)/非 200/坏 JSON 均报错，
+// fetchIdleSec：GET 网关 /agent-config 解析 {idleSec}。负数/缺字段/非 200/坏 JSON 均报错，
 // 调用方据此保留旧值。
 func fetchIdleSec(url string) (int64, error) {
 	c := &http.Client{Timeout: 10 * time.Second}
@@ -182,15 +182,15 @@ func fetchIdleSec(url string) (int64, error) {
 		return 0, fmt.Errorf("HTTP %d", resp.StatusCode)
 	}
 	var body struct {
-		IdleSec int64 `json:"idleSec"`
+		IdleSec *int64 `json:"idleSec"`
 	}
 	if err := json.NewDecoder(io.LimitReader(resp.Body, 1<<12)).Decode(&body); err != nil {
 		return 0, err
 	}
-	if body.IdleSec <= 0 {
-		return 0, fmt.Errorf("非法 idleSec=%d", body.IdleSec)
+	if body.IdleSec == nil || *body.IdleSec < 0 {
+		return 0, fmt.Errorf("缺少或非法 idleSec")
 	}
-	return body.IdleSec, nil
+	return *body.IdleSec, nil
 }
 
 // configSync：启动拉一次 + 每 5min 拉，成功则更新 idleSec；任何失败保留当前值。
@@ -1926,27 +1926,70 @@ func handleReload(w http.ResponseWriter, r *http.Request) {
 }
 
 // ---------------- 空闲回收 + 结束钩子 ----------------
+func reapIdleSessions(snapshot string, now, seconds int64, panes func(string) (string, error), ended, kill func(string)) {
+	if seconds <= 0 {
+		return
+	}
+	for _, line := range strings.Split(strings.TrimSpace(snapshot), "\n") {
+		fields := strings.Fields(line)
+		if len(fields) != 3 || !strings.HasPrefix(fields[0], "fleet-") {
+			continue
+		}
+		attached, attachErr := strconv.Atoi(fields[1])
+		activity, activityErr := strconv.ParseInt(fields[2], 10, 64)
+		if attachErr != nil || activityErr != nil || attached != 0 || now-activity <= seconds {
+			continue
+		}
+		// Detached does not mean idle: live shells and commands must survive reclaim.
+		output, err := panes(fields[0])
+		if err != nil || strings.TrimSpace(output) == "" {
+			continue
+		}
+		allDead := true
+		for _, dead := range strings.Fields(output) {
+			if dead != "1" {
+				allDead = false
+				break
+			}
+		}
+		if allDead {
+			ended(fields[0])
+			kill(fields[0])
+		}
+	}
+}
+
 func reaper() {
 	for {
 		time.Sleep(60 * time.Second)
+		seconds := idleSec.Load()
+		if seconds <= 0 {
+			continue
+		}
 		out, err := tmux("list-sessions", "-F", "#{session_name} #{session_attached} #{session_activity}")
 		if err != nil {
 			continue
 		}
-		now := time.Now().Unix()
-		for _, ln := range strings.Split(strings.TrimSpace(out), "\n") {
-			f := strings.Fields(ln)
-			if len(f) < 3 || !strings.HasPrefix(f[0], "fleet-") {
-				continue
-			}
-			attached, _ := strconv.Atoi(f[1])
-			act, _ := strconv.ParseInt(f[2], 10, 64)
-			if attached == 0 && now-act > idleSec.Load() {
-				onSessionEnd(f[0])
-				killTmuxSession(f[0])
-			}
-		}
+		reapIdleSessions(out, time.Now().Unix(), seconds, func(name string) (string, error) {
+			return tmux("list-panes", "-s", "-t", name, "-F", "#{pane_dead}")
+		}, onSessionEnd, killTmuxSession)
 	}
+}
+
+// Failure to inspect input activity conservatively skips the optional Desktop refresh.
+func desktopInputIdle(output string) bool {
+	for _, line := range strings.Split(output, "\n") {
+		if !strings.Contains(line, `"HIDIdleTime"`) {
+			continue
+		}
+		parts := strings.SplitN(line, "=", 2)
+		if len(parts) != 2 {
+			return false
+		}
+		nanoseconds, err := strconv.ParseUint(strings.TrimSpace(parts[1]), 10, 64)
+		return err == nil && nanoseconds >= uint64(2*time.Second)
+	}
+	return false
 }
 
 // 会话结束钩子：满足护栏则给 Desktop 发一次 Cmd+R
@@ -1962,9 +2005,20 @@ func onSessionEnd(sid string) {
 	if !desktopRunning() || !desktopOnSession(wt.sessionID) {
 		return
 	}
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	activity, err := exec.CommandContext(ctx, "ioreg", "-c", "IOHIDSystem").Output()
+	if err != nil || !desktopInputIdle(string(activity)) {
+		return
+	}
 	script := fmt.Sprintf(
-		`tell application %q to activate
-tell application "System Events" to keystroke "r" using command down`, cfg.DesktopApp)
+		`tell application "System Events"
+if exists (application process %q) then
+if frontmost of application process %q then
+keystroke "r" using command down
+end if
+end if
+end tell`, cfg.DesktopApp, cfg.DesktopApp)
 	exec.Command("osascript", "-e", script).Run()
 }
 func desktopRunning() bool {

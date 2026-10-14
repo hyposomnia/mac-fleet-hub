@@ -8,6 +8,8 @@ final class AppUpdater: NSObject, ObservableObject, SPUUpdaterDelegate {
     @Published private(set) var message = ""
     @Published private(set) var busy = false
     @Published private(set) var sessionActive = false
+    @Published private(set) var waitingForIdle = false
+    private var maintenanceWait: MaintenanceWait?
     @Published private(set) var availableVersion: String?
     private let management: NativeManagement
     private var controller: SPUStandardUpdaterController?
@@ -45,8 +47,7 @@ final class AppUpdater: NSObject, ObservableObject, SPUUpdaterDelegate {
     }
 
     private func validatedCandidate() async throws -> (origin: String, release: NativeRelease) {
-        let status = try await management.status()
-        let candidateOrigin = try FleetSettings.validatedOrigin(status.settings.origin)
+        let candidateOrigin = try await management.updateOrigin()
         let candidate = try await NativeRelease.fetch(origin: candidateOrigin)
         #if arch(arm64)
         let architecture = "arm64"
@@ -125,6 +126,7 @@ final class AppUpdater: NSObject, ObservableObject, SPUUpdaterDelegate {
         return true
     }
     func updater(_ updater: SPUUpdater, didAbortWithError error: Error) {
+        cancelWaitingForIdle()
         message = error.localizedDescription
         installing = false
         installHandler = nil
@@ -134,6 +136,28 @@ final class AppUpdater: NSObject, ObservableObject, SPUUpdaterDelegate {
     func updater(_ updater: SPUUpdater, didFinishUpdateCycleFor updateCheck: SPUUpdateCheck, error: Error?) {
         sessionActive = false
     }
+
+    func waitForIdleAndInstall() async {
+        guard installHandler != nil, !waitingForIdle else { return }
+        let wait = MaintenanceWait()
+        maintenanceWait = wait
+        waitingForIdle = true
+        defer { maintenanceWait = nil; waitingForIdle = false }
+        do {
+            try await wait.run(check: {
+                do {
+                    try await self.management.prepareForStop()
+                    await self.management.resumeAfterCancelledStop()
+                } catch {
+                    self.message = "等待任务结束后安装：" + error.localizedDescription
+                    throw error
+                }
+            }, action: { await self.continueInstallation() })
+        } catch is CancellationError { message = "已取消等待，后台任务继续运行。" }
+        catch { message = error.localizedDescription }
+    }
+
+    func cancelWaitingForIdle() { maintenanceWait?.cancel() }
 
     func continueInstallation() async {
         guard installHandler != nil else { return }
@@ -166,8 +190,8 @@ final class AppUpdater: NSObject, ObservableObject, SPUUpdaterDelegate {
             await self.management.resumeAfterCancelledStop()
         }, backup: {
             if self.recovery != nil { return }
-            let status = try await self.management.status()
-            let record = Recovery(directory: UUID(), previousBuild: self.currentBuild, expectedBuild: release.build, previousPID: status.pid)
+            let status = try? await self.management.status()
+            let record = Recovery(directory: UUID(), previousBuild: self.currentBuild, expectedBuild: release.build, previousPID: status?.pid ?? 0)
             let backup = self.backupURL(record)
             try PrivateRuntime.ensureDirectory(backup.deletingLastPathComponent())
             try await ApplicationInstaller.install(source: self.management.layout.application, destination: backup, verify: self.verify)
@@ -208,7 +232,7 @@ final class AppUpdater: NSObject, ObservableObject, SPUUpdaterDelegate {
                     installing = false
                     installHandler = nil
                     message = installedUpgrade ?
-                        (status.binding?.complete == false ? "升级完成，请重新完成设备关联。" : "升级完成。") :
+                        (status.binding?.complete == false ? "升级完成，请重新完成设备关联。" : (status.runtime?.phase == "connecting" || status.runtime?.phase == "reconnecting" ? "升级完成，正在重新连接。" : "升级完成。")) :
                         "已恢复原版本后台；升级未完成。"
                     return
                 }

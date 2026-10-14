@@ -22,6 +22,8 @@ func desktopRequest(ctx context.Context, directory, action string, input io.Read
 	method, endpoint := http.MethodGet, "/status"
 	switch action {
 	case "status":
+	case "retry-connection":
+		method, endpoint = http.MethodPost, "/runtime/retry"
 	case "disk-recheck":
 		method, endpoint = http.MethodPost, "/disk/recheck"
 	case "settings":

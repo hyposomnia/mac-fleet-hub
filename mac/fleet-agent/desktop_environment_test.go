@@ -21,3 +21,12 @@ func TestDesktopEnvironmentIsolatesOwnedStateWithoutChangingDesktop(t *testing.T
 		t.Fatal("changed existing Desktop environment")
 	}
 }
+
+func TestDesktopEnvironmentPreservesMigratedQueueAndProxyPaths(t *testing.T) {
+	t.Setenv("FLEET_CHAT_QUEUE_FILE", "/legacy/queue.json")
+	t.Setenv("FLEET_PROXY_FILE", "/legacy/proxy.json")
+	values := desktopEnvironment(desktopTestDirectory(t), "/bundle/Resources", "/usr/bin")
+	if values["FLEET_CHAT_QUEUE_FILE"] != "/legacy/queue.json" || values["FLEET_PROXY_FILE"] != "/legacy/proxy.json" {
+		t.Fatalf("lost migrated paths: %v", values)
+	}
+}

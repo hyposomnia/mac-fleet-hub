@@ -261,6 +261,7 @@ type ChatStartResult struct {
 	ServiceTier  string                      `json:"serviceTier,omitempty"`
 	ApprovalMode string                      `json:"approvalMode,omitempty"`
 	Models       []ChatModelOption           `json:"models,omitempty"`
+	ModelsError  string                      `json:"modelsError,omitempty"`
 	Control      *ChatSessionControlSnapshot `json:"control,omitempty"`
 }
 
@@ -280,6 +281,7 @@ type ChatResumeResult struct {
 	ServiceTier     string                      `json:"serviceTier,omitempty"`
 	ApprovalMode    string                      `json:"approvalMode,omitempty"`
 	Models          []ChatModelOption           `json:"models,omitempty"`
+	ModelsError     string                      `json:"modelsError,omitempty"`
 	Control         *ChatSessionControlSnapshot `json:"control,omitempty"`
 }
 
@@ -318,6 +320,8 @@ type ChatHistoryPage struct {
 
 type ChatModelOption struct {
 	Value              string                      `json:"value"`
+	Provider           string                      `json:"provider,omitempty"`
+	Model              string                      `json:"model,omitempty"`
 	DisplayName        string                      `json:"displayName"`
 	Description        string                      `json:"description,omitempty"`
 	DefaultEffort      string                      `json:"defaultEffort,omitempty"`

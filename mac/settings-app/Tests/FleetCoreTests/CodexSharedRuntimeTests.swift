@@ -5,6 +5,16 @@ import XCTest
 
 @MainActor
 final class CodexSharedRuntimeTests: XCTestCase {
+    func testMigratedCodexHomeUsesTheSameSharedWriterConfiguration() async throws {
+        let fixture = try SharedFixture()
+        defer { fixture.remove() }
+        try PrivateRuntime.write(JSONEncoder().encode(["FLEET_CODEX_HOME": "/custom/codex"]), to: fixture.layout.state.appendingPathComponent("migrated-environment.json"))
+        try await fixture.runtime.start()
+        let environment = try fixture.definition()["EnvironmentVariables"] as! [String: String]
+        XCTAssertEqual(environment["CODEX_HOME"], "/custom/codex")
+        XCTAssertEqual(environment["FLEET_CODEX_APPSERVER_LISTEN"], "ws://127.0.0.1:47682")
+    }
+
     func testPreviewUsesMatchingResourcesWithoutChangingInstalledAgentResources() async throws {
         let fixture = try SharedFixture(previewResources: true)
         defer { fixture.remove() }

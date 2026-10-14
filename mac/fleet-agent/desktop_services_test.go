@@ -11,7 +11,7 @@ import (
 func TestDesktopFilesInitializationFailureCanRetryWithoutPartialDatabase(t *testing.T) {
 	state := desktopTestDirectory(t)
 	binding := deviceBinding{DeviceID: "m12", Index: "12", AgentPort: 7682, TerminalPort: 7681, FilesPort: 8080}
-	commands, err := desktopServiceCommands(binding, "/bundle/bin", state, "/Users/fixture")
+	commands, err := desktopServiceCommands(binding, "/bundle/bin", state)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -50,7 +50,7 @@ func TestDesktopFilesInitializationFailureCanRetryWithoutPartialDatabase(t *test
 
 func TestDesktopServicesStayOnLoopbackAndUseBundledExecutables(t *testing.T) {
 	binding := deviceBinding{DeviceID: "m12", Index: "12", AgentPort: 7682, TerminalPort: 7681, FilesPort: 8080}
-	commands, err := desktopServiceCommands(binding, "/Applications/Fleet Hub.app/bin", "/Users/fixture/private", "/Users/fixture")
+	commands, err := desktopServiceCommands(binding, "/Applications/Fleet Hub.app/bin", "/Users/fixture/private")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -74,7 +74,21 @@ func TestDesktopServicesStayOnLoopbackAndUseBundledExecutables(t *testing.T) {
 		t.Fatalf("%+v", files)
 	}
 	binding.FilesPort = binding.TerminalPort
-	if _, err := desktopServiceCommands(binding, "bin", "state", "home"); err == nil {
+	if _, err := desktopServiceCommands(binding, "bin", "state"); err == nil {
 		t.Fatal("accepted conflicting service ports")
+	}
+}
+
+func TestDesktopFilesCanNavigateOutsideHome(t *testing.T) {
+	commands, err := desktopServiceCommands(deviceBinding{DeviceID: "m1", Index: "1", AgentPort: 7682, TerminalPort: 7681, FilesPort: 8080}, "bin", "state")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, command := range commands {
+		for i, arg := range command.Args {
+			if (arg == "--root" || arg == "-r") && command.Args[i+1] != "/" {
+				t.Fatalf("file navigation still restricted: %v", command.Args)
+			}
+		}
 	}
 }

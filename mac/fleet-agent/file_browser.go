@@ -59,58 +59,30 @@ func fileBrowserRoot() (string, string, error) {
 	}
 	rootAbs, err := filepath.Abs(root)
 	if err != nil {
-		return "", "", errPreviewOutsideRoot
+		return "", "", err
 	}
 	rootReal, err := filepath.EvalSymlinks(rootAbs)
 	if err != nil {
-		return "", "", errPreviewOutsideRoot
+		return "", "", err
 	}
 	return rootAbs, rootReal, nil
 }
 
 func resolveFileBrowserPath(rawPath string) (string, error) {
-	rootAbs, rootReal, err := fileBrowserRoot()
-	if err != nil {
-		return "", err
+	if strings.TrimSpace(rawPath) == "" {
+		_, home, err := fileBrowserRoot()
+		return home, err
 	}
-	rawPath = strings.TrimSpace(rawPath)
 	if len(rawPath) > 16*1024 || strings.ContainsRune(rawPath, '\x00') {
 		return "", fmt.Errorf("invalid file path")
 	}
-	if rawPath == "" {
-		return rootReal, nil
-	}
-
-	candidate := rawPath
-	if candidate == "~" {
-		candidate, _ = os.UserHomeDir()
-	} else if strings.HasPrefix(candidate, "~/") {
-		home, _ := os.UserHomeDir()
-		candidate = filepath.Join(home, strings.TrimPrefix(candidate, "~/"))
-	} else if !filepath.IsAbs(candidate) {
-		candidate = filepath.Join(rootReal, candidate)
-	}
-	candidateAbs, err := filepath.Abs(candidate)
-	if err != nil || (!pathWithinRoot(rootAbs, candidateAbs) && !pathWithinRoot(rootReal, candidateAbs)) {
-		return "", errPreviewOutsideRoot
-	}
-	candidateReal, err := filepath.EvalSymlinks(candidateAbs)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return "", errPreviewNotFound
-		}
-		return "", errPreviewNotFound
-	}
-	if !pathWithinRoot(rootReal, candidateReal) {
-		return "", errPreviewOutsideRoot
-	}
-	return candidateReal, nil
+	return resolvePreviewPath(rawPath, "")
 }
 
 // Mutations verify the real parent but keep the final path lexical so a symlink
 // can be rejected instead of accidentally mutating its target.
 func resolveFileMutationPath(rawPath string) (string, error) {
-	rootAbs, rootReal, err := fileBrowserRoot()
+	_, rootReal, err := fileBrowserRoot()
 	if err != nil {
 		return "", err
 	}
@@ -128,26 +100,26 @@ func resolveFileMutationPath(rawPath string) (string, error) {
 		candidate = filepath.Join(rootReal, candidate)
 	}
 	candidateAbs, err := filepath.Abs(candidate)
-	if err != nil || (!pathWithinRoot(rootAbs, candidateAbs) && !pathWithinRoot(rootReal, candidateAbs)) {
-		return "", errPreviewOutsideRoot
+	if err != nil {
+		return "", err
 	}
 	parentReal, err := filepath.EvalSymlinks(filepath.Dir(candidateAbs))
-	if err != nil || !pathWithinRoot(rootReal, parentReal) {
-		return "", errPreviewOutsideRoot
+	if err != nil {
+		return "", err
 	}
 	target := filepath.Join(parentReal, filepath.Base(candidateAbs))
-	if target == rootReal {
-		return "", errPreviewOutsideRoot
+	if target == string(filepath.Separator) {
+		return "", errFileMutationProtected
 	}
 	info, err := os.Lstat(target)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return "", errPreviewNotFound
 		}
-		return "", errPreviewNotFound
+		return "", err
 	}
 	if info.Mode()&os.ModeSymlink != 0 {
-		return "", errPreviewOutsideRoot
+		return "", errFileMutationProtected
 	}
 	return target, nil
 }
@@ -263,13 +235,13 @@ func cachedFinderFavorites() []finderFavorite {
 	return append([]finderFavorite(nil), favorites...)
 }
 
-func realFileBrowserDirectory(root, path string) (string, bool) {
+func realFileBrowserDirectory(path string) (string, bool) {
 	pathAbs, err := filepath.Abs(path)
 	if err != nil {
 		return "", false
 	}
 	pathReal, err := filepath.EvalSymlinks(pathAbs)
-	if err != nil || !pathWithinRoot(root, pathReal) {
+	if err != nil {
 		return "", false
 	}
 	info, err := os.Stat(pathReal)
@@ -289,7 +261,7 @@ func mergeFileBrowserLocations(root string, favorites []finderFavorite) []fileBr
 	}
 	defaultByPath := make(map[string]fileBrowserLocation, len(defaults))
 	for index := range defaults {
-		if pathReal, ok := realFileBrowserDirectory(rootReal, defaults[index].Path); ok {
+		if pathReal, ok := realFileBrowserDirectory(defaults[index].Path); ok {
 			defaults[index].Path = pathReal
 			defaultByPath[pathReal] = defaults[index]
 		}
@@ -299,11 +271,8 @@ func mergeFileBrowserLocations(root string, favorites []finderFavorite) []fileBr
 	seen := make(map[string]bool, len(favorites)+len(defaults))
 	customIndex := 0
 	for _, favorite := range favorites {
-		if strings.EqualFold(filepath.Base(filepath.Clean(favorite.Path)), "Applications") {
-			continue
-		}
-		pathReal, ok := realFileBrowserDirectory(rootReal, favorite.Path)
-		if !ok || strings.EqualFold(filepath.Base(pathReal), "Applications") || seen[pathReal] {
+		pathReal, ok := realFileBrowserDirectory(favorite.Path)
+		if !ok || seen[pathReal] {
 			continue
 		}
 		if location, standard := defaultByPath[pathReal]; standard {
@@ -322,7 +291,7 @@ func mergeFileBrowserLocations(root string, favorites []finderFavorite) []fileBr
 		seen[pathReal] = true
 	}
 	for _, location := range defaults {
-		pathReal, ok := realFileBrowserDirectory(rootReal, location.Path)
+		pathReal, ok := realFileBrowserDirectory(location.Path)
 		if !ok || seen[pathReal] {
 			continue
 		}
@@ -334,7 +303,23 @@ func mergeFileBrowserLocations(root string, favorites []finderFavorite) []fileBr
 }
 
 func fileBrowserLocations(root string) []fileBrowserLocation {
-	return mergeFileBrowserLocations(root, cachedFinderFavorites())
+	locations := mergeFileBrowserLocations(root, cachedFinderFavorites())
+	for _, location := range []fileBrowserLocation{{ID: "filesystem", Name: "磁盘", Path: "/"}, {ID: "volumes", Name: "外接磁盘", Path: "/Volumes"}} {
+		if real, ok := realFileBrowserDirectory(location.Path); ok {
+			exists := false
+			for _, item := range locations {
+				if item.Path == real {
+					exists = true
+					break
+				}
+			}
+			if !exists {
+				location.Path = real
+				locations = append(locations, location)
+			}
+		}
+	}
+	return locations
 }
 
 func handleFileList(w http.ResponseWriter, r *http.Request) {
@@ -370,16 +355,13 @@ func handleFileList(w http.ResponseWriter, r *http.Request) {
 		return strings.ToLower(entries[i].Name) < strings.ToLower(entries[j].Name)
 	})
 	_, root, _ := fileBrowserRoot()
-	parent := ""
-	if path != root {
-		parent = filepath.Dir(path)
-		if !pathWithinRoot(root, parent) {
-			parent = ""
-		}
+	parent := filepath.Dir(path)
+	if parent == path {
+		parent = ""
 	}
 	w.Header().Set("Cache-Control", "private, no-store")
 	writeJSON(w, fileBrowserListResponse{
-		Root: root, Path: path, Parent: parent, Entries: entries, Locations: fileBrowserLocations(root),
+		Root: string(filepath.Separator), Path: path, Parent: parent, Entries: entries, Locations: fileBrowserLocations(root),
 	})
 }
 

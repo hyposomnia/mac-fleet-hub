@@ -67,21 +67,27 @@ func TestFileListReturnsSafeSortedDirectoryEntries(t *testing.T) {
 	if err := json.Unmarshal(rr.Body.Bytes(), &got); err != nil {
 		t.Fatal(err)
 	}
-	if got.Root != realRoot || got.Path != realRoot || got.Parent != "" {
+	if got.Root != "/" || got.Path != realRoot || got.Parent != filepath.Dir(realRoot) {
 		t.Fatalf("unexpected paths: %+v", got)
 	}
 	names := make([]string, 0, len(got.Entries))
 	for _, entry := range got.Entries {
 		names = append(names, entry.Name)
 	}
-	if strings.Join(names, ",") != "Projects,zeta,.hidden,archive.bin,README.md" {
+	if strings.Join(names, ",") != "Projects,zeta,.hidden,archive.bin,escape.md,README.md" {
 		t.Fatalf("unexpected entries: %v", names)
 	}
-	if got.Entries[2].Hidden != true || got.Entries[4].Previewable != true {
+	if got.Entries[2].Hidden != true || got.Entries[len(got.Entries)-1].Previewable != true {
 		t.Fatalf("entry metadata missing: %+v", got.Entries)
 	}
-	if len(got.Locations) != 1 || got.Locations[0].ID != "user" || got.Locations[0].Name != "用户" {
-		t.Fatalf("unexpected locations: %+v", got.Locations)
+	foundHome := false
+	for _, location := range got.Locations {
+		if location.ID == "user" && location.Path == realRoot {
+			foundHome = true
+		}
+	}
+	if !foundHome {
+		t.Fatal("home location missing")
 	}
 
 	subReq := httptest.NewRequest(http.MethodGet, "/api/file/list?path="+urlQueryEscape(filepath.Join(root, "Projects")), nil)
@@ -128,10 +134,10 @@ func TestFileBrowserLocationsMergeFinderFavoritesWithMacDefaults(t *testing.T) {
 		names = append(names, location.Name)
 		ids = append(ids, location.ID)
 	}
-	if want := "桌面,Work,文稿,下载,用户"; strings.Join(names, ",") != want {
+	if want := "应用程序,桌面,Work,Outside,文稿,下载,用户"; strings.Join(names, ",") != want {
 		t.Fatalf("location names=%v want %s", names, want)
 	}
-	if want := "desktop,favorite-1,documents,downloads,user"; strings.Join(ids, ",") != want {
+	if want := "favorite-1,desktop,favorite-2,favorite-3,documents,downloads,user"; strings.Join(ids, ",") != want {
 		t.Fatalf("location ids=%v want %s", ids, want)
 	}
 }
@@ -154,19 +160,19 @@ func TestFileBrowserLocationsFallBackToMacDefaults(t *testing.T) {
 	}
 }
 
-func TestFileListRejectsOutsideRoot(t *testing.T) {
+func TestFileListAllowsOutsideRoot(t *testing.T) {
 	root := t.TempDir()
 	outside := t.TempDir()
 	usePreviewRoot(t, root)
 	req := httptest.NewRequest(http.MethodGet, "/api/file/list?path="+urlQueryEscape(outside), nil)
 	rr := httptest.NewRecorder()
 	handleFileList(rr, req)
-	if rr.Code != http.StatusForbidden || !strings.Contains(rr.Body.String(), "file_outside_root") {
+	if rr.Code != http.StatusOK {
 		t.Fatalf("status=%d body=%s", rr.Code, rr.Body.String())
 	}
 }
 
-func TestFileMutationsStayInsideRoot(t *testing.T) {
+func TestFileMutationsPreserveLeafAndOverwriteGuards(t *testing.T) {
 	root := t.TempDir()
 	usePreviewRoot(t, root)
 

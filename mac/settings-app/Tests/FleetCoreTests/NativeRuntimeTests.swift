@@ -4,6 +4,66 @@ import XCTest
 
 @MainActor
 final class NativeRuntimeTests: XCTestCase {
+    func testUpdateOriginFallsBackToPrivateSettingsWhenBackgroundIsStopped() async throws {
+        let fixture = try NativeRuntimeFixture(running: false)
+        defer { fixture.remove() }
+        let settings = FleetSettings(schema: 1, origin: "https://saved.example.test", autoStart: false)
+        try PrivateRuntime.write(JSONEncoder().encode(settings), to: fixture.layout.state.appendingPathComponent("settings.json"))
+        let origin = try await fixture.management.updateOrigin()
+        XCTAssertEqual(origin, settings.origin)
+        XCTAssertFalse(fixture.running)
+    }
+
+    func testLegacyMigrationRetainsQueueIdentityAndCustomAssistantConfig() async throws {
+        let fixture = try NativeRuntimeFixture(running: false, legacy: true)
+        defer { fixture.remove() }
+        let queue = fixture.layout.home.appendingPathComponent(".macfleet/chat-queue.json")
+        let data = try JSONSerialization.data(withJSONObject: ["items": [["id": "pending-original", "status": "queued"]]])
+        try PrivateRuntime.write(data, to: queue)
+        var old = try PropertyListSerialization.propertyList(from: Data(contentsOf: fixture.legacyPlist), format: nil) as! [String: Any]
+        old["EnvironmentVariables"] = ["FLEET_CLAUDE_HOME": "/custom/claude", "FLEET_CODEX_APPSERVER_MODE": "isolated"]
+        try PropertyListSerialization.data(fromPropertyList: old, format: .xml, options: 0).write(to: fixture.legacyPlist)
+        try await fixture.management.synchronizeBackground(launch: true)
+        let environment = try fixture.definition()["EnvironmentVariables"] as! [String: String]
+        XCTAssertEqual(environment["FLEET_CHAT_QUEUE_FILE"], queue.path)
+        XCTAssertEqual(environment["FLEET_CLAUDE_HOME"], "/custom/claude")
+        XCTAssertEqual(environment["FLEET_CODEX_APPSERVER_MODE"], "shared")
+        XCTAssertEqual(try PrivateRuntime.read(queue), data)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: fixture.layout.state.appendingPathComponent("chat-queue.json").path))
+        try await fixture.management.synchronizeBackground(launch: true)
+        XCTAssertEqual(try fixture.definition()["EnvironmentVariables"] as? [String: String], environment)
+    }
+
+    func testFailedMigrationRetainsOriginalQueueWithoutCreatingAReplayCopy() async throws {
+        let fixture = try NativeRuntimeFixture(running: false, legacy: true)
+        defer { fixture.remove() }
+        let queue = fixture.layout.home.appendingPathComponent(".macfleet/chat-queue.json")
+        let original = Data("{\"items\":[{\"id\":\"pending-original\",\"status\":\"queued\"}]}".utf8)
+        try PrivateRuntime.write(original, to: queue)
+        fixture.rejectNew = true
+        do { try await fixture.management.synchronizeBackground(launch: true); XCTFail("accepted failed upgrade") } catch {}
+        XCTAssertEqual(try PrivateRuntime.read(queue), original)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: fixture.layout.state.appendingPathComponent("chat-queue.json").path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: fixture.layout.state.appendingPathComponent("migrated-environment.json").path))
+        XCTAssertTrue(fixture.legacyRunning)
+    }
+
+    func testDualPendingQueuesAreNotSilentlyHiddenOrReplayed() async throws {
+        let fixture = try NativeRuntimeFixture(running: false, legacy: true)
+        defer { fixture.remove() }
+        let legacy = fixture.layout.home.appendingPathComponent(".macfleet/chat-queue.json")
+        let native = fixture.layout.state.appendingPathComponent("chat-queue.json")
+        let original = Data("{\"items\":[{\"id\":\"legacy-pending\",\"status\":\"queued\"}]}".utf8)
+        let newer = Data("{\"items\":[{\"id\":\"native-pending\",\"status\":\"queued\"}]}".utf8)
+        try PrivateRuntime.write(original, to: legacy)
+        try PrivateRuntime.write(newer, to: native)
+        do { try await fixture.management.synchronizeBackground(launch: true); XCTFail("silently hid a queue") }
+        catch { XCTAssertTrue(error.localizedDescription.contains("两份待处理消息队列")) }
+        XCTAssertEqual(try PrivateRuntime.read(legacy), original)
+        XCTAssertEqual(try PrivateRuntime.read(native), newer)
+        XCTAssertTrue(fixture.legacyRunning)
+    }
+
     func testLegacyMigrationKeepsLoginStartupEnabled() async throws {
         let fixture = try NativeRuntimeFixture(running: false, legacy: true)
         defer { fixture.remove() }
@@ -164,6 +224,23 @@ final class NativeRuntimeTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: fixture.legacyPlist.path))
         XCTAssertFalse(fixture.events.contains("bootstrap"))
         XCTAssertFalse(fixture.events.contains("legacy-bootout"))
+    }
+
+    func testUpdatePreparationCanStopAnAlreadyStoppedBackground() async throws {
+        let fixture = try NativeRuntimeFixture(running: false)
+        defer { fixture.remove() }
+        try await fixture.management.prepareForStop()
+        try await fixture.management.stop()
+        XCTAssertTrue(fixture.bootoutTargets.isEmpty)
+    }
+
+    func testConnectionRetryDoesNotRestartAgentOrSharedServer() async throws {
+        let fixture = try NativeRuntimeFixture(running: true)
+        defer { fixture.remove() }
+        try await fixture.management.retryConnection()
+        XCTAssertEqual(fixture.events, ["retry-connection"])
+        XCTAssertTrue(fixture.bootoutTargets.isEmpty)
+        XCTAssertEqual(fixture.pid, 100)
     }
 
     func testStopUnloadsOnlyTheDesktopAgentAfterTheIdleCheck() async throws {

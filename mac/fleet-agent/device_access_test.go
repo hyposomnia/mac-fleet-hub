@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -67,7 +68,7 @@ func TestDeviceStatusSynchronizesIdleSettingsOnlyWithValidAuthorization(t *testi
 	status, owner = 200, "other@example.com"
 	refresh(2460)
 	owner, seconds = binding.OwnerEmail, 0
-	refresh(2460)
+	refresh(0)
 }
 
 func TestDeviceAccessLeaseAndLocalLogoutCancelStreams(t *testing.T) {
@@ -266,5 +267,67 @@ func TestDeviceNameFollowsValidatedLeaseWithoutChangingAuthorization(t *testing.
 	current, _ = readDeviceBinding(path)
 	if current.DeviceName != "Renamed Mac" || originalScope.Err() == nil {
 		t.Fatal("unverified identity updated metadata or retained access")
+	}
+}
+
+func TestDeviceRelativeLeaseIgnoresClockSkewAndBoundsOutageGrace(t *testing.T) {
+	code := 200
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(code)
+		json.NewEncoder(w).Encode(map[string]any{"device_id": "m1", "owner_email": "owner@example.com", "lease_until": time.Now().Add(-time.Hour).Unix(), "lease_seconds": 45, "outage_grace_seconds": 120})
+	}))
+	defer server.Close()
+	path := filepath.Join(t.TempDir(), "private", "binding.json")
+	binding := deviceBinding{Origin: server.URL, DeviceID: "m1", DeviceToken: strings.Repeat("a", 43), ProxyToken: strings.Repeat("b", 43), OwnerEmail: "owner@example.com"}
+	if err := writePrivateJSON(path, binding); err != nil {
+		t.Fatal(err)
+	}
+	access := newDeviceAccess(path)
+	defer access.close()
+	access.refresh(context.Background())
+	if access.scope == nil || access.scope.Err() != nil {
+		t.Fatal("clock skew rejected valid relative lease")
+	}
+	lease := access.lease
+	code = 503
+	access.refresh(context.Background())
+	if delta := access.lease.Sub(lease); delta != 120*time.Second {
+		t.Fatalf("grace=%v", delta)
+	}
+	deadline := access.lease
+	access.refresh(context.Background())
+	if access.lease != deadline {
+		t.Fatal("repeated outages extended grace")
+	}
+	code = 403
+	access.refresh(context.Background())
+	if access.scope.Err() == nil {
+		t.Fatal("explicit revocation kept grace alive")
+	}
+	code = 503
+	access.refresh(context.Background())
+	if !access.lease.IsZero() {
+		t.Fatal("outage resurrected revoked credentials")
+	}
+}
+
+func TestRuntimeServiceProxyUsesSelectedPortAndUnavailableDoesNotFallback(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.Write([]byte("component")) }))
+	defer server.Close()
+	parsed, _ := url.Parse(server.URL)
+	port, _ := strconv.Atoi(parsed.Port())
+	var target atomic.Int64
+	target.Store(int64(port))
+	proxy := localServiceProxyTarget(1, &target)
+	response := httptest.NewRecorder()
+	proxy.ServeHTTP(response, httptest.NewRequest("GET", "http://untrusted.example/", nil))
+	if response.Code != 200 || response.Body.String() != "component" {
+		t.Fatalf("selected port ignored: %d %s", response.Code, response.Body.String())
+	}
+	target.Store(-1)
+	response = httptest.NewRecorder()
+	proxy.ServeHTTP(response, httptest.NewRequest("GET", "/", nil))
+	if response.Code != 503 {
+		t.Fatalf("unavailable component fell back: %d", response.Code)
 	}
 }

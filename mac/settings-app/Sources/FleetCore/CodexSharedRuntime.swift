@@ -159,7 +159,7 @@ public final class CodexSharedRuntime {
     private func launchDefinition(node: String, codex: String) throws -> Data {
         let template = try Data(contentsOf: resources.appendingPathComponent("com.macfleet.codex-shared-app-server.plist"))
         let replacements = [
-            "__CODEX_HOME__": layout.home.appendingPathComponent(".codex").path,
+            "__CODEX_HOME__": try layout.savedEnvironment()["FLEET_CODEX_HOME"] ?? layout.home.appendingPathComponent(".codex").path,
             "__CODEX_KEEPER_NODE__": node,
             "__CODEX_KEEPER_SCRIPT__": resources.appendingPathComponent("codex-shared-app-server.mjs").path,
             "__CODEX_BIN__": codex,
@@ -328,7 +328,9 @@ public final class CodexSharedRuntime {
         try FileManager.default.removeItem(at: file)
     }
     private func shell(_ file: String, _ arguments: [String] = []) async throws -> String {
-        let output = try await execute(URL(fileURLWithPath: "/usr/bin/env"), ["HOME=" + layout.home.path, "/bin/bash", resources.appendingPathComponent(file).path] + arguments, nil, 35)
+        let migrated = try layout.savedEnvironment()
+        let assistant = ["FLEET_CODEX_HOME", "FLEET_CODEX_BIN"].compactMap { key in migrated[key].map { key + "=" + $0 } }
+        let output = try await execute(URL(fileURLWithPath: "/usr/bin/env"), ["HOME=" + layout.home.path] + assistant + ["/bin/bash", resources.appendingPathComponent(file).path] + arguments, nil, 35)
         return String(data: output, encoding: .utf8) ?? ""
     }
     private func launchctl(_ arguments: [String]) async throws -> Data {

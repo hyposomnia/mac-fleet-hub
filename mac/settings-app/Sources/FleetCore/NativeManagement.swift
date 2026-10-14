@@ -22,6 +22,13 @@ public final class NativeManagement: LocalManagement {
         return try JSONDecoder().decode(AgentStatus.self, from: data)
     }
 
+    public func updateOrigin() async throws -> String {
+        let settings: FleetSettings
+        if let current = try? await status() { settings = current.settings }
+        else { settings = try JSONDecoder().decode(FleetSettings.self, from: PrivateRuntime.read(layout.state.appendingPathComponent("settings.json"))) }
+        return try FleetSettings.validatedOrigin(settings.origin)
+    }
+
     public func save(_ settings: FleetSettings) async throws -> FleetSettings {
         let previous = try await status().settings
         let saved = try JSONDecoder().decode(FleetSettings.self, from: await request("settings", input: JSONEncoder().encode(settings)))
@@ -50,10 +57,16 @@ public final class NativeManagement: LocalManagement {
         return try JSONDecoder().decode(PairingState.self, from: await request(action, input: input))
     }
 
-    public func prepareForStop() async throws { _ = try await request("prepare-stop") }
+    public func retryConnection() async throws { _ = try await request("retry-connection") }
+
+    public func prepareForStop() async throws {
+        if (try? await launchctl(["print", target])) == nil { return }
+        _ = try await request("prepare-stop")
+    }
     public func resumeAfterCancelledStop() async { _ = try? await request("resume") }
 
     public func stop() async throws {
+        if (try? await launchctl(["print", target])) == nil { return }
         try await prepareForStop()
         do { _ = try await launchctl(["bootout", target]) }
         catch { await resumeAfterCancelledStop(); throw error }
@@ -164,7 +177,7 @@ public final class NativeManagement: LocalManagement {
         if let installed = try? BackgroundIdentity.read(layout.backgroundApplication, identifier: "com.macfleet.fleet-agent"), installed.build > expected.build {
             throw FleetError.message("已安装的 Fleet Agent 版本较新，请更新设置应用后再继续。")
         }
-        let definition = try layout.backgroundLaunchDefinition()
+        let definition = try layout.backgroundLaunchDefinition(migratedEnvironment: legacy?.migratedEnvironment())
         let previousDefinition = FileManager.default.fileExists(atPath: layout.runtimePlist.path) ? try PrivateRuntime.read(layout.runtimePlist) : nil
         let running = (try? await launchctl(["print", target])) != nil
         let previousStatus = running ? try await status() : nil

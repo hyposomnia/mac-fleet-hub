@@ -26,18 +26,19 @@ type desktopStatus struct {
 }
 
 type desktopControl struct {
-	directory   string
-	bindingFile string
-	probe       func() desktopDiskAccess
-	mu          sync.Mutex
-	disk        desktopDiskAccess
-	listener    net.Listener
-	server      *http.Server
-	lock        *os.File
-	closeOnce   sync.Once
-	pairing     *desktopPairing
-	runtime     desktopRuntimeState
-	idleCheck   func() error
+	directory     string
+	bindingFile   string
+	probe         func() desktopDiskAccess
+	mu            sync.Mutex
+	disk          desktopDiskAccess
+	listener      net.Listener
+	server        *http.Server
+	lock          *os.File
+	closeOnce     sync.Once
+	pairing       *desktopPairing
+	runtime       desktopRuntimeState
+	idleCheck     func() error
+	retryRequests chan struct{}
 }
 
 func startDesktopControl(directory, bindingFile string, probe func() desktopDiskAccess) (*desktopControl, error) {
@@ -85,7 +86,7 @@ func startDesktopControl(directory, bindingFile string, probe func() desktopDisk
 		listener.Close()
 		return nil, err
 	}
-	control := &desktopControl{directory: directory, bindingFile: bindingFile, probe: probe, listener: listener, lock: lock}
+	control := &desktopControl{directory: directory, bindingFile: bindingFile, probe: probe, listener: listener, lock: lock, retryRequests: make(chan struct{}, 1)}
 	control.disk = probe()
 	control.server = &http.Server{Handler: control, ReadHeaderTimeout: 3 * time.Second, ReadTimeout: 5 * time.Second, WriteTimeout: 30 * time.Second, IdleTimeout: 5 * time.Second, MaxHeaderBytes: 8192}
 	go control.server.Serve(listener)
@@ -119,7 +120,7 @@ func (control *desktopControl) ServeHTTP(writer http.ResponseWriter, request *ht
 	}
 	control.mu.Lock()
 	defer control.mu.Unlock()
-	if request.URL.Path == "/settings" || request.URL.Path == "/pair/start" || request.URL.Path == "/pair/confirm" {
+	if request.URL.Path == "/runtime/retry" || request.URL.Path == "/settings" || request.URL.Path == "/pair/start" || request.URL.Path == "/pair/confirm" {
 		if !desktopMaintenance.Enter() {
 			desktopReply(writer, http.StatusConflict, map[string]string{"error": "设备正在维护，请稍后重试"})
 			return
@@ -139,6 +140,7 @@ func (control *desktopControl) ServeHTTP(writer http.ResponseWriter, request *ht
 		}
 		status := desktopStatus{Schema: 1, PID: os.Getpid(), Version: version, Settings: settings, DiskAccess: control.disk}
 		status.Runtime = control.runtime
+		status.Runtime.Components = desktopComponentSnapshot()
 		if control.pairing != nil {
 			state := control.pairing.Snapshot()
 			status.Pairing = &state
@@ -152,6 +154,19 @@ func (control *desktopControl) ServeHTTP(writer http.ResponseWriter, request *ht
 			return
 		}
 		desktopReply(writer, 200, status)
+	case "/runtime/retry":
+		if request.Method != http.MethodPost {
+			desktopReply(writer, 405, map[string]string{"error": "请求方法不支持"})
+			return
+		}
+		retrying := control.runtime.Phase == "connecting" || control.runtime.Phase == "reconnecting"
+		if retrying {
+			select {
+			case control.retryRequests <- struct{}{}:
+			default:
+			}
+		}
+		desktopReply(writer, 200, map[string]any{"ok": true, "retrying": retrying})
 	case "/disk/recheck":
 		if request.Method != http.MethodPost {
 			desktopReply(writer, 405, map[string]string{"error": "请求方法不支持"})

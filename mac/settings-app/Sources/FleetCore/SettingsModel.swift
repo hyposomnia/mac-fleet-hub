@@ -98,6 +98,12 @@ public struct AgentStatus: Codable, Equatable, Sendable {
 public struct RuntimeState: Codable, Equatable, Sendable {
     public var phase: String
     public var error: String?
+    public var components: [String: RuntimeComponentState]? = nil
+}
+
+public struct RuntimeComponentState: Codable, Equatable, Sendable {
+    public var phase: String
+    public var error: String?
 }
 
 public struct PairingState: Codable, Equatable, Sendable {

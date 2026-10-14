@@ -11,20 +11,22 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
 var deviceIDPattern = regexp.MustCompile(`^m[1-9][0-9]*$`)
 
 type deviceAccess struct {
-	path    string
-	mu      sync.Mutex
-	binding deviceBinding
-	lease   time.Time
-	scope   context.Context
-	cancel  context.CancelFunc
-	timer   *time.Timer
-	client  *http.Client
+	path       string
+	mu         sync.Mutex
+	binding    deviceBinding
+	lease      time.Time
+	graceUntil time.Time
+	scope      context.Context
+	cancel     context.CancelFunc
+	timer      *time.Timer
+	client     *http.Client
 }
 
 func newDeviceAccess(path string) *deviceAccess {
@@ -47,6 +49,7 @@ func (access *deviceAccess) deny() {
 		access.timer.Stop()
 	}
 	access.lease = time.Time{}
+	access.graceUntil = time.Time{}
 }
 
 func (access *deviceAccess) close() {
@@ -69,20 +72,25 @@ func (access *deviceAccess) refresh(ctx context.Context) {
 	}
 	request, _ := http.NewRequestWithContext(ctx, "GET", binding.Origin+"/api/device/status", nil)
 	request.Header.Set("Authorization", "Bearer "+binding.DeviceToken)
+	started := time.Now()
 	response, err := access.client.Do(request)
 	if err != nil {
+		access.allowOutage(binding)
 		return
 	}
 	defer response.Body.Close()
 	if response.StatusCode >= 500 || response.StatusCode == 429 {
+		access.allowOutage(binding)
 		return
 	}
 	var status struct {
-		ID      string `json:"device_id"`
-		Email   string `json:"owner_email"`
-		Name    string `json:"device_name"`
-		Lease   int64  `json:"lease_until"`
-		IdleSec int64  `json:"idleSec"`
+		ID           string `json:"device_id"`
+		Email        string `json:"owner_email"`
+		Name         string `json:"device_name"`
+		Lease        int64  `json:"lease_until"`
+		LeaseSeconds int64  `json:"lease_seconds"`
+		GraceSeconds int64  `json:"outage_grace_seconds"`
+		IdleSec      *int64 `json:"idleSec"`
 	}
 	err = json.NewDecoder(http.MaxBytesReader(nil, response.Body, 16<<10)).Decode(&status)
 	access.mu.Lock()
@@ -90,12 +98,16 @@ func (access *deviceAccess) refresh(ctx context.Context) {
 	if !sameDeviceAuthorization(access.binding, binding) {
 		return
 	}
-	if response.StatusCode != 200 || err != nil || status.ID != binding.DeviceID || status.Email != binding.OwnerEmail || status.Lease <= time.Now().Unix() || status.Lease > time.Now().Add(46*time.Second).Unix() {
+	deadline := time.Unix(status.Lease, 0)
+	if status.LeaseSeconds > 0 && status.LeaseSeconds <= 45 {
+		deadline = started.Add(time.Duration(status.LeaseSeconds) * time.Second)
+	}
+	if response.StatusCode != 200 || err != nil || status.ID != binding.DeviceID || status.Email != binding.OwnerEmail || !deadline.After(time.Now()) || deadline.After(time.Now().Add(46*time.Second)) || status.LeaseSeconds < 0 || status.LeaseSeconds > 45 || status.GraceSeconds < 0 || status.GraceSeconds > 600 {
 		access.deny()
 		return
 	}
-	if status.IdleSec > 0 {
-		idleSec.Store(status.IdleSec)
+	if status.IdleSec != nil && *status.IdleSec >= 0 {
+		idleSec.Store(*status.IdleSec)
 	}
 	// Names are presentation metadata, never part of the authorization identity.
 	// Synchronize only after validating the device, owner and lease.
@@ -106,12 +118,42 @@ func (access *deviceAccess) refresh(ctx context.Context) {
 	if access.scope == nil || access.scope.Err() != nil {
 		access.scope, access.cancel = context.WithCancel(context.Background())
 	}
-	access.lease = time.Unix(status.Lease, 0)
+	access.lease = deadline
+	access.graceUntil = deadline
+	if status.LeaseSeconds > 0 {
+		access.graceUntil = deadline.Add(time.Duration(status.GraceSeconds) * time.Second)
+	}
 	if access.timer != nil {
 		access.timer.Stop()
 	}
-	scopeCancel := access.cancel
-	access.timer = time.AfterFunc(time.Until(access.lease), scopeCancel)
+	access.armExpiry()
+}
+
+// Called with mu held. A timer already firing when refresh stops it must not
+// cancel a renewed lease; recheck the current deadline under the same lock.
+func (access *deviceAccess) armExpiry() {
+	access.timer = time.AfterFunc(time.Until(access.lease), func() {
+		access.mu.Lock()
+		defer access.mu.Unlock()
+		if !time.Now().Before(access.lease) && access.cancel != nil {
+			access.cancel()
+		}
+	})
+}
+
+// Only a transient failure can use the grace authorized by the last success.
+// Never resurrect a cancelled scope or roll the deadline forward on retries.
+func (access *deviceAccess) allowOutage(binding deviceBinding) {
+	access.mu.Lock()
+	defer access.mu.Unlock()
+	if !sameDeviceAuthorization(access.binding, binding) || access.scope == nil || access.scope.Err() != nil || !access.graceUntil.After(access.lease) {
+		return
+	}
+	access.lease = access.graceUntil
+	if access.timer != nil {
+		access.timer.Stop()
+	}
+	access.armExpiry()
 }
 
 func (access *deviceAccess) run(ctx context.Context) {
@@ -181,12 +223,36 @@ func (access *deviceAccess) handler(next http.Handler) http.Handler {
 	})
 }
 
-func localServiceProxy(port int) http.Handler {
+func localServiceProxy(port int) http.Handler { return localServiceProxyTarget(port, nil) }
+
+type desktopProxyPortKey struct{}
+
+func localServiceProxyTarget(port int, runtimePort *atomic.Int64) http.Handler {
 	target := &url.URL{Scheme: "http", Host: "127.0.0.1:" + strconv.Itoa(port)}
 	proxy := httputil.NewSingleHostReverseProxy(target)
+	director := proxy.Director
+	proxy.Director = func(r *http.Request) {
+		selected, _ := r.Context().Value(desktopProxyPortKey{}).(int64)
+		director(r)
+		if selected > 0 {
+			r.URL.Host = "127.0.0.1:" + strconv.FormatInt(selected, 10)
+		}
+	}
 	proxy.FlushInterval = -1
 	proxy.Transport = &http.Transport{Proxy: nil, ResponseHeaderTimeout: 15 * time.Second}
-	return proxy
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if runtimePort != nil {
+			current := runtimePort.Load()
+			if current < 0 {
+				http.Error(w, "服务正在重新连接，请稍后重试", http.StatusServiceUnavailable)
+				return
+			}
+			if current > 0 {
+				r = r.WithContext(context.WithValue(r.Context(), desktopProxyPortKey{}, current))
+			}
+		}
+		proxy.ServeHTTP(w, r)
+	})
 }
 
 func registerDeviceServices(mux *http.ServeMux, binding deviceBinding) {
@@ -197,8 +263,8 @@ func registerDeviceServices(mux *http.ServeMux, binding deviceBinding) {
 	if filesPort == 0 {
 		filesPort = 8080
 	}
-	mux.Handle("/"+binding.DeviceID+"/term/", localServiceProxy(terminalPort))
-	mux.Handle("/"+binding.DeviceID+"/files/", localServiceProxy(filesPort))
+	mux.Handle("/"+binding.DeviceID+"/term/", localServiceProxyTarget(terminalPort, &desktopTerminalPort))
+	mux.Handle("/"+binding.DeviceID+"/files/", localServiceProxyTarget(filesPort, &desktopFilesPort))
 }
 
 // Re-read under the existing login/logout lock so metadata cannot overwrite a

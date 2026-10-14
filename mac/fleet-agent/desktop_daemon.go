@@ -12,8 +12,9 @@ import (
 )
 
 type desktopRuntimeState struct {
-	Phase string `json:"phase"`
-	Error string `json:"error,omitempty"`
+	Phase      string                           `json:"phase"`
+	Components map[string]desktopComponentState `json:"components,omitempty"`
+	Error      string                           `json:"error,omitempty"`
 }
 
 func runDesktopDaemon() error {
@@ -104,16 +105,19 @@ func runDesktopDaemon() error {
 			control.SetRuntime("failed", "设备授权文件无法读取")
 			return
 		}
-		control.SetRuntime("connecting", "")
-		scope, stop := context.WithTimeout(ctx, 2*time.Minute)
-		defer stop()
-		if err := network.Resume(scope, binding); err != nil {
-			control.SetRuntime("failed", err.Error())
-			return
-		}
-		if err := setup(scope, binding); err != nil {
-			control.SetRuntime("failed", err.Error())
-		}
+		_ = retryDesktopOperation(ctx, time.Second, 15*time.Second, func(ctx context.Context) error {
+			current, err := readDeviceBinding(bindingPath())
+			if err != nil || current.Locked || !sameDeviceAuthorization(current, binding) {
+				return context.Canceled
+			}
+			control.SetRuntime("connecting", "")
+			scope, stop := context.WithTimeout(ctx, 30*time.Second)
+			defer stop()
+			if err := network.Resume(scope, binding); err != nil {
+				return err
+			}
+			return setup(scope, binding)
+		}, func(err error) { control.SetRuntime("connecting", "正在重新连接："+err.Error()) }, control.retryRequests)
 	}()
 	select {
 	case <-ctx.Done():
@@ -127,4 +131,38 @@ func (control *desktopControl) SetRuntime(phase, message string) {
 	control.mu.Lock()
 	defer control.mu.Unlock()
 	control.runtime = desktopRuntimeState{Phase: phase, Error: message}
+}
+
+// Retries are bounded in frequency, not count: offline boot must heal without a
+// process restart. Short waits also make resume from sleep responsive.
+func retryDesktopOperation(ctx context.Context, initial, maximum time.Duration, operation func(context.Context) error, failed func(error), retrySignals ...<-chan struct{}) error {
+	var retry <-chan struct{}
+	if len(retrySignals) > 0 {
+		retry = retrySignals[0]
+	}
+	delay := initial
+	for {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		err := operation(ctx)
+		if err == nil || errors.Is(err, context.Canceled) {
+			return err
+		}
+		failed(err)
+		timer := time.NewTimer(delay)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return ctx.Err()
+		case <-timer.C:
+		case <-retry:
+			timer.Stop()
+			delay = initial / 2
+		}
+		delay *= 2
+		if delay > maximum {
+			delay = maximum
+		}
+	}
 }

@@ -57,7 +57,7 @@ curl -i -X POST http://127.0.0.1:7099/enroll/join
 
 1. 在 `/auth` 用邮箱、密码、确认密码注册。邮箱只是登录标识，不要求邮件验证；新注册用户不自动获得管理员权限。
 2. 每个用户必须用 Authenticator 绑定 TOTP 并验证后才能获得正式访问权限；保存首次显示的一次性恢复码。恢复需密码与未使用恢复码，会撤销原会话并重新绑定验证器。
-3. 正式会话自签发起绝对有效 30 天，访问不会续期。`/account` 管理密码、验证器、恢复码及会话。
+3. 正式会话默认有效 30 天，正常访问在剩余有效期不足一半时续期；可用 `FLEET_SESSION_SLIDING=false` 配置为绝对有效期。`/account` 管理密码、验证器、恢复码及会话。
 4. 用同一服务器配置显式提升已注册邮箱：`fleet-enroll admin <registered-email>`。`/admin` 只展示账号/设备元信息并提供禁用、会话撤销与设备撤销；访问他人的设备代理、文件、终端或消息正文仍被拒绝。
 
 所有私有请求由 Go 服务鉴权并检查 owner，写操作检查 Origin 和 CSRF。私有页面、API 与设备路径禁止缓存，切换或退出账号必须清理浏览器私有状态及活动连接。
@@ -155,7 +155,7 @@ claim 还返回独立的 device_token/proxy_token，客户端原子写入 `0700`
 | `FLEET_BINDING_FILE` | 私有逐设备授权记录，不把 secret 放进 plist/env | 默认 `~/.macfleet/binding.json` |
 | `FLEET_UPDATE_BASE` | 自更新源 `https://<网关>/enroll/dist`，使 `fleet-agent update` 可用 | bootstrap 自动注入 |
 | 编号 / `MAC_INDEX` | 该 Mac 的路径标识 `/mN/` | **自动**，别问用户 |
-| `TTYD_PORT`/`FB_PORT`/`AGENT_PORT`/`FB_ROOT` | 服务端口 / 文件管理根目录 | 默认即可（FB_ROOT 默认整个 home） |
+| `TTYD_PORT`/`FB_PORT`/`AGENT_PORT`/`FB_ROOT` | 服务端口 / 文件管理根目录 | 默认即可（FB_ROOT 默认 home 作为起始目录，文件访问遵循系统权限） |
 | `FLEET_CLAUDE_HOME`/`FLEET_CLAUDE_BIN` | Claude 会话库与命令路径 | 默认 `~/.claude` / 自动发现 `claude` |
 | `FLEET_CODEX_HOME`/`FLEET_CODEX_BIN` | Codex 会话库与命令路径 | 默认 `~/.codex`；shared 未显式指定时优先 ChatGPT.app bundled Codex，再查找 PATH |
 | `FLEET_CODEX_APPSERVER_MODE` | Codex app-server 连接模式：`shared` 让 Fleet 与 Codex Desktop 复用同一 loopback WebSocket；`isolated` 使用 Fleet 专属 Unix-socket sidecar；`auto`、`daemon`、`stdio` 为旧兼容模式 | `shared` |
@@ -183,7 +183,7 @@ fleet-agent logout
 shared 只让两端共用同一个 app-server 与物理 writer，不混淆 turn 的操作归属：同一服务上的未知 active turn 保守视为 Desktop，只有 Fleet 自己成功 `turn/start` 返回的 turn 才能由网页 steer、停止或处理审批；外部 turn 走服务端持久化队列。keeper 读取目标版本的 `desktop-mcp.json`，只认 ChatGPT 主进程持有、同 UID 且权限为 `0600` 的 App Tools socket，并原子更新稳定软链；pipe 换代时只 reload MCP，不重启 shared app-server。App tools 仍须在目标 Desktop 版本上以 `runtimeStatus=connected` 和实际工具清单做 UAT。
 
 若目标机需要进程级隔离，可显式设置 `FLEET_CODEX_APPSERVER_MODE=isolated FLEET_CODEX_DESKTOP_SHARED_DAEMON=0`。该回退使用 `~/.macfleet/codex-app-server.sock`，并同时取消 GUI 中的 `CODEX_APP_SERVER_WS_URL` 与 `CODEX_APP_SERVER_USE_LOCAL_DAEMON`。
-ttyd/filebrowser 仅监听 loopback，网关统一经 agent 转发并注入逐设备凭据。设备授权独立于浏览器 30 天会话；agent 每 15 秒校验，45 秒 lease 到期 fail closed；本地 logout 后存量访问由 100ms 私有文件观察周期关闭。失败保留锁定凭据供 logout 重试。
+ttyd/filebrowser 仅监听 loopback，网关统一经 agent 转发并注入逐设备凭据。设备授权独立于浏览器 30 天会话；agent 每 15 秒校验，优先使用 45 秒相对 lease；临时网络/服务故障有可配置的有界宽限，明确撤权立即关闭访问；本地 logout 后存量访问由 100ms 私有文件观察周期关闭。失败保留锁定凭据供 logout 重试。
 
 ### 验证
 
@@ -248,3 +248,7 @@ bash scripts/release-fleet-agent.sh           # 签名二进制发布 + 逐台�
 - 新系统通过浏览器确认 owner 和 Headscale node/IP 校验登记设备，动态路由；不要为新入网设备追加静态 `MAC_IPS`。客户端源码已接入逐用户授权；本地测试不等于已迁移当前 Mac 或正式签名发布。
 - 本阶段只修改服务器及授权文档并独立本地验证，不启动生产发布流程。报告已执行命令与实际结果，明确区分服务器 HTTP 接口、客户端安装器和真实设备验证。
 - 真实密钥 / 证书 / 密码不要打印到共享日志或写进提交。
+
+## SaaS 行为对齐策略
+
+已批准的认证有效期、可信代理、限流、设备宽限及迁移行为见 [SaaS 行为对齐与恢复策略](docs/saas-behavior-parity-2026-10-15.md)。原生设置应用始终保持 Codex shared 模式；源码支持的其他历史模式不作为原生恢复回退。文本预览保留 5 MiB 上限，超限提供原文件下载。

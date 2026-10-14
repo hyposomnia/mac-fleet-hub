@@ -169,7 +169,15 @@ func (b *dshChatBackend) Start(ctx context.Context, assistant, cwd, mode string)
 	s.cwd = cwd
 	b.startFollow(ctx, s)
 
-	return ChatStartResult{SessionID: created.SessionID, Cwd: cwd}, nil
+	result := ChatStartResult{SessionID: created.SessionID, Cwd: cwd}
+	if catalog, err := b.modelCatalog(ctx, client); err != nil {
+		result.ModelsError = err.Error()
+	} else {
+		result.Models = catalog.options()
+		result.Model, result.Effort = catalog.Default.value(), catalog.Default.Effort
+		result.ModelsError = catalog.warning()
+	}
+	return result, nil
 }
 
 func (b *dshChatBackend) Resume(ctx context.Context, assistant, sessionID, mode string) (ChatResumeResult, error) {
@@ -193,7 +201,7 @@ func (b *dshChatBackend) Resume(ctx context.Context, assistant, sessionID, mode 
 		status = "active"
 	}
 	model, effort := b.sessionModel(s)
-	return ChatResumeResult{
+	result := ChatResumeResult{
 		Model:        model,
 		Effort:       effort,
 		SessionID:    sessionID,
@@ -202,7 +210,24 @@ func (b *dshChatBackend) Resume(ctx context.Context, assistant, sessionID, mode 
 		ActiveTurnID: activeTurn,
 		AccessMode:   chatAccessReadWrite,
 		History:      history,
-	}, nil
+	}
+	if catalog, err := b.modelCatalog(ctx, client); err != nil {
+		result.ModelsError = err.Error()
+	} else {
+		result.Models = catalog.options()
+		result.ModelsError = catalog.warning()
+		last, next, err := b.sessionSelections(ctx, client, sessionID)
+		if err != nil {
+			result.ModelsError = err.Error()
+		} else if next.Model != "" {
+			result.Model, result.Effort = next.value(), next.Effort
+		} else if last.Model != "" {
+			result.Model, result.Effort = last.value(), last.Effort
+		} else if result.Model == "" {
+			result.Model, result.Effort = catalog.Default.value(), catalog.Default.Effort
+		}
+	}
+	return result, nil
 }
 
 func (b *dshChatBackend) History(ctx context.Context, assistant, sessionID, cursor string) (ChatHistoryPage, error) {
@@ -242,14 +267,14 @@ func (b *dshChatBackend) Skills(ctx context.Context, assistant, cwd string) ([]C
 func (b *dshChatBackend) Input(ctx context.Context, assistant, sessionID, text string, images []ChatAttachment, skills []ChatSkill, opts ChatTurnOptions) (ChatInputResult, error) {
 	// 交付模式由上层队列决定：普通输入一律走 queue（空闲时 host 会在轮次边界立刻领取，
 	// 忙碌时排队到下一轮），steer 走 Steer 方法。
-	return b.prompt(ctx, sessionID, text, images, opts.ClientUserMessageID, "queue")
+	return b.prompt(ctx, sessionID, text, images, opts.ClientUserMessageID, "queue", opts)
 }
 
 func (b *dshChatBackend) Steer(ctx context.Context, assistant, sessionID, clientMessageID, text string, images []ChatAttachment, skills []ChatSkill) (ChatInputResult, error) {
-	return b.prompt(ctx, sessionID, text, images, clientMessageID, "steer")
+	return b.prompt(ctx, sessionID, text, images, clientMessageID, "steer", ChatTurnOptions{})
 }
 
-func (b *dshChatBackend) prompt(ctx context.Context, sessionID, text string, images []ChatAttachment, clientMessageID, mode string) (ChatInputResult, error) {
+func (b *dshChatBackend) prompt(ctx context.Context, sessionID, text string, images []ChatAttachment, clientMessageID, mode string, opts ChatTurnOptions) (ChatInputResult, error) {
 	client, err := b.ensure(ctx)
 	if err != nil {
 		return ChatInputResult{}, err
@@ -267,6 +292,9 @@ func (b *dshChatBackend) prompt(ctx context.Context, sessionID, text string, ima
 	}
 	if len(content) == 0 {
 		return ChatInputResult{}, errors.New("空消息：既没有文本也没有可发送的附件")
+	}
+	if err := b.selectModel(ctx, client, sessionID, opts); err != nil {
+		return ChatInputResult{}, err
 	}
 
 	requestID := strings.TrimSpace(clientMessageID)
@@ -824,47 +852,15 @@ func dshHistoryPageFromRecords(sessionID string, value json.RawMessage) (ChatHis
 // 只覆盖最近的消息，历史会话里根本取不到——模型会整段空着，dashboard 那条
 // "模型使用数据"就只剩 token 没有名字。
 func (b *dshChatBackend) dshSessionModelSelection(ctx context.Context, client *dshClient, sessionID string) (string, string, bool) {
-	value, err := client.call(ctx, "session/list", map[string]any{"_request": map[string]any{}})
+	last, next, err := b.sessionSelections(ctx, client, sessionID)
 	if err != nil {
 		return "", "", false
 	}
-	var listing struct {
-		Items []struct {
-			SessionID   string `json:"sessionId"`
-			Projections struct {
-				Values struct {
-					// 真实形状是嵌套的：
-					// modelSelection = {lastUsed:{provider,model,reasoningEffort}, next:{…}}
-					ModelSelection struct {
-						LastUsed struct {
-							Model           string `json:"model"`
-							ReasoningEffort string `json:"reasoningEffort"`
-						} `json:"lastUsed"`
-						Next struct {
-							Model           string `json:"model"`
-							ReasoningEffort string `json:"reasoningEffort"`
-						} `json:"next"`
-					} `json:"modelSelection"`
-				} `json:"values"`
-			} `json:"projections"`
-		} `json:"items"`
+	if last.Model != "" {
+		return last.Model, last.Effort, true
 	}
-	if json.Unmarshal(value, &listing) != nil {
-		return "", "", false
-	}
-	for _, item := range listing.Items {
-		if item.SessionID != sessionID {
-			continue
-		}
-		sel := item.Projections.Values.ModelSelection
-		// 优先"上次实际用的"：next 只是待选项，没跑过时两者相同。
-		if sel.LastUsed.Model != "" {
-			return sel.LastUsed.Model, sel.LastUsed.ReasoningEffort, true
-		}
-		if sel.Next.Model != "" {
-			return sel.Next.Model, sel.Next.ReasoningEffort, true
-		}
-		return "", "", false
+	if next.Model != "" {
+		return next.Model, next.Effort, true
 	}
 	return "", "", false
 }

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"net/http"
 	"sync"
@@ -11,6 +12,8 @@ type desktopMaintenanceGate struct {
 	operations sync.RWMutex
 	mu         sync.Mutex
 	prepared   bool
+	sockets    map[uint64]context.CancelFunc
+	socketID   uint64
 	timer      *time.Timer
 	generation uint64
 }
@@ -27,6 +30,17 @@ func (gate *desktopMaintenanceGate) Prepare(check func() error) error {
 	}
 	if !gate.operations.TryLock() {
 		return errors.New("正在处理操作，请完成后再重启或升级")
+	}
+	// A rejected or deferred operation must not interrupt existing terminal views.
+	if err := check(); err != nil {
+		gate.operations.Unlock()
+		return err
+	}
+	// Detach browser transports, not the independent tmux sessions or shared
+	// Codex server. Cancellation requests transport shutdown; it is not an
+	// acknowledgement that every remote peer has already stopped sending.
+	for _, cancel := range gate.sockets {
+		cancel()
 	}
 	if err := check(); err != nil {
 		gate.operations.Unlock()
@@ -59,7 +73,26 @@ func (gate *desktopMaintenanceGate) resumeLocked() {
 }
 func (gate *desktopMaintenanceGate) Handler(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-		if request.Method != http.MethodGet && request.Method != http.MethodHead || request.Header.Get("Upgrade") != "" {
+		if request.Header.Get("Upgrade") != "" {
+			gate.mu.Lock()
+			if gate.prepared {
+				gate.mu.Unlock()
+				http.Error(writer, "设备正在维护，请稍后重试", http.StatusServiceUnavailable)
+				return
+			}
+			scope, cancel := context.WithCancel(request.Context())
+			gate.socketID++
+			id := gate.socketID
+			if gate.sockets == nil {
+				gate.sockets = make(map[uint64]context.CancelFunc)
+			}
+			gate.sockets[id] = cancel
+			gate.mu.Unlock()
+			defer func() { cancel(); gate.mu.Lock(); delete(gate.sockets, id); gate.mu.Unlock() }()
+			next.ServeHTTP(writer, request.WithContext(scope))
+			return
+		}
+		if request.Method != http.MethodGet && request.Method != http.MethodHead {
 			if !gate.Enter() {
 				http.Error(writer, "设备正在维护，请稍后重试", http.StatusServiceUnavailable)
 				return

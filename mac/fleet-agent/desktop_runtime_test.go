@@ -179,3 +179,44 @@ func TestDesktopSocketRefusesSymlinkAndPublicDirectory(t *testing.T) {
 		t.Fatal("modified unrelated file")
 	}
 }
+
+func TestDesktopRetryConnectionDoesNotRestartHealthyRuntime(t *testing.T) {
+	directory := desktopTestDirectory(t)
+	control, err := startDesktopControl(directory, filepath.Join(directory, "binding.json"), func() desktopDiskAccess { return desktopDiskAccess{} })
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer control.Close()
+	control.SetRuntime("running", "")
+	if err := desktopRequest(context.Background(), directory, "retry-connection", nil, io.Discard); err != nil {
+		t.Fatalf("retry action unavailable: %v", err)
+	}
+	control.mu.Lock()
+	phase := control.runtime.Phase
+	control.mu.Unlock()
+	if phase != "running" {
+		t.Fatalf("retry interrupted healthy runtime: %s", phase)
+	}
+	select {
+	case <-control.retryRequests:
+		t.Fatal("healthy runtime received retry")
+	default:
+	}
+	control.SetRuntime("connecting", "offline")
+	for i := 0; i < 3; i++ {
+		if err := desktopRequest(context.Background(), directory, "retry-connection", nil, io.Discard); err != nil {
+			t.Fatal(err)
+		}
+	}
+	select {
+	case <-control.retryRequests:
+	default:
+		t.Fatal("connecting runtime did not receive retry")
+	}
+	select {
+	case <-control.retryRequests:
+		t.Fatal("repeated clicks queued duplicate joins")
+	default:
+	}
+
+}

@@ -9,8 +9,8 @@ func desktopEnvironment(state, resources, searchPath string) map[string]string {
 	return map[string]string{
 		"FLEET_BINDING_FILE":    filepath.Join(state, "binding.json"),
 		"FLEET_TMUX_CONF":       filepath.Join(state, "tmux.conf"),
-		"FLEET_CHAT_QUEUE_FILE": filepath.Join(state, "chat-queue.json"),
-		"FLEET_PROXY_FILE":      filepath.Join(state, "proxy.json"),
+		"FLEET_CHAT_QUEUE_FILE": envOr("FLEET_CHAT_QUEUE_FILE", filepath.Join(state, "chat-queue.json")),
+		"FLEET_PROXY_FILE":      envOr("FLEET_PROXY_FILE", filepath.Join(state, "proxy.json")),
 		"TMUX_TMPDIR":           filepath.Join(state, "tmux"),
 		"PATH":                  filepath.Join(resources, "bin") + string(os.PathListSeparator) + searchPath,
 	}

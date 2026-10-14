@@ -30,13 +30,13 @@ func TestFetchIdleSec(t *testing.T) {
 }
 
 func TestFetchIdleSecRejectsBadValues(t *testing.T) {
-	// idleSec<=0：非法 → 报错，调用方保留旧值
+	// 负数非法，调用方保留旧值
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Write([]byte(`{"idleSec": 0}`))
+		w.Write([]byte(`{"idleSec": -1}`))
 	}))
 	defer srv.Close()
 	if _, err := fetchIdleSec(srv.URL); err == nil {
-		t.Fatalf("idleSec<=0 应报错")
+		t.Fatalf("负数 idleSec 应报错")
 	}
 
 	// 非 200 → 报错
@@ -46,5 +46,21 @@ func TestFetchIdleSecRejectsBadValues(t *testing.T) {
 	defer srv2.Close()
 	if _, err := fetchIdleSec(srv2.URL); err == nil {
 		t.Fatalf("HTTP 404 应报错")
+	}
+}
+
+func TestFetchIdleSecSupportsNeverAndRejectsMissing(t *testing.T) {
+	for _, tc := range []struct {
+		body  string
+		valid bool
+	}{{`{"idleSec":0}`, true}, {`{}`, false}, {`{"idleSec":null}`, false}} {
+		t.Run(tc.body, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.Write([]byte(tc.body)) }))
+			defer server.Close()
+			value, err := fetchIdleSec(server.URL)
+			if (err == nil) != tc.valid || tc.valid && value != 0 {
+				t.Fatalf("value=%d err=%v", value, err)
+			}
+		})
 	}
 }

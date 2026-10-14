@@ -1,5 +1,6 @@
 import AppKit
 import FleetCore
+import Network
 import SwiftUI
 
 enum SettingsPage: String, CaseIterable, Identifiable {
@@ -123,6 +124,9 @@ struct SettingsView: View {
         .buttonStyle(.bordered).controlSize(.regular)
         .disabled(model.isBusy || operationBusy || updater.busy)
         .onChange(of: model.origin) { _ in queueSave() }
+        .onReceive(NSWorkspace.shared.notificationCenter.publisher(for: NSWorkspace.didWakeNotification)) { _ in
+            Task { await retryConnectionIfNeeded() }
+        }
         .task {
             if preview {
                 while !Task.isCancelled {
@@ -136,6 +140,12 @@ struct SettingsView: View {
                 page = .connection
             }
             if management.layout.requiresInstallation { return }
+            let connectivity = NWPathMonitor()
+            connectivity.pathUpdateHandler = { path in
+                if path.status == .satisfied { Task { @MainActor in await retryConnectionIfNeeded() } }
+            }
+            connectivity.start(queue: .main)
+            defer { connectivity.cancel() }
             operationBusy = true
             await updater.recoverAfterLaunch()
             if !updater.recoveryPending {
@@ -206,6 +216,13 @@ struct SettingsView: View {
         }
     }
 
+    @MainActor
+    private func retryConnectionIfNeeded() async {
+        guard !preview, !management.layout.requiresInstallation,
+              ["connecting", "reconnecting"].contains(model.status?.runtime?.phase ?? "") else { return }
+        try? await management.retryConnection()
+    }
+
     private var overview: some View {
         Group {
             Section {
@@ -235,11 +252,27 @@ struct SettingsView: View {
                     }
                 }
                 .padding(.vertical, 20)
+                if management.layout.requiresInstallation {
+                    Text("为保证后台与升级路径稳定，应用需位于 /Applications/Fleet Agent Settings.app。当前从其他位置打开；点击“\(installationTitle)”即可继续，无需手动搬移。")
+                        .font(.callout).foregroundStyle(theme.secondaryText).textSelection(.enabled)
+                }
             }
             Section {
                 if let current = model.status {
                     row("版本", current.version, symbol: "shippingbox")
                     row("进程", String(current.pid), symbol: "number")
+                    if ["connecting", "reconnecting"].contains(current.runtime?.phase ?? "") {
+                        if let reason = current.runtime?.error, !reason.isEmpty {
+                            Text(reason).foregroundStyle(theme.secondaryText).textSelection(.enabled)
+                        }
+                        Button("立即重试连接") { perform(allowPreview: true) { try await management.retryConnection(); await model.refresh() } }
+                    }
+                    ForEach(["files", "terminal"], id: \.self) { name in
+                        if let component = current.runtime?.components?[name], component.phase != "running" {
+                            Label("\(name == "files" ? "文件服务" : "终端服务")正在重新连接\(component.error.map { "：" + $0 } ?? "")", systemImage: "arrow.triangle.2.circlepath")
+                                .foregroundStyle(theme.warning).textSelection(.enabled)
+                        }
+                    }
                     if current.binding == nil {
                         Button { page = .connection } label: {
                             HStack {
@@ -411,7 +444,16 @@ struct SettingsView: View {
                 }
                 .frame(maxWidth: .infinity).padding(.vertical, 28)
                 if !updater.message.isEmpty { Text(updater.message).foregroundStyle(theme.secondaryText).textSelection(.enabled) }
-                if updater.sessionActive { Button("继续安装升级") { Task { await updater.continueInstallation() } } }
+                if updater.sessionActive {
+                    if updater.waitingForIdle {
+                        Button("取消等待") { updater.cancelWaitingForIdle() }
+                    } else {
+                        HStack {
+                            Button("继续安装升级") { Task { await updater.continueInstallation() } }
+                            Button("任务结束后自动安装") { Task { await updater.waitForIdleAndInstall() } }
+                        }
+                    }
+                }
             }
             Section {
                 if management.layout.requiresInstallation {

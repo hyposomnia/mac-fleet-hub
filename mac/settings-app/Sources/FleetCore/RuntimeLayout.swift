@@ -56,8 +56,15 @@ public struct RuntimeLayout: Sendable {
         return try backgroundLaunchDefinition()
     }
 
-    func backgroundLaunchDefinition() throws -> Data {
-        let definition: [String: Any] = [
+    func savedEnvironment() throws -> [String: String] {
+        let saved = state.appendingPathComponent("migrated-environment.json")
+        guard FileManager.default.fileExists(atPath: saved.path) else { return [:] }
+        return try JSONDecoder().decode([String: String].self, from: PrivateRuntime.read(saved))
+    }
+
+    func backgroundLaunchDefinition(migratedEnvironment: [String: String]? = nil) throws -> Data {
+        let migrated = try migratedEnvironment ?? savedEnvironment()
+        var definition: [String: Any] = [
             "Label": "com.macfleet.desktop-agent",
             "ProgramArguments": [agent.path],
             "RunAtLoad": true,
@@ -78,9 +85,12 @@ public struct RuntimeLayout: Sendable {
                 "FLEET_CODEX_APPSERVER_MODE": "shared",
                 "FLEET_CODEX_APPSERVER_SOCK": home.appendingPathComponent(".macfleet/codex-app-server.sock").path,
                 "FLEET_CODEX_DESKTOP_SHARED_DAEMON": "1",
-                "FLEET_AUTO_CMDR": "0"
+                "FLEET_AUTO_CMDR": "1"
             ]
         ]
+        var environment = definition["EnvironmentVariables"] as! [String: String]
+        for (key, value) in migrated where LegacyFleetMigration.retainedEnvironmentKeys.contains(key) { environment[key] = value }
+        definition["EnvironmentVariables"] = environment
         return try PropertyListSerialization.data(fromPropertyList: definition, format: .xml, options: 0)
     }
 }

@@ -11,6 +11,12 @@ final class LegacyFleetMigration {
     private let loaded: Data?
     private let environment: [String: String]
     private let execute: (URL, [String], Data?, TimeInterval) async throws -> Data
+    nonisolated static let retainedEnvironmentKeys: Set<String> = [
+        "FLEET_CLAUDE_HOME", "FLEET_CLAUDE_BIN", "FLEET_CODEX_HOME", "FLEET_CODEX_BIN",
+        "FLEET_DSH_HOME", "FLEET_CHAT_QUEUE_FILE", "FLEET_PROXY_FILE", "FLEET_AUTO_CMDR",
+        "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY", "http_proxy", "https_proxy", "all_proxy", "no_proxy"
+    ]
+    private var migratedEnvironmentWritten = false
     private var backup: URL?
     private var stopped = false
     private var retired = false
@@ -55,6 +61,34 @@ final class LegacyFleetMigration {
                                     environment: values["EnvironmentVariables"] as? [String: String] ?? [:], execute: execute)
     }
 
+    func migratedEnvironment() throws -> [String: String] {
+        var result = environment.filter { Self.retainedEnvironmentKeys.contains($0.key) && !$0.value.isEmpty }
+        for (key, fallback) in [("FLEET_CHAT_QUEUE_FILE", ".macfleet/chat-queue.json"), ("FLEET_PROXY_FILE", ".macfleet-proxy.json")] {
+            let file = URL(fileURLWithPath: result[key] ?? layout.home.appendingPathComponent(fallback).path)
+            if FileManager.default.fileExists(atPath: file.path) {
+                _ = try Self.readOwnedFile(file)
+                result[key] = file.path
+            }
+        }
+        if let legacyPath = result["FLEET_CHAT_QUEUE_FILE"] {
+            let legacyQueue = URL(fileURLWithPath: legacyPath).standardizedFileURL
+            let nativeQueue = layout.state.appendingPathComponent("chat-queue.json").standardizedFileURL
+            if legacyQueue != nativeQueue, FileManager.default.fileExists(atPath: nativeQueue.path), try Self.hasPendingMessages(nativeQueue) {
+                if try Self.hasPendingMessages(legacyQueue) {
+                    throw FleetError.message("发现两份待处理消息队列，尚未切换或删除任何消息。请先在原生 Fleet 和旧 Fleet 的消息队列中完成或取消待处理消息，再重试迁移。队列位置：\(nativeQueue.path)；\(legacyQueue.path)")
+                }
+                result["FLEET_CHAT_QUEUE_FILE"] = nativeQueue.path
+            }
+        }
+        return result
+    }
+
+    private static func hasPendingMessages(_ file: URL) throws -> Bool {
+        guard let value = try JSONSerialization.jsonObject(with: readOwnedFile(file)) as? [String: Any],
+              let items = value["items"] as? [[String: Any]] else { throw FleetError.message("消息队列无法读取，未切换消息来源。") }
+        return items.contains { !["sent", "cancelled"].contains($0["status"] as? String ?? "") }
+    }
+
     func prepare() async throws {
         let currentLoaded = try? await execute(URL(fileURLWithPath: "/bin/launchctl"), ["print", target], nil, 8)
         guard try Self.readOwnedFile(definition) == original, Self.processIdentity(currentLoaded) == Self.processIdentity(loaded) else {
@@ -79,9 +113,20 @@ final class LegacyFleetMigration {
         guard try Self.readOwnedFile(definition) == original else { throw FleetError.message("旧 Fleet 启动定义已变化，未移除它。") }
         try FileManager.default.removeItem(at: definition)
         retired = true
+        // Share the single durable queue across migration and rollback. Never clone
+        // pending messages into another queue, which could replay accepted work.
+        let migratedFile = layout.state.appendingPathComponent("migrated-environment.json")
+        if !FileManager.default.fileExists(atPath: migratedFile.path) {
+            try PrivateRuntime.write(JSONEncoder().encode(migratedEnvironment()), to: migratedFile)
+            migratedEnvironmentWritten = true
+        }
     }
 
     func restore() async throws {
+        if migratedEnvironmentWritten {
+            try FileManager.default.removeItem(at: layout.state.appendingPathComponent("migrated-environment.json"))
+            migratedEnvironmentWritten = false
+        }
         if retired, let backup {
             guard renamex_np(backup.path, definition.path, UInt32(RENAME_EXCL)) == 0 else {
                 throw FleetError.message("无法恢复旧 Fleet 启动定义，备份保留在 \(backup.path)")

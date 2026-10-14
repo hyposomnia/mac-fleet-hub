@@ -11,7 +11,7 @@ extension AgentStatus {
         guard pairing?.isActive != true else { return false }
         switch runtime?.phase {
         case "unbound": return binding == nil || binding?.complete == false && binding?.locked == false
-        case "running": return binding?.complete == true && binding?.locked == false
+        case "running", "connecting", "reconnecting": return binding?.complete == true && binding?.locked == false
         default: return false
         }
     }

@@ -46,6 +46,7 @@ final class RuntimeTests: XCTestCase {
         XCTAssertFalse(layout.backgroundApplication.path.hasPrefix(layout.application.path + "/"))
         let environment = try XCTUnwrap(plist["EnvironmentVariables"] as? [String: String])
         XCTAssertEqual(environment["FLEET_DESKTOP_MANAGED"], "1")
+        XCTAssertEqual(environment["FLEET_AUTO_CMDR"], "1")
         XCTAssertEqual(environment["FLEET_BINDING_FILE"], "/Users/fixture/.macfleet/desktop/binding.json")
         XCTAssertTrue(environment["PATH"]?.hasPrefix("/Users/fixture/.macfleet/desktop/runtime/Fleet Agent.app/Contents/Resources/bin:") == true)
         XCTAssertEqual(environment["FLEET_CODEX_DESKTOP_SHARED_DAEMON"], "1")

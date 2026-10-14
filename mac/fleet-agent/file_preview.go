@@ -11,16 +11,15 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
-	"unicode/utf8"
 )
 
 const maxPreviewTextBytes int64 = 5 << 20
 
 var (
-	errPreviewOutsideRoot = errors.New("preview path is outside file root")
-	errPreviewNotFound    = errors.New("preview file not found")
-	previewLineSuffix     = regexp.MustCompile(`^(.*?):(\d+)(?::(\d+))?$`)
-	previewFormats        = map[string]previewFormat{
+	errFileMutationProtected = errors.New("file mutation target is protected")
+	errPreviewNotFound       = errors.New("preview file not found")
+	previewLineSuffix        = regexp.MustCompile(`^(.*?):(\d+)(?::(\d+))?$`)
+	previewFormats           = map[string]previewFormat{
 		".md":       {Kind: "markdown", MIME: "text/markdown; charset=utf-8", Text: true},
 		".markdown": {Kind: "markdown", MIME: "text/markdown; charset=utf-8", Text: true},
 		".html":     {Kind: "html", MIME: "text/html; charset=utf-8", Text: true},
@@ -94,6 +93,7 @@ type filePreviewResponse struct {
 	Size       int64  `json:"size"`
 	ModifiedAt int64  `json:"modifiedAt"`
 	Content    string `json:"content,omitempty"`
+	Encoding   string `json:"encoding,omitempty"`
 	Line       int    `json:"line,omitempty"`
 	Column     int    `json:"column,omitempty"`
 }
@@ -129,7 +129,7 @@ func handleFilePreview(w http.ResponseWriter, r *http.Request) {
 	}
 	if format.Text {
 		if info.Size() > maxPreviewTextBytes {
-			writeErr(w, http.StatusRequestEntityTooLarge, "preview_too_large", "文本文件超过 5 MB，无法直接预览。")
+			writeErr(w, http.StatusRequestEntityTooLarge, "preview_too_large", "文件过大，不支持预览（最大 5 MiB）。")
 			return
 		}
 		file, openErr := os.Open(path)
@@ -156,14 +156,15 @@ func handleFilePreview(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if int64(len(content)) > maxPreviewTextBytes {
-			writeErr(w, http.StatusRequestEntityTooLarge, "preview_too_large", "文本文件超过 5 MB，无法直接预览。")
+			writeErr(w, http.StatusRequestEntityTooLarge, "preview_too_large", "文件过大，不支持预览（最大 5 MiB）。")
 			return
 		}
-		if !utf8.Valid(content) {
-			writeErr(w, http.StatusUnsupportedMediaType, "invalid_text_encoding", "文本文件不是 UTF-8 编码。")
+		decoded, encoding, err := decodePreviewText(content, r.URL.Query().Get("encoding"))
+		if err != nil {
+			writeErr(w, http.StatusUnsupportedMediaType, "invalid_text_encoding", "无法识别文本编码，请选择其他编码或下载文件。")
 			return
 		}
-		response.Content = string(content)
+		response.Content, response.Encoding = decoded, encoding
 	}
 	w.Header().Set("Cache-Control", "private, no-store")
 	writeJSON(w, response)
@@ -204,7 +205,7 @@ func handleFileContent(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusNotFound, "file_not_found", "文件不存在或不是普通文件。")
 		return
 	}
-	if strings.EqualFold(filepath.Ext(path), ".css") && info.Size() > maxPreviewTextBytes {
+	if !download && strings.EqualFold(filepath.Ext(path), ".css") && info.Size() > maxPreviewTextBytes {
 		writeErr(w, http.StatusRequestEntityTooLarge, "preview_too_large", "样式文件超过 5 MB，无法加载。")
 		return
 	}
@@ -284,7 +285,7 @@ func resolvePreviewPath(rawPath, cwd string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	// Read-only previews follow OS permissions independently of the file browser root.
+	// File access follows OS permissions; FileRoot is only the default directory.
 	candidateReal, err := filepath.EvalSymlinks(candidateAbs)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -295,17 +296,12 @@ func resolvePreviewPath(rawPath, cwd string) (string, error) {
 	return candidateReal, nil
 }
 
-func pathWithinRoot(root, target string) bool {
-	rel, err := filepath.Rel(root, target)
-	return err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
-}
-
 func writePreviewPathError(w http.ResponseWriter, err error) {
 	switch {
 	case os.IsPermission(err):
 		writeErr(w, http.StatusForbidden, "file_permission_denied", "系统拒绝读取该文件，请检查 Fleet Agent 的磁盘访问权限及文件权限。")
-	case errors.Is(err, errPreviewOutsideRoot):
-		writeErr(w, http.StatusForbidden, "file_outside_root", "该路径不在 Fleet 允许预览的目录内。")
+	case errors.Is(err, errFileMutationProtected):
+		writeErr(w, http.StatusForbidden, "file_mutation_protected", "不能修改文件系统根目录或符号链接，请打开实际路径后操作。")
 	case errors.Is(err, errPreviewNotFound):
 		writeErr(w, http.StatusNotFound, "file_not_found", "文件不存在。")
 	default:

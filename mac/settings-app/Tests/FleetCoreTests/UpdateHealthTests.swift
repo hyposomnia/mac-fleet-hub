@@ -39,6 +39,24 @@ final class UpdateHealthTests: XCTestCase {
         XCTAssertFalse(status.isHealthyAfterUpdate(version: "1.0.0", build: 2, replacingPID: 10))
     }
 
+    func testNetworkReconnectDoesNotRollBackHealthyLocalUpdate() throws {
+        var status = try fixture()
+        status.binding = BindingStatus(deviceID: "m1", ownerEmail: "owner@example.test", origin: "https://fleet.example.test", complete: true, locked: false)
+        status.runtime = RuntimeState(phase: "connecting")
+        XCTAssertTrue(status.isHealthyAfterUpdate(version: "1.0.0", build: 2, replacingPID: 10))
+        XCTAssertTrue(status.isReadyForManagement)
+        status.runtime = RuntimeState(phase: "failed")
+        XCTAssertFalse(status.isHealthyAfterUpdate(version: "1.0.0", build: 2, replacingPID: 10))
+    }
+
+    func testComponentReconnectIsVisibleWithoutRejectingLocalHealth() throws {
+        var status = try fixture()
+        status.runtime?.components = ["files": RuntimeComponentState(phase: "connecting", error: "port unavailable")]
+        let restored = try JSONDecoder().decode(AgentStatus.self, from: JSONEncoder().encode(status))
+        XCTAssertEqual(restored.runtime?.components?["files"]?.error, "port unavailable")
+        XCTAssertTrue(restored.isHealthyAfterUpdate(version: "1.0.0", build: 2, replacingPID: 10))
+    }
+
     private func fixture() throws -> AgentStatus {
         try JSONDecoder().decode(AgentStatus.self, from: Data("""
         {"schema":1,"pid":20,"version":"1.0.0+2","settings":{"schema":1,"origin":"https://fleet.example.test","auto_start":true},"disk_access":{"state":"unknown","source":"background","checked_at":0,"verified_targets":0},"runtime":{"phase":"unbound"}}
