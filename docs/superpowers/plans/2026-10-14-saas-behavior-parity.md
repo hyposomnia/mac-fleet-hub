@@ -27,3 +27,11 @@ Cross-review fixes: verify listener PID before proxy publication; reject mainten
 Final project verification: `bash scripts/verify.sh` passed (`/tmp/fleet-parity-verify-final.log`), including Go agent, native TLS build-tag tests, Go server, dashboard, all122 Swift tests, and all shell/deployment guards. Dashboard full glob run455/455 passed. Targeted Go race tests passed for runtime/maintenance/auth-network/automation paths. `git diff --check` passed.
 
 Boundaries: Mac artifacts are not signed/released. Offline Web send intent requires keeping the page open and says so before enqueue; an ambiguous network-send result is not replayed. Native wake/network notification accelerates retries while settings is open; daemon always retries independently. Two distinct populated old/new delivery journals are preserved with actionable recovery instead of unsafe automatic merge. Browser and real-device acceptance are separate from isolated tests.
+
+## Web/server delivery evidence
+
+Deployed immutable source revision `85fa8d7cbf4430bf76adefa1ef88faee551fda63` on2026-10-15. Server binary built from that commit's archive for linux/amd64; release manifest144 files verified before activation. Prior release and private state/config backup retained for rollback. No Mac distribution artifact changed.
+
+Public `/healthz`, `/readyz`, `/auth` returned200; unauthenticated private `/api/devices` returned401. Four gateway services active. Public auth/theme/account/style assets matched the package; private app/preview assets correctly redirected unauthenticated access, and their server-side SHA256 matched the local release. Server binary SHA256 `ffe0ba7880a4f2c38e881f3f08ef4539f3b1394361418c7dbcc009e216e531d6`.
+
+Real Chrome loaded the updated login page with no captured console errors. Browser was not logged in; no production password, TOTP or recovery credential was entered or changed. Authenticated flow assertions are isolated behavioral tests, not claimed as a production end-to-end login test.
