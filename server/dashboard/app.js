@@ -5265,6 +5265,25 @@ function configureChatOptions(chat, resumed) {
   }
 }
 
+function bindChatHistoryGestures(sc) {
+  // A short page (including collapsed tool activity) cannot emit scroll events.
+  const loadAtTop = () => {
+    if (sc.scrollTop <= 80) loadOlderChatHistory();
+  };
+  sc.addEventListener('wheel', (event) => {
+    if (event.deltaY < 0) loadAtTop();
+  }, { passive: true });
+  let touchY = null;
+  sc.addEventListener('touchstart', (event) => {
+    touchY = event.touches.length === 1 ? event.touches[0].clientY : null;
+  }, { passive: true });
+  sc.addEventListener('touchmove', (event) => {
+    const nextY = event.touches.length === 1 ? event.touches[0].clientY : null;
+    if (touchY !== null && nextY !== null && nextY > touchY) loadAtTop();
+    touchY = nextY;
+  }, { passive: true });
+}
+
 async function loadOlderChatHistory() {
   const chat = state.chat;
   if (!chat || !chat.historyReady || chat.historyLoading || !chat.historyCursor) return;
@@ -7940,6 +7959,7 @@ function init() {
     syncChatTurnPin();
     if ($('#chat-scroll').scrollTop <= 80) loadOlderChatHistory();
   });
+  bindChatHistoryGestures($('#chat-scroll'));
   $('#chat-scroll').addEventListener('click', (event) => {
     const image = event.target.closest?.('.chat-markdown img');
     if (image) {

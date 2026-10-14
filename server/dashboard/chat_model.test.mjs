@@ -4110,3 +4110,67 @@ test('cached chat queue keeps its assistant when native navigation switches to C
       state.assistant = __cachedAssistantOriginals.assistant; state.chat = __cachedAssistantOriginals.chat;`, appSandbox);
   }
 });
+
+test('history loads on upward gestures even when the transcript cannot scroll', () => {
+  vm.runInContext(`globalThis.__historyGestureOriginal = loadOlderChatHistory;
+    globalThis.__historyGestureLoads = 0;
+    loadOlderChatHistory = () => { __historyGestureLoads++; };`, appSandbox);
+  const listeners = {};
+  const sc = { scrollTop: 0, scrollHeight: 400, clientHeight: 700,
+    addEventListener(type, handler) { listeners[type] = handler; } };
+  appSandbox.__historyScroll = sc;
+  try {
+    vm.runInContext('bindChatHistoryGestures(__historyScroll)', appSandbox);
+    listeners.wheel({ deltaY: -30 });
+    assert.equal(appSandbox.__historyGestureLoads, 1);
+    listeners.wheel({ deltaY: 30 });
+    assert.equal(appSandbox.__historyGestureLoads, 1);
+    sc.scrollTop = 200;
+    listeners.wheel({ deltaY: -30 });
+    assert.equal(appSandbox.__historyGestureLoads, 1);
+    sc.scrollTop = 0;
+    listeners.touchstart({ touches: [{ clientY: 100 }] });
+    listeners.touchmove({ touches: [{ clientY: 130 }] });
+    assert.equal(appSandbox.__historyGestureLoads, 2);
+    listeners.touchmove({ touches: [{ clientY: 120 }] });
+    assert.equal(appSandbox.__historyGestureLoads, 2);
+    listeners.touchstart({ touches: [{ clientY: 100 }, { clientY: 200 }] });
+    listeners.touchmove({ touches: [{ clientY: 140 }, { clientY: 240 }] });
+    assert.equal(appSandbox.__historyGestureLoads, 2);
+  } finally {
+    vm.runInContext('loadOlderChatHistory = __historyGestureOriginal', appSandbox);
+    delete appSandbox.__historyScroll;
+  }
+});
+
+test('older history paging serializes gestures and advances the returned cursor', async () => {
+  vm.runInContext(`globalThis.__pagingOriginals = {api, renderChat, applyChatMetadataDefaults, chat: state.chat};
+    globalThis.__pagingCalls = [];
+    globalThis.__pagingResolve = null;
+    renderChat = () => {};
+    applyChatMetadataDefaults = () => {};
+    api = async (macId, endpoint) => {
+      __pagingCalls.push(endpoint);
+      return new Promise(resolve => { __pagingResolve = resolve; });
+    };
+    state.chat = { macId: 'm2', assistant: 'codex', sessionId: 'thread/one',
+      historyReady: true, historyCursor: 'older/1', model: FleetChatModel.createChatState() };`, appSandbox);
+  try {
+    const first = vm.runInContext('loadOlderChatHistory()', appSandbox);
+    await vm.runInContext('loadOlderChatHistory()', appSandbox);
+    assert.equal(appSandbox.__pagingCalls.length, 1);
+    assert.match(appSandbox.__pagingCalls[0], /sessionId=thread%2Fone&cursor=older%2F1$/);
+    appSandbox.__pagingResolve({events: [], nextCursor: 'older/2'});
+    await first;
+    const second = vm.runInContext('loadOlderChatHistory()', appSandbox);
+    assert.match(appSandbox.__pagingCalls[1], /cursor=older%2F2$/);
+    appSandbox.__pagingResolve({events: [], nextCursor: ''});
+    await second;
+    await vm.runInContext('loadOlderChatHistory()', appSandbox);
+    assert.equal(appSandbox.__pagingCalls.length, 2);
+    assert.equal(vm.runInContext('state.chat.historyLoading', appSandbox), false);
+  } finally {
+    vm.runInContext(`({api, renderChat, applyChatMetadataDefaults} = __pagingOriginals);
+      state.chat = __pagingOriginals.chat;`, appSandbox);
+  }
+});
