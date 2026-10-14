@@ -881,6 +881,99 @@ test('new session controls distinguish unscoped and project sessions', () => {
   assert.doesNotMatch(appSrc, /function showProjects\(/);
 });
 
+function sessionConnectionHarness() {
+  const wrap = testElement('div');
+  wrap.querySelector = () => null;
+  const buttons = [testElement('button'), testElement('button')];
+  const context = {
+    document: {
+      ...appSandbox.document,
+      querySelector: (selector) => selector === '#session-groups' ? wrap : null,
+      querySelectorAll: (selector) => selector === '#new-session, #new-session-mobile' ? buttons : [],
+    },
+    FleetChatModel: sandbox.globalThis.FleetChatModel,
+    FleetUploadModel: uploadSandbox.globalThis.FleetUploadModel,
+    requestAnimationFrame() {},
+  };
+  vm.createContext(context);
+  vm.runInContext(appSrc, context);
+  vm.runInContext(`MACS = [{ id: 'm7' }, { id: 'm9' }];
+    globalThis.sessionsTest = { state, renderSessionResults, requestNewSession, newSessionIn,
+      sync: () => syncNewSessionAvailability(), refreshSessionsSoft,
+      opened: [], reloads: 0 };
+    activateConcreteMac = (macId) => { state.macId = macId; return true; };
+    canSelfDrawChat = () => true;
+    openPendingChatSession = (cwd, opts) => sessionsTest.opened.push({ cwd, ...opts });
+    openDevicePicker = () => sessionsTest.opened.push('picker');
+    sessionQuery = async (macId) => {
+      if (sessionsTest.fail) throw new Error('unreachable');
+      return { sessions: [{ sessionId: 'existing', macId }] };
+    };
+    loadSessions = () => { sessionsTest.reloads++; };
+    reconcileRecentSessionRows = () => {};
+    syncSessionRuntimeIndicators = () => {};
+  `, context);
+  Object.assign(context.sessionsTest.state, {
+    mode: 'sessions', sessionMacId: 'm7', sessionView: 'recent',
+    nodes: { m7: true, m9: true }, sessionErrors: { m7: 'unreachable' },
+  });
+  return { context, ...context.sessionsTest, wrap, buttons };
+}
+
+test('unreachable session scope replaces empty or stale results and blocks creation until recovery', async () => {
+  const f = sessionConnectionHarness();
+  f.state.sessionResults = [{ sessionId: 'cached', macId: 'm7' }];
+  f.renderSessionResults();
+  assert.equal(f.wrap.children.length, 1);
+  assert.equal(nodeText(f.wrap), '无法连接');
+  assert.ok(f.buttons.every((button) => button.disabled));
+  f.requestNewSession();
+  await f.newSessionIn('/project', { macId: 'm7' });
+  assert.equal(f.opened.length, 0);
+
+  f.state.sessionErrors = {};
+  f.state.sessionResults = [];
+  f.renderSessionResults();
+  assert.equal(nodeText(f.wrap), '没有未归档会话');
+  assert.ok(f.buttons.every((button) => !button.disabled));
+  f.requestNewSession();
+  assert.equal(f.opened.length, 1);
+});
+
+test('all-device creation remains available for reachable devices and disables when none can connect', () => {
+  const f = sessionConnectionHarness();
+  f.state.sessionMacId = 'all';
+  f.sync();
+  assert.ok(f.buttons.every((button) => !button.disabled));
+  f.requestNewSession();
+  assert.equal(f.opened[0], 'picker');
+  f.state.sessionErrors.m9 = 'unreachable';
+  f.renderSessionResults();
+  assert.equal(nodeText(f.wrap), '无法连接');
+  assert.ok(f.buttons.every((button) => button.disabled));
+  f.state.sessionErrors = {};
+  f.state.nodes = { m7: false, m9: false };
+  f.sync();
+  assert.ok(f.buttons.every((button) => button.disabled));
+});
+
+test('soft session refresh detects disconnection with existing rows and re-enables creation on recovery', async () => {
+  const f = sessionConnectionHarness();
+  f.state.sessionErrors = {};
+  f.state.sessionResults = [{ sessionId: 'existing', macId: 'm7' }];
+  const originalQueryAll = f.context.document.querySelectorAll;
+  f.context.document.querySelectorAll = (selector) => selector === '#session-groups .ses'
+    ? [testElement('div')] : originalQueryAll(selector);
+  f.context.sessionsTest.fail = true;
+  await f.refreshSessionsSoft();
+  assert.equal(nodeText(f.wrap), '无法连接');
+  assert.ok(f.buttons.every((button) => button.disabled));
+  f.context.sessionsTest.fail = false;
+  await f.refreshSessionsSoft();
+  assert.ok(f.buttons.every((button) => !button.disabled));
+  assert.equal(f.context.sessionsTest.reloads, 1);
+});
+
 test('fresh Codex detail starts locally and creates its thread on first submit', () => {
   const draftStart = appSrc.slice(appSrc.indexOf('function newSessionIn('), appSrc.indexOf('// 终端头：'));
   const deferredStart = appSrc.slice(appSrc.indexOf('async function ensurePendingChatStarted('), appSrc.indexOf('async function submitChatInput('));

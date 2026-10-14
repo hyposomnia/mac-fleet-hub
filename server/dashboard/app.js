@@ -1263,6 +1263,7 @@ function setAssistant(assistant) {
   state.sessionSearch = '';
   state.sessionResults = [];
   state.sessionCursors = {};
+  state.sessionErrors = {};
   closeChatPane();
   $$('[data-assistant]').forEach((b) => b.setAttribute('aria-selected', String(b.dataset.assistant === state.assistant)));
   updateSessionFilterUI();
@@ -1411,6 +1412,22 @@ function sessionTargetMacs({ append = false } = {}) {
   return ids;
 }
 
+function sessionDeviceUnavailable(macId) {
+  return !MACS.some((mac) => mac.id === macId) || state.nodes[macId] === false || !!state.sessionErrors[macId];
+}
+
+function sessionScopeUnavailable() {
+  return !sessionTargetMacs().some((macId) => !sessionDeviceUnavailable(macId));
+}
+
+function syncNewSessionAvailability() {
+  const disabled = sessionScopeUnavailable();
+  $$('#new-session, #new-session-mobile').forEach((button) => { button.disabled = disabled; });
+  $$('[data-new-session-mac]').forEach((button) => {
+    button.disabled = sessionDeviceUnavailable(button.dataset.newSessionMac);
+  });
+}
+
 function sessionHasMore() {
   return assistantCapabilities().sessionCursor && Object.values(state.sessionCursors).some(Boolean);
 }
@@ -1460,7 +1477,7 @@ function syncDshBanner() {
   const wrap = $('#session-groups');
   if (!wrap) return;
   $('[data-dsh-degraded]', wrap)?.remove();
-  if (!dshDegraded() || !wrap.querySelector('.grp, .empty, .ses')) return;
+  if (sessionScopeUnavailable() || !dshDegraded() || !wrap.querySelector('.grp, .empty, .ses')) return;
   wrap.prepend(h('div', {
     class: 'session-partial-note',
     dataset: { dshDegraded: '1' },
@@ -1473,11 +1490,13 @@ function renderSessionResults(opts = {}) {
   const previousScrollTop = opts.preserveScroll ? wrap.scrollTop : 0;
   const sessions = [...(state.sessionResults || [])].sort((a, b) =>
     (Number(b.pinned) - Number(a.pinned)) || (Number(b.mtime) - Number(a.mtime)));
+  const unavailable = sessionScopeUnavailable();
   clear(wrap);
-  if (!sessions.length && !(state.sessionView === 'project' && state.sessionProjects.length &&
+  if (unavailable) {
+    wrap.append(h('div', { class: 'empty session-unavailable', text: '无法连接' }));
+  } else if (!sessions.length && !(state.sessionView === 'project' && state.sessionProjects.length &&
       groupSessionsByProject([], state.sessionProjects, state.sessionSearch).length)) {
-    let message = state.sessionSearch ? '没有匹配的会话' : (state.scope === 'all' ? '没有已归档会话' : '没有未归档会话');
-    if (state.sessionMacId === 'all' && MACS.length && !MACS.some((m) => state.nodes[m.id])) message = '设备均处于离线状态';
+    const message = state.sessionSearch ? '没有匹配的会话' : (state.scope === 'all' ? '没有已归档会话' : '没有未归档会话');
     wrap.append(h('div', { class: 'empty', text: message }));
   } else if (state.sessionView === 'recent') {
     wrap.append(h('div', { class: 'recent-session-list' }, ...sessions.map(sessionRow)));
@@ -1495,7 +1514,7 @@ function renderSessionResults(opts = {}) {
       );
       const projectMacId = state.sessionMacId === 'all' ? (g.arr[0]?.macId || g.macId || state.macId) : state.sessionMacId;
       const create = !g.projectless && g.cwd ? h('button', {
-        type: 'button', class: 'gpath badge project-new-session', dataset: { path: projFull(g.cwd) },
+        type: 'button', class: 'gpath badge project-new-session', dataset: { path: projFull(g.cwd), newSessionMac: projectMacId },
         title: `在 ${g.name} 中新建会话`, 'aria-label': `在 ${g.name} 中新建会话`,
         onclick: (event) => {
           event.stopPropagation();
@@ -1517,9 +1536,10 @@ function renderSessionResults(opts = {}) {
     }
   }
   const failed = Object.keys(state.sessionErrors || {});
-  if (failed.length) {
-    wrap.append(h('div', { class: 'session-partial-note', text: `${failed.map(macName).join('、')} 暂时无法连接` }));
+  if (!unavailable && failed.length) {
+    wrap.append(h('div', { class: 'empty session-unavailable', text: '无法连接' }));
   }
+  syncNewSessionAvailability();
   syncDshBanner(); // 降级横幅放列表顶部（幂等：先摘掉旧的再加）
   if (opts.preserveScroll) wrap.scrollTop = previousScrollTop;
   requestAnimationFrame(maybeLoadMoreSessions);
@@ -1561,7 +1581,7 @@ function reconcileRecentSessionRows() {
 function maybeLoadMoreSessions() {
   const wrap = $('#session-groups');
   if (!wrap || state.mode !== 'sessions' || !sessionHasMore() ||
-      state.sessionsLoadingMore || wrap.getAttribute('aria-busy') === 'true') return;
+      sessionScopeUnavailable() || state.sessionsLoadingMore || wrap.getAttribute('aria-busy') === 'true') return;
   if (wrap.scrollHeight - wrap.scrollTop - wrap.clientHeight <= 240) loadSessions({ append: true });
 }
 
@@ -1576,6 +1596,7 @@ async function loadSessions(opts = {}) {
   const scope = state.scope;
   const search = state.sessionSearch;
   const targets = sessionTargetMacs({ append });
+  syncNewSessionAvailability();
   const previousCursors = { ...state.sessionCursors };
   const stale = () => req !== sessionLoadSeq || state.mode !== 'sessions' || state.sessionMacId !== sessionMacId ||
     state.assistant !== assistant || state.scope !== scope || state.sessionSearch !== search;
@@ -1608,14 +1629,16 @@ async function loadSessions(opts = {}) {
   wrap.classList.remove('loading-more');
   setSessionsLoading(false);
 
-  const errors = {};
+  const errors = append ? { ...state.sessionErrors } : {};
   const nextCursors = append ? { ...previousCursors } : {};
   const incoming = [];
   for (const result of results) {
     if (result.error) {
       errors[result.macId] = result.error.message;
+      nextCursors[result.macId] = '';
       continue;
     }
+    delete errors[result.macId];
     incoming.push(...normalizeDeviceSessions(result.macId, result.data));
     if (assistantCapabilities(assistant).sessionCursor) nextCursors[result.macId] = result.data.nextCursor || '';
     else nextCursors[result.macId] = '';
@@ -1672,11 +1695,27 @@ async function refreshSessionsSoft() {
 
   const fresh = [];
   const freshByMac = {};
+  const errors = {};
   for (const result of results) {
-    if (result.error) continue;
+    if (result.error) {
+      errors[result.macId] = result.error.message;
+      continue;
+    }
     const sessions = normalizeDeviceSessions(result.macId, result.data);
     fresh.push(...sessions);
     freshByMac[result.macId] = { sessions, nextCursor: result.data.nextCursor || '' };
+  }
+  if (!targets.length && sessionMacId !== 'all') errors[sessionMacId] = '设备不可用';
+  const connectionChanged = Object.keys(state.sessionErrors).sort().join(',') !== Object.keys(errors).sort().join(',');
+  state.sessionErrors = errors;
+  syncNewSessionAvailability();
+  if (sessionScopeUnavailable()) {
+    renderSessionResults({ preserveScroll: true });
+    return;
+  }
+  if (connectionChanged) {
+    loadSessions();
+    return;
   }
   observeSessionActivity(fresh);
   const currentByKey = new Map(state.sessionResults.map((session) => [sessionKey(session), session]));
@@ -2088,7 +2127,7 @@ function openPendingChatSession(cwd, { macId = state.macId, unscoped = false } =
 }
 
 async function newSessionIn(cwd, { macId = state.macId, unscoped = false } = {}) {
-  if (!macId) return;
+  if (sessionDeviceUnavailable(macId)) return;
   activateConcreteMac(macId);
   // 当前设备已切到 macId，故这里用无参形式判能力
   if (canSelfDrawChat()) {
@@ -5906,6 +5945,7 @@ function wireFileBackGesture() {
 //  文件浏览器
 // ============================================================
 function updateDeviceScopeUI() {
+  syncNewSessionAvailability();
   const onlineCount = MACS.filter((m) => state.nodes[m.id]).length;
   $$('.scope-button[data-device-context]').forEach((button) => {
     const context = button.dataset.deviceContext;
@@ -5954,7 +5994,9 @@ function renderDeviceOptions() {
         newSessionIn('', { unscoped: true });
       }
     };
-    const main = h('button', { type: 'button', class: 'device-option-main', onclick: choose },
+    const main = h('button', { type: 'button', class: 'device-option-main', onclick: choose,
+      ...(context === 'new-session' ? { dataset: { newSessionMac: id } } : {}),
+    },
       all ? allDevicesIcon() : deviceStatusIcon(id),
       h('span', { class: 'device-option-copy' },
         h('strong', { text: name }),
@@ -5990,9 +6032,11 @@ function renderDeviceOptions() {
       ? h('div', { class: 'empty', text: '⚠ 无法连接服务器，设备列表取不到' })
       : h('div', { class: 'empty', text: '暂无可用设备' }));
   }
+  syncNewSessionAvailability();
 }
 
 function requestNewSession() {
+  if (sessionScopeUnavailable()) return;
   if (state.sessionMacId === 'all') {
     openDevicePicker('new-session');
     return;

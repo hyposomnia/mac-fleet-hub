@@ -345,6 +345,9 @@ button { cursor: pointer; border: 0; background: none; }
 .iconbtn:hover { background: var(--surface-hover); color: var(--text); }
 .iconbtn.bare {  background: transparent; }
 .iconbtn[aria-pressed="true"] {  background: var(--accent-soft); color: var(--accent-text); }
+#new-session:disabled, #new-session-mobile:disabled, .project-new-session:disabled, .device-option-main:disabled {
+  color: var(--text-3); opacity: .45; cursor: not-allowed; background: transparent;
+}
 #refresh-btn.loading svg.ic { transform-origin: center; transform-box: fill-box; animation: spin .8s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
 
@@ -1646,6 +1649,7 @@ html[data-workspace-tab="true"] .preview-actions .iconbtn { width: 26px; height:
 .ses-meta .session-device-name { flex: none; max-width: 48%; color: var(--text-1); }
 .ses-meta .session-project-name { flex: 1; }
 .session-partial-note { margin: 8px; padding: 9px 10px; border-radius: var(--radius-compact); background: var(--danger-soft); color: var(--danger); font-size: var(--t-caption); }
+.empty.session-unavailable { color: var(--danger); }
 
 #file-browser { flex: 1; min-width: 0; min-height: 0; overflow: hidden; background: var(--bg); }
 #app[data-mode="files"] #file-browser { display: flex; flex-direction: column; }
