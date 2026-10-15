@@ -2,9 +2,9 @@
 
 本文件既是给人看的部署参考，也是给 AI 编码助手（Claude Code / Codex 等）执行部署的 runbook。
 
-**分支职责：`main` 保持当前自部署协议；`codex/multi-user-server` 用于 SaaS 化改造。** 日常自部署功能在 `main` 开发，SaaS 分支由人工决定何时合入 `main`，禁止将 SaaS 账号、入网或客户端协议直接反向合回 `main`。详见 [双分支维护约定](docs/branch-strategy.md)。
+**分支职责：`main` 保持当前自部署协议；`codex/multi-user-server` 用于 SaaS 化改造。** 日常自部署功能在 `main` 开发，SaaS 功能在 `codex/multi-user-server` 开发。详见 [双分支维护约定](docs/branch-strategy.md)。
 
-本次授权仅为源码分支整理、提交推送与验证，不授权生产部署、服务重启、网络迁移或替换当前 Mac / launchd / Desktop。正式 Mac 产物仍须唯一签名构建机签名与公证。
+正式 Mac 产物须由唯一签名构建机签名与公证。
 
 ## 项目人格
 
