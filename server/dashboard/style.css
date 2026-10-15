@@ -1,4 +1,4 @@
-@import url("titanium.css?v=233");
+@import url("titanium.css?v=234");
 
 /* ============================================================
    mac fleet hub —— 设计系统 v2（令牌 + 组件 + 布局）
@@ -464,14 +464,15 @@ svg.ic.fill { fill: currentColor; stroke: none; }
 .automation-key-form .input { width: 100%; min-width: 0; }
 .automation-key-form .input[hidden] { display: none; }
 .automation-key-form-actions { display: flex; justify-content: flex-end; gap: 8px; }
+.automation-key-delete { margin-right: auto; }
 .automation-key-card { display: grid; gap: 10px; padding: var(--settings-section-padding, 16px); border: 0; border-radius: var(--radius-card); background: var(--settings-surface, var(--surface-1)); }
 .automation-key-card > .api-key-copy-row .input { background: transparent; }
 .automation-key-card > .automation-key-form { margin-top: 2px; padding: 14px 0 0; border: 0;  border-radius: 0; background: transparent; }
 .automation-key-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
-.automation-key-title { display: grid; gap: 3px; min-width: 0; }
+.automation-key-title { min-width: 0; }
 .automation-key-title strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); font-size: var(--t-body); }
-.automation-key-title span { color: var(--text-2); font-size: var(--t-caption); }
-.automation-key-actions { display: flex; gap: 7px; flex: none; }
+.automation-key-actions { display: flex; align-items: center; gap: 12px; flex: none; }
+.automation-key-request-link[aria-disabled="true"] { color: var(--text-2); pointer-events: none; text-decoration: none; }
 .automation-key-meta { display: flex; flex-wrap: wrap; gap: 6px 18px; color: var(--text-2); font-size: var(--t-caption); }
 .message-records { display: grid; gap: 8px; margin-top: var(--s3); }
 .message-record-empty { padding: 24px 12px; text-align: center; color: var(--text-2); border: 0; border-radius: var(--radius-card); }
@@ -1532,8 +1533,7 @@ html[data-workspace-tab="true"] .preview-actions .iconbtn { width: 26px; height:
   .automation-key-head { align-items: stretch; flex-direction: column; }
   .automation-key-identity { grid-template-columns: minmax(0, 1fr) 100px; }
   .automation-binding-grid { grid-template-columns: 1fr; }
-  .automation-key-actions { width: 100%; }
-  .automation-key-actions .btn { flex: 1; }
+  .automation-key-actions { width: 100%; justify-content: flex-end; }
   .automation-doc-head { padding-inline: 14px; }
   .automation-doc-main { width: min(100% - 28px, 900px); padding: 36px 0 56px; }
   .automation-doc-hero h1 { font-size: var(--t-page); }

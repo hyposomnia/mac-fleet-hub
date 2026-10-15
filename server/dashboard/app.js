@@ -891,7 +891,9 @@ async function saveSettings() {
 let automationAccessKeys = [];
 let automationEditingKey = null;
 let automationBindingSessions = [];
+let automationBindingCatalog = new Map();
 let automationBindingLoadSeq = 0;
+let automationBindingCatalogSeq = 0;
 function settingsDate(value) {
   if (!value) return '—';
   const date = new Date(value);
@@ -947,32 +949,43 @@ function renderAccessKeys() {
       type: 'button', class: 'btn sm', text: '复制', disabled: key.recoverable ? null : '',
       onclick: () => copyAccessKeyValue(key.key),
     });
-    const request = h('button', {
-      type: 'button', class: 'btn sm', text: '复制请求', disabled: key.recoverable ? null : '',
+    const request = h('a', {
+      href: '#', class: 'automation-doc-link automation-key-request-link', text: '复制请求示例',
+      'aria-disabled': String(!key.recoverable),
       title: key.recoverable ? '复制 curl 请求' : '旧版密钥原文不可恢复',
-      onclick: () => copyAccessKeyRequest(key),
+      onclick: (event) => { event.preventDefault(); if (key.recoverable) copyAccessKeyRequest(key); },
     });
     const edit = h('button', { type: 'button', class: 'btn sm automation-key-edit', text: '编辑', 'aria-expanded': 'false', onclick: () => openAccessKeyForm(key) });
-    const remove = h('button', { type: 'button', class: 'btn sm danger', text: '删除', onclick: () => deleteAccessKey(key) });
     const secret = key.recoverable ? key.key : '旧版密钥原文不可恢复；该密钥仍可继续使用';
     root.append(h('article', { class: 'automation-key-card', dataset: { keyId: key.id } },
       h('div', { class: 'automation-key-head' },
         h('div', { class: 'automation-key-title' },
-          h('strong', { text: key.name || '未命名密钥' }),
-          h('span', { class: 'tnum', text: `${key.prefix || 'mfh_live_'}…` })),
-        h('div', { class: 'automation-key-actions' }, request, edit, remove)),
+          h('strong', { text: key.name || '未命名密钥' })),
+        h('div', { class: 'automation-key-actions' }, request, edit)),
       h('div', { class: 'api-key-copy-row' },
         h('input', { class: 'input tnum', readonly: '', value: secret, 'aria-label': `${key.name || '访问密钥'}的值` }), copy),
       h('div', { class: 'automation-key-meta' },
-        h('span', { text: accessKeyBindingLabel(key.binding) }),
+        h('span', { class: 'automation-key-scope', text: accessKeyBindingLabel(key.binding) }),
         h('span', { text: `RPM：${key.rpm || 10}` }),
         h('span', { text: `创建：${settingsDate(key.created_at)}` }),
         h('span', { text: `最近使用：${settingsDate(key.last_used_at)}` }))));
   }
 }
-function accessKeyBindingLabel(binding) {
-  if (!binding) return '范围：全部设备 / 客户端 / 项目 / 会话';
-  return `范围：${macName(binding.device_id)} · ${binding.ai_client === 'codex' ? 'ChatGPT' : binding.ai_client === 'deepseek' ? 'DeepSeek' : '全部客户端'} · ${binding.project_path || '全部项目'} · ${binding.session_id || '全部会话'}`;
+function accessKeyClientName(client) {
+  return client === 'codex' ? 'ChatGPT' : client === 'deepseek' ? 'DeepSeek' : '全部客户端';
+}
+function accessKeyCatalogKey(binding) {
+  return `${binding?.device_id || ''}\n${binding?.ai_client || ''}`;
+}
+function accessKeyBindingLabel(binding, sessions = automationBindingCatalog.get(accessKeyCatalogKey(binding))) {
+  if (!binding) return '范围：全部设备 · 全部客户端 · 全部项目 · 全部会话';
+  const project = sessions?.find((item) => (item.projectCwd || item.cwd) === binding.project_path);
+  const session = binding.session_id
+    ? sessions?.find((item) => item.sessionId === binding.session_id && (item.projectCwd || item.cwd) === binding.project_path)
+    : null;
+  const projectName = binding.project_path ? project?.projectName || projName(binding.project_path) : '全部项目';
+  const sessionName = binding.session_id ? session?.title || (sessions ? '会话名称不可用' : '正在读取会话名称…') : '全部会话';
+  return `范围：${macName(binding.device_id)} · ${accessKeyClientName(binding.ai_client)} · ${projectName} · ${sessionName}`;
 }
 const CUSTOM_ACCESS_KEY_PROJECT = '__custom__';
 function accessKeyProjectPath() {
@@ -1025,22 +1038,50 @@ async function loadAccessKeyBindingSessions() {
   if (!device || !client) { status.textContent = ''; return; }
   status.textContent = '正在读取项目与会话…';
   try {
-    const assistant = client === 'deepseek' ? 'dsh' : 'codex';
-    let cursor = '';
-    for (let page = 0; page < 100; page++) {
-      const query = new URLSearchParams({ assistant, limit: '100' });
-      if (cursor) query.set('cursor', cursor);
-      const result = await api(device, `sessions?${query}`, { cache: 'no-store' });
-      if (sequence !== automationBindingLoadSeq) return;
-      automationBindingSessions.push(...(result.sessions || []));
-      if (!result.nextCursor || result.nextCursor === cursor || client !== 'codex') break;
-      cursor = result.nextCursor;
-    }
+    const sessions = await fetchAccessKeyBindingSessions(device, client);
+    if (sequence !== automationBindingLoadSeq) return;
+    automationBindingSessions = sessions;
     const count = renderAccessKeyProjectOptions();
     status.textContent = count ? '' : '没有已发现的项目，可手动输入项目路径。';
     renderAccessKeySessionOptions();
   } catch (error) {
     if (sequence === automationBindingLoadSeq) status.textContent = `读取候选失败：${error.message}。可手动输入项目路径。`;
+  }
+}
+async function fetchAccessKeyBindingSessions(device, client) {
+  const sessions = [];
+  const assistant = client === 'deepseek' ? 'dsh' : 'codex';
+  let cursor = '';
+  for (let page = 0; page < 100; page++) {
+    const query = new URLSearchParams({ assistant, limit: '100' });
+    if (cursor) query.set('cursor', cursor);
+    const result = await api(device, `sessions?${query}`, { cache: 'no-store' });
+    sessions.push(...(result.sessions || []));
+    if (!result.nextCursor || result.nextCursor === cursor || client !== 'codex') break;
+    cursor = result.nextCursor;
+  }
+  return sessions;
+}
+async function hydrateAccessKeyBindingLabels() {
+  const sequence = ++automationBindingCatalogSeq;
+  const bindings = new Map();
+  for (const key of automationAccessKeys) {
+    const binding = key.binding;
+    if (binding?.device_id && binding.ai_client && binding.project_path) bindings.set(accessKeyCatalogKey(binding), binding);
+  }
+  const catalogs = await Promise.all([...bindings.entries()].map(async ([catalogKey, binding]) => {
+    try {
+      return [catalogKey, await fetchAccessKeyBindingSessions(binding.device_id, binding.ai_client)];
+    } catch (_) {
+      return [catalogKey, []];
+    }
+  }));
+  if (sequence !== automationBindingCatalogSeq) return;
+  automationBindingCatalog = new Map(catalogs);
+  for (const key of automationAccessKeys) {
+    const card = $$('.automation-key-card').find((item) => item.dataset.keyId === key.id);
+    const scope = card && $('.automation-key-scope', card);
+    if (scope) scope.textContent = accessKeyBindingLabel(key.binding);
   }
 }
 function renderAccessKeySessionOptions(selected = $('#automation-key-session').value) {
@@ -1074,6 +1115,7 @@ function openAccessKeyForm(key = null) {
   form.hidden = false;
   $('#automation-key-form-title').textContent = key ? '编辑访问密钥' : '新建访问密钥';
   $('#automation-key-save').textContent = key ? '保存修改' : '创建密钥';
+  $('#automation-key-delete').hidden = !key;
   $('#automation-key-name').value = key?.name || `访问密钥 ${automationAccessKeys.length + 1}`;
   $('#automation-key-rpm').value = key?.rpm || 10;
   const device = $('#automation-key-device');
@@ -1105,6 +1147,7 @@ function closeAccessKeyForm() {
   }
   $('#automation-key-list').before(form);
   form.hidden = true;
+  $('#automation-key-delete').hidden = true;
   automationEditingKey = null;
 }
 async function saveAccessKey(event) {
@@ -1145,7 +1188,9 @@ async function refreshAccessKeys() {
   try {
     const result = await settingsJSON(`${BASE}/api/automation/access-keys`, { cache: 'no-store' });
     automationAccessKeys = result?.keys || [];
+    automationBindingCatalog = new Map();
     renderAccessKeys();
+    hydrateAccessKeyBindingLabels();
   } catch (error) {
     automationAccessKeys = [];
     if (root) root.replaceChildren(h('div', { class: 'message-record-empty', text: '加载失败：' + error.message }));
@@ -1201,9 +1246,9 @@ async function copyAccessKeyRequest(key) {
   const request = accessKeyCurl(key, window.location.origin);
   try {
     await navigator.clipboard.writeText(request);
-    toast('请求已复制', 'ok');
+    toast('请求示例已复制', 'ok');
   } catch (_) {
-    window.prompt('复制请求', request);
+    window.prompt('复制请求示例', request);
   }
 }
 function formatBytes(bytes) {
@@ -8262,6 +8307,7 @@ function init() {
     window.open(event.currentTarget.href, '_blank', 'noopener,noreferrer,width=1280,height=900');
   };
   $('#automation-key-create').onclick = () => openAccessKeyForm();
+  $('#automation-key-delete').onclick = () => { if (automationEditingKey) deleteAccessKey(automationEditingKey); };
   $('#automation-key-cancel').onclick = closeAccessKeyForm;
   $('#automation-key-form').onsubmit = saveAccessKey;
   $('#automation-key-device').onchange = () => {
@@ -8442,6 +8488,8 @@ function stopAuthenticatedDashboard() {
   automationAccessKeys = [];
   automationEditingKey = null;
   automationBindingSessions = [];
+  automationBindingCatalog = new Map();
+  ++automationBindingCatalogSeq;
   $$('#session-groups, #chat-messages, #file-list, #preview-markdown').forEach((element) => element.replaceChildren());
   $$('#app iframe, #preview-page iframe, #preview-page video, #preview-page audio').forEach((element) => element.removeAttribute('src'));
 }

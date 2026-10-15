@@ -755,7 +755,7 @@ test('automation modal links to a concise cached API guide', () => {
   assert.match(automationGuideHTML, /POST|\/api\/v1\/messages/);
   assert.match(automationGuideHTML, /Idempotency-Key/);
   assert.match(automationGuideHTML, /callback_url/);
-  assert.match(automationGuideHTML, /src="\/automation-guide\.js\?v=233" defer/);
+  assert.match(automationGuideHTML, /src="\/automation-guide\.js\?v=234" defer/);
   assert.match(automationGuideHTML, /data-api-path="\/api\/v1\/messages"/);
   assert.doesNotMatch(automationGuideHTML, /fleet\.hyposomnia\.top|:20443|automation-doc-back/);
   const apiNodes = [
@@ -771,7 +771,7 @@ test('automation modal links to a concise cached API guide', () => {
     'https://fleet.example.test:9443/api/v1/messages/msg_xxx',
   ]);
   assert.match(serviceWorker, /'\/automation-guide\.html'/);
-  assert.match(serviceWorker, /'\/automation-guide\.js\?v=233'/);
+  assert.match(serviceWorker, /'\/automation-guide\.js\?v=234'/);
 	assert.match(serviceWorker, /'\/automation-guide\.html', '\/automation-records\.html'\]\.includes\(url\.pathname\)/);
   assert.match(styleCSS, /\.automation-doc-main\s*\{/);
 });
@@ -783,15 +783,28 @@ test('automation keys expose a four-level binding editor and submit the scope', 
   assert.match(indexHTML, /id="automation-key-rpm"[^>]*value="10"/);
   assert.match(appSrc, /JSON\.stringify\(\{ name, rpm, binding \}\)/);
   assert.match(automationGuideHTML, /429 rate_limit_exceeded/);
-  assert.match(appSrc, /function accessKeyBindingLabel\(binding\)/);
+  assert.match(appSrc, /function accessKeyBindingLabel\(binding, sessions/);
   assert.match(automationGuideHTML, /403 access_key_scope_mismatch/);
 });
 
 test('automation key editing stays inside its card and copied requests target the key scope', () => {
-  assert.match(appSrc, /class: 'btn sm', text: '复制请求'[\s\S]*?onclick: \(\) => copyAccessKeyRequest\(key\)/);
+  assert.match(appSrc, /const request = h\('a',[\s\S]*?text: '复制请求示例'[\s\S]*?copyAccessKeyRequest\(key\)/);
+  assert.doesNotMatch(appSrc, /key\.prefix/);
+  assert.match(indexHTML, /id="automation-key-delete"[^>]*hidden[^>]*>删除<\/button><button id="automation-key-cancel"/);
+  assert.match(appSrc, /\$\('#automation-key-delete'\)\.hidden = !key/);
+  assert.match(appSrc, /\$\('#automation-key-delete'\)\.onclick = \(\) => \{ if \(automationEditingKey\) deleteAccessKey\(automationEditingKey\); \}/);
+  const keyCardSource = appSrc.slice(appSrc.indexOf('function renderAccessKeys()'), appSrc.indexOf('function accessKeyClientName'));
+  assert.doesNotMatch(keyCardSource, /deleteAccessKey|text: '删除'/);
   assert.match(appSrc, /card\.append\(form\)/);
   assert.match(appSrc, /\$\('#automation-key-list'\)\.before\(form\)/);
   assert.match(styleCSS, /\.automation-key-card > \.automation-key-form\s*\{/);
+  assert.match(styleCSS, /\.automation-key-delete\s*\{\s*margin-right:\s*auto;/);
+  vm.runInContext('macNames = { m2: "构建终端" }; globalThis.__accessKeyBindingLabelTest = accessKeyBindingLabel;', appSandbox);
+  const bindingLabel = appSandbox.__accessKeyBindingLabelTest({
+    device_id: 'm2', ai_client: 'codex', project_path: '/Users/test/fleet-hub', session_id: 'sid-123',
+  }, [{ sessionId: 'sid-123', title: '发布检查', projectName: 'Fleet Hub', projectCwd: '/Users/test/fleet-hub' }]);
+  assert.equal(bindingLabel, '范围：构建终端 · ChatGPT · Fleet Hub · 发布检查');
+  assert.doesNotMatch(bindingLabel, /\/Users\/|sid-123/);
   vm.runInContext('globalThis.__accessKeyCurlTest = accessKeyCurl;', appSandbox);
   const curlFor = appSandbox.__accessKeyCurlTest;
   const full = curlFor({

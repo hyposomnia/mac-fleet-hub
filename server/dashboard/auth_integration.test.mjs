@@ -115,7 +115,8 @@ test('session loss stops dashboard polling, closes chat streams and clears priva
       pool: [{}], sessionReadAt: new Map([['read', 42]]), sessionResults: [{}], nodes: { m1: true }, counts: {}, filePaths: {},
       fileEntries: [{}], fileColumns: [{}], fileUploads: { items: [{}] }, assistantInfo: {} },
     MACS: [{}], macNames: { m1: 'private' }, automationAccessKeys: [{}], automationRecordKeys: [{}],
-    automationEditingKey: {}, automationBindingSessions: [{}], $$: () => [] };
+    automationEditingKey: {}, automationBindingSessions: [{}], automationBindingCatalog: new Map([['m1\ncodex', [{}]]]),
+    automationBindingCatalogSeq: 4, $$: () => [] };
   vm.runInNewContext(source, sandbox);
   sandbox.stopAuthenticatedDashboard();
   assert.equal(workspaceResets, 1);
@@ -127,6 +128,8 @@ test('session loss stops dashboard polling, closes chat streams and clears priva
   assert.equal(sandbox.state.sessionReadAt.size, 0);
   assert.equal(sandbox.state.pool.length, 0);
   assert.equal(sandbox.state.fileEntries.length, 0);
+  assert.equal(sandbox.automationBindingCatalog.size, 0);
+  assert.equal(sandbox.automationBindingCatalogSeq, 5);
 });
 
 test('repeated session settings saves keep shared objects out of integer preference requests', async () => {
