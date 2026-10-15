@@ -513,14 +513,12 @@ struct SettingsView: View {
                 }
                 .frame(maxWidth: .infinity).padding(.vertical, 28)
                 if !updater.message.isEmpty { Text(updater.message).foregroundStyle(theme.secondaryText).textSelection(.enabled) }
-                if updater.sessionActive {
-                    if updater.waitingForIdle {
-                        Button("取消等待") { updater.cancelWaitingForIdle() }
-                    } else {
-                        HStack {
-                            Button("继续安装升级") { Task { await updater.continueInstallation() } }
-                            Button("任务结束后自动安装") { Task { await updater.waitForIdleAndInstall() } }
-                        }
+                if updater.waitingForIdle {
+                    Button("取消等待") { updater.cancelWaitingForIdle() }
+                } else if updater.installationNeedsAttention {
+                    HStack {
+                        Button("重试安装") { Task { await updater.continueInstallation() } }
+                        Button("任务结束后自动安装") { Task { await updater.waitForIdleAndInstall() } }
                     }
                 }
             }

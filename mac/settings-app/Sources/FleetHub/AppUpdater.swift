@@ -9,6 +9,7 @@ final class AppUpdater: NSObject, ObservableObject, SPUUpdaterDelegate {
     @Published private(set) var busy = false
     @Published private(set) var sessionActive = false
     @Published private(set) var waitingForIdle = false
+    @Published private(set) var installationNeedsAttention = false
     private var maintenanceWait: MaintenanceWait?
     @Published private(set) var availableVersion: String?
     private let management: NativeManagement
@@ -72,7 +73,7 @@ final class AppUpdater: NSObject, ObservableObject, SPUUpdaterDelegate {
     }
 
     func check() async {
-        guard !busy, controller?.updater.sessionInProgress != true else { return }
+        guard !busy, !sessionActive, !waitingForIdle, controller?.updater.sessionInProgress != true else { return }
         busy = true
         defer { busy = false }
         do {
@@ -90,6 +91,7 @@ final class AppUpdater: NSObject, ObservableObject, SPUUpdaterDelegate {
             availableVersion = candidate.version
             release = candidate
             preparation = UpdatePreparation()
+            installationNeedsAttention = false
             let updater = SPUStandardUpdaterController(startingUpdater: false, updaterDelegate: self, userDriverDelegate: nil)
             controller = updater
             _ = updater.updater.clearFeedURLFromUserDefaults()
@@ -114,56 +116,97 @@ final class AppUpdater: NSObject, ObservableObject, SPUUpdaterDelegate {
         }
     }
     func updater(_ updater: SPUUpdater, willDownloadUpdate item: SUAppcastItem, with request: NSMutableURLRequest) {
+        message = "正在下载升级包…"
         request.httpShouldHandleCookies = false
         request.setValue(nil, forHTTPHeaderField: "Cookie")
         request.setValue(nil, forHTTPHeaderField: "Authorization")
     }
-    func updater(_ updater: SPUUpdater, willInstallUpdate item: SUAppcastItem) { installing = true }
+    func updater(_ updater: SPUUpdater, willExtractUpdate item: SUAppcastItem) { message = "正在解压升级包…" }
+    func updater(_ updater: SPUUpdater, didExtractUpdate item: SUAppcastItem) { message = "升级包已准备好，请在升级窗口继续安装。" }
+    func updater(_ updater: SPUUpdater, willInstallUpdate item: SUAppcastItem) {
+        installing = true
+        message = "正在准备安装升级…"
+    }
     func updater(_ updater: SPUUpdater, shouldPostponeRelaunchForUpdate item: SUAppcastItem, untilInvokingBlock handler: @escaping () -> Void) -> Bool {
         installing = true
         installHandler = handler
+        installationNeedsAttention = false
         Task { await continueInstallation() }
         return true
     }
     func updater(_ updater: SPUUpdater, didAbortWithError error: Error) {
-        cancelWaitingForIdle()
+        maintenanceWait?.cancel()
         message = error.localizedDescription
         installing = false
         installHandler = nil
+        installationNeedsAttention = false
         preparation.cancel()
         if !busy { Task { await recoverAfterLaunch(force: true) } }
     }
     func updater(_ updater: SPUUpdater, didFinishUpdateCycleFor updateCheck: SPUUpdateCheck, error: Error?) {
+        maintenanceWait?.cancel()
         sessionActive = false
+        installing = false
+        installHandler = nil
+        installationNeedsAttention = false
+        preparation.cancel()
+        if let error { message = error.localizedDescription }
     }
 
     func waitForIdleAndInstall() async {
-        guard installHandler != nil, !waitingForIdle else { return }
+        guard installationNeedsAttention, installHandler != nil, !busy, !waitingForIdle else { return }
         let wait = MaintenanceWait()
         maintenanceWait = wait
         waitingForIdle = true
-        defer { maintenanceWait = nil; waitingForIdle = false }
+        installationNeedsAttention = false
+        message = "正在等待后台任务结束，结束后自动安装。"
+        defer {
+            maintenanceWait = nil
+            waitingForIdle = false
+            installationNeedsAttention = installHandler != nil && !preparation.isCancelled
+        }
         do {
             try await wait.run(check: {
                 do {
                     try await self.management.prepareForStop()
                     await self.management.resumeAfterCancelledStop()
                 } catch {
-                    self.message = "等待任务结束后安装：" + error.localizedDescription
+                    if self.installHandler != nil { self.message = "等待任务结束后安装：" + error.localizedDescription }
                     throw error
                 }
-            }, action: { await self.continueInstallation() })
-        } catch is CancellationError { message = "已取消等待，后台任务继续运行。" }
-        catch { message = error.localizedDescription }
+            }, action: { await self.installPendingUpdate() })
+        } catch is CancellationError {
+            if installHandler != nil { message = "已取消等待，后台任务继续运行。" }
+        } catch {
+            if installHandler != nil { message = error.localizedDescription }
+        }
     }
 
-    func cancelWaitingForIdle() { maintenanceWait?.cancel() }
+    func cancelWaitingForIdle() {
+        maintenanceWait?.cancel()
+        if waitingForIdle { message = "正在取消等待…" }
+    }
 
     func continueInstallation() async {
-        guard installHandler != nil else { return }
-        do { try await prepare(); installHandler?(); installHandler = nil }
+        guard !waitingForIdle else { return }
+        await installPendingUpdate()
+    }
+
+    private func installPendingUpdate() async {
+        guard let handler = installHandler, !busy else { return }
+        installationNeedsAttention = false
+        message = "正在检查后台任务并准备升级…"
+        do {
+            try await prepare()
+            installHandler = nil
+            message = "正在安装升级并重新打开应用…"
+            handler()
+        }
         catch {
-            message = "升级尚未安装：" + error.localizedDescription
+            if installHandler != nil {
+                message = "升级尚未安装：" + error.localizedDescription
+                installationNeedsAttention = !preparation.isCancelled && !waitingForIdle
+            }
             if preparation.isCancelled { await recoverAfterLaunch(force: true) }
         }
     }
@@ -231,6 +274,7 @@ final class AppUpdater: NSObject, ObservableObject, SPUUpdaterDelegate {
                     preparation = UpdatePreparation()
                     installing = false
                     installHandler = nil
+                    installationNeedsAttention = false
                     message = installedUpgrade ?
                         (status.binding?.complete == false ? "升级完成，请重新完成设备关联。" : (status.runtime?.phase == "connecting" || status.runtime?.phase == "reconnecting" ? "升级完成，正在重新连接。" : "升级完成。")) :
                         "已恢复原版本后台；升级未完成。"
