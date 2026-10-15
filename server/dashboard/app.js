@@ -4337,8 +4337,10 @@ function renderChatElicitationRequest(item) {
 function chatAttachmentIsImage(att) {
   const mime = String(att?.mime || att?.type || '').toLowerCase();
   if (mime.startsWith('image/')) return true;
-  const name = String(att?.name || att?.path || att?.id || '').toLowerCase();
-  return /\.(?:png|jpe?g|gif|webp)$/.test(name);
+  const sources = [att?.previewUrl, att?.url].map((value) => String(value || '').trim());
+  if (sources.some((value) => /^data:image\//i.test(value))) return true;
+  const names = [att?.name, att?.path, att?.id, ...sources];
+  return names.some((value) => /\.(?:png|jpe?g|gif|webp|avif|bmp|svg)(?:[?#]|$)/i.test(String(value || '')));
 }
 
 function chatAttachmentHref(att) {

@@ -4369,3 +4369,20 @@ test('dismissed install notice stays hidden when install availability changes', 
   assert.match(appSrc, /state\.installPromptDismissed = localStorage\.getItem\('fleet\.pwa-install-dismissed'\) === '1'/);
   assert.match(indexHTML, /id="pwa-install-dismiss"[^>]*aria-label="关闭安装提示"/);
 });
+
+
+test('historical image data uses the normal image preview instead of a download card', () => {
+  for (const source of [
+    { url: 'data:image/png;base64,aGVsbG8=', name: '历史图片' },
+    { previewUrl: 'data:image/jpeg;base64,aGVsbG8=', name: '历史图片' },
+    { url: 'https://example.test/shot.webp?version=2', name: '历史图片' },
+  ]) {
+    const row = renderChatItem({ type: 'user', text: '', images: [source] });
+    const previews = nodesWithClass(row, 'chat-attachment-preview');
+    assert.equal(previews.length, 1);
+    assert.equal(previews[0].tagName, 'button');
+    assert.equal(typeof previews[0].onclick, 'function');
+    assert.equal(nodesWithClass(row, 'chat-img')[0].attributes.src, source.previewUrl || source.url);
+    assert.equal(nodesWithClass(row, 'chat-file-link').length, 0);
+  }
+});
