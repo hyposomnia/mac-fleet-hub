@@ -5,6 +5,7 @@ import WebKit
 @MainActor
 final class FleetStore: ObservableObject {
     @Published var snapshot: FleetSnapshot?
+    @Published var appearanceTokens: [String: String] = [:]
     @Published var error: String?
     @Published var gateway: URL?
     @Published var loading = false
@@ -16,6 +17,14 @@ final class FleetStore: ObservableObject {
     @Published var search = ""
     @Published var busy = false
     @Published var openedSequence = 0
+    @Published var webOverlayVisible = false
+    @Published var nativeSheet: NativeSheet?
+    @Published var nativeSettingsPage = "account"
+    @Published var drawerLocked = false
+    @Published var drawerBusy = false
+    @Published var keyboardVisible = false
+    @Published var keyboardTop: CGFloat?
+    @Published var webDialog: NativeWebDialog?
     private var detailBeforeOverlay: Bool?
     let dataStore = WKWebsiteDataStore.default()
     var webView: WKWebView?
@@ -23,8 +32,28 @@ final class FleetStore: ObservableObject {
     private var searchTask: Task<Void, Never>?
     private var commandTimeout: Task<Void, Never>?
     private var pendingRequest: Int?
+    private var keyboardSubscriptions = Set<AnyCancellable>()
 
     init() {
+        NotificationCenter.default.publisher(for: UIResponder.keyboardWillChangeFrameNotification).receive(on: RunLoop.main).sink { [weak self] notification in
+            guard let self, let frame = notification.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect else { return }
+            let converted = self.webView?.window?.convert(frame, from: nil) ?? frame
+            let bottom = self.webView?.window?.bounds.maxY ?? UIScreen.main.bounds.maxY
+            let top = frame.height > 0 && converted.minY < bottom ? converted.minY : nil
+            if self.keyboardTop != top { self.keyboardTop = top }
+        }.store(in: &keyboardSubscriptions)
+        for (name, visible) in [(UIResponder.keyboardWillShowNotification, true), (UIResponder.keyboardWillHideNotification, false)] {
+            NotificationCenter.default.publisher(for: name).receive(on: RunLoop.main).sink { [weak self] _ in
+                if self?.keyboardVisible != visible { self?.keyboardVisible = visible }
+                if !visible, self?.keyboardTop != nil { self?.keyboardTop = nil }
+            }
+                .store(in: &keyboardSubscriptions)
+        }
+        for (name, visible) in [(UIResponder.keyboardDidShowNotification, true), (UIResponder.keyboardDidHideNotification, false)] {
+            NotificationCenter.default.publisher(for: name).receive(on: RunLoop.main).sink { [weak self] _ in
+                self?.webView?.evaluateJavaScript("window.FleetMobileComposer?.setKeyboardOpen(\(visible)); void 0;")
+            }.store(in: &keyboardSubscriptions)
+        }
         #if DEBUG
         if ProcessInfo.processInfo.arguments.contains("-fleet-test-reset") {
             for key in ["fleet.devices.visible", "fleet.sessions.visible"] { UserDefaults.standard.set(true, forKey: key) }
@@ -32,6 +61,9 @@ final class FleetStore: ObservableObject {
         #endif
         if let saved = UserDefaults.standard.string(forKey: "fleet.gateway") {
             gateway = GatewayAddress.parse(saved)
+        }
+        if gateway == nil, let address = Bundle.main.object(forInfoDictionaryKey: "FleetDefaultGateway") as? String {
+            gateway = GatewayAddress.parse(address)
         }
         #if DEBUG
         if let index = ProcessInfo.processInfo.arguments.firstIndex(of: "-fleet-test-gateway"),
@@ -45,8 +77,11 @@ final class FleetStore: ObservableObject {
     var devices: [FleetDevice] { snapshot?.devices ?? [] }
     var sessions: [FleetSession] { snapshot?.sessions ?? [] }
     var isFiles: Bool { snapshot?.mode == "files" || snapshot?.renderer == "files" }
-    var assistants: [FleetAssistant] { snapshot?.assistants ?? [.codex, .claude] }
+    var assistants: [FleetAssistant] { (snapshot?.assistants ?? [.codex]).filter { $0 != .claude } }
     var projects: [FleetProject] { snapshot?.projects ?? [] }
+    var canCreateSession: Bool {
+        devices.contains { $0.online && (snapshot?.deviceScope == "all" || $0.id == snapshot?.deviceScope) }
+    }
     var deviceName: String {
         devices.first(where: { $0.id == snapshot?.deviceScope })?.name ?? "全部设备"
     }
@@ -62,6 +97,7 @@ final class FleetStore: ObservableObject {
 
     func reset() {
         snapshot = nil
+        appearanceTokens = [:]
         error = nil
         showingDetail = false
         busy = false
@@ -73,11 +109,36 @@ final class FleetStore: ObservableObject {
         auxiliaryPage = nil
         discardExport()
         deviceSheet = false
+        webOverlayVisible = false
+        nativeSheet = nil
+        webDialog = nil
+        drawerLocked = false
+        drawerBusy = false
     }
 
     func receive(_ body: Any) {
         guard let object = body as? [String: Any], let type = object["type"] as? String else { return }
-        if type == "snapshot", let payload = object["payload"],
+        if type == "native-sheet", ready {
+            deviceSheet = false
+            if object["sheet"] as? String == "device", let device = object["device"] as? String, devices.contains(where: { $0.id == device }) {
+                nativeSheet = .device(device)
+            } else if object["sheet"] as? String == "settings" {
+                nativeSettingsPage = object["page"] as? String ?? "account"
+                nativeSheet = .settings
+            }
+        } else if type == "native-dialog" {
+            if ready, let payload = object["payload"] as? [String: Any], let data = try? JSONSerialization.data(withJSONObject: payload) {
+                webDialog = try? JSONDecoder().decode(NativeWebDialog.self, from: data)
+            } else { webDialog = nil }
+        } else if type == "overlay", let visible = object["visible"] as? Bool {
+            webOverlayVisible = visible
+            if !visible, let previous = detailBeforeOverlay {
+                showingDetail = previous
+                detailBeforeOverlay = nil
+            }
+        } else if type == "appearance", let tokens = object["tokens"] as? [String: String] {
+            appearanceTokens = FleetStyle(tokens: tokens).tokens
+        } else if type == "snapshot", let payload = object["payload"] as? [String: Any],
            let data = try? JSONSerialization.data(withJSONObject: payload),
            let value = try? JSONDecoder().decode(FleetSnapshot.self, from: data), value.version == 1 {
             if !value.ready { reset(); loading = false; return }
@@ -87,6 +148,10 @@ final class FleetStore: ObservableObject {
                 detailBeforeOverlay = nil
             }
             snapshot = value
+            if value.assistant == .claude { send("assistant", values: ["assistant": "codex"]) }
+            if appearanceTokens.isEmpty {
+                webView?.evaluateJavaScript("window.FleetNativeAppearance?.publish(); void 0;")
+            }
             loading = false
         } else if type == "result", let identifier = object["id"] as? Int, identifier == pendingRequest {
             busy = false
@@ -94,13 +159,17 @@ final class FleetStore: ObservableObject {
             commandTimeout?.cancel()
             if let message = object["error"] as? String {
                 error = message
+                webOverlayVisible = false
                 if let previous = detailBeforeOverlay { showingDetail = previous; detailBeforeOverlay = nil }
             }
             else if let path = object["url"] as? String, let gateway,
                     let url = URL(string: path, relativeTo: gateway)?.absoluteURL,
                     GatewayAddress.sameOrigin(url, gateway) {
                 auxiliaryPage = WebPage(url: url)
-            } else if object["opened"] as? Bool == true { showingDetail = true; openedSequence += 1 }
+            } else if object["opened"] as? Bool == true {
+                if detailBeforeOverlay == nil { showingDetail = true }
+                openedSequence += 1
+            }
         } else if type == "unsupported" {
             error = "网关版本不支持嵌入模式，请更新 dashboard。"
         }
@@ -126,7 +195,7 @@ final class FleetStore: ObservableObject {
             self?.pendingRequest = nil
             self?.error = "操作超时，请检查连接后重试。"
         }
-        webView.evaluateJavaScript("window.FleetNative?.dispatch(\(json)); void 0") { [weak self] _, failure in
+        webView.evaluateJavaScript("(window.FleetNativeUI || window.FleetNative)?.dispatch(\(json)); void 0") { [weak self] _, failure in
             if let failure, self?.pendingRequest == identifier {
                 self?.busy = false
                 self?.pendingRequest = nil
@@ -142,9 +211,9 @@ final class FleetStore: ObservableObject {
         send("device", values: ["device": id])
     }
 
-    func open(_ session: FleetSession, terminal: Bool = false) {
+    func open(_ session: FleetSession) {
         send("open", values: ["sessionId": session.sessionId, "macId": session.macId,
-                              "assistant": session.assistant.rawValue, "terminal": terminal])
+                              "assistant": session.assistant.rawValue])
     }
 
     func action(_ action: String, session: FleetSession, value: String = "") {
@@ -162,10 +231,34 @@ final class FleetStore: ObservableObject {
 
     func showOverlay(_ command: String, device: String? = nil) {
         guard ready, !busy else { return }
+        if command == "host", let device { deviceSheet = false; nativeSheet = .device(device); return }
+        if ["settings-page", "settings", "automation"].contains(command) {
+            deviceSheet = false
+            nativeSettingsPage = command == "automation" ? "automation" : "account"
+            nativeSheet = .settings
+            return
+        }
         detailBeforeOverlay = showingDetail
         deviceSheet = false
-        showingDetail = true
+        webOverlayVisible = true
         send(command, values: device.map { ["macId": $0] } ?? [:])
+    }
+
+    func openExternal(_ path: String) {
+        guard let gateway, let url = URL(string: path, relativeTo: gateway)?.absoluteURL,
+              GatewayAddress.sameOrigin(url, gateway), url.user == nil, url.password == nil else {
+            error = "已阻止打开非当前服务的地址。"; return
+        }
+        UIApplication.shared.open(url)
+    }
+
+    func dialogAction(_ id: String, value: String? = nil) {
+        guard let webView, ready, let dialog = webDialog else { return }
+        let arguments: [String: Any] = ["dialog": dialog.id, "id": id, "value": value as Any? ?? NSNull()]
+        Task {
+            do { _ = try await webView.callAsyncJavaScript("return FleetNativeDialogs?.act(dialog, id, value)", arguments: arguments, in: nil, contentWorld: .page) }
+            catch { self.error = error.localizedDescription }
+        }
     }
 
     func backToList() {

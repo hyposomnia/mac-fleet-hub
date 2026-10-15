@@ -1,5 +1,7 @@
 # iOS / Web 交互对齐
 
+本文保留 2026-10-04 的历史基线与验证。当前原生抽屉、Claude 暂停、DeepSeek 外部浏览器入口和真机版本，以 [2026-10-15 UAT 记录](ios-saas-uat-2026-10-15.md) 及 [iOS README](../iOS/README.md) 为准。
+
 ## 对照基线
 
 2026-10-04 对照当前开发仓库 `55b673e` 的 dashboard（Web v170），在 `codex/ios-native-workspace` 独立工作树继续实现。没有覆盖主工作树、部署服务器或更换正式 Mac 客户端。此分支 dashboard 外壳升级至 v171。
