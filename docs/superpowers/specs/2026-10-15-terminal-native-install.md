@@ -39,3 +39,13 @@
 - 正式客户端未签名、公证或替换，未将开发包用于生产下载源。代码通过不等同于正式一行命令整链路安装验收。
 
 最终在同步远端 `f5cb497` 后执行 `bash scripts/verify.sh`，退出 0，输出 `==> 全部验证通过 ✓`；完整日志 `/private/tmp/fleet-terminal-final-verify-20261015.log`。同步带入的设备 Mesh 地址专项测试另外通过。
+
+## 网页与服务端发布
+
+- 源码提交 `9cb45a4c68038965a6e0aef409ac7c0b41609d22` 已推送 `codex/multi-user-server`，包含此前远端 `f5cb497`。只构建 Linux amd64 服务端，未签名、公证或替换 Mac 安装。
+- 当前私有发布配置将 `https://fleet.818.work` 指向 SSH `pm`。发布目录 `/opt/macfleet-saas-uat/releases/full-9cb45a4c68038965a6e0aef409ac7c0b41609d22`，145 个发布文件的清单及 SHA-256 完整匹配；旧发布保留。
+- SQLite 在线备份通过 `integrity_check`，原配置及加密密钥保存在私有备份 `backups/terminal-9cb45a4c68038965a6e0aef409ac7c0b41609d22-20261015T082413Z`。未改数据库 schema 和现有密钥。current 原子切换后重启 SaaS 服务；四个相关 systemd 单元均 `active`。
+- 新服务 PID `219320`，运行进程与磁盘服务端 SHA-256 均为 `5606b5500710435ff836973d469ba6dc2483cd24f8454a358a81a867354d47d0`。
+- 真实公网输出：`healthz HTTP 200`、`readyz HTTP 200`、`install.sh HTTP 200`、`POST install.sh HTTP 405`、`auth HTTP 200`。account.js / account.css 与提交逐字节一致，安装脚本与 canonical origin 渲染逐字节一致并通过真实 `bash -n`。未登录的 sw.js 按既有策略返回 303，未将其误报为公开下载成功。
+- 公网客户端清单仍为 `0.1.11+12`，无 `installation_protocol`；网页展示两种方式，命令入口明确暂不可用，DMG 继续提供。下一版正式签名包发布后才会启用可复制命令，真实安装、登录项、权限窗口和拖拽仍待验收。
+- 本机发布证据目录 `/private/tmp/fleet-terminal-deploy-x0328jtb`，公网下载保存在其 `public/`。全量验证包含 496 项 JS（495 通过、1 项既有条件跳过）、144 项 Swift 及 Go/Shell；另运行同步带入的 Mesh IP 专项 1 项通过。
