@@ -141,7 +141,10 @@ const previewSandbox = {
 };
 vm.createContext(previewSandbox);
 vm.runInContext(previewSrc, previewSandbox);
-const { resolveLocalLink, resourceURL, fileEndpoint, isPreviewRoute, previewRequest, previewPathSegments, isTextPreviewPath, textPreviewMode } = previewSandbox.globalThis.FleetPreview;
+const {
+  resolveLocalLink, resourceURL, fileEndpoint, isPreviewRoute, previewRequest, previewPathSegments,
+  isTextPreviewPath, textPreviewMode, htmlRuntimeResourcePath,
+} = previewSandbox.globalThis.FleetPreview;
 
 test('chat model and app use the same versioned shell URLs', () => {
   const styleURL = indexHTML.match(/style\.css\?v=([a-zA-Z0-9_-]+)/);
@@ -391,10 +394,10 @@ test('file preview omits browser back actions and redundant device/type/size bad
   assert.doesNotMatch(previewSrc, /root\.history\.back\(\)/);
 });
 
-test('preview page keeps HTML in a scriptless sandbox and media in native controls', () => {
+test('HTML preview restores local styles and interaction inside an opaque sandbox', () => {
   const iframe = indexHTML.match(/<iframe id="preview-html"[^>]*>/)?.[0] || '';
-  assert.match(iframe, /sandbox="allow-same-origin allow-popups allow-popups-to-escape-sandbox"/);
-  assert.doesNotMatch(iframe, /allow-scripts/);
+  assert.match(iframe, /sandbox="allow-scripts"/);
+  assert.doesNotMatch(iframe, /allow-same-origin|allow-popups|allow-forms|allow-top-navigation/);
   assert.match(indexHTML, /<video id="preview-video" controls playsinline preload="metadata">/);
   assert.match(indexHTML, /<audio id="preview-audio" controls preload="metadata">/);
   assert.match(indexHTML, /<div id="preview-text"[^>]*data-preview-kind="text"/);
@@ -402,11 +405,32 @@ test('preview page keeps HTML in a scriptless sandbox and media in native contro
   assert.match(previewSrc, /meta\.kind === 'text'/);
   assert.match(previewSrc, /meta\.kind === 'pdf'/);
   assert.match(previewSrc, /dataset\.previewEmbed = request\.embed/);
-  assert.match(previewSrc, /FORBID_TAGS:[\s\S]*?'script'/);
-  assert.match(previewSrc, /"script-src 'none'"/);
+  assert.match(previewSrc, /async function safeHTMLDocument/);
+  assert.match(previewSrc, /loadHTMLTextResource/);
+  assert.match(previewSrc, /inlineCSSResources/);
+  assert.match(previewSrc, /data-fleet-preview-script/);
+  assert.match(previewSrc, /HTML_RESOURCE_REQUEST/);
+  assert.match(previewSrc, /HTML_RESOURCE_RESPONSE/);
+  assert.match(previewSrc, /"script-src 'unsafe-inline'"/);
+  assert.match(previewSrc, /"connect-src 'none'"/);
+  assert.match(previewSrc, /"form-action 'none'"/);
+  assert.match(previewSrc, /"base-uri 'none'"/);
+  assert.match(previewSrc, /FORBID_TAGS:\s*\['iframe', 'frame', 'object', 'embed', 'base'\]/);
+  assert.doesNotMatch(previewSrc, /FORBID_TAGS:[^\n]*'(?:form|input|button|textarea|select|option)'/);
+  assert.match(previewSrc, /event\.source !== active\.frame\.contentWindow/);
+  assert.match(previewSrc, /root\.fetch\(fileEndpoint\('content'/);
   assert.match(previewSrc, /\['track', 'src'\]/);
   assert.match(previewSrc, /rewriteSrcset/);
   assert.match(appSrc, /FleetMarkdown\.renderMarkdown\(item\.text, chatMediaSrc, chatLinkHref\)/);
+});
+
+test('HTML runtime bridge accepts preview assets but rejects remote and executable URLs', () => {
+  assert.equal(htmlRuntimeResourcePath('./assets/cover.webp?size=2#hero'), './assets/cover.webp');
+  assert.equal(htmlRuntimeResourcePath('../audio/demo.m4a'), '../audio/demo.m4a');
+  assert.equal(htmlRuntimeResourcePath('./data/catalog.json'), './data/catalog.json');
+  assert.equal(htmlRuntimeResourcePath('https://example.com/tracker.png'), '');
+  assert.equal(htmlRuntimeResourcePath('javascript:alert(1)'), '');
+  assert.equal(htmlRuntimeResourcePath('../../.ssh/id_rsa'), '');
 });
 
 test('text previews expose one persistent auto-wrap toggle in both preview headers', () => {
@@ -757,7 +781,7 @@ test('automation modal links to a concise cached API guide', () => {
   assert.match(automationGuideHTML, /POST|\/api\/v1\/messages/);
   assert.match(automationGuideHTML, /Idempotency-Key/);
   assert.match(automationGuideHTML, /callback_url/);
-  assert.match(automationGuideHTML, /src="\/automation-guide\.js\?v=236" defer/);
+  assert.match(automationGuideHTML, /src="\/automation-guide\.js\?v=237" defer/);
   assert.match(automationGuideHTML, /data-api-path="\/api\/v1\/messages"/);
   assert.doesNotMatch(automationGuideHTML, /fleet\.hyposomnia\.top|:20443|automation-doc-back/);
   const apiNodes = [
@@ -773,7 +797,7 @@ test('automation modal links to a concise cached API guide', () => {
     'https://fleet.example.test:9443/api/v1/messages/msg_xxx',
   ]);
   assert.match(serviceWorker, /'\/automation-guide\.html'/);
-  assert.match(serviceWorker, /'\/automation-guide\.js\?v=236'/);
+  assert.match(serviceWorker, /'\/automation-guide\.js\?v=237'/);
 	assert.match(serviceWorker, /'\/automation-guide\.html', '\/automation-records\.html'\]\.includes\(url\.pathname\)/);
   assert.match(styleCSS, /\.automation-doc-main\s*\{/);
 });

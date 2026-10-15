@@ -26,12 +26,36 @@
     '.ini': 'text/x-properties', '.conf': 'text/x-properties',
   });
   const RESOURCE_EXTENSIONS = new Set([...PREVIEW_EXTENSIONS, '.vtt']);
+  const HTML_TEXT_RESOURCE_EXTENSIONS = new Set(['.css', '.js', '.mjs', '.cjs']);
+  const HTML_RUNTIME_RESOURCE_EXTENSIONS = new Set([
+    '.json', '.txt', '.xml', '.csv',
+    '.png', '.jpg', '.jpeg', '.gif', '.webp', '.avif', '.svg', '.heic', '.heif',
+    '.mp4', '.m4v', '.webm', '.mov', '.ogv', '.mpeg', '.mpg',
+    '.mp3', '.m4a', '.aac', '.wav', '.ogg', '.flac', '.opus', '.aif', '.aiff', '.vtt',
+    '.woff', '.woff2', '.ttf', '.otf', '.eot',
+  ]);
+  const HTML_RESOURCE_REQUEST = 'fleet-preview-resource-request-v1';
+  const HTML_RESOURCE_RESPONSE = 'fleet-preview-resource-response-v1';
+  const HTML_INLINE_ASSET_LIMIT = 16 << 20;
+  const HTML_RUNTIME_ASSET_LIMIT = 256 << 20;
+  const HTML_MIME_BY_EXTENSION = Object.freeze({
+    '.json': 'application/json', '.txt': 'text/plain', '.xml': 'application/xml', '.csv': 'text/csv',
+    '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.gif': 'image/gif',
+    '.webp': 'image/webp', '.avif': 'image/avif', '.svg': 'image/svg+xml', '.heic': 'image/heic', '.heif': 'image/heif',
+    '.mp4': 'video/mp4', '.m4v': 'video/x-m4v', '.webm': 'video/webm', '.mov': 'video/quicktime',
+    '.ogv': 'video/ogg', '.mpeg': 'video/mpeg', '.mpg': 'video/mpeg',
+    '.mp3': 'audio/mpeg', '.m4a': 'audio/mp4', '.aac': 'audio/aac', '.wav': 'audio/wav',
+    '.ogg': 'audio/ogg', '.flac': 'audio/flac', '.opus': 'audio/opus', '.aif': 'audio/aiff', '.aiff': 'audio/aiff',
+    '.vtt': 'text/vtt', '.woff': 'font/woff', '.woff2': 'font/woff2', '.ttf': 'font/ttf',
+    '.otf': 'font/otf', '.eot': 'application/vnd.ms-fontobject',
+  });
   const RESOURCE_ATTRS = [
     ['img', 'src'], ['video', 'src'], ['video', 'poster'], ['audio', 'src'], ['source', 'src'], ['track', 'src'],
   ];
   let textEditor = null;
   let heicDecoderPromise = null;
   let imagePreview = null;
+  let htmlPreview = null;
   let previewRequestVersion = 0;
 
   function loadHEICDecoder() {
@@ -337,43 +361,349 @@
     }).filter(Boolean).join(', ');
   }
 
-  function safeHTMLDocument(source, context) {
+  function htmlRuntimeResourcePath(source) {
+    return localPathValue(source, HTML_RUNTIME_RESOURCE_EXTENSIONS);
+  }
+
+  function htmlMimeForPath(path, fallback = 'application/octet-stream') {
+    return HTML_MIME_BY_EXTENSION[extensionOf(path)] || fallback;
+  }
+
+  function clearHTMLPreview() {
+    if (!htmlPreview) return;
+    htmlPreview.controller.abort();
+    if (htmlPreview.frame) htmlPreview.frame.srcdoc = '';
+    htmlPreview = null;
+  }
+
+  async function replaceAsync(value, pattern, replacer) {
+    const source = String(value || '');
+    const matches = [...source.matchAll(pattern)];
+    if (!matches.length) return source;
+    const replacements = await Promise.all(matches.map((match) => replacer(...match)));
+    let result = '';
+    let cursor = 0;
+    matches.forEach((match, index) => {
+      result += source.slice(cursor, match.index) + replacements[index];
+      cursor = match.index + match[0].length;
+    });
+    return result + source.slice(cursor);
+  }
+
+  async function loadHTMLTextResource(source, context, extensions = HTML_TEXT_RESOURCE_EXTENSIONS) {
+    const path = localPathValue(source, extensions);
+    if (!path) throw new Error(`不支持的 HTML 依赖：${source}`);
+    const response = await root.fetch(fileEndpoint('preview', context.macId, path, {
+      cwd: context.cwd || '', encoding: 'utf-8',
+    }), { cache: 'no-store', signal: context.signal });
+    if (!response.ok) throw new Error(`无法载入 HTML 依赖 ${source}（HTTP ${response.status}）`);
+    const meta = await response.json();
+    return { content: String(meta.content || ''), path: meta.path || path };
+  }
+
+  function arrayBufferDataURL(buffer, mime) {
+    const bytes = new Uint8Array(buffer);
+    let binary = '';
+    for (let offset = 0; offset < bytes.length; offset += 0x8000) {
+      binary += String.fromCharCode(...bytes.subarray(offset, Math.min(offset + 0x8000, bytes.length)));
+    }
+    return `data:${mime || 'application/octet-stream'};base64,${root.btoa(binary)}`;
+  }
+
+  async function loadHTMLAssetDataURL(source, context) {
+    const path = htmlRuntimeResourcePath(source);
+    if (!path) return '';
+    const response = await root.fetch(fileEndpoint('content', context.macId, path, {
+      cwd: context.cwd || '', download: true,
+    }), { cache: 'no-store', signal: context.signal });
+    if (!response.ok) throw new Error(`无法载入 HTML 资源 ${source}（HTTP ${response.status}）`);
+    const declaredSize = Number(response.headers?.get?.('content-length')) || 0;
+    if (declaredSize > HTML_INLINE_ASSET_LIMIT) throw new Error(`HTML 样式资源过大：${source}`);
+    const buffer = await response.arrayBuffer();
+    if (buffer.byteLength > HTML_INLINE_ASSET_LIMIT) throw new Error(`HTML 样式资源过大：${source}`);
+    const responseType = String(response.headers?.get?.('content-type') || '').split(';')[0];
+    const mime = responseType && responseType !== 'application/octet-stream'
+      ? responseType
+      : htmlMimeForPath(path);
+    return arrayBufferDataURL(buffer, mime);
+  }
+
+  async function inlineCSSResources(css, context, seen = new Set()) {
+    const imports = /@import\s+(?:url\(\s*)?(['"])([^'"]+)\1\s*\)?\s*([^;]*);/gi;
+    let result = await replaceAsync(css, imports, async (whole, _quote, source, media) => {
+      const path = localPathValue(source, new Set(['.css']));
+      if (!path) return '';
+      const key = `${context.cwd || ''}\n${path}`;
+      if (seen.has(key)) return '';
+      seen.add(key);
+      const imported = await loadHTMLTextResource(source, context, new Set(['.css']));
+      const nested = await inlineCSSResources(imported.content, {
+        ...context, cwd: dirname(imported.path),
+      }, seen);
+      const condition = String(media || '').trim();
+      return condition ? `@media ${condition}{${nested}}` : nested;
+    });
+    result = await replaceAsync(result, /url\(\s*(['"]?)([^'"\)]+)\1\s*\)/gi, async (whole, _quote, source) => {
+      const value = String(source || '').trim();
+      if (!value || value.startsWith('#') || /^(?:data:|blob:)/i.test(value)) return whole;
+      const dataURL = await loadHTMLAssetDataURL(value, context);
+      return dataURL ? `url("${dataURL}")` : 'url("")';
+    });
+    return result;
+  }
+
+  function htmlPreviewRuntime() {
+    const requestType = 'fleet-preview-resource-request-v1';
+    const responseType = 'fleet-preview-resource-response-v1';
+    const pending = new Map();
+    const objectURLs = new Set();
+    const resourceURLs = new Map();
+    const tokens = new WeakMap();
+    let nextID = 1;
+
+    function localSource(source) {
+      const value = String(source || '').trim();
+      return value && !value.startsWith('#') && !value.startsWith('//') &&
+        !/^(?:https?:|mailto:|tel:|javascript:)/i.test(value);
+    }
+
+    function requestResource(source) {
+      return new Promise((resolve, reject) => {
+        const id = nextID++;
+        pending.set(id, { resolve, reject });
+        parent.postMessage({ type: requestType, id, source: String(source || '') }, '*');
+      });
+    }
+
+    function objectURL(source, payload) {
+      if (resourceURLs.has(source)) return resourceURLs.get(source);
+      const url = URL.createObjectURL(new Blob([payload.buffer], { type: payload.mime || 'application/octet-stream' }));
+      objectURLs.add(url);
+      resourceURLs.set(source, url);
+      return url;
+    }
+
+    function nextToken(node, attr) {
+      let values = tokens.get(node);
+      if (!values) { values = new Map(); tokens.set(node, values); }
+      const token = (values.get(attr) || 0) + 1;
+      values.set(attr, token);
+      return [values, token];
+    }
+
+    function applyResource(node, attr, source) {
+      const value = String(source || '').trim();
+      if (!value) return;
+      if (/^(?:data:|blob:)/i.test(value)) {
+        Element.prototype.setAttribute.call(node, attr, value);
+        return;
+      }
+      if (!localSource(value)) {
+        Element.prototype.removeAttribute.call(node, attr);
+        return;
+      }
+      const [values, token] = nextToken(node, attr);
+      Element.prototype.removeAttribute.call(node, attr);
+      requestResource(value).then((payload) => {
+        if (values.get(attr) !== token) return;
+        Element.prototype.setAttribute.call(node, attr, objectURL(value, payload));
+        if (node instanceof HTMLMediaElement) node.load();
+      }).catch(() => {});
+    }
+
+    async function applySrcset(node, source) {
+      const candidates = String(source || '').split(',').map((candidate) => {
+        const match = candidate.trim().match(/^(\S+)(\s+.+)?$/);
+        return match ? { source: match[1], descriptor: match[2] || '' } : null;
+      }).filter(Boolean);
+      const [values, token] = nextToken(node, 'srcset');
+      Element.prototype.removeAttribute.call(node, 'srcset');
+      try {
+        const resolved = await Promise.all(candidates.map(async (candidate) => {
+          if (/^(?:data:|blob:)/i.test(candidate.source)) return candidate.source + candidate.descriptor;
+          if (!localSource(candidate.source)) return '';
+          const payload = await requestResource(candidate.source);
+          return objectURL(candidate.source, payload) + candidate.descriptor;
+        }));
+        if (values.get('srcset') === token) {
+          Element.prototype.setAttribute.call(node, 'srcset', resolved.filter(Boolean).join(', '));
+        }
+      } catch (_) {}
+    }
+
+    async function applyStyle(node, source) {
+      const [values, token] = nextToken(node, 'style');
+      const matches = [...String(source || '').matchAll(/url\(\s*(['"]?)([^'"\)]+)\1\s*\)/gi)];
+      if (!matches.length) return;
+      const replacements = await Promise.all(matches.map(async (match) => {
+        const value = String(match[2] || '').trim();
+        if (/^(?:data:|blob:)/i.test(value)) return match[0];
+        if (!localSource(value)) return 'url("")';
+        const payload = await requestResource(value);
+        return `url("${objectURL(value, payload)}")`;
+      }));
+      if (values.get('style') !== token) return;
+      let result = '';
+      let cursor = 0;
+      matches.forEach((match, index) => {
+        result += source.slice(cursor, match.index) + replacements[index];
+        cursor = match.index + match[0].length;
+      });
+      Element.prototype.setAttribute.call(node, 'style', result + source.slice(cursor));
+    }
+
+    function scanElement(node) {
+      if (!(node instanceof Element)) return;
+      for (const attr of ['src', 'poster']) {
+        const staged = node.getAttribute(`data-fleet-preview-${attr}`);
+        if (staged !== null) {
+          Element.prototype.removeAttribute.call(node, `data-fleet-preview-${attr}`);
+          applyResource(node, attr, staged);
+        } else if (node.hasAttribute(attr)) {
+          const value = node.getAttribute(attr);
+          if (!/^(?:data:|blob:)/i.test(value || '')) applyResource(node, attr, value);
+        }
+      }
+      const stagedSrcset = node.getAttribute('data-fleet-preview-srcset');
+      if (stagedSrcset !== null) {
+        Element.prototype.removeAttribute.call(node, 'data-fleet-preview-srcset');
+        applySrcset(node, stagedSrcset);
+      } else if (node.hasAttribute('srcset')) {
+        const value = node.getAttribute('srcset');
+        if (!/^(?:data:|blob:)/i.test(value || '')) applySrcset(node, value);
+      }
+      if (node.hasAttribute('style')) {
+        const style = node.getAttribute('style') || '';
+        const unresolved = [...style.matchAll(/url\(\s*(['"]?)([^'"\)]+)\1\s*\)/gi)]
+          .some((match) => !/^(?:data:|blob:)/i.test(String(match[2] || '').trim()));
+        if (unresolved) applyStyle(node, style);
+      }
+    }
+
+    function scanNode(node) {
+      if (!(node instanceof Element)) return;
+      scanElement(node);
+      node.querySelectorAll?.('*').forEach(scanElement);
+    }
+
+    window.addEventListener('message', (event) => {
+      const data = event.data || {};
+      if (event.source !== parent || data.type !== responseType || !pending.has(data.id)) return;
+      const task = pending.get(data.id);
+      pending.delete(data.id);
+      if (!data.ok || !(data.buffer instanceof ArrayBuffer)) task.reject(new Error(data.error || 'resource unavailable'));
+      else task.resolve(data);
+    });
+
+    const nativeFetch = window.fetch?.bind(window);
+    if (nativeFetch) {
+      window.fetch = (input, init) => {
+        const source = typeof input === 'string' || input instanceof URL ? String(input) : String(input?.url || '');
+        if (!localSource(source)) return Promise.reject(new TypeError('Network access is disabled in HTML preview'));
+        return requestResource(source).then((payload) => new Response(payload.buffer, {
+          status: 200, headers: { 'content-type': payload.mime || 'application/octet-stream' },
+        }));
+      };
+    }
+
+    const observer = new MutationObserver((records) => {
+      records.forEach((record) => {
+        if (record.type === 'childList') record.addedNodes.forEach(scanNode);
+        else scanElement(record.target);
+      });
+    });
+    observer.observe(document.documentElement, {
+      subtree: true, childList: true, attributes: true,
+      attributeFilter: ['src', 'srcset', 'poster', 'style'],
+    });
+    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', () => scanNode(document.documentElement), { once: true });
+    else scanNode(document.documentElement);
+    window.addEventListener('pagehide', () => {
+      observer.disconnect();
+      pending.forEach((task) => task.reject(new Error('preview closed')));
+      pending.clear();
+      objectURLs.forEach((url) => URL.revokeObjectURL(url));
+    }, { once: true });
+  }
+
+  async function safeHTMLDocument(source, context) {
     if (!root.DOMPurify || typeof DOMParser === 'undefined') return '';
-    const clean = root.DOMPurify.sanitize(String(source || ''), {
+    const sourceDoc = new DOMParser().parseFromString(String(source || ''), 'text/html');
+    const resourceContext = {
+      macId: context.macId, cwd: dirname(context.path), signal: context.signal,
+    };
+
+    for (const link of [...sourceDoc.querySelectorAll('link')]) {
+      if (String(link.getAttribute('rel') || '').toLowerCase() !== 'stylesheet') {
+        link.remove();
+        continue;
+      }
+      const stylesheet = await loadHTMLTextResource(link.getAttribute('href'), resourceContext, new Set(['.css']));
+      const style = sourceDoc.createElement('style');
+      if (link.getAttribute('media')) style.setAttribute('media', link.getAttribute('media'));
+      style.textContent = await inlineCSSResources(stylesheet.content, {
+        ...resourceContext, cwd: dirname(stylesheet.path),
+      });
+      link.replaceWith(style);
+    }
+    for (const style of [...sourceDoc.querySelectorAll('style')]) {
+      style.textContent = await inlineCSSResources(style.textContent, resourceContext);
+    }
+    for (const node of [...sourceDoc.querySelectorAll('[style]')]) {
+      node.setAttribute('style', await inlineCSSResources(node.getAttribute('style'), resourceContext));
+    }
+
+    const scripts = [];
+    for (const script of [...sourceDoc.querySelectorAll('script')]) {
+      let content = script.textContent || '';
+      if (script.hasAttribute('src')) {
+        const loaded = await loadHTMLTextResource(script.getAttribute('src'), resourceContext, new Set(['.js', '.mjs', '.cjs']));
+        content = loaded.content;
+      }
+      const type = String(script.getAttribute('type') || '').trim();
+      const executable = !type || /^(?:application|text)\/javascript$/i.test(type) || type === 'module';
+      const placeholder = sourceDoc.createElement(script.parentElement === sourceDoc.head ? 'meta' : 'span');
+      if (executable) {
+        const index = scripts.push({ content, type }) - 1;
+        placeholder.setAttribute('data-fleet-preview-script', String(index));
+        if (placeholder.tagName === 'SPAN') placeholder.hidden = true;
+        script.replaceWith(placeholder);
+      } else {
+        script.remove();
+      }
+    }
+
+    const eventAttrs = new Set();
+    sourceDoc.querySelectorAll('*').forEach((node) => {
+      [...node.attributes].forEach((attr) => {
+        if (/^on[a-z]+$/i.test(attr.name)) eventAttrs.add(attr.name.toLowerCase());
+      });
+    });
+    const clean = root.DOMPurify.sanitize(sourceDoc.documentElement.outerHTML, {
       WHOLE_DOCUMENT: true,
-      FORBID_TAGS: ['script', 'iframe', 'frame', 'object', 'embed', 'form', 'input', 'button', 'textarea', 'select', 'option', 'base'],
+      SANITIZE_DOM: false,
+      FORBID_TAGS: ['iframe', 'frame', 'object', 'embed', 'base'],
       FORBID_ATTR: ['srcdoc'],
+      ADD_ATTR: [...eventAttrs],
     });
     const doc = new DOMParser().parseFromString(clean, 'text/html');
-    const resourceContext = { macId: context.macId, cwd: dirname(context.path), absolute: true };
 
     for (const [selector, attr] of RESOURCE_ATTRS) {
       doc.querySelectorAll(`${selector}[${attr}]`).forEach((node) => {
-        const resolved = resourceURL(node.getAttribute(attr), resourceContext);
-        if (resolved) node.setAttribute(attr, resolved);
-        else node.removeAttribute(attr);
+        const value = node.getAttribute(attr) || '';
+        if (/^data:/i.test(value)) return;
+        if (htmlRuntimeResourcePath(value)) node.setAttribute(`data-fleet-preview-${attr}`, value);
+        node.removeAttribute(attr);
       });
     }
     doc.querySelectorAll('[srcset]').forEach((node) => {
-      const resolved = rewriteSrcset(node.getAttribute('srcset'), resourceContext);
-      if (resolved) node.setAttribute('srcset', resolved);
-      else node.removeAttribute('srcset');
+      const value = node.getAttribute('srcset') || '';
+      node.setAttribute('data-fleet-preview-srcset', value);
+      node.removeAttribute('srcset');
     });
-    doc.querySelectorAll('link').forEach((link) => {
-      if (String(link.getAttribute('rel') || '').toLowerCase() !== 'stylesheet') {
-        link.remove();
-        return;
-      }
-      const resolved = resourceURL(link.getAttribute('href'), resourceContext);
-      if (resolved) link.setAttribute('href', resolved);
-      else link.remove();
-    });
-    doc.querySelectorAll('style').forEach((style) => {
-      style.textContent = rewriteCSSURLs(style.textContent, resourceContext);
-    });
-    doc.querySelectorAll('[style]').forEach((node) => {
-      node.setAttribute('style', rewriteCSSURLs(node.getAttribute('style'), resourceContext));
-    });
+    doc.querySelectorAll('link').forEach((link) => link.remove());
+    doc.querySelectorAll('meta[http-equiv]').forEach((meta) => meta.remove());
+    doc.querySelectorAll('form').forEach((form) => form.removeAttribute('action'));
     doc.querySelectorAll('a[href]').forEach((link) => {
       const href = link.getAttribute('href') || '';
       if (href.startsWith('#')) return;
@@ -384,16 +714,59 @@
       link.setAttribute('rel', 'noopener noreferrer');
     });
 
-    const contentSource = `${root.location.origin}/${context.macId}/api/file/content`;
     const csp = doc.createElement('meta');
     csp.setAttribute('http-equiv', 'Content-Security-Policy');
     csp.setAttribute('content', [
-      "default-src 'none'", "script-src 'none'", "connect-src 'none'", "object-src 'none'", "frame-src 'none'",
-      "form-action 'none'", "base-uri 'none'", `img-src data: blob: ${contentSource}`,
-      `media-src data: blob: ${contentSource}`, `style-src 'unsafe-inline' ${contentSource}`, "font-src data:",
+      "default-src 'none'", "script-src 'unsafe-inline'", "connect-src 'none'", "object-src 'none'", "frame-src 'none'",
+      "form-action 'none'", "base-uri 'none'", "img-src data: blob:", "media-src data: blob:",
+      "style-src 'unsafe-inline' data: blob:", "font-src data: blob:", "worker-src 'none'",
     ].join('; '));
     doc.head.prepend(csp);
+    const runtime = doc.createElement('script');
+    runtime.textContent = `(${htmlPreviewRuntime.toString()})();`;
+    csp.after(runtime);
+    doc.querySelectorAll('[data-fleet-preview-script]').forEach((placeholder) => {
+      const item = scripts[Number(placeholder.getAttribute('data-fleet-preview-script'))];
+      if (!item) { placeholder.remove(); return; }
+      const script = doc.createElement('script');
+      if (item.type) script.setAttribute('type', item.type);
+      script.textContent = item.content.replace(/<\/script/gi, '<\\/script');
+      placeholder.replaceWith(script);
+    });
     return '<!doctype html>\n' + doc.documentElement.outerHTML;
+  }
+
+  async function handleHTMLResourceMessage(event) {
+    const active = htmlPreview;
+    const message = event.data || {};
+    if (!active || event.source !== active.frame.contentWindow || message.type !== HTML_RESOURCE_REQUEST) return;
+    const id = Number(message.id);
+    const path = htmlRuntimeResourcePath(message.source);
+    const respond = (payload, transfer) => {
+      if (htmlPreview !== active || active.controller.signal.aborted) return;
+      active.frame.contentWindow.postMessage({ type: HTML_RESOURCE_RESPONSE, id, ...payload }, '*', transfer || []);
+    };
+    if (!Number.isSafeInteger(id) || id < 1 || !path) {
+      respond({ ok: false, error: 'resource rejected' });
+      return;
+    }
+    try {
+      const response = await root.fetch(fileEndpoint('content', active.macId, path, {
+        cwd: active.cwd, download: true,
+      }), { cache: 'no-store', signal: active.controller.signal });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const declaredSize = Number(response.headers?.get?.('content-length')) || 0;
+      if (declaredSize > HTML_RUNTIME_ASSET_LIMIT) throw new Error('resource too large');
+      const buffer = await response.arrayBuffer();
+      if (buffer.byteLength > HTML_RUNTIME_ASSET_LIMIT) throw new Error('resource too large');
+      const responseType = String(response.headers?.get?.('content-type') || '').split(';')[0];
+      const mime = responseType && responseType !== 'application/octet-stream'
+        ? responseType
+        : htmlMimeForPath(path);
+      respond({ ok: true, mime, buffer }, [buffer]);
+    } catch (error) {
+      if (error?.name !== 'AbortError') respond({ ok: false, error: 'resource unavailable' });
+    }
   }
 
   function renderPreviewPath(node, value, request) {
@@ -430,8 +803,9 @@
     root.requestAnimationFrame?.(() => { node.scrollLeft = node.scrollWidth; });
   }
 
-  function renderPreview(meta, request) {
+  async function renderPreview(meta, request) {
     clearImagePreview();
+    clearHTMLPreview();
     const title = document.querySelector('#preview-title');
     const path = document.querySelector('#preview-path');
     const download = document.querySelector('#preview-download');
@@ -457,7 +831,15 @@
     }
     if (meta.kind === 'html') {
       const frame = document.querySelector('#preview-html');
-      frame.srcdoc = safeHTMLDocument(meta.content || '', { macId: request.macId, path: meta.path });
+      const controller = new root.AbortController();
+      htmlPreview = {
+        frame, controller, macId: request.macId, cwd: dirname(meta.path || request.path),
+      };
+      const documentSource = await safeHTMLDocument(meta.content || '', {
+        macId: request.macId, path: meta.path || request.path, signal: controller.signal,
+      });
+      if (controller.signal.aborted || htmlPreview?.controller !== controller) return;
+      frame.srcdoc = documentSource;
       setPreviewState('html');
       return;
     }
@@ -539,7 +921,7 @@
       }
       const meta = await response.json();
       if (version !== previewRequestVersion) return;
-      renderPreview(meta, request);
+      await renderPreview(meta, request);
     } catch (error) {
       if (version !== previewRequestVersion) return;
       showPreviewError(error?.message || '无法预览文件。');
@@ -549,7 +931,8 @@
   root.FleetPreview = {
     resolveLocalLink, resourceURL, fileEndpoint, formatBytes, isPreviewRoute, previewRequest, previewPathSegments,
     safeHTMLDocument, rewriteCSSURLs, isTextPreviewPath, textPreviewMode, textWrapEnabled,
-    updateTextWrapButton, setTextWrap, initRoute,
+    htmlRuntimeResourcePath, updateTextWrapButton, setTextWrap, initRoute,
   };
-  root.addEventListener?.('pagehide', clearImagePreview);
+  root.addEventListener?.('message', handleHTMLResourceMessage);
+  root.addEventListener?.('pagehide', () => { clearImagePreview(); clearHTMLPreview(); });
 })(typeof globalThis !== 'undefined' ? globalThis : window);
