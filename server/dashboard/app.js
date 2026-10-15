@@ -1906,7 +1906,10 @@ function sessionRow(s) {
   const meta = h('div', { class: 'ses-meta' },
     state.sessionMacId === 'all' ? sessionDeviceName(macId) : null,
     state.sessionView === 'recent'
-      ? h('span', { class: 'session-project-name', text: sessionProjectInfo(s).name })
+      ? h('span', { class: 'session-project-name' },
+        svgIcon('ic session-project-icon', 'M3 6.5A2.5 2.5 0 0 1 5.5 4H9l2 2h7.5A2.5 2.5 0 0 1 21 8.5v8a2.5 2.5 0 0 1-2.5 2.5h-13A2.5 2.5 0 0 1 3 16.5z'),
+        h('span', { class: 'session-project-label', text: sessionProjectInfo(s).name }),
+      )
       : null,
   );
   const selected = sid === state.selectedSid && macId === state.selectedSessionMacId &&

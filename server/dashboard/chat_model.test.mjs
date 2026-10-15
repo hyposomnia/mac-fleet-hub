@@ -1126,7 +1126,8 @@ test('session rows remove redundant device, assistant, and idle labels', () => {
       title: 'Audit PWA', cwd: '/repo/mac-fleet-hub', mtime: fixedAppNowMs - 11 * 60e3,
       status: 'idle',
     });
-    assert.equal(nodesWithClass(recent, 'session-project-name')[0]?.textContent, 'mac-fleet-hub');
+    assert.equal(nodesWithClass(recent, 'session-project-label')[0]?.textContent, 'mac-fleet-hub');
+    assert.equal(nodesWithClass(recent, 'session-project-icon').length, 1);
 
     appState.scope = 'all';
     assert.equal(sessionStatus({ status: 'idle' }).label, '已读');

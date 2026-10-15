@@ -1663,7 +1663,9 @@ html[data-workspace-tab="true"] .preview-encoding-control::after { right: 10px; 
   width: auto; min-width: 1em; font: inherit; letter-spacing: 0; transform: none;
 }
 .ses-meta .session-device-label { min-width: 0; }
-.ses-meta .session-project-name { flex: 1; }
+.ses-meta .session-project-name { display: inline-flex; align-items: center; gap: 4px; flex: 1; min-width: 0; }
+.ses-meta .session-project-icon { width: 1em; height: 1em; flex: none; color: inherit; }
+.ses-meta .session-project-label { min-width: 0; }
 .session-partial-note { margin: 8px; padding: 9px 10px; border-radius: var(--radius-compact); background: var(--danger-soft); color: var(--danger); font-size: var(--t-caption); }
 
 #file-browser { flex: 1; min-width: 0; min-height: 0; overflow: hidden; background: var(--bg); }
