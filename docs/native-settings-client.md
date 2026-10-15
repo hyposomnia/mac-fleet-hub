@@ -6,7 +6,7 @@
 
 应用源码和后续构建统一使用 Universal `Fleet Agent Settings.app` 和 DMG，最低部署目标 macOS 13。设置窗口与独立的 `Fleet Agent.app` 后台分离。应用包内含 ttyd、tmux、filebrowser 和用户态 mesh，不要求使用者安装 Homebrew，也不切换系统现有 Tailscale 网络。
 
-2026-10-13 命名及界面修改目前仅为源码和本机预览，尚未签名发布。旧 `/Applications/Fleet Hub.app` 安装位置继续兼容；新安装使用 `/Applications/Fleet Agent Settings.app`。签名 identifier、OAuth client ID、旧版升级包 URL 和升级恢复备份名称保持协议兼容，登录启动器从自身实际可执行文件定位所属应用。
+命名及界面修改已包含在 `0.1.12+13` 签名公证发行中。旧 `/Applications/Fleet Hub.app` 安装位置继续兼容；新安装使用 `/Applications/Fleet Agent Settings.app`。签名 identifier、OAuth client ID、旧版升级包 URL 和升级恢复备份名称保持协议兼容，登录启动器从自身实际可执行文件定位所属应用。
 
 运行页仅显示主状态、版本和 PID，网页入口在下方居中；账号和设备名称在关联页显示，解除关联位于页头。磁盘页在白底滚动布局中使用居中的大图标，通过 AppKit 直接拖出独立后台原文件 URL。完全磁盘访问支持网页文件访问和 AI Coding 会话关联文件查看，实际可读范围仍受文件权限与 ACL 约束。卸载确认按用户是否勾选删除本机 Fleet 配置分别说明；聊天会话由 Codex / Claude 保存，独立于 Fleet。调试预览不执行安装、解除关联和卸载，并明确反馈该限制。
 
@@ -26,7 +26,7 @@ curl -fsSL 'https://<服务地址>/install.sh' | bash
 
 Settings 应用照常安装，下载及网页授权阶段不显示窗口。实际 launchd 后台的磁盘访问已验证则结束；受限或未知时打开系统完全磁盘访问和 Settings 的磁盘页。macOS 没有可靠的公开 API 判断“未列出”还是“列出但关闭”，因此显示已有条目开关与拖入图标两种提示；图标仍拖出独立的 `Fleet Agent.app`。引导每两秒重新检查后台权限，验证成功后关闭；若系统要求重启，沿用页面的“重启并检查”及空闲守卫。
 
-发行清单增加 `installation_protocol: 1`，应用声明 `FleetInstallProtocol=1`；脚本同时检查两者。未发布或旧包不支持时，网页不给出可执行命令，继续使用已有 DMG。此实现尚未签名、公证和真实安装验收，发布仍走唯一签名机入口。验收契约见 [一行命令安装规格](superpowers/specs/2026-10-15-terminal-native-install.md)。
+发行清单增加 `installation_protocol: 1`，应用声明 `FleetInstallProtocol=1`；脚本同时检查两者。未发布或旧包不支持时，网页不给出可执行命令，继续使用已有 DMG。`0.1.12+13` 已通过唯一签名机入口完成签名、公证及公开分发；完整实际安装、网页授权和 TCC 开关流程仍由用户验收。验收契约见 [一行命令安装规格](superpowers/specs/2026-10-15-terminal-native-install.md)。
 
 ## 本机状态
 

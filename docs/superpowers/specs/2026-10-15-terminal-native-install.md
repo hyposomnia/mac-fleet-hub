@@ -6,7 +6,7 @@
 
 设备联网并通过实际后台磁盘检测后完成。FDA 已验证则结束；受限或未知则打开系统完全磁盘访问和 Settings 的磁盘页，使用已安装独立 Agent 的原文件拖拽。无法可靠区分“系统列表中没有”和“开关未开启”，不枚举或修改 TCC 授权数据库。引导中自动复检；必要的后台重启仍使用现有空闲守卫。
 
-网页“设置 → 设备 → 新增设备”展示“一行命令安装”和“下载安装包”两种入口。命令域名来自当前网页 origin，安装脚本使用服务配置的 canonical origin。旧发行包不支持 CLI 时禁用命令入口，继续提供 DMG；不得用旧包冒充完整新流程。正式签名、公证与发布等待用户后续指令。
+网页“设置 → 设备 → 新增设备”展示“一行命令安装”和“下载安装包”两种入口。命令域名来自当前网页 origin，安装脚本使用服务配置的 canonical origin。旧发行包不支持 CLI 时禁用命令入口，继续提供 DMG；不得用旧包冒充完整新流程。正式 Mac 产物使用唯一签名机入口构建、签名、公证和发布。
 
 ## 契约与验收
 
@@ -36,7 +36,7 @@
 - CLI-03～CLI-07：`TerminalSetupTests` 9 项、`TerminalInstallationTests` 1 项通过，覆盖现有同源关联、授权 URL、运行态等待、锁定/不完整绑定、授权失败、超时和磁盘证据。安装与迁移复用既有原生 owner 及其回归。
 - CLI-08：`DiskAccessGuideTests` 8 项通过，包含独立文件拖拽、系统设置打开失败、unknown/restricted 继续等待、verified 才返回，以及取消退出。电脑控制会话本轮已停止，未完成窗口、真实拖拽及 TCC 开关验收。
 - CLI-10：`account_pages.test.mjs` 验证两入口、复制当前带端口 origin、旧版/未发布/未知协议兼容；真实 Chrome 外观验收待补。
-- 正式客户端未签名、公证或替换，未将开发包用于生产下载源。代码通过不等同于正式一行命令整链路安装验收。
+- 源码验收阶段未签名、公证或替换正式客户端，未将开发包用于生产下载源。代码通过不等同于正式一行命令整链路安装验收。
 
 最终在同步远端 `f5cb497` 后执行 `bash scripts/verify.sh`，退出 0，输出 `==> 全部验证通过 ✓`；完整日志 `/private/tmp/fleet-terminal-final-verify-20261015.log`。同步带入的设备 Mesh 地址专项测试另外通过。
 
@@ -47,5 +47,7 @@
 - SQLite 在线备份通过 `integrity_check`，原配置及加密密钥保存在私有备份 `backups/terminal-9cb45a4c68038965a6e0aef409ac7c0b41609d22-20261015T082413Z`。未改数据库 schema 和现有密钥。current 原子切换后重启 SaaS 服务；四个相关 systemd 单元均 `active`。
 - 新服务 PID `219320`，运行进程与磁盘服务端 SHA-256 均为 `5606b5500710435ff836973d469ba6dc2483cd24f8454a358a81a867354d47d0`。
 - 真实公网输出：`healthz HTTP 200`、`readyz HTTP 200`、`install.sh HTTP 200`、`POST install.sh HTTP 405`、`auth HTTP 200`。account.js / account.css 与提交逐字节一致，安装脚本与 canonical origin 渲染逐字节一致并通过真实 `bash -n`。未登录的 sw.js 按既有策略返回 303，未将其误报为公开下载成功。
-- 公网客户端清单仍为 `0.1.11+12`，无 `installation_protocol`；网页展示两种方式，命令入口明确暂不可用，DMG 继续提供。下一版正式签名包发布后才会启用可复制命令，真实安装、登录项、权限窗口和拖拽仍待验收。
+- 服务端首次发布时，公网客户端清单为 `0.1.11+12`，无 `installation_protocol`；网页展示两种方式，命令入口明确暂不可用，DMG 继续提供。下一版正式签名包发布后才会启用可复制命令，真实安装、登录项、权限窗口和拖拽仍待验收。
 - 本机发布证据目录 `/private/tmp/fleet-terminal-deploy-x0328jtb`，公网下载保存在其 `public/`。全量验证包含 496 项 JS（495 通过、1 项既有条件跳过）、144 项 Swift 及 Go/Shell；另运行同步带入的 Mesh IP 专项 1 项通过。
+
+正式 `0.1.12+13` 已发布，安装协议为 1；签名、公证、实际下载和只读实包验证见 [发行记录](../../native-build13-terminal-install-release-2026-10-15.md)。
