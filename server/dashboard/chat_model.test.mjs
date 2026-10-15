@@ -4260,13 +4260,16 @@ test('new session project picker normalizes paths and keeps explicit project', (
   assert.deepEqual(JSON.parse(JSON.stringify(projects)), [{cwd:'/a',name:'A'}, {cwd:'/b',name:'B'}]);
 });
 
-test('desktop new conversation projects are scoped to the chosen device and allow no project', () => {
+test('desktop new conversation projects only use the live project catalog for the chosen device', () => {
   const saved = {projects: appState.sessionProjects, results: appState.sessionResults};
   appState.sessionProjects = [{macId:'m1',cwd:'/repo/one',name:'One'}, {macId:'m2',cwd:'/repo/two',name:'Two'}];
-  appState.sessionResults = [{macId:'m1',cwd:'/repo/one'}, {macId:'m1',cwd:'/repo/extra'}];
+  appState.sessionResults = [
+    {macId:'m1',cwd:'/repo/one'},
+    {macId:'m1',cwd:'/repo/deleted',projectName:'Deleted project'},
+  ];
   try {
     const paths = vm.runInContext("emptyChatProjects('m1').map(item => item.cwd)", appSandbox);
-    assert.deepEqual(Array.from(paths), ['/repo/one','/repo/extra']);
+    assert.deepEqual(Array.from(paths), ['/repo/one']);
     assert.equal(vm.runInContext("emptyChatProjects('m3').length", appSandbox), 0);
   } finally { appState.sessionProjects=saved.projects; appState.sessionResults=saved.results; }
 });

@@ -2145,7 +2145,10 @@ function poolShow(entry) {
 
 function emptyChatProjects(macId) {
   const projects = new Map();
-  for (const item of [...state.sessionProjects, ...state.sessionResults]) {
+  // The session list is historical and can retain cwd values for projects that
+  // have since been removed. Only the device's live project catalog is valid
+  // for starting a new conversation.
+  for (const item of state.sessionProjects) {
     if (item.macId === macId && item.cwd && !projects.has(item.cwd)) {
       projects.set(item.cwd, { cwd: item.cwd, name: item.name || projName(item.cwd) });
     }
