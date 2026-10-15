@@ -1,4 +1,4 @@
-@import url("titanium.css?v=228");
+@import url("titanium.css?v=229");
 
 /* ============================================================
    mac fleet hub —— 设计系统 v2（令牌 + 组件 + 布局）
@@ -456,7 +456,7 @@ svg.ic.fill { fill: currentColor; stroke: none; }
 .hint.warn { color: var(--wait); }
 .automation-panel-title { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .automation-key-list { display: grid; gap: 10px; margin-top: var(--s4); }
-.automation-key-form { display: grid; gap: 12px; margin-top: var(--s4); padding: 14px; border: 0; border-radius: var(--radius-panel); background: var(--surface-1); }
+.automation-key-form { display: grid; gap: 12px; margin-top: var(--s4); padding: var(--settings-section-padding, 16px); border: 0; border-radius: var(--radius-card); background: var(--surface-1); }
 .automation-key-form[hidden] { display: none; }
 .automation-key-form > label, .automation-key-identity label, .automation-binding-grid label { display: grid; gap: 6px; min-width: 0; color: var(--text-1); font-size: var(--t-secondary); }
 .automation-key-identity { display: grid; grid-template-columns: minmax(0, 1fr) 130px; gap: 12px; }
@@ -464,7 +464,7 @@ svg.ic.fill { fill: currentColor; stroke: none; }
 .automation-key-form .input { width: 100%; min-width: 0; }
 .automation-key-form .input[hidden] { display: none; }
 .automation-key-form-actions { display: flex; justify-content: flex-end; gap: 8px; }
-.automation-key-card { display: grid; gap: 10px; padding: 13px; border: 0; border-radius: var(--radius-card); background: var(--settings-surface, var(--surface-1)); }
+.automation-key-card { display: grid; gap: 10px; padding: var(--settings-section-padding, 16px); border: 0; border-radius: var(--radius-card); background: var(--settings-surface, var(--surface-1)); }
 .automation-key-card > .api-key-copy-row .input { background: transparent; }
 .automation-key-card > .automation-key-form { margin-top: 2px; padding: 14px 0 0; border: 0;  border-radius: 0; background: transparent; }
 .automation-key-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
