@@ -65,6 +65,6 @@ PLIST="$APP/Contents/Info.plist"
 EXECUTABLE="$APP/Contents/MacOS/Fleet Agent Settings"
 [[ -x "$EXECUTABLE" && ! -L "$EXECUTABLE" ]] || fail '安装程序不可执行。'
 /usr/bin/lipo -verify_arch "$ARCH" "$EXECUTABLE" || fail '安装程序架构不匹配。'
-/usr/bin/codesign --verify --deep --strict -R 'identifier "com.macfleet.fleet-hub" and anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] exists and certificate leaf[field.1.2.840.113635.100.6.1.13] exists' "$APP" || fail '应用 Developer ID 签名校验失败。'
+/usr/bin/codesign --verify --deep --strict -R '=identifier "com.macfleet.fleet-hub" and anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] exists and certificate leaf[field.1.2.840.113635.100.6.1.13] exists' "$APP" || fail '应用 Developer ID 签名校验失败。'
 /usr/sbin/spctl --assess --type execute "$APP" || fail '应用未通过 macOS 安全评估。'
 "$EXECUTABLE" --fleet-install-cli "--fleet-origin=$FLEET_INSTALL_ORIGIN"

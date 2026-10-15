@@ -74,7 +74,14 @@ test('one-line installer verifies the immutable package before invoking only the
     const result = run({ machine });
     assert.equal(result.status, 0, result.stderr);
     assert.equal(result.executed, `--fleet-install-cli\n--fleet-origin=${origin}\n`);
-    assert.ok(result.calls.find(call => call.name === 'codesign'));
+    const signatureCheck = result.calls.find(call => call.name === 'codesign');
+    assert.ok(signatureCheck);
+    const requirement = signatureCheck.args[signatureCheck.args.indexOf('-R') + 1];
+    assert.match(requirement, /^=identifier /, 'codesign inline requirements must start with =');
+    if (process.platform === 'darwin') {
+      const parsed = spawnSync('/usr/bin/csreq', ['-r', requirement, '-t'], { encoding: 'utf8' });
+      assert.equal(parsed.status, 0, parsed.stderr);
+    }
     assert.ok(result.calls.find(call => call.name === 'spctl'));
     const downloads = result.calls.filter(call => call.name === 'curl');
     assert.equal(downloads.length, 2);
