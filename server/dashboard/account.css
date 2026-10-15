@@ -46,7 +46,7 @@ body.account-page { display: block; height: auto; min-height: 100dvh; overflow: 
 .account-form label:has(input[type="checkbox"]) { min-height: 44px; }
 .account-form input:not([type="checkbox"]):focus,
 .account-form input:not([type="checkbox"]):focus-visible { outline: none; box-shadow: none; }
-.account-button:focus-visible, .account-page a:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; box-shadow: 0 0 0 5px color-mix(in srgb, var(--highlight) 24%, transparent); }
+.account-button:focus-visible, .account-page a:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; box-shadow: none; }
 details.account-section.account-disclosure { padding: 0; }
 .account-disclosure > summary { display: flex; align-items: center; justify-content: space-between; gap: 16px; min-height: 56px; padding: 16px 20px; list-style: none; cursor: pointer; font-size: 17px; font-weight: 600; border-radius: var(--radius-card); }
 .account-disclosure > summary::-webkit-details-marker { display: none; }

@@ -159,13 +159,20 @@ test('account security sections are native disclosures closed by default in stan
   }
 });
 
-test('text inputs have no focus border while buttons and disclosures retain keyboard focus indicators', async () => {
+test('controls keep accent focus cues without yellow highlight borders', async () => {
   const accountCSS = await readFile(new URL('./account.css', import.meta.url), 'utf8');
   const styleCSS = await readFile(new URL('./style.css', import.meta.url), 'utf8');
   assert.doesNotMatch(accountCSS, /\.account-form input:focus-visible,\s*\.account-button/);
   assert.match(accountCSS, /\.account-form input:not\(\[type="checkbox"\]\):focus-visible\s*\{\s*outline:\s*none;\s*box-shadow:\s*none;/);
-  assert.match(accountCSS, /\.account-button:focus-visible,\s*\.account-page a:focus-visible\s*\{\s*outline:\s*2px solid/);
+  assert.match(accountCSS, /\.account-button:focus-visible,\s*\.account-page a:focus-visible\s*\{\s*outline:\s*2px solid[^}]*box-shadow:\s*none;/);
   assert.match(accountCSS, /\.account-disclosure > summary:focus-visible\s*\{\s*outline:\s*2px solid/);
+  const globalFocus = styleCSS.slice(styleCSS.indexOf('\n:focus-visible {') + 1).split('}')[0];
+  assert.match(globalFocus, /box-shadow:\s*none;/);
+  assert.doesNotMatch(globalFocus, /highlight/);
+  const emptyComposerInput = styleCSS.slice(styleCSS.indexOf('.empty-chat-compose textarea')).split('}')[0];
+  assert.match(emptyComposerInput, /outline:\s*none;/);
+  assert.match(emptyComposerInput, /box-shadow:\s*none;/);
+  assert.match(styleCSS, /\.empty-chat-context select\s*\{[^}]*background:\s*color-mix\(in srgb,\s*var\(--chat-text\) 4%,\s*transparent\);/);
   for (const selector of ['.input:focus', '.session-searchbar:focus-within', '.chat-request-input:focus', '#cmd-input:focus', '.file-searchbar:focus-within']) {
     const declaration = styleCSS.slice(styleCSS.indexOf(selector)).split('}')[0];
     assert.match(declaration, /outline:\s*none;/);
