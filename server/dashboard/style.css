@@ -1,4 +1,4 @@
-@import url("titanium.css?v=244");
+@import url("titanium.css?v=245");
 
 /* ============================================================
    mac fleet hub —— 设计系统 v2（令牌 + 组件 + 布局）
@@ -643,20 +643,10 @@ html.automation-doc-root, html.automation-doc-root body { height: auto; min-heig
   }
   #rail .host, #rail .userrow { overflow: hidden; }
   #rail .host .nm, #rail .userrow .un { min-width: 0; }
-  /* Move the file control continuously; the session icon stays anchored. */
-  #rail .modeseg { position: relative; display: block; height: calc(var(--rail-mode-height) + 8px); transition: height var(--dur-2) var(--ease); }
-  #rail .modeseg button {
-    position: absolute; top: 4px; left: 4px; width: calc(50% - 6px); height: var(--rail-mode-height); overflow: hidden;
-    transition: left var(--dur-2) var(--ease), top var(--dur-2) var(--ease), width var(--dur-2) var(--ease), background var(--dur-1) var(--ease), color var(--dur-1) var(--ease);
-  }
-  #rail .modeseg button[data-mode="files"] { left: calc(50% + 2px); }
-  #app[data-rail-collapsed="true"] #rail { --rail-mode-height: 42px; }
-  #app[data-rail-collapsed="true"] #rail .modeseg { height: calc(2 * var(--rail-mode-height) + var(--rail-mode-gap) + 8px); }
-  #app[data-rail-collapsed="true"] #rail .modeseg button { left: 0; width: 100%; }
-  #app[data-rail-collapsed="true"] #rail .modeseg button[data-mode="files"] { left: 0; top: calc(var(--rail-mode-height) + var(--rail-mode-gap) + 4px); }
-  /* Compensate for the extra mode row throughout the animation, keeping devices fixed. */
-  #rail .hostlist .hd { overflow: hidden; transition: height var(--dur-2) var(--ease), padding var(--dur-2) var(--ease), margin-bottom var(--dur-2) var(--ease), opacity var(--dur-2) var(--ease), visibility var(--dur-2); }
-  #app[data-rail-collapsed="true"] #rail .hostlist .hd { height: 0; padding-top: 0; padding-bottom: 0; margin-bottom: calc(-1 * var(--rail-host-gap)); opacity: 0; visibility: hidden; }
+  /* Both sidebar widths keep the same vertical navigation rows. */
+  #rail .modeseg { display: flex; flex-direction: column; height: auto; padding: 4px 0; }
+  #rail .modeseg button { position: relative; width: 100%; height: 42px; flex: none; }
+  #app[data-rail-collapsed="true"] #rail .hostlist .hd { visibility: hidden; }
   #app[data-rail-collapsed="true"] #rail .empty-devices { padding: 0; }
   #app[data-rail-collapsed="true"] #rail .empty-device-message,
   #app[data-rail-collapsed="true"] #rail .empty-add-device-label { display: none; }
@@ -2360,22 +2350,23 @@ html[data-workspace-tab="true"] .preview-encoding-control::after { right: 10px; 
 .pwa-install #pwa-install-dismiss:hover { color: var(--text); }
 .pwa-install #pwa-install-dismiss .ic { width: 16px; height: 16px; }
 
-/* Compact navigation uses a small highlight dot instead of filled tiles. */
+/* Sidebar selection uses a short line that fades out below the icon. */
 @media (min-width: 861px) {
-  #app[data-rail-collapsed="true"] #rail .modeseg,
-  #app[data-rail-collapsed="true"] #rail .modeseg button,
-  #app[data-rail-collapsed="true"] #rail .host {
-    background: transparent; box-shadow: none;
+  #rail .modeseg,
+  #rail .modeseg button,
+  #rail .host { background: transparent; box-shadow: none; }
+  #rail .modeseg button { color: var(--text-1); }
+  #rail .modeseg button[aria-selected="true"] { color: var(--accent-text); }
+  #rail .host { position: relative; }
+  #rail .modeseg button[aria-selected="true"]::after,
+  #rail .host[aria-current="true"]::after {
+    content: ''; position: absolute; bottom: 2px; left: 22px; transform: translateX(-50%);
+    width: 16px; height: 3px; border-radius: 2px; pointer-events: none;
+    background: linear-gradient(to right, transparent, var(--highlight) 40%, var(--highlight) 60%, transparent);
   }
-  #app[data-rail-collapsed="true"] #rail .modeseg button { color: var(--text-1); }
-  #app[data-rail-collapsed="true"] #rail .modeseg button[aria-selected="true"] { color: var(--accent-text); }
-  #app[data-rail-collapsed="true"] #rail .host { position: relative; }
-  #app[data-rail-collapsed="true"] #rail .host:not([aria-current="true"]) > :first-child { opacity: .65; }
+  #rail .modeseg button[aria-selected="true"]::after { left: 21px; }
   #app[data-rail-collapsed="true"] #rail .modeseg button[aria-selected="true"]::after,
-  #app[data-rail-collapsed="true"] #rail .host[aria-current="true"]::after {
-    content: ''; position: absolute; bottom: 2px; left: 50%; transform: translateX(-50%);
-    width: 4px; height: 4px; border-radius: 50%; background: var(--highlight); pointer-events: none;
-  }
+  #app[data-rail-collapsed="true"] #rail .host[aria-current="true"]::after { left: 50%; }
 }
 
 /* Keep both composer actions circular in every responsive layout. */
