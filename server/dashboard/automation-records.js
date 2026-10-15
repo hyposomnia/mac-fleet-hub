@@ -1,4 +1,4 @@
-import { createRecordsPager } from './record_pager.js?v=242';
+import { createRecordsPager } from './record_pager.js?v=243';
 
 const $ = (selector) => document.querySelector(selector);
 const form = $('#records-filters');
