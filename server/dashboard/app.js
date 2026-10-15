@@ -1870,8 +1870,12 @@ function activateSession(session) {
 }
 
 function sessionDeviceName(macId) {
-  const icon = FleetDeviceAppearance.createIcon(FleetDeviceAppearance.get(macId));
+  // 这里表达的是“该会话来自一台设备”，固定使用电脑 glyph。
+  // 设备栏允许 Air/mini/DEV 之类的文字头像；直接复用会与名称连成普通文字，
+  // 用户无法辨认设备图标。会话列表只继承名称的字号和颜色。
+  const icon = FleetDeviceAppearance.createIcon({ icon: 'monitor', color: 'steel' });
   icon.className += ' session-device-icon';
+  icon.setAttribute('aria-hidden', 'true');
   return h('span', { class: 'session-device-name' },
     icon,
     h('span', { class: 'session-device-label', text: macName(macId) }),

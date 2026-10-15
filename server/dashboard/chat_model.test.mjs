@@ -1065,10 +1065,14 @@ test('session rows remove redundant device, assistant, and idle labels', () => {
   const previousMac = appState.sessionMacId;
   const previousScope = appState.scope;
   const previousView = appState.sessionView;
+  const previousAppearance = appSandbox.FleetDeviceAppearance.get('m1');
   try {
     appState.scope = 'active';
     appState.sessionView = 'project';
     appState.sessionMacId = 'all';
+    // 会话来源要画真正的设备 glyph；保存为 Air/mini/DEV 等文字头像时，
+    // 不能把那段文字拼到设备名前，让用户误以为图标仍然缺失。
+    appSandbox.FleetDeviceAppearance.set('m1', { icon: 'text', text: 'Air', color: 'rose' });
     const allDevices = sessionRow({
       sessionId: 'thread-device-label', macId: 'm1', assistant: 'codex',
       title: 'Audit PWA', cwd: '/repo/mac-fleet-hub', mtime: fixedAppNowMs - 11 * 60e3,
@@ -1076,6 +1080,10 @@ test('session rows remove redundant device, assistant, and idle labels', () => {
     });
     assert.equal(nodesWithClass(allDevices, 'session-device-name').length, 1);
     assert.equal(nodesWithClass(allDevices, 'session-device-icon').length, 1);
+    const deviceIcon = nodesWithClass(allDevices, 'session-device-icon')[0];
+    assert.equal(nodeText(deviceIcon), '');
+    assert.equal(deviceIcon.children[0]?.tagName, 'svg');
+    assert.equal(deviceIcon.attributes['aria-hidden'], 'true');
     assert.equal(nodesWithClass(allDevices, 'session-project-name').length, 0);
     assert.doesNotMatch(nodeText(allDevices), /Codex/);
 
@@ -1123,6 +1131,7 @@ test('session rows remove redundant device, assistant, and idle labels', () => {
     appState.scope = 'all';
     assert.equal(sessionStatus({ status: 'idle' }).label, '已读');
   } finally {
+    appSandbox.FleetDeviceAppearance.set('m1', previousAppearance);
     appState.sessionMacId = previousMac;
     appState.scope = previousScope;
     appState.sessionView = previousView;
