@@ -296,14 +296,18 @@ test('admin shows counts, searches and paginates metadata, with no content endpo
 
 test('ADM-1/3/5 admin lists presence and device counts without frontend navigation or management actions', async () => {
   const current = harness({ page: 'admin', role: 'admin', respond: () => ({ users: [
-    { id: 2, email: 'two@example.com', online: true, device_count: 3 },
-    { id: 3, email: 'three@example.com', online: false, device_count: 0 },
+    { id: 2, email: 'two@example.com', online: true, last_access_at: 1800000000, device_count: 3 },
+    { id: 3, email: 'three@example.com', online: false, last_access_at: 0, device_count: 0 },
   ], total: 2, page: 1, page_size: 20 }) });
   await current.start();
   assert.deepEqual(current.nav.children, []);
+  assert.deepEqual(all(current.content, node => node.tagName === 'th').map(text), ['用户', '在线状态', '上次访问时间', '设备数']);
   const rows = all(current.content, node => node.tagName === 'tr' && text(node).includes('@example.com'));
   assert.match(text(rows[0]), /two@example.com.*在线.*3/);
   assert.match(text(rows[1]), /three@example.com.*离线.*0/);
+  assert.match(text(rows[0]), /2027/);
+  assert.match(text(rows[1]), /离线.*—.*0/);
+  assert.doesNotMatch(text(rows[0]) + text(rows[1]), /1800000000|1970/);
   assert.ok(current.calls.every(call => call.url === '/api/auth/me' || call.url.startsWith('/api/admin/users?')));
   assert.equal(all(current.content, node => node.tagName === 'a').length, 0);
   const standalone = harness({ page: 'admin', role: 'admin', withNav: false });

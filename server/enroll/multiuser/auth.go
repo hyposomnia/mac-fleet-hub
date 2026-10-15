@@ -8,6 +8,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"image/png"
+	"log"
 	"net/http"
 	"net/mail"
 	"net/url"
@@ -94,7 +95,13 @@ func (server *Server) authenticate(request *http.Request, full bool) (sessionSta
 	if err != nil || user.Status == "disabled" || (full && user.Status != "active") {
 		return session, User{}, errors.New("invalid user")
 	}
-	server.db.Exec("UPDATE sessions SET last_seen=? WHERE token_hash=?", server.now().Unix(), session.Hash)
+	accessedAt := server.now().Unix()
+	server.db.Exec("UPDATE sessions SET last_seen=? WHERE token_hash=?", accessedAt, session.Hash)
+	if session.Stage == "full" && user.Status == "active" {
+		if _, err := server.db.Exec("UPDATE users SET last_access_at=MAX(last_access_at,?) WHERE id=?", accessedAt, user.ID); err != nil {
+			log.Printf("fleet-server: record browser access: %v", err)
+		}
+	}
 	return session, user, nil
 }
 
@@ -495,7 +502,8 @@ func (server *Server) verifyLogin(writer http.ResponseWriter, request *http.Requ
 			return
 		}
 	}
-	if _, err = server.db.Exec("UPDATE users SET status='active',totp_confirmed=1,last_login=? WHERE id=? AND status!='disabled'", server.now().Unix(), user.ID); err != nil {
+	accessedAt := server.now().Unix()
+	if _, err = server.db.Exec("UPDATE users SET status='active',totp_confirmed=1,last_login=?,last_access_at=MAX(last_access_at,?) WHERE id=? AND status!='disabled'", accessedAt, accessedAt, user.ID); err != nil {
 		server.failure(writer, err)
 		return
 	}

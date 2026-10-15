@@ -51,3 +51,10 @@ Chrome 控制不可用，未取得截图或浏览器视觉验收证据。HTTP、
 - 最终目录 `/opt/macfleet-saas-uat/releases/full-e0ce6d776ece83159fa3bb6d130bde34adfc6cf7`；143 个发布文件清单与 SHA-256 一致。沿用已验证的 `1132338` 服务端，PID 仍为 `202553`，此轮网页切换未重启服务。
 - 再次验证公网：`/healthz HTTP 200 ok`、`/readyz HTTP 200 ok`、`/admin HTTP 303`、`/api/admin/users HTTP 401`。
 - 最终源码再次运行完整 `bash scripts/verify.sh`：Go、Dashboard 21+423 项、Swift 112 项及 Shell 验证通过，退出 0；既有 SDK 缓存破坏测试仍按原条件跳过。
+
+## 上次访问时间（ADM-6）
+
+- 列表在在线状态与设备数之间增加“上次访问时间”，沿用本地时间格式；零值及缺失值显示 `—`，不显示 Unix 原始数字或 1970 年。
+- 新增测试先真实失败：管理员响应缺少 `last_access_at`，旧库缺少该列，列表缺少时间列。实现后新时间记录、设备心跳隔离、退出及重启后保留、较早请求不覆盖较新时间均通过。
+- 迁移覆盖已过期 full 会话与待验证会话，保留可用的历史访问记录；故障注入令回填失败时，启动失败且新增列回滚，解除故障后可迁移并重复启动。
+- 合并并行界面提交 `73cfeba` 后执行 `bash scripts/verify.sh`，真实输出为 `==> 全部验证通过 ✓`、`VERIFY_EXIT_CODE=0`；Go multiuser 25.607s、Dashboard 21+423 项、Swift 112 项及 Shell 检查通过，既有 SDK 缓存测试按原条件跳过。

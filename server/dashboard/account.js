@@ -623,7 +623,8 @@
           const wrapper = node('div', '', { className: 'account-table-scroll' });
           const table = node('table', '', { className: 'account-table admin-user-table' });
           const head = node('tr');
-          head.append(node('th', '用户', { scope: 'col' }), node('th', '在线状态', { scope: 'col', title: '网页最近 5 分钟有活动' }), node('th', '设备数', { scope: 'col' }));
+          head.append(node('th', '用户', { scope: 'col' }), node('th', '在线状态', { scope: 'col', title: '网页最近 5 分钟有活动' }),
+            node('th', '上次访问时间', { scope: 'col' }), node('th', '设备数', { scope: 'col' }));
           const thead = node('thead');
           thead.append(head);
           const tbody = node('tbody');
@@ -638,7 +639,7 @@
             email.append(open);
             const online = node('td');
             online.append(presence(user.online));
-            row.append(email, online, node('td', String(user.device_count)));
+            row.append(email, online, node('td', formatTime(user.last_access_at)), node('td', String(user.device_count)));
             tbody.append(row);
           }
           table.append(thead, tbody);

@@ -282,7 +282,8 @@ body:has(#fleet-settings-modal:not([hidden])) .pwa-update { visibility: hidden; 
 .admin-users .account-form .account-error { grid-column: 1 / -1; grid-row: 2; }
 .admin-user-table tbody tr { cursor: pointer; }
 .admin-user-table tbody tr:hover { background: var(--surface-hover); }
-.admin-user-table td:first-child { width: 65%; }
+.admin-user-table td:first-child { width: 45%; }
+.admin-user-table td:nth-child(3) { white-space: nowrap; font-variant-numeric: tabular-nums; }
 .admin-user-link { padding: 8px 0; background: transparent; color: var(--text); font: inherit; text-align: left; overflow-wrap: anywhere; cursor: pointer; }
 .admin-user-link:hover { color: var(--accent-text); }
 .admin-presence { display: inline-flex; align-items: center; gap: 7px; white-space: nowrap; color: var(--text-2); font-size: var(--t-secondary); }

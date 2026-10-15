@@ -14,28 +14,35 @@ const adminOnlineWindow = 5 * time.Minute
 
 type adminUser struct {
 	User
-	Online bool `json:"online"`
+	Online       bool  `json:"online"`
+	LastAccessAt int64 `json:"last_access_at"`
 }
 
-func (server *Server) adminOnlineUsers(userID int64) (map[int64]bool, error) {
+type adminActivity struct {
+	Online       bool
+	LastAccessAt int64
+}
+
+func (server *Server) adminUserActivity(userID int64) (map[int64]adminActivity, error) {
 	now := server.now()
-	rows, err := server.db.Query(`SELECT DISTINCT sessions.user_id FROM sessions
-JOIN users ON users.id=sessions.user_id
-WHERE users.status='active' AND sessions.stage='full' AND sessions.expires_at>?
-AND sessions.last_seen>=? AND (?=0 OR sessions.user_id=?)`, now.Unix(), now.Add(-adminOnlineWindow).Unix(), userID, userID)
+	rows, err := server.db.Query(`SELECT users.id,users.last_access_at,
+EXISTS(SELECT 1 FROM sessions WHERE sessions.user_id=users.id AND users.status='active'
+AND sessions.stage='full' AND sessions.expires_at>? AND sessions.last_seen>=?)
+FROM users WHERE (?=0 OR users.id=?)`, now.Unix(), now.Add(-adminOnlineWindow).Unix(), userID, userID)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	online := map[int64]bool{}
+	activity := map[int64]adminActivity{}
 	for rows.Next() {
 		var id int64
-		if err := rows.Scan(&id); err != nil {
+		var summary adminActivity
+		if err := rows.Scan(&id, &summary.LastAccessAt, &summary.Online); err != nil {
 			return nil, err
 		}
-		online[id] = true
+		activity[id] = summary
 	}
-	return online, rows.Err()
+	return activity, rows.Err()
 }
 
 type ownedDevice struct {
@@ -270,7 +277,7 @@ func (server *Server) handleAdmin(writer http.ResponseWriter, request *http.Requ
 			server.failure(writer, err)
 			return
 		}
-		online, err := server.adminOnlineUsers(0)
+		activity, err := server.adminUserActivity(0)
 		if err != nil {
 			server.failure(writer, err)
 			return
@@ -278,7 +285,7 @@ func (server *Server) handleAdmin(writer http.ResponseWriter, request *http.Requ
 		filtered := []adminUser{}
 		for _, user := range users {
 			if strings.Contains(user.Email, search) {
-				filtered = append(filtered, adminUser{User: user, Online: online[user.ID]})
+				filtered = append(filtered, adminUser{User: user, Online: activity[user.ID].Online, LastAccessAt: activity[user.ID].LastAccessAt})
 			}
 		}
 		start, end := pageBounds(page, len(filtered))
@@ -345,7 +352,7 @@ func (server *Server) handleAdmin(writer http.ResponseWriter, request *http.Requ
 		return
 	}
 	if request.Method == "GET" {
-		online, err := server.adminOnlineUsers(userID)
+		activity, err := server.adminUserActivity(userID)
 		if err != nil {
 			server.failure(writer, err)
 			return
@@ -378,7 +385,7 @@ func (server *Server) handleAdmin(writer http.ResponseWriter, request *http.Requ
 			events = append(events, map[string]any{"actor_id": actorID, "action": action, "created_at": created})
 		}
 		rows.Close()
-		respond(writer, 200, map[string]any{"user": adminUser{User: user, Online: online[user.ID]}, "devices": devices, "events": events, "event_page": eventPage, "event_total": eventTotal, "event_page_size": 50})
+		respond(writer, 200, map[string]any{"user": adminUser{User: user, Online: activity[user.ID].Online, LastAccessAt: activity[user.ID].LastAccessAt}, "devices": devices, "events": events, "event_page": eventPage, "event_total": eventTotal, "event_page_size": 50})
 		return
 	}
 	if request.Method != "PATCH" {

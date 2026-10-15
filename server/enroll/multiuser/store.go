@@ -97,7 +97,48 @@ CREATE TABLE IF NOT EXISTS oauth_requests(id TEXT PRIMARY KEY,challenge TEXT NOT
 CREATE TABLE IF NOT EXISTS preferences(user_id INTEGER PRIMARY KEY REFERENCES users(id),value TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS audit_events(id INTEGER PRIMARY KEY AUTOINCREMENT,actor_id INTEGER NOT NULL,target_id INTEGER NOT NULL,action TEXT NOT NULL,created_at INTEGER NOT NULL);
 CREATE TABLE IF NOT EXISTS migration_markers(name TEXT PRIMARY KEY,created_at INTEGER NOT NULL);`)
-	return err
+	if err != nil {
+		return err
+	}
+	return server.migrateLastAccess()
+}
+
+func (server *Server) migrateLastAccess() error {
+	rows, err := server.db.Query("PRAGMA table_info(users)")
+	if err != nil {
+		return err
+	}
+	found := false
+	for rows.Next() {
+		var index, required, primary int
+		var name, kind string
+		var defaultValue any
+		if err := rows.Scan(&index, &name, &kind, &required, &defaultValue, &primary); err != nil {
+			rows.Close()
+			return err
+		}
+		found = found || name == "last_access_at"
+	}
+	err = rows.Err()
+	rows.Close()
+	if err != nil {
+		return err
+	}
+	transaction, err := server.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer transaction.Rollback()
+	if !found {
+		if _, err = transaction.Exec("ALTER TABLE users ADD COLUMN last_access_at INTEGER NOT NULL DEFAULT 0"); err != nil {
+			return err
+		}
+	}
+	if _, err = transaction.Exec(`UPDATE users SET last_access_at=MAX(last_access_at,last_login,
+COALESCE((SELECT MAX(last_seen) FROM sessions WHERE sessions.user_id=users.id AND stage='full'),0))`); err != nil {
+		return err
+	}
+	return transaction.Commit()
 }
 
 func (server *Server) Users() ([]User, error) {
