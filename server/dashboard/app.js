@@ -157,6 +157,7 @@ const state = {
   killAssistant: null,   // 待终止会话所属助手
   killMacId: null,       // 待终止会话所在设备
   deviceStatuses: {},
+  deviceIPs: {},         // id -> Headscale registry IP
   nodes: {},             // id -> online
   gatewayDown: false,    // /api/nodes.json 拉取失败（网关不可达）——与「没有 Mac 入网」区分开
   gatewayReason: '',     // 失败原因（HTTP 5xx / network error），排障用
@@ -641,12 +642,14 @@ async function refreshNodes() {
     // 解析成功即证明网关这一层是活的（后面若因数据形状抛错，不该被误判成「连不上」）。
     markGatewayReachable();
     const online = {};
+    const ips = {};
     const ids = [];
     for (const device of (list.devices || [])) {
       const id = String(device.id || '');
       if (!/^m\d+$/.test(id)) continue;
       if (!ids.includes(id)) ids.push(id);
       online[id] = deviceConnectionState(device).online;
+      ips[id] = String(device.ip || '').trim();
       state.deviceStatuses[id] = device.status || 'active';
       if (device.name) macNames[id] = device.name;
     }
@@ -654,6 +657,7 @@ async function refreshNodes() {
     const previousOnline = JSON.stringify(state.nodes);
     MACS = ids.map((id) => ({ id }));
     state.nodes = online;
+    state.deviceIPs = ips;
     const rosterChanged = previousIDs !== ids.join(',') || previousOnline !== JSON.stringify(online);
     const known = new Set(ids);
     if (state.sessionMacId !== 'all' && !known.has(state.sessionMacId)) state.sessionMacId = 'all';
@@ -7761,7 +7765,7 @@ async function openHostModal(id) {
   renderHostAppearanceChoices();
   const online = state.nodes[id];
   const st = $('#hm-state'); st.textContent = online ? '在线' : '离线'; st.className = 'badge ' + (online ? 'ok' : '');
-  $('#hm-ip').textContent = '加载中…';
+  $('#hm-ip').textContent = state.deviceIPs[id] || '—';
   setPingChip('...', 'pending');
   $('#hm-http').value = ''; $('#hm-https').value = ''; $('#hm-proxy-on').checked = false;
   state.hostOriginalProxy = hostProxyForm();
@@ -7770,14 +7774,13 @@ async function openHostModal(id) {
   try {
     const info = await api(id, 'info');
     if (state.hostModalMac !== id) return;
-    $('#hm-ip').textContent = info.meshIP || '—';
     pingHost(id);
     const p = info.proxy || {};
     $('#hm-http').value = p.http || DEFAULT_PROXY;
     $('#hm-https').value = p.https || DEFAULT_PROXY;
     $('#hm-proxy-on').checked = !!p.enabled;
     state.hostOriginalProxy = hostProxyForm();
-  } catch (e) { $('#hm-ip').textContent = '连不上（' + e.message + '）'; setPingChip('失败', 'bad'); }
+  } catch (_) { setPingChip('失败', 'bad'); }
 }
 
 async function saveHost() {
@@ -8478,6 +8481,7 @@ function stopAuthenticatedDashboard() {
   state.fileColumns = [];
   state.filePaths = {};
   state.deviceStatuses = {};
+  state.deviceIPs = {};
   state.pool = [];
   state.current = null;
   state.nodes = {};
