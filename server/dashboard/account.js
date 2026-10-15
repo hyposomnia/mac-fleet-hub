@@ -266,6 +266,10 @@
       const list = node('div', '', { className: 'account-device-list' });
       let dragged = null;
       let orderBeforeDrag = [];
+      function restoreOrder() {
+        const rows = new Map([...list.children].map(row => [row.dataset.deviceId, row]));
+        for (const id of orderBeforeDrag) if (rows.has(id)) list.insertBefore(rows.get(id), null);
+      }
       async function saveOrder() {
         const order = [...list.children].map(row => row.dataset.deviceId);
         try {
@@ -273,11 +277,23 @@
           status.textContent = '设备顺序已保存。';
           await onDevicesChanged?.();
         } catch (error) {
-          const rows = new Map([...list.children].map(row => [row.dataset.deviceId, row]));
-          for (const id of orderBeforeDrag) if (rows.has(id)) list.insertBefore(rows.get(id), null);
+          restoreOrder();
           status.textContent = error.message;
         }
       }
+      list.ondragover = event => {
+        if (!dragged) return;
+        event.preventDefault();
+        event.dataTransfer.dropEffect = 'move';
+      };
+      list.ondrop = async event => {
+        event.preventDefault();
+        if (!dragged) return;
+        const saving = saveOrder();
+        dragged = null;
+        await saving;
+        orderBeforeDrag = [];
+      };
       for (const device of records) {
         if (!/^m[1-9]\d*$/.test(device.id || '')) continue;
         let savedAppearance = deviceAppearance(appearances?.[device.id]);
@@ -415,8 +431,12 @@
           const box = row.getBoundingClientRect();
           list.insertBefore(dragged, event.clientY > box.top + box.height / 2 ? row.nextElementSibling : row);
         };
-        row.ondrop = async event => { event.preventDefault(); if (dragged) await saveOrder(); dragged = null; };
-        row.ondragend = () => { dragged = null; };
+        row.ondragend = () => {
+          if (!dragged) return;
+          restoreOrder();
+          dragged = null;
+          orderBeforeDrag = [];
+        };
         list.append(row);
         void probeDevice(device.id, latency);
       }

@@ -1,5 +1,5 @@
 // PWA 外壳缓存。终端、API 与用户文件必须实时，明确不进入 Cache Storage。
-const CACHE = 'fleet-shell-v226';
+const CACHE = 'fleet-shell-v227';
 const FILE_TYPE_ICONS = [
   'audio', 'c', 'console', 'cpp', 'csharp', 'css', 'dart', 'database', 'docker',
   'document', 'exe', 'font', 'git', 'go', 'html', 'image', 'java', 'javascript',
@@ -14,15 +14,15 @@ const CODEMIRROR_ASSETS = [
   'javascript', 'xml', 'jsx', 'css', 'go', 'python', 'ruby', 'shell', 'yaml', 'toml', 'properties',
 ].map((name, index) => index < 2 ? name : `/vendor/codemirror/mode/${name}/${name}.js?v=5.65.20`);
 const SHELL = [
-  '/', '/index.html', '/automation-guide.html', '/automation-records.html', '/automation-records.js?v=226', '/record_pager.js?v=226', '/theme.js?v=226', '/device_appearance.js?v=226', '/style.css?v=226', '/account.css?v=226', '/auth-client.js?v=226',
+  '/', '/index.html', '/automation-guide.html', '/automation-records.html', '/automation-records.js?v=227', '/record_pager.js?v=227', '/theme.js?v=227', '/device_appearance.js?v=227', '/style.css?v=227', '/account.css?v=227', '/auth-client.js?v=227',
   '/vendor/purify.min.js?v=3.2.6', '/vendor/marked.min.js?v=15.0.12',
   ...CODEMIRROR_ASSETS,
-  "/fleet_core.js?v=226", "/workspace.js?v=226", "/native_bridge.js?v=226", "/native.css?v=226", "/titanium.css?v=226", "/icons/logo.svg?v=226",
-  '/markdown.js?v=226', '/preview.js?v=226', '/chat_model.js?v=226',
-  '/account.js?v=226', '/settings_dialog.js?v=226', '/auth_effects.js?v=226',
-  '/upload_model.js?v=226', '/sidebar_layout.js?v=226', '/workspace_tabs.js?v=226', '/compact_composer.js?v=226', '/app.js?v=226',
-  '/manifest.webmanifest', '/icons/icon.svg?v=226', '/icons/favicon.svg?v=226', '/icons/icon-180.png?v=226', '/icons/icon-192.png?v=226',
-  '/icons/icon-512.png?v=226', '/icons/icon-maskable-512.png?v=226',
+  "/fleet_core.js?v=227", "/workspace.js?v=227", "/native_bridge.js?v=227", "/native.css?v=227", "/titanium.css?v=227", "/icons/logo.svg?v=227",
+  '/markdown.js?v=227', '/preview.js?v=227', '/chat_model.js?v=227',
+  '/account.js?v=227', '/settings_dialog.js?v=227', '/auth_effects.js?v=227',
+  '/upload_model.js?v=227', '/sidebar_layout.js?v=227', '/workspace_tabs.js?v=227', '/compact_composer.js?v=227', '/app.js?v=227',
+  '/manifest.webmanifest', '/icons/icon.svg?v=227', '/icons/favicon.svg?v=227', '/icons/icon-180.png?v=227', '/icons/icon-192.png?v=227',
+  '/icons/icon-512.png?v=227', '/icons/icon-maskable-512.png?v=227',
   ...FILE_TYPE_ICONS,
 ];
 const SHELL_KEYS = new Set(SHELL);

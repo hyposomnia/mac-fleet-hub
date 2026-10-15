@@ -437,10 +437,27 @@ test('dragging devices persists their order', async () => {
   const [first, second] = list.children;
   second.ondragstart({ dataTransfer: { effectAllowed: '', setData() {} } });
   first.ondragover({ preventDefault() {}, clientY: 0 });
-  await first.ondrop({ preventDefault() {} });
+  let dropAllowed = false;
+  const dataTransfer = { dropEffect: '' };
+  list.ondragover({ preventDefault() { dropAllowed = true; }, dataTransfer });
+  assert.equal(dropAllowed, true);
+  assert.equal(dataTransfer.dropEffect, 'move');
+  await list.ondrop({ preventDefault() {} });
   assert.deepEqual(list.children.map(row => row.dataset.deviceId), ['m2', 'm1']);
   const orderCall = current.calls.find(call => call.url === '/api/settings' && call.method === 'PATCH' && call.body?.order);
   assert.deepEqual(JSON.parse(JSON.stringify(orderCall.body)), { order: ['m2', 'm1'] });
+});
+
+test('canceling a device drag restores the saved order without persisting', async () => {
+  const current = harness({ page: 'add-device', devices: [{ id: 'm1', name: 'One' }, { id: 'm2', name: 'Two' }] });
+  await current.start();
+  const list = current.find(node => node.className === 'account-device-list');
+  const [first, second] = list.children;
+  second.ondragstart({ dataTransfer: { effectAllowed: '', setData() {} } });
+  first.ondragover({ preventDefault() {}, clientY: 0 });
+  second.ondragend();
+  assert.deepEqual(list.children.map(row => row.dataset.deviceId), ['m1', 'm2']);
+  assert.ok(!current.calls.some(call => call.url === '/api/settings' && call.method === 'PATCH' && call.body?.order));
 });
 
 test('login and device setup omit redundant introductory copy without dropping account identity or security reminders', async () => {
