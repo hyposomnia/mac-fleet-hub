@@ -30,12 +30,41 @@ final class DesignTests: XCTestCase {
         XCTAssertTrue(FleetSetupAction.authorizesDiskAfterInstallation(arguments: ["Fleet Hub", "--fleet-install-and-start", "--fleet-authorize-disk"]))
     }
 
-    func testTemporaryLaunchCanOpenInstalledAppAndCarryOnlyAValidatedOrigin() throws {
-        XCTAssertEqual(FleetSetupAction.installationTitle(installed: true), "打开已安装应用")
+    func testTemporaryLaunchOffersReplacementAndCarriesOnlyAValidatedOrigin() throws {
+        XCTAssertEqual(FleetSetupAction.installationTitle(installed: true), "替换并安装新版")
         XCTAssertEqual(FleetSetupAction.installationTitle(installed: false), "安装并启动")
         XCTAssertEqual(FleetSetupAction.initialOrigin(arguments: ["Fleet Hub", "--fleet-origin=https://fleet.example.test"]), "https://fleet.example.test")
         XCTAssertNil(FleetSetupAction.initialOrigin(arguments: ["Fleet Hub", "--fleet-origin=https://fleet.example.test/path"]))
     }
+    func testReplacementConsentTravelsOnlyWithConfirmedInstallLaunch() {
+        let fresh = FleetSetupAction.installationArguments(replacementConfirmed: false)
+        XCTAssertTrue(FleetSetupAction.startsAfterInstallation(arguments: fresh))
+        XCTAssertFalse(FleetSetupAction.replacementConfirmed(arguments: fresh))
+        let confirmed = FleetSetupAction.installationArguments(replacementConfirmed: true)
+        XCTAssertTrue(FleetSetupAction.replacementConfirmed(arguments: confirmed))
+        XCTAssertFalse(FleetSetupAction.replacementConfirmed(arguments: ["--fleet-replace-legacy-confirmed"]))
+        XCTAssertFalse(FleetSetupAction.replacementConfirmed(arguments: []))
+    }
+
+    func testReplacementConfirmationExplainsPreservedData() {
+        XCTAssertEqual(FleetSetupAction.replacementTitle, "卸载旧版并安装新版？")
+        XCTAssertTrue(FleetSetupAction.replacementMessage(legacy: false).contains("保留"))
+        XCTAssertTrue(FleetSetupAction.replacementMessage(legacy: false).contains("关联"))
+        XCTAssertTrue(FleetSetupAction.replacementMessage(legacy: false).contains("聊天会话"))
+    }
+
+    func testLegacyReplacementExplainsBrowserReassociationWithoutPromisingPreservedBinding() {
+        let message = FleetSetupAction.replacementMessage(legacy: true)
+        XCTAssertTrue(message.contains("安装后需在网页确认账号关联"))
+        XCTAssertTrue(message.contains("保留本机配置、聊天会话和个人文件"))
+        XCTAssertFalse(message.contains("保留账号关联"))
+        XCTAssertTrue(message.contains("短暂断开"))
+        XCTAssertTrue(message.contains("请勿发送新任务"))
+        XCTAssertFalse(message.contains("不会被强制中断"))
+        XCTAssertFalse(FleetSetupAction.replacementMessage(legacy: false).contains("请勿发送新任务"))
+        XCTAssertTrue(FleetSetupAction.replacementMessage(legacy: false).contains("保留账号关联"))
+    }
+
     func testNavigationMetricsAndAccountSettingsPages() {
         XCTAssertEqual(FleetTheme.controlHeight, 44)
         XCTAssertEqual(FleetTheme.controlRadius, 8)

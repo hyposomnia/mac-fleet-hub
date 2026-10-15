@@ -8,6 +8,25 @@ import assert from 'node:assert/strict';
 
 const read = (relative) => readFileSync(fileURLToPath(new URL(relative, import.meta.url)), 'utf8');
 
+test('installer packages a Finder alias with its own Applications icon', { skip: process.platform !== 'darwin' }, () => {
+  const directory = mkdtempSync(join(tmpdir(), 'fleet-applications-icon-'));
+  try {
+    const destination = join(directory, 'Applications');
+    const result = spawnSync('swift', [fileURLToPath(new URL('./create-applications-alias.swift', import.meta.url)), destination], { encoding: 'utf8' });
+    assert.equal(result.status, 0, result.stderr);
+    const flags = spawnSync('xattr', ['-px', 'com.apple.FinderInfo', destination], { encoding: 'utf8' });
+    assert.equal(flags.status, 0, flags.stderr);
+    const finderInfo = Buffer.from(flags.stdout.replace(/\s/g, ''), 'hex');
+    assert.equal(finderInfo.readUInt16BE(8) & 0x8400, 0x8400, 'alias and custom icon flags');
+    const icon = spawnSync('xattr', ['-px', 'com.apple.ResourceFork', destination], { encoding: 'utf8' });
+    assert.equal(icon.status, 0, icon.stderr);
+    assert.ok(icon.stdout.length > 1000, 'icon data is embedded');
+    const native = read('./lib/native-candidate-release.sh');
+    assert.match(native, /swift.*create-applications-alias\.swift/);
+    assert.doesNotMatch(native, /ln -s \/Applications/);
+  } finally { rmSync(directory, { recursive: true, force: true }); }
+});
+
 test('disk permissions always offer authorization and prepare the standalone drag target', () => {
   const view = read('../mac/settings-app/Sources/FleetHub/SettingsView.swift');
   const privacy = view.slice(view.indexOf('private var privacy:'), view.indexOf('private var about:'));
@@ -187,7 +206,10 @@ test('native sidebar and shared buttons hit the whole padded area, with first-ru
   assert.match(navigation, /contentShape\(Rectangle\(\)\)/);
   const view = read('../mac/settings-app/Sources/FleetHub/SettingsView.swift');
   assert.match(view, /Button\(setupAction == \.installApplication \? installationTitle : setupAction\.title\)/);
-  assert.match(view, /--fleet-install-and-start/);
+  assert.match(view, /configuration\.arguments = FleetSetupAction\.installationArguments\(replacementConfirmed: needsConfirmation\)/);
+  const setup = read('../mac/settings-app/Sources/FleetHub/FleetSetupAction.swift');
+  assert.match(setup, /--fleet-install-and-start/);
+  assert.match(setup, /--fleet-replace-legacy-confirmed/);
   assert.match(view, /configuration\.createsNewApplicationInstance = true/);
   assert.doesNotMatch(view, /page = \.about; return/);
 });

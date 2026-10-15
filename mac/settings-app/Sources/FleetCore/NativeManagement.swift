@@ -95,10 +95,10 @@ public final class NativeManagement: LocalManagement {
         } catch { await resumeAfterCancelledStop(); throw error }
     }
 
-    public func install() async throws -> URL {
+    public func install(replaceExisting: Bool = false) async throws -> URL {
         let destination = RuntimeLayout.installedApplication()
         guard layout.requiresInstallation else { return destination }
-        try await ApplicationInstaller.install(source: layout.application, destination: destination) { candidate in
+        try await ApplicationInstaller.install(source: layout.application, destination: destination, replaceExisting: replaceExisting) { candidate in
             _ = try await CommandRunner.run(executable: URL(fileURLWithPath: "/usr/sbin/spctl"), arguments: ["--assess", "--type", "execute", candidate.path], timeout: 30)
             _ = try await CommandRunner.run(executable: URL(fileURLWithPath: "/usr/bin/codesign"), arguments: ["--verify", "--deep", "--strict", candidate.path], timeout: 30)
         }
@@ -136,9 +136,15 @@ public final class NativeManagement: LocalManagement {
         } catch { await resumeAfterCancelledStop(); throw error }
     }
 
-    public func start() async throws {
+    public func hasLegacyInstallation() async throws -> Bool {
+        try await LegacyFleetMigration.inspect(layout: layout, execute: execute) != nil
+    }
+
+    public func start() async throws { try await start(replaceLegacy: false) }
+
+    public func start(replaceLegacy: Bool) async throws {
         try await validateInstallation()
-        try await synchronizeBackground(launch: true)
+        try await synchronizeBackground(launch: true, replaceLegacy: replaceLegacy)
         try await ensureCodexSharedRuntime()
     }
 
@@ -167,11 +173,14 @@ public final class NativeManagement: LocalManagement {
         }
     }
 
-    func synchronizeBackground(launch: Bool) async throws {
+    func synchronizeBackground(launch: Bool, replaceLegacy: Bool = false) async throws {
         let expected = try BackgroundIdentity.read(layout.application, identifier: "com.macfleet.fleet-hub")
         let verify = try await BackgroundRuntimeVerifier.verifier(host: layout.application, execute: execute)
         try await verify(layout.bundledBackgroundApplication)
         let legacy = try await LegacyFleetMigration.inspect(layout: layout, execute: execute)
+        guard legacy == nil || replaceLegacy else {
+            throw FleetError.message("检测到旧版本 Fleet，请确认卸载旧版本并安装新版。关联配置和会话数据将保留。")
+        }
         let launch = launch || legacy?.wasLoaded == true
         try BackgroundRuntimeInstaller.validateInstalled(layout.backgroundApplication)
         if let installed = try? BackgroundIdentity.read(layout.backgroundApplication, identifier: "com.macfleet.fleet-agent"), installed.build > expected.build {

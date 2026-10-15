@@ -83,7 +83,7 @@ run_native_candidate_release() {
   signature="$("$ROOT/mac/settings-app/Vendor/bin/sign_update" --account "$FLEET_SPARKLE_ACCOUNT" -p "$work/distribution/Fleet-Hub-update.zip")"
   "$ROOT/mac/settings-app/Vendor/bin/sign_update" --account "$FLEET_SPARKLE_ACCOUNT" --verify "$work/distribution/Fleet-Hub-update.zip" "$signature"
   ditto "$app" "$work/dmg/Fleet Agent Settings.app"
-  ln -s /Applications "$work/dmg/Applications"
+  swift "$ROOT/scripts/create-applications-alias.swift" "$work/dmg/Applications"
   hdiutil create -volname 'Fleet Agent Settings' -srcfolder "$work/dmg" -format UDZO "$work/distribution/Fleet-Hub.dmg"
   codesign --force --timestamp --sign "$FLEET_CODESIGN_IDENTITY" "$work/distribution/Fleet-Hub.dmg"
   xcrun notarytool submit "$work/distribution/Fleet-Hub.dmg" --keychain-profile "$NOTARY_PROFILE" "$notary_upload_option" --wait --timeout 60m --output-format json | tee "$work/dmg-notary.json"

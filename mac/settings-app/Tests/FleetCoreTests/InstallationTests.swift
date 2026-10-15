@@ -48,4 +48,38 @@ final class InstallationTests: XCTestCase {
         } catch {}
         XCTAssertEqual(try String(contentsOf: destination.appendingPathComponent("payload")), "other installation")
     }
+    func testConfirmedReplacementRemovesOldFilesAndRollsBackFailedVerification() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        func app(_ name: String, build: String) throws -> URL {
+            let url = root.appendingPathComponent(name)
+            try FileManager.default.createDirectory(at: url.appendingPathComponent("Contents"), withIntermediateDirectories: true)
+            let plist = ["CFBundleIdentifier": "com.macfleet.fleet-hub", "CFBundleShortVersionString": "0.1.10", "CFBundleVersion": build]
+            try PropertyListSerialization.data(fromPropertyList: plist, format: .xml, options: 0).write(to: url.appendingPathComponent("Contents/Info.plist"))
+            return url
+        }
+        let source = try app("new.app", build: "12")
+        let destination = try app("installed.app", build: "11")
+        try Data("old".utf8).write(to: destination.appendingPathComponent("obsolete"))
+        do {
+            try await ApplicationInstaller.install(source: source, destination: destination, replaceExisting: true) { candidate in
+                if candidate == destination { throw FleetError.message("post-install verification failed") }
+            }
+            XCTFail("accepted failed final verification")
+        } catch {}
+        XCTAssertEqual(try BackgroundIdentity.read(destination, identifier: "com.macfleet.fleet-hub").build, 11)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: destination.appendingPathComponent("obsolete").path))
+        try await ApplicationInstaller.install(source: source, destination: destination, replaceExisting: true) { _ in }
+        XCTAssertEqual(try BackgroundIdentity.read(destination, identifier: "com.macfleet.fleet-hub").build, 12)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: destination.appendingPathComponent("obsolete").path))
+        let older = try app("older.app", build: "10")
+        do {
+            try await ApplicationInstaller.install(source: older, destination: destination, replaceExisting: true) { _ in }
+            XCTFail("downgraded installed application")
+        } catch {}
+        XCTAssertEqual(try BackgroundIdentity.read(destination, identifier: "com.macfleet.fleet-hub").build, 12)
+        try await ApplicationInstaller.install(source: source, destination: destination, replaceExisting: true) { _ in }
+        XCTAssertEqual(Set(try FileManager.default.contentsOfDirectory(atPath: root.path)), ["new.app", "installed.app", "older.app"])
+    }
+
 }

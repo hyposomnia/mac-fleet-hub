@@ -28,6 +28,9 @@ struct SettingsView: View {
     @State private var operationBusy = false
     @State private var openedAttempt = ""
     @State private var confirmUninstall = false
+    @State private var confirmReplacement = false
+    @State private var replacementIncludesLegacy = false
+    @State private var replacementAction: (@MainActor () async throws -> Void)?
     @State private var confirmLogout = false
     @State private var previewRestriction = false
     @State private var removeSettings = false
@@ -150,7 +153,24 @@ struct SettingsView: View {
             await updater.recoverAfterLaunch()
             if !updater.recoveryPending {
                 do {
-                    if FleetSetupAction.startsAfterInstallation(arguments: CommandLine.arguments) { try await management.start() }
+                    if FleetSetupAction.replacementConfirmed(arguments: CommandLine.arguments) {
+                        try await management.start(replaceLegacy: true)
+                    } else if try await management.hasLegacyInstallation() {
+                        replacementAction = {
+                            try await management.start(replaceLegacy: true)
+                            await model.refresh()
+                            try await management.setAutoStart(model.autoStart)
+                            if FleetSetupAction.authorizesDiskAfterInstallation(arguments: CommandLine.arguments) {
+                                page = .privacy
+                                try await diskGuide.authorize(applicationURL: management.layout.backgroundApplication) {
+                                    try await management.start()
+                                    await model.refresh()
+                                }
+                            }
+                        }
+                        replacementIncludesLegacy = true
+                        confirmReplacement = true
+                    } else if FleetSetupAction.startsAfterInstallation(arguments: CommandLine.arguments) { try await management.start() }
                     else { try await management.prepareRuntime() }
                 }
                 catch { operationError = error.localizedDescription }
@@ -161,7 +181,7 @@ struct SettingsView: View {
                 do { try await management.setAutoStart(model.autoStart) }
                 catch { operationError = error.localizedDescription }
             }
-            if FleetSetupAction.authorizesDiskAfterInstallation(arguments: CommandLine.arguments), !updater.recoveryPending {
+            if FleetSetupAction.authorizesDiskAfterInstallation(arguments: CommandLine.arguments), !updater.recoveryPending, !confirmReplacement {
                 page = .privacy
                 do {
                     try await diskGuide.authorize(applicationURL: management.layout.backgroundApplication) {
@@ -178,6 +198,14 @@ struct SettingsView: View {
                 openAuthorizationBrowser()
             }
         }
+        .alert(FleetSetupAction.replacementTitle, isPresented: $confirmReplacement) {
+            Button("取消", role: .cancel) { replacementAction = nil }
+            Button("卸载旧版并安装新版") {
+                let action = replacementAction
+                replacementAction = nil
+                if let action { perform { try await action() } }
+            }
+        } message: { Text(FleetSetupAction.replacementMessage(legacy: replacementIncludesLegacy)) }
         .alert("解除此设备关联？", isPresented: $confirmLogout) {
             Button("取消", role: .cancel) {}
             Button("解除关联", role: .destructive) { perform { try await management.logout(); await model.refresh() } }
@@ -239,7 +267,7 @@ struct SettingsView: View {
                     if model.status == nil {
                         Button(setupAction == .installApplication ? installationTitle : setupAction.title) {
                             if setupAction == .installApplication { installApplication() }
-                            else { perform(allowPreview: true) { try await management.start(); await model.refresh(); try await management.setAutoStart(model.autoStart) } }
+                            else { startWithConfirmation { try await management.setAutoStart(model.autoStart) } }
                         }
                         .buttonStyle(.borderedProminent)
                     } else {
@@ -382,7 +410,7 @@ struct SettingsView: View {
                     Button("授权磁盘访问") {
                         if management.layout.requiresInstallation { installApplication(authorizeDisk: true) }
                         else {
-                            perform {
+                            startWithConfirmation {
                                 try await diskGuide.authorize(applicationURL: management.layout.backgroundApplication) {
                                     try await management.start()
                                     await model.refresh()
@@ -489,25 +517,49 @@ struct SettingsView: View {
     }
     private func installApplication(authorizeDisk: Bool = false) {
         perform {
-            let installed: URL
-            if FileManager.default.fileExists(atPath: RuntimeLayout.installedApplication().path) { installed = try await management.installedApplication() }
-            else { installed = try await management.install() }
-            let configuration = NSWorkspace.OpenConfiguration()
-            configuration.arguments = ["--fleet-install-and-start"]
-            if authorizeDisk { configuration.arguments.append("--fleet-authorize-disk") }
-            if let origin = try? FleetSettings.validatedOrigin(model.origin) { configuration.arguments.append("--fleet-origin=\(origin)") }
-            configuration.createsNewApplicationInstance = true
-            _ = try await NSWorkspace.shared.openApplication(at: installed, configuration: configuration)
-            NSApplication.shared.terminate(nil)
+            let existingApplication = FileManager.default.fileExists(atPath: RuntimeLayout.installedApplication().path)
+            let legacy = try await management.hasLegacyInstallation()
+            let needsConfirmation = existingApplication || legacy
+            let action: @MainActor () async throws -> Void = {
+                let installed = try await management.install(replaceExisting: needsConfirmation)
+                let configuration = NSWorkspace.OpenConfiguration()
+                configuration.arguments = FleetSetupAction.installationArguments(replacementConfirmed: needsConfirmation)
+                if authorizeDisk { configuration.arguments.append("--fleet-authorize-disk") }
+                if let origin = try? FleetSettings.validatedOrigin(model.origin) { configuration.arguments.append("--fleet-origin=\(origin)") }
+                configuration.createsNewApplicationInstance = true
+                _ = try await NSWorkspace.shared.openApplication(at: installed, configuration: configuration)
+                NSApplication.shared.terminate(nil)
+            }
+            if needsConfirmation {
+                replacementAction = action
+                replacementIncludesLegacy = legacy
+                confirmReplacement = true
+            } else { try await action() }
+        }
+    }
+    private func startWithConfirmation(_ afterStart: @escaping @MainActor () async throws -> Void = {}) {
+        perform(allowPreview: true) {
+            let legacy = try await management.hasLegacyInstallation()
+            let action: @MainActor () async throws -> Void = {
+                try await management.start(replaceLegacy: legacy)
+                await model.refresh()
+                try await afterStart()
+            }
+            if legacy {
+                replacementAction = action
+                replacementIncludesLegacy = legacy
+                confirmReplacement = true
+            } else { try await action() }
         }
     }
     private func saveSettings(authorize: Bool) {
         saveDelay?.cancel()
-        perform {
-            if model.status == nil { try await management.start(); await model.refresh() }
+        let save: @MainActor () async throws -> Void = {
             guard await model.save() else { return }
             if authorize { await model.beginPairing() }
         }
+        if model.status == nil { startWithConfirmation(save) }
+        else { perform { try await save() } }
     }
     private var autoStartBinding: Binding<Bool> {
         Binding(get: { model.autoStart }, set: { value in

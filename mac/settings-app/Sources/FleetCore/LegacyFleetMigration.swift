@@ -20,6 +20,14 @@ final class LegacyFleetMigration {
     private var backup: URL?
     private var stopped = false
     private var retired = false
+    private struct RetiredComponent {
+        let source: URL
+        let backup: URL
+        let target: String?
+        let wasLoaded: Bool
+        var moved: Bool = false
+    }
+    private var retiredComponents: [RetiredComponent] = []
     private var target: String { "gui/\(getuid())/com.macfleet.fleet-agent" }
 
     private init(layout: RuntimeLayout, definition: URL, original: Data, loaded: Data?, autoStart: Bool, environment: [String: String],
@@ -95,11 +103,12 @@ final class LegacyFleetMigration {
             throw FleetError.message("旧 Fleet 状态已变化，未替换它，请重试。")
         }
         if wasLoaded {
-            // Reuse the existing Codex migration guard; queued deliveries must finish first.
             try checkQueueIdle()
+            try await LegacyUpdateSafety.checkOtherAssistants(listen: environment["FLEET_LISTEN"] ?? "127.0.0.1:7682",
+                                                              credentialConfig: try legacyCredentialConfig(), execute: execute)
             let codexHome = environment["FLEET_CODEX_HOME"].flatMap { $0.isEmpty ? nil : $0 } ?? layout.home.appendingPathComponent(".codex").path
-            let script = layout.bundledBackgroundApplication.appendingPathComponent("Contents/Resources/codex/check-codex-idle.sh")
-            _ = try await execute(URL(fileURLWithPath: "/usr/bin/env"), ["FLEET_CODEX_HOME=" + codexHome, "/bin/bash", script.path], nil, 30)
+            try await LegacyUpdateSafety.check(codexHome: URL(fileURLWithPath: codexHome),
+                                              listen: environment["FLEET_LISTEN"] ?? "127.0.0.1:7682", credentialConfig: try legacyCredentialConfig(), execute: execute)
         }
         let directory = layout.state.appendingPathComponent("migrations/\(UUID().uuidString)")
         try PrivateRuntime.ensureDirectory(directory)
@@ -113,6 +122,7 @@ final class LegacyFleetMigration {
         guard try Self.readOwnedFile(definition) == original else { throw FleetError.message("旧 Fleet 启动定义已变化，未移除它。") }
         try FileManager.default.removeItem(at: definition)
         retired = true
+        try await retireLegacyComponents(into: directory)
         // Share the single durable queue across migration and rollback. Never clone
         // pending messages into another queue, which could replay accepted work.
         let migratedFile = layout.state.appendingPathComponent("migrated-environment.json")
@@ -123,6 +133,19 @@ final class LegacyFleetMigration {
     }
 
     func restore() async throws {
+        for index in retiredComponents.indices.reversed() {
+            let component = retiredComponents[index]
+            if component.moved {
+                guard renamex_np(component.backup.path, component.source.path, UInt32(RENAME_EXCL)) == 0 else {
+                    throw FleetError.message("无法恢复旧 Fleet 组件，备份保留在 \(component.backup.path)")
+                }
+                retiredComponents[index].moved = false
+            }
+            if component.wasLoaded, let target = component.target,
+               (try? await execute(URL(fileURLWithPath: "/bin/launchctl"), ["print", target], nil, 8)) == nil {
+                _ = try await execute(URL(fileURLWithPath: "/bin/launchctl"), ["bootstrap", "gui/\(getuid())", component.source.path], nil, 8)
+            }
+        }
         if migratedEnvironmentWritten {
             try FileManager.default.removeItem(at: layout.state.appendingPathComponent("migrated-environment.json"))
             migratedEnvironmentWritten = false
@@ -139,6 +162,58 @@ final class LegacyFleetMigration {
             }
             stopped = false
         }
+    }
+
+    private func legacyCredentialConfig() throws -> Data? {
+        let file = URL(fileURLWithPath: environment["FLEET_BINDING_FILE"] ?? layout.home.appendingPathComponent(".macfleet/binding.json").path)
+        guard FileManager.default.fileExists(atPath: file.path) else { return nil }
+        guard let binding = try JSONSerialization.jsonObject(with: Self.readOwnedFile(file)) as? [String: Any],
+              let device = binding["device_id"] as? String, let token = binding["proxy_token"] as? String,
+              !device.isEmpty, !token.isEmpty,
+              (device + token).unicodeScalars.allSatisfy({ CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "-_" )).contains($0) }) else {
+            throw FleetError.message("旧 Fleet 关联配置无法读取，尚未停止旧版本。")
+        }
+        // Pass credentials on stdin, never command arguments or error output.
+        return Data("header = \"X-Fleet-Device-ID: \(device)\"\nheader = \"X-Fleet-Device-Token: \(token)\"\n".utf8)
+    }
+
+    private func retireLegacyComponents(into directory: URL) async throws {
+        // Retire only Fleet-owned launch definitions. Homebrew tools and the
+        // shared Codex keeper are shared dependencies, not obsolete Fleet data.
+        for label in ["com.macfleet.ttyd", "com.macfleet.filebrowser"] {
+            let file = definition.deletingLastPathComponent().appendingPathComponent(label + ".plist")
+            guard FileManager.default.fileExists(atPath: file.path) else { continue }
+            let data = try Self.readOwnedFile(file)
+            guard let value = try PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any],
+                  value["Label"] as? String == label,
+                  let arguments = value["ProgramArguments"] as? [String], let program = arguments.first else {
+                throw FleetError.message("旧 Fleet 组件启动定义无效，已保留备份并取消替换。")
+            }
+            let target = "gui/\(getuid())/" + label
+            let loaded = try? await execute(URL(fileURLWithPath: "/bin/launchctl"), ["print", target], nil, 8)
+            if let loaded {
+                let lines = String(decoding: loaded, as: UTF8.self).components(separatedBy: .newlines).map { $0.trimmingCharacters(in: .whitespaces) }
+                guard lines.contains("path = " + file.path), lines.contains("program = " + program) else {
+                    throw FleetError.message("旧 Fleet 组件运行记录不一致，未停止未知服务。")
+                }
+            }
+            let backup = directory.appendingPathComponent(file.lastPathComponent)
+            retiredComponents.append(RetiredComponent(source: file, backup: backup, target: target, wasLoaded: loaded != nil))
+            if loaded != nil { _ = try await execute(URL(fileURLWithPath: "/bin/launchctl"), ["bootout", target], nil, 8) }
+            guard try Self.readOwnedFile(file) == data else { throw FleetError.message("旧 Fleet 组件已变化，取消替换。") }
+            guard renamex_np(file.path, backup.path, UInt32(RENAME_EXCL)) == 0 else { throw FleetError.message("无法备份旧 Fleet 组件，取消替换。") }
+            retiredComponents[retiredComponents.count - 1].moved = true
+        }
+        let value = try PropertyListSerialization.propertyList(from: original, format: nil) as! [String: Any]
+        let executable = URL(fileURLWithPath: (value["ProgramArguments"] as! [String])[0])
+        // Only remove the per-user CLI installation; never remove a Homebrew or
+        // application-bundled executable just because a plist refers to it.
+        guard executable.standardizedFileURL == layout.home.appendingPathComponent(".local/bin/fleet-agent").standardizedFileURL,
+              FileManager.default.fileExists(atPath: executable.path) else { return }
+        _ = try Self.readOwnedFile(executable)
+        let backup = directory.appendingPathComponent("fleet-agent")
+        guard renamex_np(executable.path, backup.path, UInt32(RENAME_EXCL)) == 0 else { throw FleetError.message("无法备份旧 Fleet 程序，取消替换。") }
+        retiredComponents.append(RetiredComponent(source: executable, backup: backup, target: nil, wasLoaded: false, moved: true))
     }
 
     private static func processIdentity(_ output: Data?) -> [String: String]? {
