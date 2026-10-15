@@ -5,8 +5,38 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 	"unicode"
 )
+
+const adminPageSize = 20
+const adminOnlineWindow = 5 * time.Minute
+
+type adminUser struct {
+	User
+	Online bool `json:"online"`
+}
+
+func (server *Server) adminOnlineUsers(userID int64) (map[int64]bool, error) {
+	now := server.now()
+	rows, err := server.db.Query(`SELECT DISTINCT sessions.user_id FROM sessions
+JOIN users ON users.id=sessions.user_id
+WHERE users.status='active' AND sessions.stage='full' AND sessions.expires_at>?
+AND sessions.last_seen>=? AND (?=0 OR sessions.user_id=?)`, now.Unix(), now.Add(-adminOnlineWindow).Unix(), userID, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	online := map[int64]bool{}
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		online[id] = true
+	}
+	return online, rows.Err()
+}
 
 type ownedDevice struct {
 	ID        string `json:"id"`
@@ -196,11 +226,11 @@ func pageRequest(request *http.Request) int {
 	return page
 }
 func pageBounds(page, total int) (int, int) {
-	start := (page - 1) * 20
+	start := (page - 1) * adminPageSize
 	if start > total || start < 0 {
 		start = total
 	}
-	end := start + 20
+	end := start + adminPageSize
 	if end > total {
 		end = total
 	}
@@ -240,14 +270,19 @@ func (server *Server) handleAdmin(writer http.ResponseWriter, request *http.Requ
 			server.failure(writer, err)
 			return
 		}
-		filtered := []User{}
+		online, err := server.adminOnlineUsers(0)
+		if err != nil {
+			server.failure(writer, err)
+			return
+		}
+		filtered := []adminUser{}
 		for _, user := range users {
 			if strings.Contains(user.Email, search) {
-				filtered = append(filtered, user)
+				filtered = append(filtered, adminUser{User: user, Online: online[user.ID]})
 			}
 		}
 		start, end := pageBounds(page, len(filtered))
-		respond(writer, 200, map[string]any{"users": filtered[start:end], "total": len(filtered), "page": page})
+		respond(writer, 200, map[string]any{"users": filtered[start:end], "total": len(filtered), "page": page, "page_size": adminPageSize})
 		return
 	}
 	if path == "devices" && request.Method == "GET" {
@@ -310,6 +345,11 @@ func (server *Server) handleAdmin(writer http.ResponseWriter, request *http.Requ
 		return
 	}
 	if request.Method == "GET" {
+		online, err := server.adminOnlineUsers(userID)
+		if err != nil {
+			server.failure(writer, err)
+			return
+		}
 		devices, err := server.Devices(userID)
 		if err != nil {
 			server.failure(writer, err)
@@ -338,7 +378,7 @@ func (server *Server) handleAdmin(writer http.ResponseWriter, request *http.Requ
 			events = append(events, map[string]any{"actor_id": actorID, "action": action, "created_at": created})
 		}
 		rows.Close()
-		respond(writer, 200, map[string]any{"user": user, "devices": devices, "events": events, "event_page": eventPage, "event_total": eventTotal, "event_page_size": 50})
+		respond(writer, 200, map[string]any{"user": adminUser{User: user, Online: online[user.ID]}, "devices": devices, "events": events, "event_page": eventPage, "event_total": eventTotal, "event_page_size": 50})
 		return
 	}
 	if request.Method != "PATCH" {

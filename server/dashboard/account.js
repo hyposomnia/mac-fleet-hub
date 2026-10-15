@@ -218,22 +218,6 @@
       if (!Number.isFinite(milliseconds)) return '—';
       return new Date(milliseconds).toLocaleString('zh-CN', { hour12: false });
     }
-    const deviceColumns = [
-      ['设备', (device) => device.name || device.id], ['编号', (device) => device.id],
-      ['状态', (device) => device.status === 'unavailable' ? '正在重新连接' : device.status], ['在线', (device) => device.online ? '在线' : '离线'],
-      ['创建时间', (device) => formatTime(device.created_at)], ['最后在线', (device) => formatTime(device.last_seen)], ['版本', (device) => device.version],
-    ];
-    function devices(records, parent, administrative = false, reload) {
-      metadata(records, deviceColumns, parent, (device, cell) => {
-        if (!/^m\d+$/.test(device.id)) return;
-        button(`移除 ${device.name || device.id}`, async () => {
-          if (!confirm(`移除 ${device.name || device.id}？该设备将无法继续通过 Fleet 访问。`)) return;
-          await auth.json(`/api/${administrative ? 'admin/' : ''}devices/${device.id}`, { method: 'DELETE' });
-          await reload();
-        }, cell, true);
-      });
-    }
-
     function deviceAppearance(value) {
       return root.FleetDeviceAppearance?.normalize(value) || { icon: 'monitor', color: 'steel' };
     }
@@ -531,74 +515,135 @@
 
     async function showAdmin() {
       if (auth.user.role !== 'admin') { heading('需要管理员权限', '请使用管理员账户登录。'); return; }
-      const overview = await auth.json('/api/admin/overview');
-      heading('管理', `用户 ${overview.users} · 设备 ${overview.devices} · 在线 ${overview.online}`);
-      const detail = section('用户详情');
-      detail.hidden = true;
+      heading('用户');
+      const users = node('section', '', { className: 'account-section admin-users' });
+      const results = node('div');
+      const controls = node('div', '', { className: 'account-links' });
+      const drawer = node('dialog', '', { className: 'admin-user-drawer' });
+      drawer.setAttribute('aria-labelledby', 'admin-user-title');
+      drawer.setAttribute('aria-modal', 'true');
+      const drawerHeader = node('header', '', { className: 'admin-drawer-header' });
+      const drawerTitle = node('h2', '用户详情', { id: 'admin-user-title' });
+      drawerHeader.append(drawerTitle);
+      const close = button('关闭', () => drawer.close(), drawerHeader);
+      close.className = 'account-button admin-drawer-close';
+      const detail = node('div', '', { className: 'admin-drawer-body' });
+      detail.setAttribute('aria-live', 'polite');
+      drawer.append(drawerHeader, detail);
+      content.append(users, drawer);
       let selectedUser = null;
-      async function showUser(identity, eventPage = 1, eventSearch = '') {
-        const query = eventPage !== 1 || eventSearch ? `?event_page=${eventPage}&event_search=${encodeURIComponent(eventSearch)}` : '';
-        const result = await auth.json(`/api/admin/users/${encodeURIComponent(identity)}${query}`);
-        if (selectedUser !== identity) return;
-        detail.hidden = false;
-        detail.replaceChildren(node('h2', '用户详情'));
-        metadata([result.user], [['邮箱', (user) => user.email], ['编号', (user) => user.id],
-          ['角色', (user) => user.role], ['状态', (user) => user.status], ['创建时间', (user) => formatTime(user.created_at)]], detail);
-        button(result.user.status === 'disabled' ? '启用用户' : '停用用户', async () => {
-          const enabled = result.user.status === 'disabled';
-          if (!confirm(`${enabled ? '启用' : '停用'} ${result.user.email}？`)) return;
-          await auth.json(`/api/admin/users/${encodeURIComponent(identity)}`, { method: 'PATCH', body: { status: enabled ? 'active' : 'disabled' } });
-          await showUser(identity);
-          await loadUsers();
-        }, detail, true);
-        button('撤销用户登录', async () => {
-          if (!confirm(`撤销 ${result.user.email} 的所有登录？`)) return;
-          await post(`/api/admin/users/${encodeURIComponent(identity)}/revoke-sessions`);
-          status.textContent = '用户登录已撤销。';
-        }, detail, true);
-        devices(result.devices, detail, true, async () => { await showUser(identity); await loadDevices(); });
-        const events = section('事件', detail);
-        form('admin-event-search', [field('search', '搜索事件')], '搜索事件', values => showUser(identity, 1, values.search), events);
-        events.append(node('p', `第 ${eventPage} 页 · 共 ${result.event_total ?? result.events.length} 条`));
-        metadata(result.events, [['事件', (event) => event.action || event.type], ['时间', (event) => formatTime(event.created_at)],
-          ['操作者', (event) => event.actor_id], ['IP', (event) => event.ip]], events);
-        button('事件上一页', () => showUser(identity, eventPage - 1, eventSearch), events, false, () => eventPage <= 1);
-        button('事件下一页', () => showUser(identity, eventPage + 1, eventSearch), events, false, () => eventPage * (result.event_page_size || 50) >= (result.event_total ?? result.events.length));
+      let detailSequence = 0;
+      let trigger = null;
+      drawer.onclose = () => {
+        selectedUser = null;
+        detailSequence++;
+        trigger?.focus();
+      };
+      drawer.onclick = event => {
+        if (event.target !== drawer) return;
+        const rect = drawer.getBoundingClientRect();
+        if (event.clientX < rect.left || event.clientX > rect.right || event.clientY < rect.top || event.clientY > rect.bottom) drawer.close();
+      };
+      function presence(online) {
+        const badge = node('span', online ? '在线' : '离线', { className: 'admin-presence' });
+        badge.setAttribute('data-online', String(online === true));
+        return badge;
       }
-      function list(kind, title) {
-        const parent = section(title);
-        const results = node('div');
-        let search = '';
-        let page = 1;
-        let pageSize = 0;
-        let hasMore = false;
-        let sequence = 0;
-        const controls = node('div', '', { className: 'account-links' });
-        async function load() {
-          const started = ++sequence;
-          const data = await auth.json(`/api/admin/${kind}?search=${encodeURIComponent(search)}&page=${page}`);
-          if (started !== sequence) return;
-          if (page === 1) pageSize = data[kind]?.length || 1;
-          hasMore = Boolean(data[kind]?.length) && page * pageSize < data.total;
-          results.replaceChildren(node('p', `第 ${page} 页 · 共 ${data.total} 条`));
-          if (kind === 'users') {
-            metadata(data.users, [['邮箱', (user) => user.email], ['编号', (user) => user.id],
-              ['角色', (user) => user.role], ['状态', (user) => user.status]], results, (user, cell) => {
-              button(`查看 ${user.email}`, () => { selectedUser = user.id; return showUser(user.id); }, cell);
-            });
-          } else devices(data.devices, results, true, load);
-          previous.disabled = page <= 1;
-          following.disabled = !hasMore;
+      async function showUser(identity, eventPage = 1) {
+        selectedUser = identity;
+        const started = ++detailSequence;
+        detail.replaceChildren(node('p', '正在加载…', { className: 'account-muted' }));
+        detail.setAttribute('aria-busy', 'true');
+        if (!drawer.open) drawer.showModal();
+        try {
+          const query = eventPage === 1 ? '' : `?event_page=${eventPage}`;
+          const result = await auth.json(`/api/admin/users/${encodeURIComponent(identity)}${query}`);
+          if (!drawer.open || selectedUser !== identity || started !== detailSequence) return;
+          drawerTitle.textContent = result.user.email;
+          detail.replaceChildren();
+          const summary = node('div', '', { className: 'admin-user-summary' });
+          summary.append(presence(result.user.online), node('span', `设备 ${result.user.device_count}`));
+          detail.append(summary);
+          const devices = section('设备', detail);
+          const visibleDevices = result.devices.filter(device => device.status !== 'revoked');
+          if (!visibleDevices.length) devices.append(node('p', '暂无设备', { className: 'account-muted' }));
+          const deviceList = node('ul', '', { className: 'admin-device-list' });
+          for (const device of visibleDevices) {
+            const row = node('li');
+            const name = node('div', '', { className: 'admin-device-name' });
+            name.append(node('strong', device.name || device.id), node('span', device.id, { className: 'account-muted' }));
+            row.append(name, presence(device.status === 'active' && device.online === true));
+            deviceList.append(row);
+          }
+          devices.append(deviceList);
+          const events = section('事件', detail);
+          events.append(node('p', `第 ${result.event_page} 页 · 共 ${result.event_total} 条`, { className: 'account-muted' }));
+          metadata(result.events, [['事件', event => event.action], ['时间', event => formatTime(event.created_at)],
+            ['操作者', event => event.actor_id]], events);
+          const eventControls = node('div', '', { className: 'account-links' });
+          const eventPrevious = button('事件上一页', () => showUser(identity, result.event_page - 1), eventControls, false, () => result.event_page <= 1);
+          const eventFollowing = button('事件下一页', () => showUser(identity, result.event_page + 1), eventControls, false,
+            () => result.event_page * result.event_page_size >= result.event_total);
+          eventPrevious.disabled = result.event_page <= 1;
+          eventFollowing.disabled = result.event_page * result.event_page_size >= result.event_total;
+          events.append(eventControls);
+        } catch (error) {
+          if (!drawer.open || selectedUser !== identity || started !== detailSequence) return;
+          const message = node('p', error.message, { className: 'account-error' });
+          message.setAttribute('role', 'alert');
+          detail.replaceChildren(message);
+          button('重试', () => showUser(identity, eventPage), detail);
+        } finally {
+          if (started === detailSequence) detail.setAttribute('aria-busy', 'false');
         }
-        form(`admin-${kind}-search`, [field('search', '搜索')], '搜索', async (values) => { search = values.search; page = 1; await load(); }, parent);
-        const previous = button(`${title}上一页`, async () => { page = Math.max(1, page - 1); await load(); }, controls, false, () => page <= 1);
-        const following = button(`${title}下一页`, async () => { page++; await load(); }, controls, false, () => !hasMore);
-        parent.append(results, controls);
-        return load;
       }
-      const loadUsers = list('users', '用户');
-      const loadDevices = list('devices', '设备');
-      await Promise.all([loadUsers(), loadDevices()]);
+      let search = '';
+      let page = 1;
+      let hasMore = false;
+      let listSequence = 0;
+      async function loadUsers(nextPage = page, nextSearch = search) {
+        const started = ++listSequence;
+        const data = await auth.json(`/api/admin/users?search=${encodeURIComponent(nextSearch)}&page=${nextPage}`);
+        if (started !== listSequence) return;
+        page = data.page;
+        search = nextSearch;
+        hasMore = page * data.page_size < data.total;
+        results.replaceChildren(node('p', `第 ${page} 页 · 共 ${data.total} 条`, { className: 'account-muted' }));
+        if (!data.users.length) results.append(node('p', '暂无用户', { className: 'account-muted' }));
+        else {
+          const wrapper = node('div', '', { className: 'account-table-scroll' });
+          const table = node('table', '', { className: 'account-table admin-user-table' });
+          const head = node('tr');
+          head.append(node('th', '用户', { scope: 'col' }), node('th', '在线状态', { scope: 'col', title: '网页最近 5 分钟有活动' }), node('th', '设备数', { scope: 'col' }));
+          const thead = node('thead');
+          thead.append(head);
+          const tbody = node('tbody');
+          for (const user of data.users) {
+            const row = node('tr');
+            const email = node('td');
+            const open = node('button', user.email, { type: 'button', className: 'admin-user-link' });
+            open.setAttribute('aria-haspopup', 'dialog');
+            const selectUser = () => { trigger = open; drawerTitle.textContent = user.email; return showUser(user.id); };
+            open.onclick = event => { event?.stopPropagation(); return selectUser(); };
+            row.onclick = selectUser;
+            email.append(open);
+            const online = node('td');
+            online.append(presence(user.online));
+            row.append(email, online, node('td', String(user.device_count)));
+            tbody.append(row);
+          }
+          table.append(thead, tbody);
+          wrapper.append(table);
+          results.append(wrapper);
+        }
+        previous.disabled = page <= 1;
+        following.disabled = !hasMore;
+      }
+      form('admin-users-search', [field('search', '搜索用户')], '搜索', values => loadUsers(1, values.search), users);
+      const previous = button('用户上一页', () => loadUsers(page - 1), controls, false, () => page <= 1);
+      const following = button('用户下一页', () => loadUsers(page + 1), controls, false, () => !hasMore);
+      users.append(results, controls);
+      await loadUsers();
     }
 
     async function showEnrollment() {
@@ -649,18 +694,21 @@
         } else showAuth(['login', 'register', 'recovery'].includes(step) ? step : 'login');
       } else {
         await auth.me();
-        const accountLink = link('账号', '/account', page === 'account');
-        const deviceLink = link('设备', '/account#add-device', page === 'add-device');
-        for (const [target, destination] of [[accountLink, 'account'], [deviceLink, 'add-device']]) {
-          target.onclick = async event => {
-            event.preventDefault();
-            try {
-              await start(destination);
-              if (!suppliedContent) history.replaceState(null, '', destination === 'account' ? '/account' : '/account#add-device');
-            } catch (error) { status.textContent = error.message; }
-          };
+        nav?.replaceChildren();
+        if (nav && page !== 'admin') {
+          const accountLink = link('账号', '/account', page === 'account');
+          const deviceLink = link('设备', '/account#add-device', page === 'add-device');
+          for (const [target, destination] of [[accountLink, 'account'], [deviceLink, 'add-device']]) {
+            target.onclick = async event => {
+              event.preventDefault();
+              try {
+                await start(destination);
+                if (!suppliedContent) history.replaceState(null, '', destination === 'account' ? '/account' : '/account#add-device');
+              } catch (error) { status.textContent = error.message; }
+            };
+          }
+          nav.replaceChildren(link('Fleet', '/'), accountLink, deviceLink);
         }
-        nav.replaceChildren(link('Fleet', '/'), accountLink, deviceLink);
         if (page === 'account') await showAccount();
         else if (page === 'add-device') await showAddDevice();
         else if (page === 'admin') await showAdmin();
