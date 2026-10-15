@@ -1,4 +1,4 @@
-@import url("titanium.css?v=232");
+@import url("titanium.css?v=233");
 
 /* ============================================================
    mac fleet hub —— 设计系统 v2（令牌 + 组件 + 布局）
@@ -522,8 +522,6 @@ html.automation-doc-root, html.automation-doc-root body { height: auto; min-heig
 .automation-doc-page { background: var(--bg); color: var(--text); }
 .automation-doc-head { position: sticky; top: 0; z-index: 10; display: flex; align-items: center; gap: 12px; min-height: 64px; padding: 10px max(18px, calc((100vw - 900px) / 2)); border: 0; background: color-mix(in srgb, var(--bg) 88%, transparent); backdrop-filter: blur(18px); }
 .automation-doc-head strong { display: block; margin-top: 1px; font-size: var(--t-title); }
-.automation-doc-back { display: grid; place-items: center; width: 36px; height: 36px; border: 0; border-radius: var(--radius-compact); color: var(--text); font-size: var(--t-page); line-height: 1; text-decoration: none; }
-.automation-doc-back:hover { background: var(--surface-hover); }
 .automation-doc-main { width: min(100% - 32px, 900px); margin: 0 auto; padding: 56px 0 80px; }
 .automation-doc-hero { padding-bottom: 36px; border: 0; }
 .automation-doc-hero h1 { max-width: 720px; margin-top: 8px; font-size: var(--t-page); line-height: 1.12; letter-spacing: -.025em; text-wrap: balance; }

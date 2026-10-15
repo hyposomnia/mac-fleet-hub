@@ -4,15 +4,15 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <meta name="theme-color" content="#FAFAFA" />
-  <script src="/theme.js?v=232"></script>
-  <link rel="icon" href="/icons/favicon.svg?v=232" type="image/svg+xml" />
+  <script src="/theme.js?v=233"></script>
+  <link rel="icon" href="/icons/favicon.svg?v=233" type="image/svg+xml" />
   <title>自动化使用文档 · fleet hub</title>
 
-  <link rel="stylesheet" href="style.css?v=232" />
+  <link rel="stylesheet" href="style.css?v=233" />
+  <script src="/automation-guide.js?v=233" defer></script>
 </head>
 <body class="automation-doc-page">
   <header class="automation-doc-head">
-    <a class="automation-doc-back" href="/" aria-label="返回 fleet hub">←</a>
     <div><div class="eyebrow">fleet hub</div><strong>自动化使用文档</strong></div>
   </header>
 
@@ -32,12 +32,12 @@
     <section class="automation-doc-section">
       <h2>2. 提交消息</h2>
       <p>使用密钥名称：</p>
-      <pre><code>curl -sS https://fleet.hyposomnia.top:20443/api/v1/messages \
+      <pre><code>curl -sS <span data-api-path="/api/v1/messages"></span> \
   -H 'Authorization: Bearer mfh_live_替换为你的密钥' \
   -H 'Content-Type: application/json' \
   -d '{"alias":"每日同步","message":"检查项目状态"}'</code></pre>
       <p>或直接指定目标：</p>
-      <pre><code>curl -sS https://fleet.hyposomnia.top:20443/api/v1/messages \
+      <pre><code>curl -sS <span data-api-path="/api/v1/messages"></span> \
   -H 'Authorization: Bearer mfh_live_替换为你的密钥' \
   -H 'Content-Type: application/json' \
   -H 'Idempotency-Key: your-request-001' \
@@ -75,7 +75,7 @@
       <h2>3. 查询结果</h2>
       <pre><code>curl -sS \
   -H 'Authorization: Bearer mfh_live_替换为你的密钥' \
-  https://fleet.hyposomnia.top:20443/api/v1/messages/msg_xxx</code></pre>
+  <span data-api-path="/api/v1/messages/msg_xxx"></span></code></pre>
       <div class="automation-doc-statuses">
         <span><b>queued</b> 队列中</span><span><b>running</b> 执行中</span>
         <span><b>completed</b> 已完成</span><span><b>failed</b> 失败</span>

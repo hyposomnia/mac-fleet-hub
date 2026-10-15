@@ -13,6 +13,7 @@ const markdownSrc = await readFile(new URL('./markdown.js', import.meta.url), 'u
 const previewSrc = await readFile(new URL('./preview.js', import.meta.url), 'utf8');
 const indexHTML = await readFile(new URL('./index.html', import.meta.url), 'utf8');
 const automationGuideHTML = await readFile(new URL('./automation-guide.html', import.meta.url), 'utf8');
+const automationGuideSrc = await readFile(new URL('./automation-guide.js', import.meta.url), 'utf8');
 const styleCSS = await readFile(new URL('./style.css', import.meta.url), 'utf8');
 const accountCSS = await readFile(new URL('./account.css', import.meta.url), 'utf8');
 const serviceWorker = await readFile(new URL('./sw.js', import.meta.url), 'utf8');
@@ -754,7 +755,23 @@ test('automation modal links to a concise cached API guide', () => {
   assert.match(automationGuideHTML, /POST|\/api\/v1\/messages/);
   assert.match(automationGuideHTML, /Idempotency-Key/);
   assert.match(automationGuideHTML, /callback_url/);
+  assert.match(automationGuideHTML, /src="\/automation-guide\.js\?v=233" defer/);
+  assert.match(automationGuideHTML, /data-api-path="\/api\/v1\/messages"/);
+  assert.doesNotMatch(automationGuideHTML, /fleet\.hyposomnia\.top|:20443|automation-doc-back/);
+  const apiNodes = [
+    { dataset: { apiPath: '/api/v1/messages' }, textContent: '' },
+    { dataset: { apiPath: '/api/v1/messages/msg_xxx' }, textContent: '' },
+  ];
+  vm.runInNewContext(automationGuideSrc, {
+    window: { location: { origin: 'https://fleet.example.test:9443' } },
+    document: { querySelectorAll: () => apiNodes },
+  });
+  assert.deepEqual(apiNodes.map((node) => node.textContent), [
+    'https://fleet.example.test:9443/api/v1/messages',
+    'https://fleet.example.test:9443/api/v1/messages/msg_xxx',
+  ]);
   assert.match(serviceWorker, /'\/automation-guide\.html'/);
+  assert.match(serviceWorker, /'\/automation-guide\.js\?v=233'/);
 	assert.match(serviceWorker, /'\/automation-guide\.html', '\/automation-records\.html'\]\.includes\(url\.pathname\)/);
   assert.match(styleCSS, /\.automation-doc-main\s*\{/);
 });
