@@ -207,6 +207,7 @@ const state = {
   fileDeleteTarget: null,
   devicePickerContext: 'sessions',
   deferredInstallPrompt: null,
+  installPromptDismissed: false,
 };
 
 // 偏好默认（拉取失败/未设时回退，与 server/enroll defaultSettings 对齐）
@@ -7979,7 +7980,7 @@ function syncInstallActions() {
   const isiOS = /iPad|iPhone|iPod/.test(navigator.userAgent || '');
   const available = !standalone && (!!state.deferredInstallPrompt || isiOS);
   const banner = $('#pwa-install');
-  if (banner) banner.hidden = !available;
+  if (banner) banner.hidden = !available || state.installPromptDismissed;
 }
 
 async function promptPWAInstall() {
@@ -7995,10 +7996,19 @@ async function promptPWAInstall() {
   syncInstallActions();
 }
 
+function dismissPWAInstall() {
+  state.installPromptDismissed = true;
+  try { localStorage.setItem('fleet.pwa-install-dismissed', '1'); } catch (_) {}
+  syncInstallActions();
+}
+
 function initPWAExperience() {
+  try { state.installPromptDismissed = localStorage.getItem('fleet.pwa-install-dismissed') === '1'; } catch (_) {}
   updateNetworkStatus();
   const installButton = $('#pwa-install-now');
   if (installButton) installButton.onclick = promptPWAInstall;
+  const dismissButton = $('#pwa-install-dismiss');
+  if (dismissButton) dismissButton.onclick = dismissPWAInstall;
   addEventListener('online', () => { updateNetworkStatus({ refresh: true }); toast('网络已恢复', 'ok'); });
   addEventListener('offline', () => updateNetworkStatus());
   addEventListener('beforeinstallprompt', (event) => {

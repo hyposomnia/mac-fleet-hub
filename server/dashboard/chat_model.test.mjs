@@ -4344,3 +4344,28 @@ test('temporarily missing devices remain reconnecting and cannot send as active'
   assert.equal(connection.label, '正在重新连接');
   assert.equal(vm.runInContext(`deviceConnectionState({status:'active',online:true}).online`,appSandbox),true);
 });
+
+
+test('dismissed install notice stays hidden when install availability changes', () => {
+  const banner = { hidden: false };
+  const saved = new Map();
+  const context = vm.createContext({
+    state: { deferredInstallPrompt: {}, installPromptDismissed: false },
+    navigator: { userAgent: 'iPhone' },
+    matchMedia: () => ({ matches: false }),
+    $: () => banner,
+    localStorage: { setItem: (key, value) => saved.set(key, value) },
+  });
+  for (const name of ['syncInstallActions', 'dismissPWAInstall']) {
+    const source = appSrc.match(new RegExp(`function ${name}\\(\\)[\\s\\S]*?\\n}`))?.[0];
+    assert.ok(source);
+    vm.runInContext(source, context);
+  }
+  vm.runInContext('syncInstallActions(); dismissPWAInstall();', context);
+  assert.equal(banner.hidden, true);
+  assert.equal(saved.get('fleet.pwa-install-dismissed'), '1');
+  vm.runInContext('state.deferredInstallPrompt = {}; syncInstallActions();', context);
+  assert.equal(banner.hidden, true);
+  assert.match(appSrc, /state\.installPromptDismissed = localStorage\.getItem\('fleet\.pwa-install-dismissed'\) === '1'/);
+  assert.match(indexHTML, /id="pwa-install-dismiss"[^>]*aria-label="关闭安装提示"/);
+});

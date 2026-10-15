@@ -2355,3 +2355,7 @@ html[data-workspace-tab="true"] .preview-encoding-control::after { right: 10px; 
 
 .file-path-form { display: flex; gap: 8px; width: 100%; }
 .file-path-form input { min-width: 0; flex: 1; background: var(--surface-1); }
+
+.pwa-install #pwa-install-dismiss { display: grid; place-items: center; width: 32px; height: 32px; padding: 6px; background: transparent; color: var(--text-2); }
+.pwa-install #pwa-install-dismiss:hover { color: var(--text); }
+.pwa-install #pwa-install-dismiss .ic { width: 16px; height: 16px; }
