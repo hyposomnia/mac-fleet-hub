@@ -44,3 +44,10 @@ Chrome 控制不可用，未取得截图或浏览器视觉验收证据。HTTP、
 - `current` 原子切换，重启 `macfleet-saas-uat.service`，新 PID `202553`；运行进程与磁盘二进制 SHA-256 均为 `d231aa84de22ff4165960d0c20cdf7ffd9ef35c16315ddf17da9bfe39cf18de2`。
 - 两个 SaaS systemd 服务均 active；公网 `healthz=200 ok`、`readyz=200 ok`，未登录 `/admin` 为 303 到 `/auth?next=%2Fadmin`，未登录管理员用户 API 为 401。
 - Main 文档提交 `d77c9b3` 与 SaaS 文档提交 `1132338` 已推送，移除旧合并及上线限制；正式 Mac 签名公证要求保留。两条分支各自执行 `bash scripts/verify.sh`，均退出 0。
+
+## 最终网页核验
+
+- 网页源码 `e0ce6d776ece83159fa3bb6d130bde34adfc6cf7`，包含并行提交 `8a47d21`；移除后台不再使用的 `device_appearance.js` 引用。后台依赖的六个资源均从公网实际下载，HTTP 200 且逐字节、SHA-256 与源码一致。
+- 最终目录 `/opt/macfleet-saas-uat/releases/full-e0ce6d776ece83159fa3bb6d130bde34adfc6cf7`；143 个发布文件清单与 SHA-256 一致。沿用已验证的 `1132338` 服务端，PID 仍为 `202553`，此轮网页切换未重启服务。
+- 再次验证公网：`/healthz HTTP 200 ok`、`/readyz HTTP 200 ok`、`/admin HTTP 303`、`/api/admin/users HTTP 401`。
+- 最终源码再次运行完整 `bash scripts/verify.sh`：Go、Dashboard 21+423 项、Swift 112 项及 Shell 验证通过，退出 0；既有 SDK 缓存破坏测试仍按原条件跳过。
