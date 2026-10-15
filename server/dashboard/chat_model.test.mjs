@@ -906,7 +906,9 @@ test('session grouping omits aggregate badges and the view toggle has a visible 
   assert.ok(source);
   assert.doesNotMatch(source, /class:\s*'gc badge'/);
   assert.doesNotMatch(styleCSS, /\.grp-h \.gc/);
-  assert.match(styleCSS, /#session-view-toggle\[aria-pressed="true"\]\s*\{[^}]*background:\s*var\(--accent-soft\)/s);
+  assert.match(styleCSS, /#session-view-toggle:hover\s*\{[^}]*background:\s*transparent/s);
+  assert.match(styleCSS, /#session-view-toggle\[aria-pressed="true"\] svg circle\s*\{[^}]*fill:\s*currentColor/s);
+  assert.match(styleCSS, /#session-view-toggle\[aria-pressed="true"\] svg path\s*\{[^}]*stroke:\s*var\(--workspace-header-bg/s);
   assert.match(styleCSS, /@media \(max-width:\s*860px\)[\s\S]*?\.session-search-row\s*\{\s*grid-template-columns:\s*46px\s*46px\s*minmax\(0,\s*1fr\)\s*46px/s);
 });
 
