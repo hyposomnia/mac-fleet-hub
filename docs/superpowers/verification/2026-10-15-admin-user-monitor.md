@@ -33,4 +33,14 @@ VERIFY_EXIT_CODE=0
 
 账号页及主题专项：62/62 通过。完整入口的打包测试中，已有的 `SDK preparation replaces a tampered extracted cache from the verified archive` 按原测试条件跳过，其余执行项通过。
 
-本轮 Chrome 连接未成功，随后原生控制被停止；未取得截图或浏览器视觉验收证据。源代码与测试结果不代表已上线。按本轮 AGENTS.md 的源码、提交推送及验证授权范围，本次不部署服务器、不替换 Mac、launchd 或 Desktop。
+Chrome 控制不可用，未取得截图或浏览器视觉验收证据。HTTP、文件及进程核验与浏览器视觉验收分别报告。
+
+## pm 服务器发布
+
+- 服务端源码 `11323384e44650669a06dff754fe2f80314c68d2`，由干净提交编译 Linux amd64，不涉及 Mac 产物。
+- 发布前确认 pm 正在运行的旧服务端仍来自 `85fa8d7`，不含用户在线查询；网页已包含新版后台。此次同步服务端与网页，避免接口与页面不一致。
+- 发布到 `/opt/macfleet-saas-uat/releases/full-11323384e44650669a06dff754fe2f80314c68d2`。143 个发布文件的清单与 SHA-256 全部匹配，拒绝额外文件。
+- 原目录 `full-32caa0cee1b3a7cef2160be50961c9f67c006b19` 保留；数据库使用 SQLite 在线备份并通过 integrity_check，原加密密钥与配置备份在 pm 私有 `backups/admin-11323384e44650669a06dff754fe2f80314c68d2-20261015T050658Z`，未修改数据库 schema。
+- `current` 原子切换，重启 `macfleet-saas-uat.service`，新 PID `202553`；运行进程与磁盘二进制 SHA-256 均为 `d231aa84de22ff4165960d0c20cdf7ffd9ef35c16315ddf17da9bfe39cf18de2`。
+- 两个 SaaS systemd 服务均 active；公网 `healthz=200 ok`、`readyz=200 ok`，未登录 `/admin` 为 303 到 `/auth?next=%2Fadmin`，未登录管理员用户 API 为 401。
+- Main 文档提交 `d77c9b3` 与 SaaS 文档提交 `1132338` 已推送，移除旧合并及上线限制；正式 Mac 签名公证要求保留。两条分支各自执行 `bash scripts/verify.sh`，均退出 0。
