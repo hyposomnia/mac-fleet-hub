@@ -1,4 +1,4 @@
-@import url("titanium.css?v=246");
+@import url("titanium.css?v=247");
 
 /* ============================================================
    mac fleet hub —— 设计系统 v2（令牌 + 组件 + 布局）
@@ -2348,7 +2348,7 @@ html[data-workspace-tab="true"] .preview-encoding-control::after { right: 10px; 
 .pwa-install #pwa-install-dismiss:hover { color: var(--text); }
 .pwa-install #pwa-install-dismiss .ic { width: 16px; height: 16px; }
 
-/* Sidebar selection uses a short line that fades out below the icon. */
+/* Sidebar selection expands with its row and stays compact below collapsed icons. */
 @media (min-width: 861px) {
   #rail .modeseg,
   #rail .modeseg button,
@@ -2359,12 +2359,12 @@ html[data-workspace-tab="true"] .preview-encoding-control::after { right: 10px; 
   #rail .modeseg button[aria-selected="true"]::after,
   #rail .host[aria-current="true"]::after {
     content: ''; position: absolute; bottom: 2px; left: 50%; transform: translateX(-50%);
-    width: 16px; height: 3px; border-radius: 2px; pointer-events: none;
+    width: 80%; height: 3px; border-radius: 2px; pointer-events: none;
     background: linear-gradient(to right, transparent, var(--highlight) 40%, var(--highlight) 60%, transparent);
   }
 
   #app[data-rail-collapsed="true"] #rail .modeseg button[aria-selected="true"]::after,
-  #app[data-rail-collapsed="true"] #rail .host[aria-current="true"]::after { left: 22px; }
+  #app[data-rail-collapsed="true"] #rail .host[aria-current="true"]::after { left: 22px; width: 16px; }
   #app[data-rail-collapsed="true"] #rail .modeseg button[aria-selected="true"]::after { left: 21px; }
 }
 

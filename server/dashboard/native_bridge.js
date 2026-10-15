@@ -8,7 +8,7 @@
   document.documentElement.dataset.native = 'ios';
   const css = document.createElement('link');
   css.rel = 'stylesheet';
-  css.href = '/native.css?v=246';
+  css.href = '/native.css?v=247';
   document.head.append(css);
   let stop = null;
   let busy = false;
