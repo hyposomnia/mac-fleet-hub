@@ -2,9 +2,9 @@
 
 本文件既是给人看的部署参考，也是给 AI 编码助手（Claude Code / Codex 等）执行部署的 runbook。
 
-**长期分支：`main` 用于当前自部署迭代与正常使用；本分支 `codex/multi-user-server` 用于 SaaS 化改造。** 通用改动由维护者手动从 `main` 合入，冲突时保留本分支的账号、owner、OAuth 与逐设备授权协议；禁止将本分支整体反向合回自部署线。详见 [双分支维护约定](docs/branch-strategy.md)。
+**长期分支：`main` 用于当前自部署迭代与正常使用；本分支 `codex/multi-user-server` 用于 SaaS 化改造。** 从 `main` 同步通用改动时，冲突中保留本分支的账号、owner、OAuth 与逐设备授权协议。详见 [双分支维护约定](docs/branch-strategy.md)。
 
-**当前授权范围：`codex/multi-user-server` 的服务器及逐用户客户端开发与独立本地部署验证。** 用户已追加客户端开发授权：网页地址、自动浏览器登录确认、自动入网登记。不得替换当前 Mac/launchd/Desktop/生产网络，不执行生产部署；正式 Mac 二进制仍须唯一构建机签名与公证。源码实现、隔离联调和正式发布分别报告，不把预期当成验证证据。
+服务器与逐用户客户端按需求完成开发、验证及发布。正式 Mac 二进制须由唯一构建机签名与公证。源码实现、隔离联调和正式发布分别报告，不把预期当成验证证据。
 
 ## 项目人格
 
@@ -30,7 +30,7 @@ Claude 项目命令 `/dev`、`/ui`、`/deploy` 在 Codex 中分别使用 `$dev`�
 
 ## 一、网关部署
 
-本阶段先在当前开发机运行独立本地服务器。Linux 网关配置供后续明确授权的部署使用；这里的命令与预期不表示生产已上线。
+本地验证使用独立服务器与状态目录；Linux 网关部署使用目标实例的配置。命令与预期不表示生产已上线。
 
 ### 本地运行与验证
 
@@ -51,7 +51,7 @@ curl -i http://127.0.0.1:7099/api/devices
 curl -i -X POST http://127.0.0.1:7099/enroll/join
 ```
 
-预期：存活 `/healthz` 为 200；网络未配置时 `/readyz` 为 **503**，领取入网凭据也必须失败，不能伪报设备已接入；未认证私有 API 为 401；旧版 `/enroll/join` 为 **410**。浏览器注册、验证器绑定和账号页可以独立验证，真实 Headscale、节点连接、客户端安装需分别取得证据。测试及本地运行结果由主任务提供真实输出后再报告，本阶段未迁移任何当前客户端。
+预期：存活 `/healthz` 为 200；网络未配置时 `/readyz` 为 **503**，领取入网凭据也必须失败，不能伪报设备已接入；未认证私有 API 为 401；旧版 `/enroll/join` 为 **410**。浏览器注册、验证器绑定和账号页可以独立验证，真实 Headscale、节点连接、客户端安装需分别取得证据。测试及本地运行结果提供真实输出后再报告。
 
 ### 注册、登录与管理员
 
@@ -124,7 +124,7 @@ TLS、Headscale 安装相关参数仍可按实际网关配置：
 
 ### 旧服务器数据迁移（显式、先备份）
 
-本阶段不运行当前基础设施迁移。后续获授权时，先备份旧服务器配置、names/settings/access-key/messages、Headscale 数据及 ACL，以及已有新 SQLite 状态与 `encryption.key`，确认可恢复后再操作。停止相关写入并使用一致性备份；不能只复制正在写入的 SQLite 主文件而遗漏 WAL。
+迁移前先备份旧服务器配置、names/settings/access-key/messages、Headscale 数据及 ACL，以及已有新 SQLite 状态与 `encryption.key`，确认可恢复后再操作。停止相关写入并使用一致性备份；不能只复制正在写入的 SQLite 主文件而遗漏 WAL。
 
 ```bash
 fleet-enroll migrate <owner-email>
@@ -246,7 +246,7 @@ bash scripts/release-fleet-agent.sh           # 签名二进制发布 + 逐台�
 - **提交/部署前必须运行项目验证入口 `bash scripts/verify.sh` 并贴出真实输出**（按序执行 mac/fleet-agent 的 `go test ./...`、server/dashboard 的 `node --test chat_model.test.mjs`、tests/tailscale-utils_test.sh 三个测试层；任一失败则先修复再继续）。
 - 安装后跑上面的「验证」命令，把真实输出贴给用户。
 - 新系统通过浏览器确认 owner 和 Headscale node/IP 校验登记设备，动态路由；不要为新入网设备追加静态 `MAC_IPS`。客户端源码已接入逐用户授权；本地测试不等于已迁移当前 Mac 或正式签名发布。
-- 本阶段只修改服务器及授权文档并独立本地验证，不启动生产发布流程。报告已执行命令与实际结果，明确区分服务器 HTTP 接口、客户端安装器和真实设备验证。
+- 报告已执行命令与实际结果，明确区分服务器 HTTP 接口、客户端安装器和真实设备验证。
 - 真实密钥 / 证书 / 密码不要打印到共享日志或写进提交。
 
 ## SaaS 行为对齐策略
