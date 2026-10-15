@@ -23,7 +23,9 @@ struct SettingsView: View {
     let management: NativeManagement
     var preview = false
     @Environment(\.colorScheme) private var scheme
-    @State private var page: SettingsPage = .overview
+    @State private var page: SettingsPage = CommandLine.arguments.contains("--fleet-disk-guide") ? .privacy : .overview
+    @State private var startupAttempt = 0
+    @StateObject private var startup = SettingsStartup()
     @State private var operationError = ""
     @State private var operationBusy = false
     @State private var openedAttempt = ""
@@ -71,7 +73,64 @@ struct SettingsView: View {
         }
     }
 
+    private var diskGuideLaunch: Bool { CommandLine.arguments.contains("--fleet-disk-guide") }
+
     var body: some View {
+        Group {
+            if preview || management.layout.requiresInstallation || diskGuideLaunch || startup.state.isReady {
+                settingsContents
+                    .disabled(model.isBusy || operationBusy || updater.busy)
+                    .task { await observeSettings() }
+                    .task {
+                        guard !preview, !management.layout.requiresInstallation, startup.state.isReady else { return }
+                        await updater.checkAvailability()
+                    }
+            } else {
+                SettingsStartupScreen(state: startup.state, applicationName: RuntimeLayout.applicationName, retry: {
+                    if startup.requestRetry() { startupAttempt += 1 }
+                }, inspect: {
+                    operationError = startup.state.error ?? ""
+                    startup.showSettingsAfterFailure()
+                })
+            }
+        }
+        .font(.system(size: 13)).foregroundStyle(theme.text).background(theme.background).tint(theme.accent)
+        .buttonStyle(.bordered).controlSize(.regular)
+        .onChange(of: model.origin) { _ in
+            if preview || startup.state.isReady { queueSave() }
+        }
+        .onReceive(NSWorkspace.shared.notificationCenter.publisher(for: NSWorkspace.didWakeNotification)) { _ in
+            Task { await retryConnectionIfNeeded() }
+        }
+        .task(id: startupAttempt) { await prepareSettings() }
+        .alert(FleetSetupAction.replacementTitle, isPresented: $confirmReplacement) {
+            Button("取消", role: .cancel) { replacementAction = nil }
+            Button("卸载旧版并安装新版") {
+                let action = replacementAction
+                replacementAction = nil
+                if let action { perform { try await action() } }
+            }
+        } message: { Text(FleetSetupAction.replacementMessage(legacy: replacementIncludesLegacy)) }
+        .alert("解除此设备关联？", isPresented: $confirmLogout) {
+            Button("取消", role: .cancel) {}
+            Button("解除关联", role: .destructive) { perform { try await management.logout(); await model.refresh() } }
+        } message: { Text("撤销当前设备授权后，才能关联其他账号。") }
+        .alert("卸载 Fleet Agent Settings 和 Fleet Agent？", isPresented: $confirmUninstall) {
+            Button("取消", role: .cancel) {}
+            Button("卸载", role: .destructive) {
+                perform { try await management.uninstall(removeSettings: removeSettings); NSApplication.shared.terminate(nil) }
+            }
+        } message: {
+            Text("撤销设备授权、停止后台并卸载两个程序。" +
+                 (removeSettings ? "本机 Fleet 配置也会删除。" : "本机 Fleet 配置保留。") +
+                 "\n\n聊天会话由 Codex / Claude 保存，独立于 Fleet；卸载不会删除这些会话或你的个人文件。")
+        }
+        .alert("界面预览", isPresented: $previewRestriction) {
+            Button("知道了", role: .cancel) {}
+        } message: { Text("请在已安装的设置程序中执行此操作。") }
+    }
+
+    private var settingsContents: some View {
         HStack(spacing: 0) {
             VStack(alignment: .leading, spacing: 28) {
                 HStack(spacing: 10) {
@@ -123,119 +182,88 @@ struct SettingsView: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading).padding(28)
         }
-        .font(.system(size: 13)).foregroundStyle(theme.text).background(theme.background).tint(theme.accent)
-        .buttonStyle(.bordered).controlSize(.regular)
-        .disabled(model.isBusy || operationBusy || updater.busy)
-        .onChange(of: model.origin) { _ in queueSave() }
-        .onReceive(NSWorkspace.shared.notificationCenter.publisher(for: NSWorkspace.didWakeNotification)) { _ in
-            Task { await retryConnectionIfNeeded() }
-        }
-        .task {
-            if preview {
-                while !Task.isCancelled {
+    }
+
+    @MainActor
+    private func prepareSettings() async {
+        guard !preview else { return }
+        if diskGuideLaunch {
+            do {
+                try await diskGuide.waitForAccess(applicationURL: management.layout.backgroundApplication) {
                     await model.refresh()
-                    try? await Task.sleep(nanoseconds: 2_000_000_000)
+                    await model.recheckDisk()
+                    return model.diskState
                 }
-                return
-            }
-            if CommandLine.arguments.contains("--fleet-disk-guide") {
-                page = .privacy
-                do {
-                    try await diskGuide.waitForAccess(applicationURL: management.layout.backgroundApplication) {
-                        await model.refresh()
-                        await model.recheckDisk()
-                        return model.diskState
+                NSApplication.shared.terminate(nil)
+            } catch is CancellationError { return }
+            catch { operationError = error.localizedDescription }
+            return
+        }
+        if let origin = FleetSetupAction.initialOrigin(arguments: CommandLine.arguments) {
+            model.origin = origin
+            page = .connection
+        }
+        guard !management.layout.requiresInstallation else { return }
+        var needsLegacyConfirmation = false
+        let ready = await startup.run(recover: {
+            await updater.recoverAfterLaunch(force: startupAttempt > 0)
+            if updater.recoveryPending { page = .about }
+        }, prepare: {
+            guard !updater.recoveryPending else { return }
+            if FleetSetupAction.replacementConfirmed(arguments: CommandLine.arguments) {
+                try await management.start(replaceLegacy: true)
+            } else if try await management.hasLegacyInstallation() {
+                replacementAction = {
+                    try await management.start(replaceLegacy: true)
+                    await model.refresh()
+                    try await management.setAutoStart(model.autoStart)
+                    if FleetSetupAction.authorizesDiskAfterInstallation(arguments: CommandLine.arguments) {
+                        page = .privacy
+                        try await diskGuide.authorize(applicationURL: management.layout.backgroundApplication) {
+                            try await management.start()
+                            await model.refresh()
+                        }
                     }
-                    NSApplication.shared.terminate(nil)
-                } catch is CancellationError { return }
-                catch { operationError = error.localizedDescription }
-                return
+                }
+                replacementIncludesLegacy = true
+                needsLegacyConfirmation = true
+            } else if FleetSetupAction.startsAfterInstallation(arguments: CommandLine.arguments) {
+                try await management.start()
+            } else {
+                try await management.prepareRuntime()
             }
-            if let origin = FleetSetupAction.initialOrigin(arguments: CommandLine.arguments) {
-                model.origin = origin
-                page = .connection
+        }, load: {
+            await model.refresh()
+            if FleetSetupAction.startsAfterInstallation(arguments: CommandLine.arguments), model.status != nil, !updater.recoveryPending {
+                try await management.setAutoStart(model.autoStart)
             }
-            if management.layout.requiresInstallation { return }
-            let connectivity = NWPathMonitor()
+            if FleetSetupAction.authorizesDiskAfterInstallation(arguments: CommandLine.arguments), !updater.recoveryPending, !needsLegacyConfirmation {
+                page = .privacy
+                try await diskGuide.authorize(applicationURL: management.layout.backgroundApplication) {
+                    try await management.start()
+                    await model.refresh()
+                }
+            }
+        })
+        if ready { confirmReplacement = needsLegacyConfirmation }
+    }
+
+    @MainActor
+    private func observeSettings() async {
+        guard !management.layout.requiresInstallation, !diskGuideLaunch else { return }
+        let connectivity = NWPathMonitor()
+        if !preview {
             connectivity.pathUpdateHandler = { path in
                 if path.status == .satisfied { Task { @MainActor in await retryConnectionIfNeeded() } }
             }
             connectivity.start(queue: .main)
-            defer { connectivity.cancel() }
-            operationBusy = true
-            await updater.recoverAfterLaunch()
-            if !updater.recoveryPending {
-                do {
-                    if FleetSetupAction.replacementConfirmed(arguments: CommandLine.arguments) {
-                        try await management.start(replaceLegacy: true)
-                    } else if try await management.hasLegacyInstallation() {
-                        replacementAction = {
-                            try await management.start(replaceLegacy: true)
-                            await model.refresh()
-                            try await management.setAutoStart(model.autoStart)
-                            if FleetSetupAction.authorizesDiskAfterInstallation(arguments: CommandLine.arguments) {
-                                page = .privacy
-                                try await diskGuide.authorize(applicationURL: management.layout.backgroundApplication) {
-                                    try await management.start()
-                                    await model.refresh()
-                                }
-                            }
-                        }
-                        replacementIncludesLegacy = true
-                        confirmReplacement = true
-                    } else if FleetSetupAction.startsAfterInstallation(arguments: CommandLine.arguments) { try await management.start() }
-                    else { try await management.prepareRuntime() }
-                }
-                catch { operationError = error.localizedDescription }
-            }
+        }
+        defer { connectivity.cancel() }
+        while !Task.isCancelled {
             await model.refresh()
-            await updater.checkAvailability()
-            if FleetSetupAction.startsAfterInstallation(arguments: CommandLine.arguments), model.status != nil, !updater.recoveryPending {
-                do { try await management.setAutoStart(model.autoStart) }
-                catch { operationError = error.localizedDescription }
-            }
-            if FleetSetupAction.authorizesDiskAfterInstallation(arguments: CommandLine.arguments), !updater.recoveryPending, !confirmReplacement {
-                page = .privacy
-                do {
-                    try await diskGuide.authorize(applicationURL: management.layout.backgroundApplication) {
-                        try await management.start()
-                        await model.refresh()
-                    }
-                } catch { operationError = error.localizedDescription }
-            }
-            operationBusy = false
-            while !Task.isCancelled {
-                try? await Task.sleep(nanoseconds: 2_000_000_000)
-                guard !Task.isCancelled else { break }
-                await model.refresh()
-                openAuthorizationBrowser()
-            }
+            if !preview { openAuthorizationBrowser() }
+            do { try await Task.sleep(nanoseconds: 2_000_000_000) } catch { return }
         }
-        .alert(FleetSetupAction.replacementTitle, isPresented: $confirmReplacement) {
-            Button("取消", role: .cancel) { replacementAction = nil }
-            Button("卸载旧版并安装新版") {
-                let action = replacementAction
-                replacementAction = nil
-                if let action { perform { try await action() } }
-            }
-        } message: { Text(FleetSetupAction.replacementMessage(legacy: replacementIncludesLegacy)) }
-        .alert("解除此设备关联？", isPresented: $confirmLogout) {
-            Button("取消", role: .cancel) {}
-            Button("解除关联", role: .destructive) { perform { try await management.logout(); await model.refresh() } }
-        } message: { Text("撤销当前设备授权后，才能关联其他账号。") }
-        .alert("卸载 Fleet Agent Settings 和 Fleet Agent？", isPresented: $confirmUninstall) {
-            Button("取消", role: .cancel) {}
-            Button("卸载", role: .destructive) {
-                perform { try await management.uninstall(removeSettings: removeSettings); NSApplication.shared.terminate(nil) }
-            }
-        } message: {
-            Text("撤销设备授权、停止后台并卸载两个程序。" +
-                 (removeSettings ? "本机 Fleet 配置也会删除。" : "本机 Fleet 配置保留。") +
-                 "\n\n聊天会话由 Codex / Claude 保存，独立于 Fleet；卸载不会删除这些会话或你的个人文件。")
-        }
-        .alert("界面预览", isPresented: $previewRestriction) {
-            Button("知道了", role: .cancel) {}
-        } message: { Text("请在已安装的设置程序中执行此操作。") }
     }
 
     @ViewBuilder
@@ -259,7 +287,7 @@ struct SettingsView: View {
 
     @MainActor
     private func retryConnectionIfNeeded() async {
-        guard !preview, !management.layout.requiresInstallation,
+        guard !preview, startup.state.isReady, !management.layout.requiresInstallation,
               ["connecting", "reconnecting"].contains(model.status?.runtime?.phase ?? "") else { return }
         try? await management.retryConnection()
     }
