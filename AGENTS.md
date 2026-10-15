@@ -180,7 +180,7 @@ fleet-agent logout
 
 首次从旧 `isolated` / control-socket 方案切换时，安装会停止现有 Fleet app-server 与仍在运行的旧 control-socket daemon，把旧 agent、plist 与 keeper/helper 留在 `~/.macfleet/migration-backups/`，加载新的 shared LaunchAgent，并在提交迁移前验证 loopback `/readyz`、监听地址和 agent health；失败会恢复旧文件与服务。Aqua one-shot LaunchAgent 会在当前及后续登录会话中设置 Desktop 环境，但脚本**不会自动中断 ChatGPT.app 的活动 turn**；确认 turn 完成并退出 App 后，用 `/usr/bin/open --env CODEX_APP_SERVER_WS_URL=ws://127.0.0.1:47682/rpc -a /Applications/ChatGPT.app` 确定性重开。
 
-shared 只让两端共用同一个 app-server 与物理 writer，不混淆 turn 的操作归属：同一服务上的未知 active turn 保守视为 Desktop，只有 Fleet 自己成功 `turn/start` 返回的 turn 才能由网页 steer、停止或处理审批；外部 turn 走服务端持久化队列。keeper 读取目标版本的 `desktop-mcp.json`，只认 ChatGPT 主进程持有、同 UID 且权限为 `0600` 的 App Tools socket，并原子更新稳定软链；pipe 换代时只 reload MCP，不重启 shared app-server。App tools 仍须在目标 Desktop 版本上以 `runtimeStatus=connected` 和实际工具清单做 UAT。
+shared 模式下两端共用同一个 app-server 与物理 writer，网页可追加指令、停止当前 turn、处理收到的审批和修改会话权限设置，不按 turn 由 Desktop 还是 Fleet 发起限制操作。轮次来源仅用于运行记录和更新安全检查。选择下一轮发送的消息由服务端持久化队列等待当前 turn 结束。keeper 读取目标版本的 `desktop-mcp.json`，只认 ChatGPT 主进程持有、同 UID 且权限为 `0600` 的 App Tools socket，并原子更新稳定软链；pipe 换代时只 reload MCP，不重启 shared app-server。App tools 仍须在目标 Desktop 版本上以 `runtimeStatus=connected` 和实际工具清单做 UAT。
 
 若目标机需要进程级隔离，可显式设置 `FLEET_CODEX_APPSERVER_MODE=isolated FLEET_CODEX_DESKTOP_SHARED_DAEMON=0`。该回退使用 `~/.macfleet/codex-app-server.sock`，并同时取消 GUI 中的 `CODEX_APP_SERVER_WS_URL` 与 `CODEX_APP_SERVER_USE_LOCAL_DAEMON`。
 ttyd/filebrowser 仅监听 loopback，网关统一经 agent 转发并注入逐设备凭据。设备授权独立于浏览器 30 天会话；agent 每 15 秒校验，优先使用 45 秒相对 lease；临时网络/服务故障有可配置的有界宽限，明确撤权立即关闭访问；本地 logout 后存量访问由 100ms 私有文件观察周期关闭。失败保留锁定凭据供 logout 重试。

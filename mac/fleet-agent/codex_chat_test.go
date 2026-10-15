@@ -451,7 +451,7 @@ func TestCodexControlPreservesFleetTurnOwnershipInSharedDaemon(t *testing.T) {
 	}
 }
 
-func TestCodexChatBackendSharedResumeTreatsUnknownActiveTurnAsDesktop(t *testing.T) {
+func TestCodexChatBackendSharedResumeKeepsOriginWithoutBlockingControls(t *testing.T) {
 	previousCfg := cfg
 	t.Cleanup(func() { cfg = previousCfg })
 	cfg.CodexMode = "shared"
@@ -498,12 +498,14 @@ func TestCodexChatBackendSharedResumeTreatsUnknownActiveTurnAsDesktop(t *testing
 		}},
 	}
 	for _, operation := range operations {
-		if operationErr := operation.run(); !errors.Is(operationErr, errExternalChatTurn) {
+		if operationErr := operation.run(); operationErr != nil {
 			t.Fatalf("shared Desktop %s got %v", operation.name, operationErr)
 		}
 	}
-	if len(rpc.calls) != baselineCalls {
-		t.Fatalf("shared Desktop controls reached the daemon: %v", methods(rpc.calls[baselineCalls:]))
+	for _, method := range []string{"turn/steer", "turn/interrupt", "response:71", "thread/settings/update"} {
+		if !slices.Contains(methods(rpc.calls[baselineCalls:]), method) {
+			t.Fatalf("shared Desktop control %s did not reach daemon: %v", method, methods(rpc.calls[baselineCalls:]))
+		}
 	}
 }
 
@@ -531,7 +533,7 @@ func TestCodexChatBackendSharedIdleResumeDoesNotClaimWriter(t *testing.T) {
 	}
 }
 
-func TestCodexChatBackendSharedIdleSettingsWaitForFleetTurn(t *testing.T) {
+func TestCodexChatBackendSharedIdleSettingsUpdateSameThread(t *testing.T) {
 	previousCfg := cfg
 	previousState := codexActiveRolloutTaskState
 	t.Cleanup(func() {
@@ -551,15 +553,15 @@ func TestCodexChatBackendSharedIdleSettingsWaitForFleetTurn(t *testing.T) {
 	if err := b.Settings(context.Background(), "codex", "thread-1", "full-access"); err != nil {
 		t.Fatal(err)
 	}
-	if len(rpc.calls) != 0 {
-		t.Fatalf("shared idle settings mutated daemon thread before Fleet turn: %v", methods(rpc.calls))
+	if !slices.Contains(methods(rpc.calls), "thread/settings/update") {
+		t.Fatalf("shared idle settings did not reach daemon: %v", methods(rpc.calls))
 	}
 	if b.approvalModes["thread-1"] != "full-access" {
 		t.Fatalf("shared idle approval mode=%q", b.approvalModes["thread-1"])
 	}
 }
 
-func TestCodexChatBackendSharedLiveSettingsNeverCrossTurnBoundary(t *testing.T) {
+func TestCodexChatBackendSharedLiveSettingsUpdateSameThread(t *testing.T) {
 	previousCfg := cfg
 	previousState := codexActiveRolloutTaskState
 	t.Cleanup(func() {
@@ -582,8 +584,8 @@ func TestCodexChatBackendSharedLiveSettingsNeverCrossTurnBoundary(t *testing.T) 
 	if err := b.Settings(context.Background(), "codex", "thread-1", "full-access"); err != nil {
 		t.Fatal(err)
 	}
-	if got := methods(rpc.calls); slices.Contains(got, "thread/settings/update") {
-		t.Fatalf("shared live settings used a cross-turn daemon mutation: %v", got)
+	if got := methods(rpc.calls); !slices.Contains(got, "thread/settings/update") {
+		t.Fatalf("shared live settings did not reach daemon: %v", got)
 	}
 	if b.approvalModes["thread-1"] != "full-access" {
 		t.Fatalf("shared live approval mode=%q", b.approvalModes["thread-1"])
@@ -727,7 +729,7 @@ func TestCodexChatBackendSharedUnknownTurnNotificationIsDesktop(t *testing.T) {
 	}
 }
 
-func TestCodexChatBackendSharedSteerDoesNotRetargetDesktopTurn(t *testing.T) {
+func TestCodexChatBackendSharedSteerFollowsCurrentTurn(t *testing.T) {
 	previousCfg := cfg
 	previousState := codexActiveRolloutTaskState
 	t.Cleanup(func() {
@@ -748,11 +750,14 @@ func TestCodexChatBackendSharedSteerDoesNotRetargetDesktopTurn(t *testing.T) {
 	b.turnOwners["thread-1"] = "fleet"
 	b.writerOwners["thread-1"] = "fleet"
 
-	if _, err := b.Steer(context.Background(), "codex", "thread-1", "follow-1", "continue", nil, nil); !errors.Is(err, errExternalChatTurn) {
+	if result, err := b.Steer(context.Background(), "codex", "thread-1", "follow-1", "continue", nil, nil); err != nil || result.TurnID != "turn-desktop" {
 		t.Fatalf("shared mismatch steer err=%v", err)
 	}
-	if got := methods(rpc.calls); !reflect.DeepEqual(got, []string{"turn/steer"}) {
-		t.Fatalf("shared mismatch steer retried against Desktop turn: %v", got)
+	if got := methods(rpc.calls); !reflect.DeepEqual(got, []string{"turn/steer", "turn/steer"}) {
+		t.Fatalf("shared mismatch steer did not follow current turn: %v", got)
+	}
+	if params := mapFromParams(t, rpc.calls[1].params); params["expectedTurnId"] != "turn-desktop" {
+		t.Fatalf("steer retry targeted wrong turn: %+v", params)
 	}
 	b.mu.Lock()
 	turnID, owner, writer := b.lastTurn["thread-1"], b.turnOwners["thread-1"], b.writerOwners["thread-1"]

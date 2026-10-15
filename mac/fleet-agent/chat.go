@@ -289,6 +289,7 @@ type ChatResumeResult struct {
 // deliberately excludes queue/access data so the HTTP control layer can combine
 // both under the per-session operation lock.
 type ChatRuntimeState struct {
+	SharedRuntime   bool   `json:"sharedRuntime,omitempty"`
 	Status          string `json:"status"`
 	ActiveTurnID    string `json:"activeTurnId,omitempty"`
 	TurnOwner       string `json:"turnOwner,omitempty"`
@@ -301,6 +302,7 @@ type ChatRuntimeState struct {
 // session mutations. Epoch + version let the browser reject late HTTP replies
 // without inventing any writer/turn/queue transitions locally.
 type ChatSessionControlSnapshot struct {
+	SharedRuntime   bool            `json:"sharedRuntime,omitempty"`
 	ServerEpoch     string          `json:"serverEpoch"`
 	SnapshotVersion uint64          `json:"snapshotVersion"`
 	AccessMode      string          `json:"accessMode"`

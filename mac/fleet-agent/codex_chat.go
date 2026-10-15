@@ -364,7 +364,8 @@ func (b *codexChatBackend) Control(ctx context.Context, assistant, sessionID str
 			status = "running"
 		}
 		return ChatRuntimeState{
-			Status: status, ActiveTurnID: turnID, TurnOwner: turnOwner, WriterOwner: writerOwner,
+			SharedRuntime: true,
+			Status:        status, ActiveTurnID: turnID, TurnOwner: turnOwner, WriterOwner: writerOwner,
 			ApprovalMode: approvalMode, PendingRequests: pendingRequests,
 		}, nil
 	}
@@ -582,25 +583,11 @@ func (b *codexChatBackend) ownsCurrentFleetTurn(sessionID, turnID string) bool {
 	return b.ownsCurrentFleetTurnLocked(sessionID, turnID)
 }
 
-func (b *codexChatBackend) sharedResumedTurnConflict(sessionID, turnID string) error {
+func (b *codexChatBackend) sharedResumedTurnConflict(turnID string) error {
 	if !codexUsesSharedDaemon() || turnID == "" {
 		return nil
 	}
-	if b.ownsCurrentFleetTurn(sessionID, turnID) {
-		return errFleetChatTurnRunning
-	}
-	return errExternalChatTurn
-}
-
-// ownsSharedRequestLocked requires the request to belong to the explicit
-// same-turn Fleet lease. A request merely arriving on the shared daemon
-// connection is not ownership proof. The caller must hold b.mu.
-func (b *codexChatBackend) ownsSharedRequestLocked(request pendingCodexRequest) bool {
-	turnID := codexRequestTurnID(request.params)
-	if turnID == "" {
-		turnID = b.lastTurn[request.sessionID]
-	}
-	return b.ownsCurrentFleetTurnLocked(request.sessionID, turnID)
+	return errFleetChatTurnRunning
 }
 
 // reconcileSharedRuntimeLocked derives logical ownership without consulting
@@ -894,8 +881,7 @@ func (b *codexChatBackend) rememberResumedThread(ctx context.Context, rpc codexR
 			delete(b.turnOwners, sessionID)
 			delete(b.writerOwners, sessionID)
 			if codexStatusIsRunning(status) {
-				// The daemon reported an active thread without identifying its turn.
-				// That is still external until this connection gets a turn/start ID.
+				// Preserve the unknown origin until a turn/start response identifies it.
 				b.writerOwners[sessionID] = "desktop"
 			}
 		}
@@ -2451,6 +2437,9 @@ func (b *codexChatBackend) Input(ctx context.Context, assistant, sessionID, text
 	b.writerLeaseMu.Lock()
 	defer b.writerLeaseMu.Unlock()
 	if rolloutState, ok := b.currentLiveRolloutTaskState(ctx, sessionID); !opts.ForceTakeover && ok && rolloutState.turnID != "" && !rolloutState.terminal {
+		if codexUsesSharedDaemon() {
+			return ChatInputResult{}, errFleetChatTurnRunning
+		}
 		physicalOwner := ""
 		if codexUsesIsolatedSidecar() {
 			physicalOwner = codexThreadWriterProcessOwner(sessionID)
@@ -2495,7 +2484,7 @@ func (b *codexChatBackend) Input(ctx context.Context, assistant, sessionID, text
 		}
 		if err == nil {
 			_, resumedTurnID := b.rememberResumedThread(ctx, rpc, sessionID, resumed)
-			if conflictErr := b.sharedResumedTurnConflict(sessionID, resumedTurnID); conflictErr != nil {
+			if conflictErr := b.sharedResumedTurnConflict(resumedTurnID); conflictErr != nil {
 				return ChatInputResult{}, conflictErr
 			}
 		}
@@ -2514,7 +2503,7 @@ func (b *codexChatBackend) Input(ctx context.Context, assistant, sessionID, text
 			return ChatInputResult{}, resumeErr
 		}
 		_, resumedTurnID := b.rememberResumedThread(ctx, rpc, sessionID, resumed)
-		if conflictErr := b.sharedResumedTurnConflict(sessionID, resumedTurnID); conflictErr != nil {
+		if conflictErr := b.sharedResumedTurnConflict(resumedTurnID); conflictErr != nil {
 			return ChatInputResult{}, conflictErr
 		}
 	}
@@ -2542,7 +2531,7 @@ func (b *codexChatBackend) Input(ctx context.Context, assistant, sessionID, text
 			return ChatInputResult{}, resumeErr
 		}
 		_, resumedTurnID := b.rememberResumedThread(ctx, rpc, sessionID, resumed)
-		if conflictErr := b.sharedResumedTurnConflict(sessionID, resumedTurnID); conflictErr != nil {
+		if conflictErr := b.sharedResumedTurnConflict(resumedTurnID); conflictErr != nil {
 			return ChatInputResult{}, conflictErr
 		}
 		raw, err = rpc.call(ctx, "turn/start", params)
@@ -2569,9 +2558,6 @@ func (b *codexChatBackend) Input(ctx context.Context, assistant, sessionID, text
 	approvalMode := b.approvalModes[sessionID]
 	b.mu.Unlock()
 	if approvalMode == "full-access" {
-		// A request notification may beat the turn/start response. It was kept
-		// pending while ownership was unknown; resolve it only after the explicit
-		// Fleet lease above exists.
 		b.applyApprovalMode(rpc, sessionID, approvalMode)
 	}
 	return ChatInputResult{TurnID: res.Turn.ID}, nil
@@ -2591,7 +2577,7 @@ func (b *codexChatBackend) Steer(ctx context.Context, assistant, sessionID, clie
 	owner := b.turnOwners[sessionID]
 	writerOwner := b.writerOwners[sessionID]
 	b.mu.Unlock()
-	if owner == "desktop" || writerOwner == "desktop" {
+	if !codexUsesSharedDaemon() && (owner == "desktop" || writerOwner == "desktop") {
 		return ChatInputResult{}, errExternalChatTurn
 	}
 	if turnID == "" {
@@ -2607,10 +2593,6 @@ func (b *codexChatBackend) Steer(ctx context.Context, assistant, sessionID, clie
 	if err != nil {
 		if actualTurnID := codexActualTurnID(err); actualTurnID != "" && actualTurnID != turnID {
 			if codexUsesSharedDaemon() {
-				// The shared daemon advanced to a turn that this Fleet connection
-				// did not start. Never retarget a Fleet steer across that boundary:
-				// the new turn belongs to Desktop unless a later Fleet turn/start
-				// response explicitly proves otherwise.
 				b.mu.Lock()
 				if b.lastTurn[sessionID] == turnID {
 					b.lastTurn[sessionID] = actualTurnID
@@ -2618,7 +2600,6 @@ func (b *codexChatBackend) Steer(ctx context.Context, assistant, sessionID, clie
 					b.writerOwners[sessionID] = "desktop"
 				}
 				b.mu.Unlock()
-				return ChatInputResult{}, errExternalChatTurn
 			}
 			params["expectedTurnId"] = actualTurnID
 			b.mu.Lock()
@@ -2745,31 +2726,11 @@ func (b *codexChatBackend) Settings(ctx context.Context, assistant, sessionID, a
 	}
 	b.refreshActiveTurnOwnership(sessionID)
 	b.mu.Lock()
-	external := b.turnOwners[sessionID] == "desktop" || b.writerOwners[sessionID] == "desktop"
+	external := !codexUsesSharedDaemon() && (b.turnOwners[sessionID] == "desktop" || b.writerOwners[sessionID] == "desktop")
 	loaded := b.loadedThreads[sessionID]
-	sharedFleetTurn := codexUsesSharedDaemon() && b.ownsCurrentFleetTurnLocked(sessionID, b.lastTurn[sessionID])
 	b.mu.Unlock()
 	if external {
 		return errExternalChatTurn
-	}
-	// thread/settings/update has no expectedTurnId. In shared mode even a
-	// locally verified Fleet lease can finish immediately before that RPC and
-	// let Desktop start a new turn, so a settings update would cross the turn
-	// boundary (including dangerFullAccess). Always cache for the next Fleet
-	// turn/start instead. For a currently Fleet-owned turn, only update Fleet's
-	// local approval handling so its own pending requests may be resolved.
-	if codexUsesSharedDaemon() {
-		b.mu.Lock()
-		b.approvalModes[sessionID] = approvalMode
-		b.mu.Unlock()
-		if sharedFleetTurn && approvalMode == "full-access" {
-			rpc, err := b.ensure(ctx)
-			if err != nil {
-				return err
-			}
-			b.applyApprovalMode(rpc, sessionID, approvalMode)
-		}
-		return nil
 	}
 	// Browsing an idle thread through the isolated sidecar intentionally does
 	// not resume it, because resume would claim the writer from Codex Desktop.
@@ -2786,6 +2747,11 @@ func (b *codexChatBackend) Settings(ctx context.Context, assistant, sessionID, a
 	rpc, err := b.ensure(ctx)
 	if err != nil {
 		return err
+	}
+	if codexUsesSharedDaemon() && !loaded {
+		if err := b.ensureThreadLoaded(ctx, rpc, sessionID); err != nil {
+			return err
+		}
 	}
 	params := map[string]interface{}{"threadId": sessionID}
 	for key, value := range codexApprovalSettingsParams(approvalMode) {
@@ -2827,9 +2793,6 @@ func (b *codexChatBackend) applyApprovalMode(rpc codexRPCConn, sessionID, approv
 		if request.sessionID != sessionID {
 			continue
 		}
-		if codexUsesSharedDaemon() && !b.ownsSharedRequestLocked(request) {
-			continue
-		}
 		if _, ok := codexAutomaticApprovalResponse(request.method, request.params); !ok {
 			continue
 		}
@@ -2856,9 +2819,6 @@ func (b *codexChatBackend) autoApprove(rpc codexRPCConn, n rpcNotification) bool
 	sessionID := codexRequestSessionID(n.Params)
 	b.mu.Lock()
 	fullAccess := b.approvalModes[sessionID] == "full-access"
-	if fullAccess && codexUsesSharedDaemon() {
-		fullAccess = b.ownsSharedRequestLocked(pendingCodexRequest{sessionID: sessionID, params: n.Params})
-	}
 	b.mu.Unlock()
 	if !fullAccess {
 		return false
@@ -3702,7 +3662,7 @@ func (b *codexChatBackend) Interrupt(ctx context.Context, assistant, sessionID s
 	owner := b.turnOwners[sessionID]
 	writerOwner := b.writerOwners[sessionID]
 	b.mu.Unlock()
-	if owner == "desktop" || writerOwner == "desktop" {
+	if !codexUsesSharedDaemon() && (owner == "desktop" || writerOwner == "desktop") {
 		return errExternalChatTurn
 	}
 	if turnID == "" {
@@ -3733,9 +3693,8 @@ func (b *codexChatBackend) Interrupt(ctx context.Context, assistant, sessionID s
 	return err
 }
 
-// Release stops a Fleet-owned turn, if present, then drops this app-server
-// connection's subscription so Codex Desktop can acquire the writer. It is
-// intentionally idempotent: an already released thread is still success.
+// Release stops the controllable turn, if present, then drops this connection's
+// subscription. It is idempotent: an already released thread is still success.
 func (b *codexChatBackend) Release(ctx context.Context, assistant, sessionID string) error {
 	if assistant != "codex" {
 		return errUnsupportedChatAssistant
@@ -3753,10 +3712,10 @@ func (b *codexChatBackend) Release(ctx context.Context, assistant, sessionID str
 	turnOwner := b.turnOwners[sessionID]
 	writerOwner := b.writerOwners[sessionID]
 	b.mu.Unlock()
-	if turnOwner == "desktop" || writerOwner == "desktop" {
+	if !codexUsesSharedDaemon() && (turnOwner == "desktop" || writerOwner == "desktop") {
 		return errExternalChatTurn
 	}
-	if turnID != "" && turnOwner == "fleet" {
+	if turnID != "" && (codexUsesSharedDaemon() || turnOwner == "fleet") {
 		b.turnProcessMu.Lock()
 		_, interruptErr := rpc.call(ctx, "turn/interrupt", map[string]string{"threadId": sessionID, "turnId": turnID})
 		b.turnProcessMu.Unlock()
@@ -3767,6 +3726,9 @@ func (b *codexChatBackend) Release(ctx context.Context, assistant, sessionID str
 	b.mu.Lock()
 	delete(b.lastTurn, sessionID)
 	delete(b.turnOwners, sessionID)
+	if codexUsesSharedDaemon() {
+		delete(b.writerOwners, sessionID)
+	}
 	b.mu.Unlock()
 	if err := b.releaseFleetWriter(rpc, sessionID); err != nil {
 		if !codexUsesIsolatedSidecar() || codexThreadWriterProcessOwner(sessionID) != "fleet" {
@@ -3992,15 +3954,6 @@ func (b *codexChatBackend) Respond(ctx context.Context, assistant, sessionID, re
 	}
 	if p.sessionID != sessionID {
 		return errChatRequestNotFound
-	}
-	if codexUsesSharedDaemon() {
-		b.refreshActiveTurnOwnership(sessionID)
-		b.mu.Lock()
-		owned := b.ownsSharedRequestLocked(p)
-		b.mu.Unlock()
-		if !owned {
-			return errExternalChatTurn
-		}
 	}
 	rpc, err := b.ensure(ctx)
 	if err != nil {

@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"testing"
 )
 
@@ -61,11 +60,8 @@ func TestCodexSharedResumePreservesLatestTurnOwnership(t *testing.T) {
 					}
 				}
 				_, err := b.Steer(context.Background(), "codex", "thread-resume", "followup", "continue", nil, nil)
-				if owner == "fleet" && err != nil {
-					t.Fatalf("Fleet followup was blocked after resume: %v", err)
-				}
-				if owner == "desktop" && !errors.Is(err, errExternalChatTurn) {
-					t.Fatalf("Desktop followup must remain protected, got %v", err)
+				if err != nil {
+					t.Fatalf("shared %s followup was blocked after resume: %v", owner, err)
 				}
 			})
 		}

@@ -781,7 +781,7 @@ test('automation modal links to a concise cached API guide', () => {
   assert.match(automationGuideHTML, /POST|\/api\/v1\/messages/);
   assert.match(automationGuideHTML, /Idempotency-Key/);
   assert.match(automationGuideHTML, /callback_url/);
-  assert.match(automationGuideHTML, /src="\/automation-guide\.js\?v=237" defer/);
+  assert.match(automationGuideHTML, /src="\/automation-guide\.js\?v=\d+" defer/);
   assert.match(automationGuideHTML, /data-api-path="\/api\/v1\/messages"/);
   assert.doesNotMatch(automationGuideHTML, /fleet\.hyposomnia\.top|:20443|automation-doc-back/);
   const apiNodes = [
@@ -797,7 +797,7 @@ test('automation modal links to a concise cached API guide', () => {
     'https://fleet.example.test:9443/api/v1/messages/msg_xxx',
   ]);
   assert.match(serviceWorker, /'\/automation-guide\.html'/);
-  assert.match(serviceWorker, /'\/automation-guide\.js\?v=237'/);
+  assert.match(serviceWorker, /'\/automation-guide\.js\?v=\d+'/);
 	assert.match(serviceWorker, /'\/automation-guide\.html', '\/automation-records\.html'\]\.includes\(url\.pathname\)/);
   assert.match(styleCSS, /\.automation-doc-main\s*\{/);
 });
@@ -2161,6 +2161,44 @@ test('composer queues non-empty running input and only stops when empty', () => 
   assert.match(appSrc, /if \(!state\.chat \|\| chatMutationsBlocked\(state\.chat\)\) return/);
   assert.match(appSrc, /disabled: chatMutationsBlocked\(\) \? '' : null/);
   assert.match(appSrc, /if \(chatMutationsBlocked\(chat\) \|\| !requestId/);
+});
+
+test('shared Desktop turns keep normal composer and approval controls', () => {
+  const chat = {
+    controlReady: true, accessMode: 'read_write', sharedRuntime: true,
+    writerOwner: 'desktop', turnOwner: 'desktop', turnPhase: 'running',
+    model: { phase: 'running', requests: {} },
+  };
+  assert.equal(chatComposerAction(chat, false), 'interrupt');
+  assert.equal(chatComposerAction(chat, true), 'send');
+  assert.equal(chatOwnershipPresentation(chat), null);
+  chat.pendingRequestCount = 1;
+  assert.equal(chatOwnershipPresentation(chat).className, 'waiting');
+  chat.pendingRequestCount = 0;
+  chat.turnPhase = 'idle';
+  assert.equal(chatComposerAction(chat, true), 'send');
+  assert.equal(chatComposerAction(chat, false), 'send');
+  chat.accessMode = 'read_only';
+  assert.equal(chatComposerAction(chat, true), 'readonly');
+});
+
+test('control snapshots carry shared runtime capability without changing turn origin', () => {
+  const chat = { model: createChatState(), followups: [] };
+  assert.equal(applyChatControlSnapshot(chat, {
+    serverEpoch: 'shared-agent', snapshotVersion: 1, sharedRuntime: true,
+    accessMode: 'read_write', approvalMode: 'on-request', writerOwner: 'desktop',
+    turnOwner: 'desktop', turnPhase: 'running', activeTurnId: 'desktop-turn', items: [],
+  }, 1), true);
+  assert.equal(chat.sharedRuntime, true);
+  assert.equal(chat.turnOwner, 'desktop');
+  assert.equal(chatComposerAction(chat, false), 'interrupt');
+  assert.equal(applyChatControlSnapshot(chat, {
+    serverEpoch: 'isolated-agent', snapshotVersion: 1,
+    accessMode: 'read_write', approvalMode: 'on-request', writerOwner: 'desktop',
+    turnOwner: 'desktop', turnPhase: 'running', activeTurnId: 'desktop-turn', items: [],
+  }, 2), true);
+  assert.equal(chat.sharedRuntime, false);
+  assert.equal(chatComposerAction(chat, false), 'wait-desktop');
 });
 
 test('command enter queues the message for the next turn', () => {

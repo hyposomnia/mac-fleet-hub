@@ -298,7 +298,8 @@ func buildChatSessionControlSnapshotLocked(ctx context.Context, assistant, sessi
 	}
 	epoch, version := nextChatControlSnapshotVersion()
 	return ChatSessionControlSnapshot{
-		ServerEpoch: epoch, SnapshotVersion: version,
+		SharedRuntime: runtimeState.SharedRuntime,
+		ServerEpoch:   epoch, SnapshotVersion: version,
 		AccessMode:  accessMode,
 		WriterOwner: runtimeState.WriterOwner, TurnPhase: phase,
 		ActiveTurnID: runtimeState.ActiveTurnID, TurnOwner: runtimeState.TurnOwner,
