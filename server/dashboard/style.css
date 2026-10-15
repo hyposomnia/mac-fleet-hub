@@ -1,4 +1,4 @@
-@import url("titanium.css?v=249");
+@import url("titanium.css?v=250");
 
 /* ============================================================
    mac fleet hub —— 设计系统 v2（令牌 + 组件 + 布局）
@@ -802,7 +802,7 @@ html.automation-doc-root, html.automation-doc-root body { height: auto; min-heig
 .session-state-dot { width: 8px; height: 8px; margin-left: 2px; border-radius: 50%; flex: none; background: var(--offline); }
 .session-state-dot.read { display: none; }
 @media (hover: hover) {
-  .ses:hover .session-state-dot { visibility: hidden; }
+  .ses:hover .session-state-dot { display: none; }
 }
 .session-state-dot.unread { background: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
 .session-state-dot.running {
