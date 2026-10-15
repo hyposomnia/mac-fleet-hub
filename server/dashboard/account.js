@@ -35,10 +35,18 @@
       return element;
     }
     function heading(title, description) {
-      const heading = node('h1', title, { className: suppliedContent && ['账号设置', '设备'].includes(title) ? 'settings-primary-title' : '' });
+      const embedded = Boolean(suppliedContent);
+      const heading = node('h1', title, { className: embedded ? 'settings-page-title' : '' });
       if (securityDialog) heading.id = 'auth-security-title';
-      content.replaceChildren(heading);
-      if (description) content.append(node('p', description, { className: 'account-muted' }));
+      if (embedded) {
+        const header = node('header', '', { className: 'settings-page-header' });
+        header.append(heading);
+        if (description) header.append(node('p', description, { className: 'settings-page-description' }));
+        content.replaceChildren(header);
+      } else {
+        content.replaceChildren(heading);
+        if (description) content.append(node('p', description, { className: 'account-muted' }));
+      }
       status.textContent = '';
     }
     function section(title, parent = content, collapsible = false) {
@@ -475,7 +483,8 @@
       const sessionData = await auth.json('/api/auth/sessions');
       flowLocked = false;
       heading('账号设置', auth.user.email);
-      const sessions = section('登录设备', content, true);
+      const collapsible = !suppliedContent;
+      const sessions = section('登录设备', content, collapsible);
       metadata(sessionData.sessions, [['当前', (session) => session.current ? '此设备' : '其他设备'],
         ['编号', (session) => session.id], ['创建时间', (session) => formatTime(session.created_at)],
         ['最近使用', (session) => formatTime(session.last_seen)], ['到期时间', (session) => formatTime(session.expires_at)],
@@ -486,14 +495,14 @@
         await showAccount();
         status.textContent = '其他登录已退出。';
       }, sessions, true);
-      const passwords = section('更改密码', content, true);
+      const passwords = section('更改密码', content, collapsible);
       form('password', [passwordField('current_password', '当前密码'), passwordField('password', '新密码', 'new-password'), passwordField('confirm_password', '确认新密码', 'new-password'), otpField()], '保存密码', async (values) => {
         const result = await post('/api/auth/password', values);
         if (result?.login_required) { auth.invalidate({ returnTo: '/account' }); return; }
         await showAccount();
         status.textContent = '密码已更改。';
       }, passwords);
-      const totp = section('更换 Authenticator', content, true);
+      const totp = section('更换 Authenticator', content, collapsible);
       form('totp-start', [passwordField(), otpField()], '开始更换', async (values) => {
         const result = await post('/api/auth/totp/start', values);
         heading('更换 Authenticator', '扫描新二维码，并使用新的 Authenticator 验证码确认。');
@@ -502,7 +511,7 @@
           showCodes(confirmed.recovery_codes, showAccount);
         });
       }, totp);
-      const recovery = section('重新生成恢复码', content, true);
+      const recovery = section('重新生成恢复码', content, collapsible);
       recovery.append(node('p', '重新生成后，旧恢复码将立即失效。'));
       form('recovery-codes', [passwordField(), otpField()], '重新生成', async (values) => {
         if (!confirm('重新生成恢复码并使旧恢复码失效？')) return;

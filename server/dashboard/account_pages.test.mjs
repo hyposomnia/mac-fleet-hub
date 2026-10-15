@@ -140,22 +140,26 @@ test('account inputs use valid autocomplete and security forms identify the curr
   assert.deepEqual(JSON.parse(JSON.stringify(current.calls.at(-1).body)), payload);
 });
 
-test('account security sections are native disclosures closed by default in standalone and embedded pages', async () => {
+test('account security sections are expanded cards in settings and disclosures on the standalone page', async () => {
+  const titles = ['登录设备', '更改密码', '更换 Authenticator', '重新生成恢复码'];
   for (const embedded of [false, true]) {
     const current = harness({ page: 'account', embedded });
     await current.start();
-    const disclosures = all(current.content, (node) => node.tagName === 'details');
-    assert.deepEqual(disclosures.map((node) => text(node.children[0])), ['登录设备', '更改密码', '更换 Authenticator', '重新生成恢复码']);
-    for (const disclosure of disclosures) {
-      assert.equal(disclosure.children[0].tagName, 'summary');
-      assert.equal(Boolean(disclosure.open), false);
-      assert.equal(disclosure.attributes.open, undefined);
-    }
+    const sections = all(current.content, (node) => String(node.className || '').split(/\s+/).includes('account-section'));
+    assert.deepEqual(sections.map((node) => text(node.children[0])), titles);
+    assert.deepEqual(sections.map((node) => node.tagName), Array(4).fill(embedded ? 'section' : 'details'));
+    assert.deepEqual(sections.map((node) => node.children[0].tagName), Array(4).fill(embedded ? 'h2' : 'summary'));
+    assert.equal(all(current.content, (node) => node.tagName === 'details').length, embedded ? 0 : 4);
     for (const name of ['password', 'totp-start', 'recovery-codes']) {
-      assert.ok(disclosures.some((disclosure) => all(disclosure, (node) => node === current.form(name)).length));
+      assert.ok(sections.some((section) => all(section, (node) => node === current.form(name)).length));
+    }
+    if (embedded) {
+      const header = current.find((node) => node.className === 'settings-page-header');
+      assert.equal(header.children[0].className, 'settings-page-title');
+      assert.equal(text(header.children[0]), '账号设置');
     }
     assert.equal(current.find((node) => node.id === 'devices'), undefined);
-    assert.match(text(disclosures[3]), /旧恢复码将立即失效/);
+    assert.match(text(sections[3]), /旧恢复码将立即失效/);
   }
 });
 

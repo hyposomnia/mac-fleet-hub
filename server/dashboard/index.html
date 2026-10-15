@@ -5,11 +5,11 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content" />
   <!-- theme-color 与共享主题控制器、Titanium 页面底色同步。 -->
   <meta name="theme-color" content="#FAFAFA" />
-  <script src="/theme.js?v=231"></script>
+  <script src="/theme.js?v=232"></script>
   <title>mac fleet hub</title>
   <link rel="manifest" href="manifest.webmanifest" />
-  <link rel="icon" href="icons/favicon.svg?v=231" type="image/svg+xml" />
-  <link rel="apple-touch-icon" href="icons/icon-180.png?v=231" sizes="180x180" />
+  <link rel="icon" href="icons/favicon.svg?v=232" type="image/svg+xml" />
+  <link rel="apple-touch-icon" href="icons/icon-180.png?v=232" sizes="180x180" />
   <meta name="mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
@@ -17,8 +17,8 @@
   <!-- theme.js 在样式加载前同步应用已保存的外观，默认浅色。 -->
 
   <link rel="stylesheet" href="vendor/codemirror/lib/codemirror.css?v=5.65.20" />
-  <link rel="stylesheet" href="style.css?v=231" />
-  <link rel="stylesheet" href="account.css?v=231" />
+  <link rel="stylesheet" href="style.css?v=232" />
+  <link rel="stylesheet" href="account.css?v=232" />
 </head>
 <body>
   <div id="auth-status" role="status"><span id="auth-status-message">正在验证登录…</span><a href="">重新加载</a></div>
@@ -465,6 +465,7 @@
             <section id="settings-device-panel" class="fleet-settings-panel" data-settings-panel="add-device" role="tabpanel" aria-labelledby="settings-tab-device" hidden></section>
     <section id="settings-appearance-panel" class="fleet-settings-panel" data-settings-panel="appearance" role="tabpanel" aria-labelledby="settings-tab-appearance" hidden>
       <div class="settings-panel-card">
+        <header class="settings-page-header"><h1 class="settings-page-title">外观</h1></header>
         <div class="modal-body">
           <section class="set-group">
             <div class="set-group-title">显示模式</div>
@@ -500,6 +501,7 @@
     </section>
     <section id="settings-modal" class="fleet-settings-panel" data-settings-panel="sessions" role="tabpanel" aria-labelledby="settings-tab-sessions" hidden>
       <div class="settings-panel-card">
+        <header class="settings-page-header"><h1 class="settings-page-title">会话设置</h1></header>
         <div class="modal-body">
           <section class="set-group">
             <div class="set-group-title">聊天设置</div>
@@ -523,7 +525,10 @@
     <!-- ───────── 自动化 ───────── -->
     <section id="automation-modal" class="fleet-settings-panel" data-settings-panel="automation" role="tabpanel" aria-labelledby="settings-tab-automation" hidden>
       <div class="settings-panel-card automation-modal-card">
-        <div class="automation-panel-tools"><a id="automation-records-link" class="automation-doc-link" href="/automation-records.html" target="_blank" rel="noopener noreferrer">消息记录 ↗</a><a class="automation-doc-link" href="/automation-guide.html" target="_blank" rel="noopener">使用文档 ↗</a></div>
+        <header class="settings-page-header settings-page-header-actions">
+          <h1 class="settings-page-title">自动化</h1>
+          <div class="settings-page-actions"><a id="automation-records-link" class="automation-doc-link" href="/automation-records.html" target="_blank" rel="noopener noreferrer">消息记录 ↗</a><a class="automation-doc-link" href="/automation-guide.html" target="_blank" rel="noopener">使用文档 ↗</a></div>
+        </header>
         <div class="modal-body">
           <section class="set-group">
             <div class="set-group-title automation-panel-title"><span>访问密钥</span><button id="automation-key-create" class="btn sm primary" type="button">新建密钥</button></div>
@@ -644,20 +649,20 @@
   <script src="vendor/codemirror/mode/yaml/yaml.js?v=5.65.20"></script>
   <script src="vendor/codemirror/mode/toml/toml.js?v=5.65.20"></script>
   <script src="vendor/codemirror/mode/properties/properties.js?v=5.65.20"></script>
-  <script src="auth-client.js?v=231"></script>
-  <script src="account.js?v=231"></script>
-  <script src="settings_dialog.js?v=231"></script>
-  <script src="markdown.js?v=231"></script>
-  <script src="preview.js?v=231"></script>
-  <script src="chat_model.js?v=231"></script>
-  <script src="upload_model.js?v=231"></script>
-  <script src="device_appearance.js?v=231"></script>
-  <script src="sidebar_layout.js?v=231"></script>
-  <script src="workspace_tabs.js?v=231"></script>
-  <script src="compact_composer.js?v=231"></script>
-  <script src="fleet_core.js?v=231"></script>
-  <script src="app.js?v=231"></script>
-  <script src="workspace.js?v=231"></script>
-  <script src="native_bridge.js?v=231"></script>
+  <script src="auth-client.js?v=232"></script>
+  <script src="account.js?v=232"></script>
+  <script src="settings_dialog.js?v=232"></script>
+  <script src="markdown.js?v=232"></script>
+  <script src="preview.js?v=232"></script>
+  <script src="chat_model.js?v=232"></script>
+  <script src="upload_model.js?v=232"></script>
+  <script src="device_appearance.js?v=232"></script>
+  <script src="sidebar_layout.js?v=232"></script>
+  <script src="workspace_tabs.js?v=232"></script>
+  <script src="compact_composer.js?v=232"></script>
+  <script src="fleet_core.js?v=232"></script>
+  <script src="app.js?v=232"></script>
+  <script src="workspace.js?v=232"></script>
+  <script src="native_bridge.js?v=232"></script>
 </body>
 </html>

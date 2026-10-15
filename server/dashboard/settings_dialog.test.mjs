@@ -19,7 +19,11 @@ test('unified settings have no visible title row and retain an accessible floati
   assert.match(styles, /\.theme-icon-choices \.theme-icon-choice:hover\s*\{[^}]*background:\s*transparent;[^}]*color:\s*var\(--accent-text\);/s);
   assert.match(styles, /\.fleet-settings-panel\s*\{[^}]*min-height:\s*100%;[^}]*display:\s*flex;[^}]*flex-direction:\s*column;/s);
   assert.match(styles, /\.settings-panel-card\s*\{[^}]*flex:\s*1 0 auto;[^}]*min-height:\s*0;/s);
-  assert.match(settings, /class="automation-panel-tools"[^]*使用文档 ↗/);
+  assert.match(settings, /class="settings-page-header settings-page-header-actions"[^]*<h1 class="settings-page-title">自动化<\/h1>[^]*使用文档 ↗/);
+  assert.match(settings, /<h1 class="settings-page-title">外观<\/h1>/);
+  assert.match(settings, /<h1 class="settings-page-title">会话设置<\/h1>/);
+  assert.match(styles, /\.fleet-settings-panel \.account-section,\s*\.fleet-settings-panel \.set-group\s*\{[^}]*background:\s*var\(--settings-surface\);/s);
+  assert.match(styles, /\.appearance-palette-card\s*\{[^}]*background:\s*transparent;/s);
   assert.match(settings, /data-settings-page="add-device"[^>]*>设备<\/button>/);
   assert.doesNotMatch(settings, /data-settings-page="add-device"[^>]*>添加设备<\/button>/);
   assert.deepEqual([...settings.matchAll(/data-settings-page="([^"]+)"/g)].map(match => match[1]),
