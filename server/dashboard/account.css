@@ -179,9 +179,9 @@ body.account-auth { background: var(--surface); isolation: isolate; }
 .fleet-settings-nav button[aria-selected="true"] { background: var(--settings-elevated); color: var(--accent-text); font-weight: 600; }
 .fleet-settings-nav button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .fleet-settings-scroll { padding: 24px; overflow: auto; overscroll-behavior: contain; min-height: 0; scrollbar-gutter: stable; }
-.fleet-settings-panel { min-height: 100%; }
+.fleet-settings-panel { min-height: 100%; display: flex; flex-direction: column; }
 .fleet-settings-panel[hidden] { display: none; }
-.settings-panel-card { display: flex; flex-direction: column; width: 100%; min-height: 100%; }
+.settings-panel-card { display: flex; flex: 1 0 auto; flex-direction: column; width: 100%; min-height: 0; }
 .settings-panel-card > .modal-body { flex: 1 0 auto; }
 .settings-panel-card > .modal-foot { flex: none; margin-top: auto; }
 .fleet-settings-panel .account-content { margin: 0; max-width: none; }

@@ -15,6 +15,8 @@ test('unified settings have no visible title row and retain an accessible floati
   assert.match(settings, /<button[^>]*class="[^"]*fleet-settings-close[^"]*"[^>]*type="button"[^>]*data-close="fleet-settings-modal"[^>]*aria-label="关闭设置"/);
   assert.match(styles, /\.fleet-settings-close\s*\{[^}]*position:\s*absolute[^}]*width:\s*44px[^}]*height:\s*44px/s);
   assert.match(styles, /\.fleet-settings-nav\s*\{[^}]*scrollbar-width:\s*none/s);
+  assert.match(styles, /\.fleet-settings-panel\s*\{[^}]*min-height:\s*100%;[^}]*display:\s*flex;[^}]*flex-direction:\s*column;/s);
+  assert.match(styles, /\.settings-panel-card\s*\{[^}]*flex:\s*1 0 auto;[^}]*min-height:\s*0;/s);
   assert.match(settings, /class="automation-panel-tools"[^]*使用文档 ↗/);
   assert.match(settings, /data-settings-page="add-device"[^>]*>设备<\/button>/);
   assert.doesNotMatch(settings, /data-settings-page="add-device"[^>]*>添加设备<\/button>/);
