@@ -222,8 +222,31 @@ test('native candidate publication stays behind the unique signing entry and Acc
   assert.match(native, /hdiutil create/);
   assert.match(native, /client-native-releases/);
   assert.match(native, /native-client-release\.mjs/);
-  assert.ok(native.indexOf('stapler validate') < native.indexOf('scp '));
+  assert.ok(native.indexOf('stapler validate') < native.indexOf('native_upload_distribution "$work"'));
   assert.doesNotMatch(native, /fleet-agent update|launchctl|git commit/);
+});
+
+test('native release streams complete files over SSH and propagates transfer failure', () => {
+  const directory = mkdtempSync(join(tmpdir(), 'native-transfer-'));
+  const script = fileURLToPath(new URL('./lib/native-candidate-release.sh', import.meta.url));
+  try {
+    mkdirSync(join(directory, 'distribution'));
+    mkdirSync(join(directory, 'received'));
+    writeFileSync(join(directory, 'distribution', 'Fleet-Hub.dmg'), 'signed archive fixture');
+    writeFileSync(join(directory, 'SHA256SUMS'), 'checksum fixture');
+    const result = spawnSync('bash', ['-c', `source "$1"
+ssh() { tar -xf - -C "$TEST_RECEIVED"; }
+native_upload_distribution "$2" example 22 /tmp/native-input`, 'fixture', script, directory], {
+      encoding: 'utf8', env: { ...process.env, TEST_RECEIVED: join(directory, 'received') },
+    });
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(readFileSync(join(directory, 'received', 'distribution', 'Fleet-Hub.dmg'), 'utf8'), 'signed archive fixture');
+    assert.equal(readFileSync(join(directory, 'received', 'SHA256SUMS'), 'utf8'), 'checksum fixture');
+    const failed = spawnSync('bash', ['-c', `source "$1"
+ssh() { cat >/dev/null; return 42; }
+native_upload_distribution "$2" example 22 /tmp/native-input`, 'fixture', script, directory], { encoding: 'utf8' });
+    assert.equal(failed.status, 42, failed.stderr);
+  } finally { rmSync(directory, { recursive: true, force: true }); }
 });
 
 function nativeUploadOption(value) {

@@ -1,5 +1,15 @@
 #!/usr/bin/env bash
 
+# Jump hosts may expose SSH commands without an SFTP subsystem or SCP server.
+# Keep the same staging directory and checksum gates while streaming via SSH.
+native_upload_distribution() (
+  set -euo pipefail
+  local work="$1" target="$2" port="$3" remote_input="$4"
+  [[ "$remote_input" =~ ^/tmp/[a-zA-Z0-9._-]+$ ]] || return 2
+  COPYFILE_DISABLE=1 tar -cf - -C "$work" distribution SHA256SUMS |
+    ssh -o BatchMode=yes -o ConnectTimeout=8 -p "$port" "$target" "tar -xf - -C '$remote_input'"
+)
+
 native_notary_upload_option() {
   case "${FLEET_NOTARY_S3_ACCELERATION:-0}" in
     0) printf '%s\n' '--no-s3-acceleration' ;;
@@ -91,7 +101,7 @@ NODE
   (cd "$work/distribution" && shasum -a 256 Fleet-Hub.dmg Fleet-Hub-update.zip client-release.json appcast.xml) > "$work/SHA256SUMS"
   remote_input="/tmp/fleet-native-$revision-$FLEET_SETTINGS_BUILD"
   ssh_retry "$port" "$target" '创建原生安装包暂存目录' "umask 077; mkdir -p '$remote_input'"
-  scp -o BatchMode=yes -o ConnectTimeout=8 -P "$port" -r "$work/distribution" "$work/SHA256SUMS" "$target:$remote_input/"
+  native_upload_distribution "$work" "$target" "$port" "$remote_input"
   ssh_retry "$port" "$target" '暂存不可变原生安装包，保留当前下载源' "sudo -n flock -n '$candidate_root/.native-publish.lock' bash -c 'set -e; test -f \"$candidate_root/.candidate-instance\"; cd \"$remote_input/distribution\"; sha256sum -c ../SHA256SUMS; install -d -m 0755 \"$candidate_root/client-native-releases\"; test ! -e \"$candidate_root/client-native-releases/$FLEET_SETTINGS_BUILD\"; readlink \"$candidate_root/client-native-current\" > \"$remote_input/previous-native-pointer\" || true; cp -R . \"$candidate_root/client-native-releases/$FLEET_SETTINGS_BUILD\"; find \"$candidate_root/client-native-releases/$FLEET_SETTINGS_BUILD\" -type d -exec chmod 0755 {} +; find \"$candidate_root/client-native-releases/$FLEET_SETTINGS_BUILD\" -type f -exec chmod 0644 {} +'"
   mkdir -p "$work/downloaded"
   for component in Fleet-Hub.dmg Fleet-Hub-update.zip; do
