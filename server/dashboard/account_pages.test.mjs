@@ -15,11 +15,12 @@ class Element {
   getAttribute(key) { return this.attributes[key]; }
   focus() { this.focused = true; }
   showModal() { this.open = true; this.modal = true; }
+  close() { this.open = false; this.onclose?.(); }
   getBoundingClientRect() { return { top: 0, height: 40 }; }
 }
 function text(node) { return typeof node === 'string' ? node : (node?.textContent || '') + (node?.children || []).map(text).join(' '); }
 function all(node, predicate) { return [node, ...(node.children || []).flatMap((child) => typeof child === 'string' ? [] : all(child, predicate))].filter(predicate); }
-function harness({ page = 'auth', path = '/auth', search = '', role = 'user', respond, confirmed = true, origin = 'https://fleet.test', released = true, transformRelease = value => value, embedded = false, devices = [], appearances = {} } = {}) {
+function harness({ page = 'auth', path = '/auth', search = '', role = 'user', respond, confirmed = true, origin = 'https://fleet.test', released = true, transformRelease = value => value, embedded = false, devices = [], appearances = {}, withNav = true } = {}) {
   assert.ok(source, 'shared account page implementation is missing');
   const clipboard = [];
   const sandbox = { URL, URLSearchParams, AbortController, setTimeout, clearTimeout, performance,
@@ -29,7 +30,7 @@ function harness({ page = 'auth', path = '/auth', search = '', role = 'user', re
   const content = new Element('main');
   const status = new Element('p');
   const nav = new Element('nav');
-  const document = { createElement: (tag) => new Element(tag), querySelector: (selector) => ({ '#page-content': content, '#page-status': status, '#page-nav': nav })[selector], documentElement: { dataset: {} } };
+  const document = { createElement: (tag) => new Element(tag), querySelector: (selector) => ({ '#page-content': content, '#page-status': status, '#page-nav': withNav ? nav : null })[selector], documentElement: { dataset: {} } };
   sandbox.document = { ...document, createElementNS: (_ns, tag) => new Element(tag) };
   vm.runInContext(appearanceSource, sandbox);
   const calls = [];
@@ -50,7 +51,7 @@ function harness({ page = 'auth', path = '/auth', search = '', role = 'user', re
       if (respond) return respond(url, options);
       if (url === '/api/devices') return { devices };
       if (url === '/api/settings') return { deviceAppearance: appearances, deviceOrder: devices.map(device => device.id) };
-      return { sessions: [], users: [], total: 0, page: 1 };
+      return { sessions: [], users: [], total: 0, page: 1, page_size: 20 };
     }, logout: async () => { calls.push({ url: '/api/auth/logout', method: 'POST' }); } };
   auth.invalidate = (options) => { redirects.push(`/auth?next=${encodeURIComponent(options?.returnTo || '/')}`); };
   const history = { replaceState: (_, __, target) => {
@@ -277,7 +278,7 @@ test('admin denies ordinary users without querying admin APIs', async () => {
 });
 
 test('admin shows counts, searches and paginates metadata, with no content endpoints or injected markup', async () => {
-  const current = harness({ page: 'admin', role: 'admin', respond: (url) => url.endsWith('overview') ? { users: 25, devices: 4, online: 2 } : { users: [{ id: 'u2', email: '<img onerror=evil>', status: 'active' }], devices: [], total: 25, page: 1 } });
+  const current = harness({ page: 'admin', role: 'admin', respond: () => ({ users: [{ id: 'u2', email: '<img onerror=evil>', online: false, device_count: 0 }], total: 25, page: 1, page_size: 20 }) });
   await current.start();
   assert.match(text(current.content), /25/);
   assert.match(text(current.content), /<img onerror=evil>/);
@@ -289,20 +290,87 @@ test('admin shows counts, searches and paginates metadata, with no content endpo
   assert.ok(current.calls.every((call) => !/\/m\d+\/|chat|files|messages/.test(call.url)));
 });
 
-test('admin detail exposes only metadata and actions send exact status/revocation/device paths', async () => {
-  const current = harness({ page: 'admin', role: 'admin', respond: (url) => url === '/api/admin/users/u2' ? { user: { id: 'u2', email: 'two@example.com', status: 'active' }, devices: [{ id: 'm1', name: 'Mac' }], events: [{ action: 'login', created_at: '2026-09-30', message: 'PRIVATE-CONTENT' }] } : { users: [{ id: 'u2', email: 'two@example.com', status: 'active' }], devices: [{ id: 'm1', name: 'Mac' }], total: 1, page: 1 } });
+test('ADM-1/3/5 admin lists presence and device counts without frontend navigation or management actions', async () => {
+  const current = harness({ page: 'admin', role: 'admin', respond: () => ({ users: [
+    { id: 2, email: 'two@example.com', online: true, device_count: 3 },
+    { id: 3, email: 'three@example.com', online: false, device_count: 0 },
+  ], total: 2, page: 1, page_size: 20 }) });
   await current.start();
-  await current.click('查看 two@example.com');
-  assert.match(text(current.content), /login/);
-  assert.doesNotMatch(text(current.content), /PRIVATE-CONTENT/);
-  await current.click('停用用户');
-  const update = current.calls.find((call) => call.method === 'PATCH');
-  assert.equal(update.url, '/api/admin/users/u2');
-  assert.deepEqual(JSON.parse(JSON.stringify(update.body)), { status: 'disabled' });
-  await current.click('撤销用户登录');
-  assert.ok(current.calls.some((call) => call.url.endsWith('/u2/revoke-sessions') && call.method === 'POST'));
-  await current.click('移除 Mac');
-  assert.ok(current.calls.some((call) => call.url === '/api/admin/devices/m1' && call.method === 'DELETE'));
+  assert.deepEqual(current.nav.children, []);
+  const rows = all(current.content, node => node.tagName === 'tr' && text(node).includes('@example.com'));
+  assert.match(text(rows[0]), /two@example.com.*在线.*3/);
+  assert.match(text(rows[1]), /three@example.com.*离线.*0/);
+  assert.ok(current.calls.every(call => call.url === '/api/auth/me' || call.url.startsWith('/api/admin/users?')));
+  assert.equal(all(current.content, node => node.tagName === 'a').length, 0);
+  const standalone = harness({ page: 'admin', role: 'admin', withNav: false });
+  await standalone.start();
+});
+
+test('ADM-4/5 admin drawer shows only selected user devices and paginated event metadata', async () => {
+  const current = harness({ page: 'admin', role: 'admin', respond: (url) => url.startsWith('/api/admin/users/u2') ? {
+    user: { id: 'u2', email: 'two@example.com', online: true, device_count: 2 },
+    devices: [{ id: 'm1', name: 'Online Mac', status: 'active', online: true },
+      { id: 'm2', name: 'Offline Mac', status: 'unavailable', online: true },
+      { id: 'm3', name: 'Revoked Mac', status: 'revoked', online: true }],
+    events: [{ action: url.includes('event_page=2') ? 'older_event' : 'login', created_at: '2026-09-30', message: 'PRIVATE-CONTENT' }],
+    event_page: url.includes('event_page=2') ? 2 : 1, event_total: 51, event_page_size: 50,
+  } : { users: [{ id: 'u2', email: 'two@example.com', online: true, device_count: 2 }], total: 1, page: 1, page_size: 20 } });
+  await current.start();
+  await current.click('two@example.com');
+  const drawer = current.find(node => node.tagName === 'dialog');
+  assert.equal(drawer.open, true);
+  assert.equal(drawer.attributes['aria-modal'], 'true');
+  assert.ok(all(drawer, node => node.id === drawer.attributes['aria-labelledby']).length);
+  assert.match(text(drawer), /Online Mac.*在线/);
+  assert.match(text(drawer), /Offline Mac.*离线/);
+  assert.match(text(drawer), /login/);
+  assert.doesNotMatch(text(drawer), /PRIVATE-CONTENT|Revoked Mac|停用|启用|撤销|移除/);
+  await current.click('事件下一页');
+  assert.ok(current.calls.some(call => call.url === '/api/admin/users/u2?event_page=2'));
+  assert.match(text(drawer), /older_event/);
+  assert.equal(current.find(node => node.tagName === 'button' && text(node) === '事件下一页').disabled, true);
+  assert.ok(current.calls.every(call => !call.method));
+  await current.click('关闭');
+  assert.equal(drawer.open, false);
+  assert.equal(current.find(node => node.tagName === 'button' && text(node) === 'two@example.com').focused, true);
+});
+
+test('ADM-4 closing the drawer discards delayed responses, including a prior request for the same user', async () => {
+  const pending = [];
+  const current = harness({ page: 'admin', role: 'admin', respond: url => url === '/api/admin/users/u2' ?
+    new Promise(resolve => pending.push(resolve)) : { users: [{ id: 'u2', email: 'two@example.com', online: false, device_count: 0 }], total: 1, page: 1, page_size: 20 } });
+  await current.start();
+  const first = current.click('two@example.com');
+  const drawer = current.find(node => node.tagName === 'dialog');
+  assert.equal(drawer.open, true);
+  drawer.close();
+  const second = current.click('two@example.com');
+  pending[1]({ user: { id: 'u2', email: 'two@example.com' }, devices: [], events: [{ action: 'latest_event' }], event_total: 1, event_page: 1, event_page_size: 50 });
+  await second;
+  pending[0]({ user: { id: 'u2', email: 'stale@example.com' }, devices: [], events: [], event_total: 0, event_page: 1, event_page_size: 50 });
+  await first;
+  assert.match(text(drawer), /latest_event/);
+  assert.doesNotMatch(text(drawer), /stale@example.com/);
+  assert.match(text(drawer), /暂无设备/);
+});
+
+test('ADM-4 drawer failures stay open and a retry recovers', async () => {
+  let attempt = 0;
+  const current = harness({ page: 'admin', role: 'admin', respond: url => {
+    if (url === '/api/admin/users/u2') {
+      if (++attempt === 1) throw Error('服务暂时不可用');
+      return { user: { id: 'u2', email: 'two@example.com' }, devices: [], events: [], event_total: 0, event_page: 1, event_page_size: 50 };
+    }
+    return { users: [{ id: 'u2', email: 'two@example.com', online: false, device_count: 0 }], total: 1, page: 1, page_size: 20 };
+  } });
+  await current.start();
+  await current.click('two@example.com');
+  const drawer = current.find(node => node.tagName === 'dialog');
+  assert.match(text(drawer), /服务暂时不可用/);
+  assert.equal(drawer.open, true);
+  await current.click('重试');
+  assert.match(text(drawer), /暂无设备/);
+  assert.doesNotMatch(text(drawer), /服务暂时不可用/);
 });
 
 test('enrollment reads return query, authenticates, and confirms only after explicit click', async () => {
@@ -336,7 +404,7 @@ test('admin pagination disables both boundaries after a click rather than re-ena
   const current = harness({ page: 'admin', role: 'admin', respond: (url) => {
     if (!url.includes('/users?')) return { devices: [], users: [], total: 0 };
     const page = Number(new URL(url, 'https://fleet.test').searchParams.get('page'));
-    return { users: Array.from({ length: page === 1 ? 2 : 1 }, (_, index) => ({ id: `u${page}-${index}`, email: `user${page}-${index}@example.com` })), total: 3, page };
+    return { users: Array.from({ length: page === 1 ? 2 : 1 }, (_, index) => ({ id: `u${page}-${index}`, email: `user${page}-${index}@example.com` })), total: 3, page, page_size: 2 };
   } });
   await current.start();
   await current.click('用户下一页');
