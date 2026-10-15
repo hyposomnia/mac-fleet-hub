@@ -1,4 +1,4 @@
-@import url("titanium.css?v=245");
+@import url("titanium.css?v=246");
 
 /* ============================================================
    mac fleet hub —— 设计系统 v2（令牌 + 组件 + 布局）
@@ -635,16 +635,13 @@ html.automation-doc-root, html.automation-doc-root body { height: auto; min-heig
   #app[data-rail-collapsed="true"] #rail .host .i,
   #app[data-rail-collapsed="true"] #rail .userrow .un,
   #app[data-rail-collapsed="true"] #rail .userrow .cv { display: none; }
-  #app[data-rail-collapsed="true"] #rail .brand { width: 100%; justify-content: center; padding: 0; gap: 0; }
-  #app[data-rail-collapsed="true"] #rail .modeseg button,
-  #app[data-rail-collapsed="true"] #rail .host,
-  #app[data-rail-collapsed="true"] #rail .userrow { justify-content: center; padding-inline: 0; gap: 0; }
   #rail .brand { overflow: hidden; }
   #rail .brand-name, #rail .mode-label, #rail .host .ct, #rail .userrow .cv { white-space: nowrap; flex-shrink: 0; }
   #rail .brand-name, #rail .mode-label, #rail .host .nm, #rail .host .ct, #rail .host .i, #rail .userrow .un, #rail .userrow .cv {
     transition: opacity var(--dur-2) var(--ease), visibility var(--dur-2);
   }
   #rail .host, #rail .userrow { overflow: hidden; }
+  #rail .userrow > :first-child { flex-shrink: 0; }
   #rail .host .nm, #rail .userrow .un { min-width: 0; }
   /* Both sidebar widths keep the same vertical navigation rows. */
   #rail .modeseg { display: flex; flex-direction: column; height: auto; padding: 4px 0; }
@@ -1585,7 +1582,7 @@ html[data-workspace-tab="true"] .preview-encoding-control::after { right: 10px; 
 :is(.assistant-seg, .mobile-assistant-seg) { padding: 0; border-radius: 0; background: transparent; }
 :is(.assistant-seg, .mobile-assistant-seg) > button[role="tab"] { border-radius: 0; background: transparent; }
 :is(.assistant-seg, .mobile-assistant-seg) > button[role="tab"][aria-selected="true"] {
-  background: transparent; color: var(--accent-text); box-shadow: inset 0 -1px 0 var(--highlight);
+  background: transparent; color: var(--accent-text); box-shadow: none;
 }
 /* DeepSeek tab：官方鲸鱼入口嵌在 tab 内。wrapper 只做「一个 tab」的视觉外壳，
    选中态挂在 wrapper 上（:has），label 切助手、鲸鱼开原生 UI，互不干扰。
@@ -1595,7 +1592,7 @@ html[data-workspace-tab="true"] .preview-encoding-control::after { right: 10px; 
   transition: color var(--dur-1) var(--ease), box-shadow var(--dur-1) var(--ease);
 }
 .seg .assistant-tab[hidden] { display: none; }
-.seg .assistant-tab:has([aria-selected="true"]) { background: transparent; color: var(--accent-text); box-shadow: inset 0 -1px 0 var(--highlight); }
+.seg .assistant-tab:has([aria-selected="true"]) { background: transparent; color: var(--accent-text); box-shadow: none; }
 .seg .assistant-tab .assistant-tab-label {
   flex: 1; min-width: 0; padding: 6px 0 6px 12px; border-radius: 0; background: none; box-shadow: none;
 }
@@ -2361,14 +2358,25 @@ html[data-workspace-tab="true"] .preview-encoding-control::after { right: 10px; 
   #rail .host { position: relative; }
   #rail .modeseg button[aria-selected="true"]::after,
   #rail .host[aria-current="true"]::after {
-    content: ''; position: absolute; bottom: 2px; left: 22px; transform: translateX(-50%);
+    content: ''; position: absolute; bottom: 2px; left: 50%; transform: translateX(-50%);
     width: 16px; height: 3px; border-radius: 2px; pointer-events: none;
     background: linear-gradient(to right, transparent, var(--highlight) 40%, var(--highlight) 60%, transparent);
   }
-  #rail .modeseg button[aria-selected="true"]::after { left: 21px; }
+
   #app[data-rail-collapsed="true"] #rail .modeseg button[aria-selected="true"]::after,
-  #app[data-rail-collapsed="true"] #rail .host[aria-current="true"]::after { left: 50%; }
+  #app[data-rail-collapsed="true"] #rail .host[aria-current="true"]::after { left: 22px; }
+  #app[data-rail-collapsed="true"] #rail .modeseg button[aria-selected="true"]::after { left: 21px; }
 }
 
 /* Keep both composer actions circular in every responsive layout. */
 #chat-send, #empty-chat-send { border-radius: 50%; }
+
+/* Assistant tabs share the sidebar selection marker's thickness and fade. */
+:is(.assistant-seg, .mobile-assistant-seg) > button[role="tab"],
+.seg .assistant-tab { position: relative; }
+:is(.assistant-seg, .mobile-assistant-seg) > button[role="tab"][aria-selected="true"]::after,
+.seg .assistant-tab:has([aria-selected="true"])::after {
+  content: ''; position: absolute; bottom: 0; left: 0; right: 0; height: 3px;
+  background: linear-gradient(to right, transparent, var(--highlight) 40%, var(--highlight) 60%, transparent);
+  pointer-events: none;
+}
