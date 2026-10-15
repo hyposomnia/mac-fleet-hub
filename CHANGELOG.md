@@ -2,6 +2,7 @@
 
 ## 2026-10-15
 
+- Fleet Agent Settings `0.1.11+12` 已签名、公证并发布到 pm，包含 Applications 图标及旧版确认替换修复；三项 Apple 公证与公网下载验证通过。详见 `docs/native-build12-installer-release-2026-10-15.md`。
 - 原生安装检测旧应用/旧后台后统一确认一次，完整替换程序并保留配置与会话；应用包校验失败自动回滚。旧 CLI 迁移按实际任务归属检查，允许 Desktop shared 会话继续，保护已发现的 Fleet/DeepSeek 任务和消息投递，并明确网页重新关联指引。
 - DMG 的 Applications 入口改为内嵌系统文件夹图标的 Finder 替身，修复只读安装盘中显示空白图标的问题。
 - Fleet Agent Settings `0.1.10+11` 已发布至 pm：双架构构建、隔离运行验证、三项 Apple 公证 Accepted、Sparkle 更新签名及公网下载核验全部通过。包含本轮 Mac 行为对齐优化；未自动替换现有 Mac，详见 `docs/saas-release-2026-10-15.md`。
