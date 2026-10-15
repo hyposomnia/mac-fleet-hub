@@ -1,5 +1,5 @@
 // PWA 外壳缓存。终端、API 与用户文件必须实时，明确不进入 Cache Storage。
-const CACHE = 'fleet-shell-v225';
+const CACHE = 'fleet-shell-v226';
 const FILE_TYPE_ICONS = [
   'audio', 'c', 'console', 'cpp', 'csharp', 'css', 'dart', 'database', 'docker',
   'document', 'exe', 'font', 'git', 'go', 'html', 'image', 'java', 'javascript',
@@ -14,13 +14,13 @@ const CODEMIRROR_ASSETS = [
   'javascript', 'xml', 'jsx', 'css', 'go', 'python', 'ruby', 'shell', 'yaml', 'toml', 'properties',
 ].map((name, index) => index < 2 ? name : `/vendor/codemirror/mode/${name}/${name}.js?v=5.65.20`);
 const SHELL = [
-  '/', '/index.html', '/theme.js?v=225', '/device_appearance.js?v=225', '/icons/favicon.svg?v=225', '/automation-guide.html', '/automation-records.html', '/automation-records.js?v=225', '/record_pager.js?v=225', '/style.css?v=225',
+  '/', '/index.html', '/theme.js?v=226', '/device_appearance.js?v=226', '/icons/favicon.svg?v=226', '/automation-guide.html', '/automation-records.html', '/automation-records.js?v=226', '/record_pager.js?v=226', '/style.css?v=226',
   '/vendor/purify.min.js?v=3.2.6', '/vendor/marked.min.js?v=15.0.12',
   ...CODEMIRROR_ASSETS,
-  '/markdown.js?v=225', '/preview.js?v=225', '/chat_model.js?v=225',
-  '/upload_model.js?v=225', '/sidebar_layout.js?v=186', '/workspace_tabs.js?v=225', '/compact_composer.js?v=186', '/app.js?v=225',
-  '/manifest.webmanifest', '/icons/icon.svg?v=225', '/icons/icon-180.png?v=225', '/icons/icon-192.png?v=225',
-  '/icons/icon-512.png?v=225', '/icons/icon-maskable-512.png?v=225',
+  '/markdown.js?v=226', '/preview.js?v=226', '/chat_model.js?v=226',
+  '/upload_model.js?v=226', '/sidebar_layout.js?v=186', '/workspace_tabs.js?v=226', '/compact_composer.js?v=186', '/app.js?v=226',
+  '/manifest.webmanifest', '/icons/icon.svg?v=226', '/icons/icon-180.png?v=226', '/icons/icon-192.png?v=226',
+  '/icons/icon-512.png?v=226', '/icons/icon-maskable-512.png?v=226',
   ...FILE_TYPE_ICONS,
 ];
 const SHELL_KEYS = new Set(SHELL);

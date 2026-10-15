@@ -2382,6 +2382,44 @@ test('composer queues non-empty running input and only stops when empty', () => 
   assert.match(appSrc, /if \(chatMutationsBlocked\(chat\) \|\| !requestId/);
 });
 
+test('shared Desktop turns keep normal composer and approval controls', () => {
+  const chat = {
+    controlReady: true, accessMode: 'read_write', sharedRuntime: true,
+    writerOwner: 'desktop', turnOwner: 'desktop', turnPhase: 'running',
+    model: { phase: 'running', requests: {} },
+  };
+  assert.equal(chatComposerAction(chat, false), 'interrupt');
+  assert.equal(chatComposerAction(chat, true), 'send');
+  assert.equal(chatOwnershipPresentation(chat), null);
+  chat.pendingRequestCount = 1;
+  assert.equal(chatOwnershipPresentation(chat).className, 'waiting');
+  chat.pendingRequestCount = 0;
+  chat.turnPhase = 'idle';
+  assert.equal(chatComposerAction(chat, true), 'send');
+  assert.equal(chatComposerAction(chat, false), 'send');
+  chat.accessMode = 'read_only';
+  assert.equal(chatComposerAction(chat, true), 'readonly');
+});
+
+test('control snapshots carry shared runtime capability without changing turn origin', () => {
+  const chat = { model: createChatState(), followups: [] };
+  assert.equal(applyChatControlSnapshot(chat, {
+    serverEpoch: 'shared-agent', snapshotVersion: 1, sharedRuntime: true,
+    accessMode: 'read_write', approvalMode: 'on-request', writerOwner: 'desktop',
+    turnOwner: 'desktop', turnPhase: 'running', activeTurnId: 'desktop-turn', items: [],
+  }, 1), true);
+  assert.equal(chat.sharedRuntime, true);
+  assert.equal(chat.turnOwner, 'desktop');
+  assert.equal(chatComposerAction(chat, false), 'interrupt');
+  assert.equal(applyChatControlSnapshot(chat, {
+    serverEpoch: 'isolated-agent', snapshotVersion: 1,
+    accessMode: 'read_write', approvalMode: 'on-request', writerOwner: 'desktop',
+    turnOwner: 'desktop', turnPhase: 'running', activeTurnId: 'desktop-turn', items: [],
+  }, 2), true);
+  assert.equal(chat.sharedRuntime, false);
+  assert.equal(chatComposerAction(chat, false), 'wait-desktop');
+});
+
 test('command enter queues the message for the next turn', () => {
   const commandEnter = appSrc.indexOf("if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)");
   const skillMenu = appSrc.indexOf('const menu = state.chat?.skillMenu;', commandEnter);

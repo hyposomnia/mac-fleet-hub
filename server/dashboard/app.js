@@ -2478,11 +2478,11 @@ function isChatRunning(chat) {
 }
 
 function isDesktopChatRunning(chat) {
-  return isChatRunning(chat) && chat.turnOwner === 'desktop';
+  return !chat?.sharedRuntime && isChatRunning(chat) && chat.turnOwner === 'desktop';
 }
 
 function isDesktopChatOwned(chat) {
-  return !!chat && (chat.writerOwner === 'desktop' || isDesktopChatRunning(chat));
+  return !!chat && !chat.sharedRuntime && (chat.writerOwner === 'desktop' || isDesktopChatRunning(chat));
 }
 
 function chatOwnershipPresentation(chat) {
@@ -2493,13 +2493,13 @@ function chatOwnershipPresentation(chat) {
       : null;
   }
   const pendingRequests = visiblePendingChatRequestCount(chat);
-  if (pendingRequests > 0 && chat.writerOwner === 'fleet') {
+  if (pendingRequests > 0 && (chat.sharedRuntime || chat.writerOwner === 'fleet')) {
     return {
       className: 'waiting', text: `任务已暂停，等待你审批或回答（${pendingRequests}）`,
       action: 'release', actionLabel: chat.releasingWriter ? '释放中…' : '释放会话',
     };
   }
-  if (chat.accessMode === 'read_only' && chat.writerOwner === 'fleet') {
+  if (chat.accessMode === 'read_only' && !chat.sharedRuntime && chat.writerOwner === 'fleet') {
     return {
       className: 'readonly',
       text: 'Fleet 已只读，孤立 writer 将在其他 Fleet 任务结束后自动回收',
@@ -2509,7 +2509,7 @@ function chatOwnershipPresentation(chat) {
   if (chat.accessMode === 'read_only') {
     return {
       className: 'readonly',
-      text: chat.writerOwner === 'desktop' ? `Fleet 只读，其他 ${assistantLabel()} 客户端正在使用` : `Fleet 只读，${assistantLabel()} 可接管`,
+      text: chat.sharedRuntime ? 'Fleet 已切换为只读' : (chat.writerOwner === 'desktop' ? `Fleet 只读，其他 ${assistantLabel()} 客户端正在使用` : `Fleet 只读，${assistantLabel()} 可接管`),
       action: 'enable-write', actionLabel: chat.changingAccess ? '恢复中…' : '恢复 Fleet 写入',
     };
   }
@@ -2600,6 +2600,7 @@ function applyChatControlSnapshot(chat, source, requestSeq = 0) {
   chat.controlVersion = Number(snapshot.snapshotVersion) || 0;
   chat.controlAppliedRequestSeq = Math.max(Number(chat.controlAppliedRequestSeq) || 0, Number(requestSeq) || 0);
   chat.accessMode = snapshot.accessMode === 'read_only' ? 'read_only' : 'read_write';
+  chat.sharedRuntime = snapshot.sharedRuntime === true;
   chat.writerOwner = snapshot.writerOwner || '';
   chat.turnPhase = snapshot.turnPhase === 'running' ? 'running' : (snapshot.turnPhase === 'idle' ? 'idle' : 'unknown');
   chat.activeTurnId = snapshot.activeTurnId || '';
@@ -5784,7 +5785,7 @@ async function interruptChat() {
 
 async function releaseChatWriter() {
   const chat = state.chat;
-  const retryingStuckRelease = chat?.accessMode === 'read_only' && chat?.writerOwner === 'fleet';
+  const retryingStuckRelease = chat?.accessMode === 'read_only' && !chat?.sharedRuntime && chat?.writerOwner === 'fleet';
   if (!chat || (chat.accessMode === 'read_only' && !retryingStuckRelease) || chat.releasingWriter || !chat.controlReady) return;
   chat.releasingWriter = true;
   renderChatOwnershipHead(chat);
@@ -5797,7 +5798,7 @@ async function releaseChatWriter() {
     });
     if (!isCompleteChatControlSnapshot(control?.control || control)) throw new Error('服务端返回了无效的会话控制状态');
     applyChatControlSnapshot(chat, control, controlRequestSeq);
-    toast(chat.writerOwner === 'fleet'
+    toast(!chat.sharedRuntime && chat.writerOwner === 'fleet'
       ? 'Fleet 已切换为只读；孤立 writer 将在其他 Fleet 任务结束后自动回收。'
       : '会话已释放，Fleet 已切换为只读。');
   } catch (e) {
@@ -5818,7 +5819,7 @@ function chatAccessBusy() {
 
 async function enableChatWriter() {
   const chat = state.chat;
-  if (!chat || chat.accessMode !== 'read_only' || chat.writerOwner === 'fleet' || chat.changingAccess || !chat.controlReady) return;
+  if (!chat || chat.accessMode !== 'read_only' || (!chat.sharedRuntime && chat.writerOwner === 'fleet') || chat.changingAccess || !chat.controlReady) return;
   chat.changingAccess = true;
   renderChatOwnershipHead(chat);
   renderChat();
