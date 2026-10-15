@@ -16,12 +16,23 @@ targets:
       - path: FleetHub
       - path: ../server/dashboard/titanium.json
         buildPhase: resources
+      - path: ../server/dashboard/native_appearance.js
+        buildPhase: resources
+      - path: ../server/dashboard/native_workspace.js
+        buildPhase: resources
+      - path: ../server/dashboard/native_dialogs.js
+        buildPhase: resources
+      - path: ../server/dashboard/mobile_composer.js
+        buildPhase: resources
+      - path: ../server/dashboard/mobile_composer.css
+        buildPhase: resources
     info:
       path: FleetHub/Info.plist
       properties:
-        CFBundleDisplayName: Fleet Hub
-        CFBundleShortVersionString: "0.1.0"
-        CFBundleVersion: "1"
+        CFBundleDisplayName: Fleet AI
+        CFBundleShortVersionString: "0.2.0"
+        CFBundleVersion: "6"
+        FleetDefaultGateway: $(FLEET_DEFAULT_GATEWAY)
         UILaunchScreen: {}
         UIApplicationSupportsIndirectInputEvents: true
         NSCameraUsageDescription: 拍摄照片或视频作为所选 Mac 会话的附件。
@@ -49,12 +60,18 @@ targets:
   FleetHubTests:
     type: bundle.unit-test
     platform: iOS
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
     sources: [Tests/Swift]
     dependencies:
       - target: FleetHub
   FleetHubUITests:
     type: bundle.ui-testing
     platform: iOS
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
     sources: [Tests/UI]
     dependencies:
       - target: FleetHub

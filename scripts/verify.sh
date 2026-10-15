@@ -25,6 +25,10 @@ step "Go 测试：server/enroll (go test ./...)"
 
 step "Dashboard JS 测试：server/dashboard (node --test)"
 node --test "$ROOT/server/dashboard/fleet_core.test.mjs" "$ROOT/server/dashboard/titanium.test.mjs"
+node --test "$ROOT/server/dashboard/native_appearance.test.mjs"
+node --test "$ROOT/server/dashboard/native_workspace.test.mjs"
+node --test "$ROOT/server/dashboard/mobile_composer.test.mjs"
+node --test "$ROOT/server/dashboard/native_dialogs.test.mjs" "$ROOT/server/dashboard/access_key_card.test.mjs"
 node --test "$ROOT/server/dashboard/chat_model.test.mjs" "$ROOT/server/dashboard/upload_model.test.mjs" "$ROOT/server/dashboard/assistant_gate.test.mjs" "$ROOT/server/dashboard/gateway_down.test.mjs" "$ROOT/server/dashboard/auth.test.mjs" "$ROOT/server/dashboard/auth_integration.test.mjs" "$ROOT/server/dashboard/account_pages.test.mjs" "$ROOT/server/dashboard/theme.test.mjs" "$ROOT/server/dashboard/device_appearance.test.mjs" "$ROOT/server/dashboard/sidebar_layout.test.mjs" "$ROOT/server/dashboard/workspace_tabs.test.mjs" "$ROOT/server/dashboard/compact_composer.test.mjs" "$ROOT/server/dashboard/record_pager.test.mjs" "$ROOT/server/dashboard/preview_parity.test.mjs"
 
 step "候选安装包与独立网关配置测试"

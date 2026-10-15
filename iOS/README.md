@@ -1,6 +1,7 @@
 # Fleet Hub iOS
 
 最新 Web 交互差异与共用边界：[交互对齐记录](../docs/ios-web-interaction-parity.md)。
+本轮 SaaS 与真机安装证据：[2026-10-15 UAT 记录](../docs/ios-saas-uat-2026-10-15.md)。
 
 原生 SwiftUI 设备栏、会话栏与现有 dashboard 会话窗口组合。最低 iOS 17；普通 iPhone、宽屏展开状态和 iPad 共用一套实现。iPhone Duo 不依赖未经验证的机型名称、屏幕尺寸或铰链 API，按窗口实际可用宽度适配。
 
@@ -14,7 +15,9 @@
 
 布局变化只调整已有视图的尺寸。同一 WKWebView 保留 SSE、聊天草稿和 ttyd iframe；返回列表不结束 Mac 上的进程。展开后沿用用户保存的两栏显隐偏好。键盘和动态字体使用系统布局，Web 继续处理输入与 VisualViewport；App 隐藏 PWA 安装提示和重复的 Web 导航。
 
-设备在线状态、助手筛选（ChatGPT / Claude / DeepSeek）、搜索、项目分组、归档筛选、分页、新建会话、置顶和归档均由原生列表提供。聊天、审批、附件、子任务和文件预览复用 Web。Claude 默认走 ttyd；ChatGPT 行的长按菜单也可使用 ttyd。终端始终使用默认权限，不隐式启用 bypass。
+设备在线状态、助手筛选（ChatGPT / DeepSeek）、搜索、项目分组、归档筛选、分页、新建会话、置顶和归档均由原生列表提供。Claude 暂不在 App 提供，长按菜单不再提供主动切换 ttyd。DeepSeek 鲸鱼图标打开系统浏览器中的 DSH；文字选项仍用于筛选会话。鲸鱼沿用 dashboard 中的官方 SVG 路径，授权记录见 `server/dashboard/icons/deepseek/LICENSE.md`。
+
+设置、设备编辑、访问密钥、设备和项目选择、文件命名与删除确认、文件操作、模型权限和 Sub Agent 面板使用原生控件及统一全宽底部抽屉，仅顶部圆角，底部延伸至安全区域。普通宽度使用横向设置导航，展开宽度使用左侧导航。聊天正文、附件、文件预览保留 Web；系统文件选择、分享及确认仍使用原生系统界面。Skills 输入联想是行内建议，不作为模态抽屉。
 
 ## 构建
 
@@ -41,9 +44,12 @@ xcodebuild -project FleetHub.xcodeproj -scheme FleetHub \
 - `server/dashboard/fleet_core.js`：无 DOM 的节点解析、项目分组、会话查询、JSON transport 和 ttyd attach。
 - `server/dashboard/workspace.js`：统一会话控制接口与版本化快照，复用 dashboard 的聊天及终端运行时。
 - `server/dashboard/native_bridge.js`：WKWebView 消息传输；普通浏览器和子 frame 中不启用。
+- `server/dashboard/native_dialogs.js`：将既有业务弹层投影为原生控件模型，复用输入、确认、选择与关闭处理；实时验证控件可见性、登录身份和控件 ID，普通 Web 不启用。
 - `server/dashboard/native.css`：仅嵌入模式的布局覆盖；不改变网页正常布局。
 - `FleetHub/Models.swift`、`FleetStore.swift`：原生快照模型、命令确认和生命周期。
 - `FleetHub/SidebarViews.swift`：原生设备与会话组件。
+- `FleetHub/FleetService.swift`：通过既有 WebView 内的 FleetAuth 复用 Cookie、CSRF 和账号代际检查；只允许明确的同源业务接口，不另存认证信息。
+- `FleetHub/NativeSettings.swift`、`NativeEditors.swift`、`NativeWebDialogs.swift`：原生设置、密钥和设备表单及共享抽屉内容；密钥仅显示掩码，敏感复制限本机并设置两分钟过期。
 - `FleetHub/FleetWebView.swift`：长期持有的 WebView、同源导航、预览；主窗口与辅助页面共用弹窗、下载和系统分享。
 
 网页保留自己的导航和 DOM 渲染，App 保留 SwiftUI 渲染。两端使用同一业务逻辑和 Mac API。继续维护 dashboard 时，不要在 Swift 中复制聊天协议或 session 控制状态机。共享协议变更须保持快照 version=1 的兼容性，破坏性变更另起版本。

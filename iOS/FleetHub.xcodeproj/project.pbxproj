@@ -8,16 +8,26 @@
 
 /* Begin PBXBuildFile section */
 		054779928135E5E7561E2B71 /* FleetHubTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7B704AF39E5CC584C317CDFF /* FleetHubTests.swift */; };
+		0D2548D0EF3E5DA8A16C8CEA /* native_dialogs.js in Resources */ = {isa = PBXBuildFile; fileRef = BECD979FC07FB883CBCD7B8D /* native_dialogs.js */; };
 		16A4F116FEFF3AB674457A9E /* TitaniumStyle.swift in Sources */ = {isa = PBXBuildFile; fileRef = 04C9E888944560B849DF7DFD /* TitaniumStyle.swift */; };
 		28046202DEBAD809BDBD2D87 /* SidebarViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 90248077BE71DE75C0947E10 /* SidebarViews.swift */; };
+		35B7BFC407AFED3F697AAB8F /* NativeWebDialogs.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0AC5D7D07DE6A96BF1E392FF /* NativeWebDialogs.swift */; };
 		36F17450961CE84915E159B0 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 8F77734466DE353D3C455BB1 /* Assets.xcassets */; };
+		47FA99D64648C0805D9D04DC /* mobile_composer.js in Resources */ = {isa = PBXBuildFile; fileRef = 1078D6C52AA76480E2E3F89E /* mobile_composer.js */; };
+		4A5191DAFDE048E44AE1DE85 /* mobile_composer.css in Resources */ = {isa = PBXBuildFile; fileRef = 77AED175E452B1AA3228541E /* mobile_composer.css */; };
+		51D2FBA359A3D0E1B67D34C8 /* NativeSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = F8D418655B572D5D31185CF8 /* NativeSettings.swift */; };
+		77DF0F9D0038448D46476E5D /* FleetService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 03F1013C0FE7F62D78F49662 /* FleetService.swift */; };
 		7E4CAE750F213C594D664602 /* FleetStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = C88DD2D20B7023401439699C /* FleetStore.swift */; };
 		A05C8E1902B8B662508B4EEB /* FleetWorkspace.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6811782891FCA4B518C6C090 /* FleetWorkspace.swift */; };
+		ACB8840830ADEA2A94B816BF /* NativeEditors.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6FC06000CA4567DA3E75EEF0 /* NativeEditors.swift */; };
 		C0FC50CFB369C6EDFEDD4C13 /* FleetHubUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49B145BF4474DB32DD1BAD00 /* FleetHubUITests.swift */; };
+		C370B6402FADD33FC459F7E8 /* native_workspace.js in Resources */ = {isa = PBXBuildFile; fileRef = DD147FB1EBEA245F185AEBB8 /* native_workspace.js */; };
 		CC95BB643121EBCCA366C090 /* titanium.json in Resources */ = {isa = PBXBuildFile; fileRef = 2B34CB87E7F673CA80EE05B6 /* titanium.json */; };
 		D08CCB6BA25074ECF987D33A /* FleetWebView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 76958456E0055ED81DABD5FD /* FleetWebView.swift */; };
 		D4CF24362D0609649933EADB /* Models.swift in Sources */ = {isa = PBXBuildFile; fileRef = D8ADF1B3E850B159B52ED8DD /* Models.swift */; };
 		E383B0135266FB014B9385D3 /* FleetHubApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 594521259BA14B77BB826A32 /* FleetHubApp.swift */; };
+		ED268559CAE623C7CBDB3F2B /* native_appearance.js in Resources */ = {isa = PBXBuildFile; fileRef = 6B4589FF7478E8155FC82B64 /* native_appearance.js */; };
+		FA66AEF92EFC468B307FFF6B /* FleetAppearance.swift in Sources */ = {isa = PBXBuildFile; fileRef = A266A3A8C9F3D26E220ECAD1 /* FleetAppearance.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -38,20 +48,30 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
+		03F1013C0FE7F62D78F49662 /* FleetService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FleetService.swift; sourceTree = "<group>"; };
 		04C9E888944560B849DF7DFD /* TitaniumStyle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TitaniumStyle.swift; sourceTree = "<group>"; };
+		0AC5D7D07DE6A96BF1E392FF /* NativeWebDialogs.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeWebDialogs.swift; sourceTree = "<group>"; };
 		0DC6316646EDA892B1814F14 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
+		1078D6C52AA76480E2E3F89E /* mobile_composer.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = mobile_composer.js; sourceTree = "<group>"; };
 		2B34CB87E7F673CA80EE05B6 /* titanium.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = titanium.json; sourceTree = "<group>"; };
 		2D76CAE56A17808F76094E55 /* FleetHubTests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = FleetHubTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		49B145BF4474DB32DD1BAD00 /* FleetHubUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FleetHubUITests.swift; sourceTree = "<group>"; };
 		594521259BA14B77BB826A32 /* FleetHubApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FleetHubApp.swift; sourceTree = "<group>"; };
 		6811782891FCA4B518C6C090 /* FleetWorkspace.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FleetWorkspace.swift; sourceTree = "<group>"; };
+		6B4589FF7478E8155FC82B64 /* native_appearance.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = native_appearance.js; sourceTree = "<group>"; };
+		6FC06000CA4567DA3E75EEF0 /* NativeEditors.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeEditors.swift; sourceTree = "<group>"; };
 		76958456E0055ED81DABD5FD /* FleetWebView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FleetWebView.swift; sourceTree = "<group>"; };
+		77AED175E452B1AA3228541E /* mobile_composer.css */ = {isa = PBXFileReference; lastKnownFileType = text.css; path = mobile_composer.css; sourceTree = "<group>"; };
 		7B704AF39E5CC584C317CDFF /* FleetHubTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FleetHubTests.swift; sourceTree = "<group>"; };
 		8F77734466DE353D3C455BB1 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		90248077BE71DE75C0947E10 /* SidebarViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarViews.swift; sourceTree = "<group>"; };
+		A266A3A8C9F3D26E220ECAD1 /* FleetAppearance.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FleetAppearance.swift; sourceTree = "<group>"; };
+		BECD979FC07FB883CBCD7B8D /* native_dialogs.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = native_dialogs.js; sourceTree = "<group>"; };
 		C1299000317C5B56804F705B /* FleetHubUITests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = FleetHubUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		C88DD2D20B7023401439699C /* FleetStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FleetStore.swift; sourceTree = "<group>"; };
 		D8ADF1B3E850B159B52ED8DD /* Models.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Models.swift; sourceTree = "<group>"; };
+		DD147FB1EBEA245F185AEBB8 /* native_workspace.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = native_workspace.js; sourceTree = "<group>"; };
+		F8D418655B572D5D31185CF8 /* NativeSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeSettings.swift; sourceTree = "<group>"; };
 		FB550FA84538C3D708D2C7C9 /* FleetHub.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = FleetHub.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
@@ -80,12 +100,17 @@
 			isa = PBXGroup;
 			children = (
 				8F77734466DE353D3C455BB1 /* Assets.xcassets */,
+				A266A3A8C9F3D26E220ECAD1 /* FleetAppearance.swift */,
 				594521259BA14B77BB826A32 /* FleetHubApp.swift */,
+				03F1013C0FE7F62D78F49662 /* FleetService.swift */,
 				C88DD2D20B7023401439699C /* FleetStore.swift */,
 				76958456E0055ED81DABD5FD /* FleetWebView.swift */,
 				6811782891FCA4B518C6C090 /* FleetWorkspace.swift */,
 				0DC6316646EDA892B1814F14 /* Info.plist */,
 				D8ADF1B3E850B159B52ED8DD /* Models.swift */,
+				6FC06000CA4567DA3E75EEF0 /* NativeEditors.swift */,
+				F8D418655B572D5D31185CF8 /* NativeSettings.swift */,
+				0AC5D7D07DE6A96BF1E392FF /* NativeWebDialogs.swift */,
 				90248077BE71DE75C0947E10 /* SidebarViews.swift */,
 				04C9E888944560B849DF7DFD /* TitaniumStyle.swift */,
 			);
@@ -105,6 +130,11 @@
 		98534BDCA65536CE68372267 /* dashboard */ = {
 			isa = PBXGroup;
 			children = (
+				77AED175E452B1AA3228541E /* mobile_composer.css */,
+				1078D6C52AA76480E2E3F89E /* mobile_composer.js */,
+				6B4589FF7478E8155FC82B64 /* native_appearance.js */,
+				BECD979FC07FB883CBCD7B8D /* native_dialogs.js */,
+				DD147FB1EBEA245F185AEBB8 /* native_workspace.js */,
 				2B34CB87E7F673CA80EE05B6 /* titanium.json */,
 			);
 			name = dashboard;
@@ -225,6 +255,11 @@
 			buildActionMask = 2147483647;
 			files = (
 				36F17450961CE84915E159B0 /* Assets.xcassets in Resources */,
+				4A5191DAFDE048E44AE1DE85 /* mobile_composer.css in Resources */,
+				47FA99D64648C0805D9D04DC /* mobile_composer.js in Resources */,
+				ED268559CAE623C7CBDB3F2B /* native_appearance.js in Resources */,
+				0D2548D0EF3E5DA8A16C8CEA /* native_dialogs.js in Resources */,
+				C370B6402FADD33FC459F7E8 /* native_workspace.js in Resources */,
 				CC95BB643121EBCCA366C090 /* titanium.json in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -244,11 +279,16 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				FA66AEF92EFC468B307FFF6B /* FleetAppearance.swift in Sources */,
 				E383B0135266FB014B9385D3 /* FleetHubApp.swift in Sources */,
+				77DF0F9D0038448D46476E5D /* FleetService.swift in Sources */,
 				7E4CAE750F213C594D664602 /* FleetStore.swift in Sources */,
 				D08CCB6BA25074ECF987D33A /* FleetWebView.swift in Sources */,
 				A05C8E1902B8B662508B4EEB /* FleetWorkspace.swift in Sources */,
 				D4CF24362D0609649933EADB /* Models.swift in Sources */,
+				ACB8840830ADEA2A94B816BF /* NativeEditors.swift in Sources */,
+				51D2FBA359A3D0E1B67D34C8 /* NativeSettings.swift in Sources */,
+				35B7BFC407AFED3F697AAB8F /* NativeWebDialogs.swift in Sources */,
 				28046202DEBAD809BDBD2D87 /* SidebarViews.swift in Sources */,
 				16A4F116FEFF3AB674457A9E /* TitaniumStyle.swift in Sources */,
 			);
@@ -282,6 +322,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
+				GENERATE_INFOPLIST_FILE = YES;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -298,6 +339,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
+				GENERATE_INFOPLIST_FILE = YES;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -407,6 +449,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
+				GENERATE_INFOPLIST_FILE = YES;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -423,6 +466,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
+				GENERATE_INFOPLIST_FILE = YES;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",

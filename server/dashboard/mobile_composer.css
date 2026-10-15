@@ -1,0 +1,82 @@
+html[data-mobile-composer="true"] #win #chat-composer[data-mobile-composer-ready="true"] {
+  background: transparent;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+html[data-mobile-composer="true"] #win #chat-composer::before { content: none; }
+html[data-mobile-composer="true"] #win #chat-composer .chat-composer-inner {
+  display: grid;
+  grid-template-columns: 44px minmax(0, 1fr) 40px 40px 44px;
+  grid-template-rows: auto 44px;
+  align-items: center;
+  gap: 0;
+  min-height: 56px;
+  padding: 6px;
+  border-radius: 28px;
+  background: var(--chat-composer-bg, var(--surface-1));
+}
+html[data-mobile-composer="true"] #win #chat-composer .chat-composer-toolbar,
+html[data-mobile-composer="true"] #win #chat-composer .chat-tools-left,
+html[data-mobile-composer="true"] #win #chat-composer .chat-tools-right { display: contents; }
+html[data-mobile-composer="true"] #win #chat-composer #chat-input {
+  grid-column: 2;
+  grid-row: 2;
+  width: 100%;
+  height: 44px !important;
+  min-height: 44px;
+  max-height: 44px;
+  padding: 10px 6px;
+  font-size: max(16px, var(--t-control, 16px));
+  line-height: 24px;
+  white-space: pre;
+  overflow: hidden !important;
+  scrollbar-width: none;
+}
+html[data-mobile-composer="true"] #win #chat-composer #chat-input::placeholder { white-space: nowrap; }
+html[data-mobile-composer="true"] #win #chat-composer #chat-attach { grid-column: 1; grid-row: 2; }
+html[data-mobile-composer="true"] #win #chat-composer #chat-approval-menu { grid-column: 3; grid-row: 2; }
+html[data-mobile-composer="true"] #win #chat-composer #chat-options { grid-column: 4; grid-row: 2; }
+html[data-mobile-composer="true"] #win #chat-composer #chat-send { grid-column: 5; grid-row: 2; }
+html[data-mobile-composer="true"] #win #chat-composer #chat-attach,
+html[data-mobile-composer="true"] #win #chat-composer #chat-send,
+html[data-mobile-composer="true"] #win #chat-composer #chat-approval,
+html[data-mobile-composer="true"] #win #chat-composer #chat-options-trigger {
+  width: 44px;
+  height: 44px;
+  min-width: 0;
+  min-height: 44px;
+  max-width: 44px;
+  padding: 0;
+  justify-content: center;
+}
+html[data-mobile-composer="true"] #win #chat-composer #chat-approval,
+html[data-mobile-composer="true"] #win #chat-composer #chat-options-trigger { width: 40px; max-width: 40px; }
+html[data-mobile-composer="true"] #win #chat-composer #chat-options-trigger > .ic,
+html[data-mobile-composer="true"] #win #chat-composer #chat-approval > .ic { display: block; width: 20px; height: 20px; }
+html[data-mobile-composer="true"] #win #chat-composer #chat-approval-label,
+html[data-mobile-composer="true"] #win #chat-composer .chat-select-chevron,
+html[data-mobile-composer="true"] #win #chat-composer #chat-options-model,
+html[data-mobile-composer="true"] #win #chat-composer #chat-options-effort,
+html[data-mobile-composer="true"] #win #chat-composer .chat-options-chevron { display: none; }
+html[data-mobile-composer="true"] #win #chat-composer #chat-attachments {
+  grid-column: 1 / -1;
+  grid-row: 1;
+  max-height: 96px;
+  overflow-y: auto;
+}
+html[data-mobile-composer="true"] #win #chat-composer[data-mobile-composer-expanded="true"] .chat-composer-inner {
+  grid-template-rows: auto auto 44px;
+}
+html[data-mobile-composer="true"] #win #chat-composer[data-mobile-composer-expanded="true"] #chat-input {
+  grid-column: 1 / -1;
+  height: var(--mobile-composer-input-height, 44px) !important;
+  max-height: 144px;
+  padding-inline: 12px;
+  white-space: pre-wrap;
+  overflow-y: auto !important;
+  overscroll-behavior: contain;
+}
+html[data-mobile-composer="true"] #win #chat-composer[data-mobile-composer-expanded="true"] #chat-attach,
+html[data-mobile-composer="true"] #win #chat-composer[data-mobile-composer-expanded="true"] #chat-approval-menu,
+html[data-mobile-composer="true"] #win #chat-composer[data-mobile-composer-expanded="true"] #chat-options,
+html[data-mobile-composer="true"] #win #chat-composer[data-mobile-composer-expanded="true"] #chat-send { grid-row: 3; }
