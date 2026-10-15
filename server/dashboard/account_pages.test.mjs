@@ -176,7 +176,8 @@ test('controls keep accent focus cues without yellow highlight borders', async (
   const emptyComposerInput = styleCSS.slice(styleCSS.indexOf('.empty-chat-compose textarea')).split('}')[0];
   assert.match(emptyComposerInput, /outline:\s*none;/);
   assert.match(emptyComposerInput, /box-shadow:\s*none;/);
-  assert.match(styleCSS, /\.empty-chat-context select\s*\{[^}]*background:\s*color-mix\(in srgb,\s*var\(--chat-text\) 4%,\s*transparent\);/);
+  assert.match(styleCSS, /\.empty-chat-context select\s*\{[^}]*background:\s*transparent;/);
+  assert.match(styleCSS, /#empty-chat-device:disabled\s*\{[^}]*appearance:\s*none;[^}]*opacity:\s*1;/s);
   for (const selector of ['.input:focus', '.session-searchbar:focus-within', '.chat-request-input:focus', '#cmd-input:focus', '.file-searchbar:focus-within']) {
     const declaration = styleCSS.slice(styleCSS.indexOf(selector)).split('}')[0];
     assert.match(declaration, /outline:\s*none;/);

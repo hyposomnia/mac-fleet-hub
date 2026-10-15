@@ -13,7 +13,7 @@
     "slate": { "light": "#576475", "dark": "#B5C1D0" }
   },
   "light": {
-    "bg": "#FAFAFA", "surface": "#FFFFFF", "surface-1": "#FFFFFF", "surface-2": "#F1F4F2", "surface-hover": "#E8EEEB", "session-list-bg": "#FFFFFF", "session-detail-bg": "#FFFFFF",
+    "bg": "#FAFAFA", "surface": "#FFFFFF", "surface-1": "#FFFFFF", "surface-2": "#F1F4F2", "surface-hover": "#E8EEEB", "session-list-bg": "#FAFAFA", "session-detail-bg": "#FAFAFA",
     "text": "#18211F", "text-1": "#44504D", "text-2": "#5D6966", "text-3": "#707B78",
     "accent": "#087F65", "accent-1": "#06644F", "accent-text": "#06644F", "accent-contrast": "#FFFFFF", "highlight": "#D9F23A",
     "online": "#2E7658", "offline": "#65716E", "wait": "#785319", "danger": "#A23B40",
@@ -24,7 +24,7 @@
     "chat-composer-shadow": "0 2px 8px rgba(16,36,30,.045), 0 10px 30px rgba(16,36,30,.07)"
   },
   "dark": {
-    "bg": "#000000", "surface": "#050606", "surface-1": "#090A0A", "surface-2": "#171B19", "surface-hover": "#202624", "session-list-bg": "#000000", "session-detail-bg": "#050606",
+    "bg": "#000000", "surface": "#050606", "surface-1": "#090A0A", "surface-2": "#171B19", "surface-hover": "#202624", "session-list-bg": "#000000", "session-detail-bg": "#000000",
     "text": "#F4F7F6", "text-1": "#C1CAC7", "text-2": "#A4B0AC", "text-3": "#88938F",
     "accent": "#5BD7B7", "accent-1": "#88E4CB", "accent-text": "#88E4CB", "accent-contrast": "#05241B", "highlight": "#EDFF52",
     "online": "#78D5A6", "offline": "#929D99", "wait": "#F6D7A3", "danger": "#FFB8B8",

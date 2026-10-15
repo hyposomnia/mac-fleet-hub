@@ -54,8 +54,8 @@
   --surface-1: #FFFFFF;
   --surface-2: #F1F4F2;
   --surface-hover: #E8EEEB;
-  --session-list-bg: #FFFFFF;
-  --session-detail-bg: #FFFFFF;
+  --session-list-bg: #FAFAFA;
+  --session-detail-bg: #FAFAFA;
   --text: #18211F;
   --text-1: #44504D;
   --text-2: #5D6966;
@@ -95,7 +95,7 @@
   --surface-2: #171B19;
   --surface-hover: #202624;
   --session-list-bg: #000000;
-  --session-detail-bg: #050606;
+  --session-detail-bg: #000000;
   --text: #F4F7F6;
   --text-1: #C1CAC7;
   --text-2: #A4B0AC;

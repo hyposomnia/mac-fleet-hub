@@ -19,10 +19,10 @@ test('web tokens match the shared native design resource', () => {
   assert.equal(design.dark.accent, '#5BD7B7');
   assert.equal(design.light.highlight, '#D9F23A');
   assert.equal(design.dark.highlight, '#EDFF52');
-  assert.equal(design.light['session-list-bg'], '#FFFFFF');
-  assert.equal(design.light['session-detail-bg'], '#FFFFFF');
+  assert.equal(design.light['session-list-bg'], design.light.bg);
+  assert.equal(design.light['session-detail-bg'], design.light.bg);
   assert.equal(design.dark['session-list-bg'], '#000000');
-  assert.equal(design.dark['session-detail-bg'], '#050606');
+  assert.equal(design.dark['session-detail-bg'], design.dark.bg);
   assert.match(style, /#sescol \{ background: var\(--session-list-bg\)/);
   assert.match(style, /#app\[data-mode="sessions"\] #win \{ background: var\(--session-detail-bg\)/);
   assert.deepEqual(design.deviceColors, {

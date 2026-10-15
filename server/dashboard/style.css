@@ -1,4 +1,4 @@
-@import url("titanium.css?v=235");
+@import url("titanium.css?v=236");
 
 /* ============================================================
    mac fleet hub —— 设计系统 v2（令牌 + 组件 + 布局）
@@ -613,7 +613,7 @@ html.automation-doc-root, html.automation-doc-root body { height: auto; min-heig
   #app { position: relative; --layout-rail-w: var(--rail-w); --layout-sess-w: var(--sess-w); grid-template-columns: var(--layout-rail-w) var(--layout-sess-w) minmax(0, 1fr); transition: grid-template-columns var(--dur-2) var(--ease); }
   #app[data-mode="files"] { grid-template-columns: var(--layout-rail-w) minmax(0, 1fr); }
   #rail { grid-column: 1; grid-row: 1; }
-  #app > #rail { background: var(--workspace-header-bg); }
+  #app > #rail { background: var(--surface); }
   #sescol { grid-column: 2; grid-row: 1; }
   #win { grid-column: 3; grid-row: 1; }
   #app[data-mode="files"] #win { grid-column: 2; }
@@ -878,7 +878,7 @@ html.automation-doc-root, html.automation-doc-root body { height: auto; min-heig
 #win { display: flex; flex-direction: column; min-width: 0; background: var(--bg); }
 #app[data-mode="sessions"] #win { background: var(--session-detail-bg); }
 #session-back-gesture, #file-back-gesture { display: none; }
-.win-head { display: flex; align-items: center; gap: 11px; padding: 11px 16px; border: 0; min-height: 54px; background: var(--surface-1); }
+.win-head { display: flex; align-items: center; gap: 11px; padding: 11px 16px; border: 0; min-height: 54px; background: var(--bg); }
 .win-back { display: none; }
 .win-head .info { display: flex; align-items: center; min-width: 0; flex: 1; overflow: hidden; }
 .win-head .tt { flex: 1; white-space: nowrap; font-weight: 600; font-size: var(--t-title); display: flex; align-items: center; gap: 9px; min-width: 0; }
@@ -1387,7 +1387,7 @@ html[data-workspace-tab="true"] .preview-encoding-control::after { right: 10px; 
 #workspace-tabs { display: flex; align-items: center; gap: 4px; flex: 1 1 auto; min-width: 0; overflow-x: auto; padding: 0; scrollbar-width: none; }
 #workspace-tabs::-webkit-scrollbar { display: none; }
 #workspace-tabs[hidden], #workspace-preview[hidden] { display: none; }
-#win[data-workspace-tabs="true"] > .win-head { min-height: 42px; padding-block: 6px; gap: 8px; background: var(--surface); }
+#win[data-workspace-tabs="true"] > .win-head { min-height: 42px; padding-block: 6px; gap: 8px; background: var(--bg); }
 #win[data-workspace-tabs="true"] > .win-head .info { display: none; }
 #win[data-workspace-tabs="true"] > .win-head > .iconbtn { width: 28px; height: 28px; }
 .workspace-tab { display: flex; align-items: center; flex: 0 1 220px; min-width: 90px; max-width: 220px; border: 0; border-radius: var(--radius-compact); background: transparent; color: var(--text-2); }
@@ -1591,17 +1591,22 @@ html[data-workspace-tab="true"] .preview-encoding-control::after { right: 10px; 
 .sc-title-row { display: flex; align-items: center; gap: 10px; }
 .sc-title-row .assistant-seg { flex: 1; min-width: 0; }
 .sc-title-row .assistant-seg button { flex: 1; text-align: center; }
+:is(.assistant-seg, .mobile-assistant-seg) { padding: 0; border-radius: 0; background: transparent; }
+:is(.assistant-seg, .mobile-assistant-seg) > button[role="tab"] { border-radius: 0; background: transparent; }
+:is(.assistant-seg, .mobile-assistant-seg) > button[role="tab"][aria-selected="true"] {
+  background: transparent; color: var(--accent-text); box-shadow: inset 0 -1px 0 var(--highlight);
+}
 /* DeepSeek tab：官方鲸鱼入口嵌在 tab 内。wrapper 只做「一个 tab」的视觉外壳，
    选中态挂在 wrapper 上（:has），label 切助手、鲸鱼开原生 UI，互不干扰。
    注意 [hidden] 必须显式关掉 display——wrapper 自己的 inline-flex 会盖过 UA 的隐藏。 */
 .seg .assistant-tab {
-  display: inline-flex; align-items: center; flex: 1; min-width: 0; border-radius: var(--radius-control);
-  transition: background var(--dur-1) var(--ease), box-shadow var(--dur-1) var(--ease);
+  display: inline-flex; align-items: center; flex: 1; min-width: 0; border-radius: 0;
+  transition: color var(--dur-1) var(--ease), box-shadow var(--dur-1) var(--ease);
 }
 .seg .assistant-tab[hidden] { display: none; }
-.seg .assistant-tab:has([aria-selected="true"]) { background: var(--accent-soft); color: var(--accent-text); box-shadow: none; }
+.seg .assistant-tab:has([aria-selected="true"]) { background: transparent; color: var(--accent-text); box-shadow: inset 0 -1px 0 var(--highlight); }
 .seg .assistant-tab .assistant-tab-label {
-  flex: 1; min-width: 0; padding: 6px 0 6px 12px; border-radius: var(--radius-compact); background: none; box-shadow: none;
+  flex: 1; min-width: 0; padding: 6px 0 6px 12px; border-radius: 0; background: none; box-shadow: none;
 }
 .seg .assistant-tab .assistant-tab-label[aria-selected="true"] { background: none; box-shadow: none; color: var(--accent-text); }
 .seg .assistant-tab .dsh-native-open {
@@ -1618,6 +1623,7 @@ html[data-workspace-tab="true"] .preview-encoding-control::after { right: 10px; 
 .dsh-native-open { color: #111827; }
 .dsh-native-open:not(:disabled):hover { color: #111827; }
 .dsh-native-open:disabled { color: var(--text-3); opacity: .48; cursor: not-allowed; }
+.seg .assistant-tab:has([aria-selected="true"]) .dsh-native-open { color: var(--accent-text); }
 .dsh-whale { display: block; width: 22px; height: auto; fill: currentColor; }
 
 .scope-button {
@@ -2264,7 +2270,7 @@ html[data-workspace-tab="true"] .preview-encoding-control::after { right: 10px; 
 
 
 /* The list toolbar and workspace share one continuous header surface. */
-#app { --workspace-header-height: 42px; --workspace-header-bg: var(--surface-2); }
+#app { --workspace-header-height: 42px; --workspace-header-bg: var(--bg); }
 .workspace-tab-close svg { width: 12px; height: 12px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; }
 @media (min-width: 861px) {
   #sescol .sc-head { padding: 0; }
@@ -2314,8 +2320,12 @@ html[data-workspace-tab="true"] .preview-encoding-control::after { right: 10px; 
 #session-archive-toggle[aria-pressed="true"] svg rect { fill: currentColor; }
 .empty-chat-form { position: absolute; bottom: 20px; left: 20px; right: 20px; pointer-events: auto; text-align: left; }
 .empty-chat-context { display: flex; gap: 8px; margin-bottom: 8px; }
-.empty-chat-context select { width: auto; max-width: 45%; background: color-mix(in srgb, var(--chat-text) 4%, transparent); }
-.empty-chat-context select:hover { background: color-mix(in srgb, var(--chat-text) 7%, transparent); }
+.empty-chat-context select { width: auto; max-width: 45%; background: transparent; }
+.empty-chat-context select:hover { background: transparent; }
+#empty-chat-device:disabled {
+  padding-right: 6px; -webkit-appearance: none; appearance: none;
+  color: var(--chat-text-2); opacity: 1; cursor: default;
+}
 .empty-chat-compose { display: flex; align-items: flex-end; gap: 10px; padding: 16px; background: var(--surface-1); border-radius: var(--radius-card); box-shadow: var(--e2); }
 .empty-chat-compose textarea { flex: 1; min-width: 0; resize: none; border: 0; background: transparent; outline: none; box-shadow: none; }
 .empty-chat-compose svg { width: 20px; height: 20px; }

@@ -535,7 +535,7 @@ test('ChatGPT is the first and default session assistant', () => {
   assert.match(appSrc, /assistant:\s*'codex',\s*\/\/ codex \| dsh/);
 });
 
-test('DeepSeek native UI uses the official black whale button and opens a host-scoped path', () => {
+test('DeepSeek native UI uses the official whale button and opens a host-scoped path', () => {
   const buttons = [...indexHTML.matchAll(/<button[^>]*data-dsh-native-open[^>]*>/g)].map((match) => match[0]);
   assert.equal(buttons.length, 2, 'desktop and mobile each expose the native DSH entrance');
   for (const button of buttons) {
@@ -546,6 +546,7 @@ test('DeepSeek native UI uses the official black whale button and opens a host-s
   assert.equal((indexHTML.match(/<use href="#deepseek-whale-mark"/g) || []).length, 2);
   assert.match(styleCSS, /\.dsh-native-open\s*\{[^}]*color:\s*#111827;/s);
   assert.match(styleCSS, /\.dsh-native-open:disabled\s*\{[^}]*color:\s*var\(--text-3\);/s);
+  assert.match(styleCSS, /\.assistant-tab:has\(\[aria-selected="true"\]\) \.dsh-native-open\s*\{\s*color:\s*var\(--accent-text\);/s);
   assert.match(appSrc, /function dshNativeTargetMac\(\)/);
   assert.match(appSrc, /window\.open\(`\$\{apiBase\(macId\)\}\/dsh\/`, '_blank', 'noopener,noreferrer'\)/);
   assert.match(appSrc, /dsh\.nativeUI !== true/);
@@ -572,7 +573,8 @@ test('DeepSeek whale sits inside the assistant tab instead of the header actions
   assert.match(appSrc, /\$\$\('\[data-assistant-entry="dsh"\]'\)\.forEach\(\(entry\) => \{ entry\.hidden = !available; \}\)/);
   // wrapper 自带 inline-flex，必须显式关掉 [hidden]，否则藏不住
   assert.match(styleCSS, /\.seg \.assistant-tab\[hidden\]\s*\{\s*display:\s*none;\s*\}/);
-  assert.match(styleCSS, /\.seg \.assistant-tab:has\(\[aria-selected="true"\]\)\s*\{\s*background:\s*var\(--accent-soft\);/);
+  assert.match(styleCSS, /\.seg \.assistant-tab:has\(\[aria-selected="true"\]\)\s*\{\s*background:\s*transparent;[^}]*color:\s*var\(--accent-text\);[^}]*box-shadow:\s*inset 0 -1px 0 var\(--highlight\);/s);
+  assert.match(styleCSS, /\.assistant-seg, \.mobile-assistant-seg\)[^}]*button\[role="tab"\]\[aria-selected="true"\][^{]*\{[^}]*color:\s*var\(--accent-text\);[^}]*box-shadow:\s*inset 0 -1px 0 var\(--highlight\);/s);
   assert.match(styleCSS, /\.seg \.assistant-tab \.dsh-native-open\s*\{[^}]*flex:\s*none;/s);
   assert.match(styleCSS, /\.seg \.assistant-tab \.dsh-whale\s*\{\s*width:\s*18px;\s*\}/);
 });
@@ -755,7 +757,7 @@ test('automation modal links to a concise cached API guide', () => {
   assert.match(automationGuideHTML, /POST|\/api\/v1\/messages/);
   assert.match(automationGuideHTML, /Idempotency-Key/);
   assert.match(automationGuideHTML, /callback_url/);
-  assert.match(automationGuideHTML, /src="\/automation-guide\.js\?v=235" defer/);
+  assert.match(automationGuideHTML, /src="\/automation-guide\.js\?v=236" defer/);
   assert.match(automationGuideHTML, /data-api-path="\/api\/v1\/messages"/);
   assert.doesNotMatch(automationGuideHTML, /fleet\.hyposomnia\.top|:20443|automation-doc-back/);
   const apiNodes = [
@@ -771,7 +773,7 @@ test('automation modal links to a concise cached API guide', () => {
     'https://fleet.example.test:9443/api/v1/messages/msg_xxx',
   ]);
   assert.match(serviceWorker, /'\/automation-guide\.html'/);
-  assert.match(serviceWorker, /'\/automation-guide\.js\?v=235'/);
+  assert.match(serviceWorker, /'\/automation-guide\.js\?v=236'/);
 	assert.match(serviceWorker, /'\/automation-guide\.html', '\/automation-records\.html'\]\.includes\(url\.pathname\)/);
   assert.match(styleCSS, /\.automation-doc-main\s*\{/);
 });
