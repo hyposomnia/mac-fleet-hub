@@ -755,7 +755,7 @@ test('automation modal links to a concise cached API guide', () => {
   assert.match(automationGuideHTML, /POST|\/api\/v1\/messages/);
   assert.match(automationGuideHTML, /Idempotency-Key/);
   assert.match(automationGuideHTML, /callback_url/);
-  assert.match(automationGuideHTML, /src="\/automation-guide\.js\?v=234" defer/);
+  assert.match(automationGuideHTML, /src="\/automation-guide\.js\?v=235" defer/);
   assert.match(automationGuideHTML, /data-api-path="\/api\/v1\/messages"/);
   assert.doesNotMatch(automationGuideHTML, /fleet\.hyposomnia\.top|:20443|automation-doc-back/);
   const apiNodes = [
@@ -771,7 +771,7 @@ test('automation modal links to a concise cached API guide', () => {
     'https://fleet.example.test:9443/api/v1/messages/msg_xxx',
   ]);
   assert.match(serviceWorker, /'\/automation-guide\.html'/);
-  assert.match(serviceWorker, /'\/automation-guide\.js\?v=234'/);
+  assert.match(serviceWorker, /'\/automation-guide\.js\?v=235'/);
 	assert.match(serviceWorker, /'\/automation-guide\.html', '\/automation-records\.html'\]\.includes\(url\.pathname\)/);
   assert.match(styleCSS, /\.automation-doc-main\s*\{/);
 });

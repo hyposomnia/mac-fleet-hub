@@ -515,16 +515,20 @@
     let encoding = document.querySelector('#preview-encoding');
     const textFile = isTextPreviewPath(request.path) || ['.md', '.markdown', '.html', '.htm'].includes(extensionOf(request.path));
     if (!encoding && textFile && download?.parentNode && document.createElement) {
+      const encodingControl = document.createElement('span');
+      encodingControl.className = 'preview-encoding-control';
       encoding = document.createElement('select');
       encoding.id = 'preview-encoding';
+      encoding.className = 'preview-encoding-select';
       encoding.setAttribute('aria-label', '文本编码');
       for (const [value, label] of [['auto', '自动识别编码'], ['utf-8', 'UTF-8'], ['utf-16le', 'UTF-16 LE'], ['utf-16be', 'UTF-16 BE'], ['gb18030', 'GB18030 / GBK'], ['big5', 'Big5'], ['shift_jis', 'Shift JIS'], ['windows-1252', 'Windows-1252']]) {
         const option = document.createElement('option');
         option.value = value; option.textContent = label; encoding.append(option);
       }
       encoding.onchange = () => initRoute();
-      if (request.embed && page?.insertBefore) page.insertBefore(encoding, document.querySelector('#preview-stage'));
-      else download.parentNode.insertBefore(encoding, download);
+      encodingControl.append(encoding);
+      if (request.embed && page?.insertBefore) page.insertBefore(encodingControl, document.querySelector('#preview-stage'));
+      else download.parentNode.insertBefore(encodingControl, download);
     }
     try {
       const response = await fetch(fileEndpoint('preview', request.macId, request.path, { cwd: request.cwd, encoding: encoding?.value }), { cache: 'no-store' });

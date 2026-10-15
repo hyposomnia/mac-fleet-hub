@@ -1,4 +1,4 @@
-@import url("titanium.css?v=234");
+@import url("titanium.css?v=235");
 
 /* ============================================================
    mac fleet hub —— 设计系统 v2（令牌 + 组件 + 布局）
@@ -217,6 +217,24 @@ body {
 .preview-path-segment:hover, .preview-path-segment:focus-visible { color: var(--accent-text); text-decoration: underline; text-underline-offset: 2px; }
 .preview-path-separator { flex: none; opacity: .48; user-select: none; }
 .preview-actions { display: flex; align-items: center; gap: 8px; }
+.preview-encoding-control {
+  position: relative; display: inline-flex; align-items: center; flex: none; color: var(--text-2);
+}
+.preview-encoding-control::after {
+  content: ''; position: absolute; top: 50%; right: 12px; width: 6px; height: 6px;
+  margin-top: -5px; border-right: 1.5px solid currentColor; border-bottom: 1.5px solid currentColor;
+  transform: rotate(45deg); pointer-events: none;
+}
+.preview-encoding-control:hover { color: var(--text); }
+.preview-encoding-control:focus-within { color: var(--accent-text); }
+.preview-encoding-select {
+  width: auto; max-width: 180px; height: 36px; padding: 0 32px 0 12px;
+  -webkit-appearance: none; appearance: none; border: 0; border-radius: var(--radius-compact);
+  background: var(--surface-1); color: var(--text-1); font-size: var(--t-secondary); line-height: 1;
+  cursor: pointer; transition: background var(--dur-1) var(--ease), color var(--dur-1) var(--ease);
+}
+.preview-encoding-select:hover { background: var(--surface-hover); color: var(--text); }
+html[data-preview-embed="true"] .preview-encoding-control { align-self: flex-end; margin: 8px 8px 0; }
 .preview-stage { position: relative; flex: 1; min-height: 0; overflow: hidden; background: var(--bg); }
 .preview-state { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; gap: 9px; padding: 24px; color: var(--text-2); text-align: center; }
 .preview-spinner { width: 14px; height: 14px; border: 2px solid var(--text-3); border-right-color: var(--accent); border-radius: 50%; animation: spin .8s linear infinite; }
@@ -1362,6 +1380,8 @@ html[data-workspace-tab="true"] .preview-head { min-height: 34px; padding: 4px 1
 html[data-workspace-tab="true"] .preview-title { display: none; }
 html[data-workspace-tab="true"] .preview-path { margin-top: 0; }
 html[data-workspace-tab="true"] .preview-actions .iconbtn { width: 26px; height: 26px; }
+html[data-workspace-tab="true"] .preview-encoding-select { height: 26px; padding-right: 28px; padding-left: 10px; }
+html[data-workspace-tab="true"] .preview-encoding-control::after { right: 10px; }
 
 /* A single compact tab row replaces the repeated conversation title. */
 #workspace-tabs { display: flex; align-items: center; gap: 4px; flex: 1 1 auto; min-width: 0; overflow-x: auto; padding: 0; scrollbar-width: none; }
@@ -1408,6 +1428,7 @@ html[data-workspace-tab="true"] .preview-actions .iconbtn { width: 26px; height:
   .workspace-tab-select, .workspace-tab-close { min-height: 44px; }
   .workspace-tab-close { width: 44px; height: 44px; }
   html[data-workspace-tab="true"] .preview-actions .iconbtn { width: 44px; height: 44px; }
+  html[data-workspace-tab="true"] .preview-encoding-select { height: 44px; }
 
   #rail-collapse, #sessions-collapse, #sessions-launcher { display: none !important; }
   .preview-head {
