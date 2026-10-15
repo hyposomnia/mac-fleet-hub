@@ -2359,3 +2359,19 @@ html[data-workspace-tab="true"] .preview-encoding-control::after { right: 10px; 
 .pwa-install #pwa-install-dismiss { display: grid; place-items: center; width: 32px; height: 32px; padding: 6px; background: transparent; color: var(--text-2); }
 .pwa-install #pwa-install-dismiss:hover { color: var(--text); }
 .pwa-install #pwa-install-dismiss .ic { width: 16px; height: 16px; }
+
+/* Compact navigation uses a small highlight dot instead of filled tiles. */
+@media (min-width: 861px) {
+  #app[data-rail-collapsed="true"] #rail .modeseg,
+  #app[data-rail-collapsed="true"] #rail .modeseg button,
+  #app[data-rail-collapsed="true"] #rail .host {
+    background: transparent; box-shadow: none;
+  }
+  #app[data-rail-collapsed="true"] #rail .modeseg button { color: var(--text-1); }
+  #app[data-rail-collapsed="true"] #rail .host { position: relative; }
+  #app[data-rail-collapsed="true"] #rail .modeseg button[aria-selected="true"]::after,
+  #app[data-rail-collapsed="true"] #rail .host[aria-current="true"]::after {
+    content: ''; position: absolute; bottom: 2px; left: 50%; transform: translateX(-50%);
+    width: 4px; height: 4px; border-radius: 50%; background: var(--highlight); pointer-events: none;
+  }
+}
