@@ -1869,6 +1869,15 @@ function activateSession(session) {
   syncSessionRuntimeIndicators();
 }
 
+function sessionDeviceName(macId) {
+  const icon = FleetDeviceAppearance.createIcon(FleetDeviceAppearance.get(macId));
+  icon.className += ' session-device-icon';
+  return h('span', { class: 'session-device-name' },
+    icon,
+    h('span', { class: 'session-device-label', text: macName(macId) }),
+  );
+}
+
 function sessionRow(s) {
   const sid = s.sessionId;
   const macId = s.macId;
@@ -1891,7 +1900,7 @@ function sessionRow(s) {
     renderSessionStateDot(s, running),
   );
   const meta = h('div', { class: 'ses-meta' },
-    state.sessionMacId === 'all' ? h('span', { class: 'session-device-name', text: macName(macId) }) : null,
+    state.sessionMacId === 'all' ? sessionDeviceName(macId) : null,
     state.sessionView === 'recent'
       ? h('span', { class: 'session-project-name', text: sessionProjectInfo(s).name })
       : null,

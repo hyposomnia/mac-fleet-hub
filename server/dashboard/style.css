@@ -1,4 +1,4 @@
-@import url("titanium.css?v=238");
+@import url("titanium.css?v=240");
 
 /* ============================================================
    mac fleet hub —— 设计系统 v2（令牌 + 组件 + 布局）
@@ -1657,7 +1657,12 @@ html[data-workspace-tab="true"] .preview-encoding-control::after { right: 10px; 
 .ses-meta { display: flex; align-items: center; gap: 5px; min-width: 0; margin: 2px 34px 0 0; color: var(--text-2); font-size: var(--t-caption); }
 .ses-meta:not(:has(.session-device-name, .session-project-name)) { display: none; }
 .ses-meta span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.ses-meta .session-device-name { flex: none; max-width: 48%; color: var(--text-1); }
+.ses-meta .session-device-name { display: inline-flex; align-items: center; gap: 4px; flex: none; max-width: 48%; color: var(--text-1); }
+.ses-meta .session-device-name > .session-device-icon { width: 1em; height: 1em; color: inherit; }
+.ses-meta .session-device-name > .device-icon-letters {
+  width: auto; min-width: 1em; font: inherit; letter-spacing: 0; transform: none;
+}
+.ses-meta .session-device-label { min-width: 0; }
 .ses-meta .session-project-name { flex: 1; }
 .session-partial-note { margin: 8px; padding: 9px 10px; border-radius: var(--radius-compact); background: var(--danger-soft); color: var(--danger); font-size: var(--t-caption); }
 

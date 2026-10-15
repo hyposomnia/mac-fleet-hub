@@ -1075,6 +1075,7 @@ test('session rows remove redundant device, assistant, and idle labels', () => {
       status: 'idle',
     });
     assert.equal(nodesWithClass(allDevices, 'session-device-name').length, 1);
+    assert.equal(nodesWithClass(allDevices, 'session-device-icon').length, 1);
     assert.equal(nodesWithClass(allDevices, 'session-project-name').length, 0);
     assert.doesNotMatch(nodeText(allDevices), /Codex/);
 
@@ -1086,6 +1087,7 @@ test('session rows remove redundant device, assistant, and idle labels', () => {
       status: 'idle',
     });
     assert.equal(nodesWithClass(selectedDevice, 'session-device-name').length, 0);
+    assert.equal(nodesWithClass(selectedDevice, 'session-device-icon').length, 0);
     assert.equal(nodesWithClass(selectedDevice, 'session-project-name').length, 0);
     assert.equal(nodesWithClass(selectedDevice, 'ses-status').length, 0);
     assert.equal(nodesWithClass(selectedDevice, 'ses-time').length, 0);
@@ -1100,6 +1102,14 @@ test('session rows remove redundant device, assistant, and idle labels', () => {
     assert.match(
       styleCSS,
       /\.ses-meta:not\(:has\(\.session-device-name,\s*\.session-project-name\)\)\s*\{\s*display:\s*none;\s*\}/,
+    );
+    assert.match(
+      styleCSS,
+      /\.ses-meta \.session-device-name > \.session-device-icon\s*\{[^}]*width:\s*1em;[^}]*height:\s*1em;[^}]*color:\s*inherit;/s,
+    );
+    assert.match(
+      styleCSS,
+      /\.ses-meta \.session-device-name > \.device-icon-letters\s*\{[^}]*font:\s*inherit;/s,
     );
 
     appState.sessionView = 'recent';
