@@ -20,7 +20,7 @@ export function createNativeRelease(directory, metadata) {
     return [kind, { path: `/enroll/clients/${metadata.build}/${filename}`, sha256: createHash('sha256').update(bytes).digest('hex'), size: bytes.length,
       ...(kind === 'update' ? { ed_signature: metadata.signature } : {}) }];
   }));
-  const manifest = { schema: 1, bundle_id: 'com.macfleet.fleet-hub', version: metadata.version, build: metadata.build,
+  const manifest = { schema: 1, installation_protocol: 1, bundle_id: 'com.macfleet.fleet-hub', version: metadata.version, build: metadata.build,
     revision: metadata.revision, minimum_macos: '13.0', architectures: ['arm64', 'x86_64'], notarization: 'Accepted', assets };
   const escapeXML = value => String(value).replaceAll('&', '&amp;').replaceAll('"', '&quot;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll("'", '&apos;');
   const appcast = `<?xml version="1.0" encoding="utf-8"?>

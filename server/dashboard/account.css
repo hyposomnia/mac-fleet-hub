@@ -310,3 +310,12 @@ body:has(#fleet-settings-modal:not([hidden])) .pwa-update { visibility: hidden; 
   .admin-drawer-header { padding-inline: 16px; }
   .admin-drawer-body { padding-inline: 16px; }
 }
+
+.account-install-method + .account-install-method { margin-top: 28px; padding-top: 24px; border-top: 1px solid var(--border); }
+.account-install-method h3 { margin: 0 0 12px; font-size: var(--t-body); font-weight: 600; }
+.account-install-command { display: flex; align-items: center; gap: 12px; margin: 16px 0; }
+.account-install-command pre { flex: 1; min-width: 0; margin: 0; padding: 14px 16px; background: var(--surface-1); border: 1px solid var(--border); border-radius: var(--radius-compact); white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; line-height: 1.6; user-select: all; }
+.account-install-command button { flex: none; }
+@media (max-width: 600px) {
+  .account-install-command { flex-direction: column; align-items: stretch; }
+}

@@ -138,6 +138,19 @@ struct SettingsView: View {
                 }
                 return
             }
+            if CommandLine.arguments.contains("--fleet-disk-guide") {
+                page = .privacy
+                do {
+                    try await diskGuide.waitForAccess(applicationURL: management.layout.backgroundApplication) {
+                        await model.refresh()
+                        await model.recheckDisk()
+                        return model.diskState
+                    }
+                    NSApplication.shared.terminate(nil)
+                } catch is CancellationError { return }
+                catch { operationError = error.localizedDescription }
+                return
+            }
             if let origin = FleetSetupAction.initialOrigin(arguments: CommandLine.arguments) {
                 model.origin = origin
                 page = .connection

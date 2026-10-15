@@ -476,6 +476,30 @@ test('add device offers a native DMG and explains fresh browser OAuth and backgr
   assert.equal(current.form('enrollment-code'), undefined);
 });
 
+test('device installation provides both methods and copies the current origin command', async () => {
+  const current = harness({ page: 'add-device', origin: 'https://custom.example.test:19443',
+    transformRelease: release => ({ ...release, installation_protocol: 1 }) });
+  await current.start();
+  const add = current.find(node => node.id === 'add-device');
+  assert.match(text(add), /一行命令安装/);
+  assert.match(text(add), /下载安装包/);
+  assert.match(text(add), /curl -fsSL 'https:\/\/custom.example.test:19443\/install\.sh' \| bash/);
+  assert.equal(all(add, node => node.tagName === 'a' && node.download).length, 1);
+  await current.click('复制安装命令');
+  assert.deepEqual(current.clipboard, ["curl -fsSL 'https://custom.example.test:19443/install.sh' | bash"]);
+  assert.ok(!current.calls.some(call => call.url === '/api/enrollment/start'));
+});
+
+test('old or unpublished clients keep command installation unavailable', async () => {
+  for (const options of [{}, { released: false }, { transformRelease: release => ({ ...release, installation_protocol: 2 }) }]) {
+    const current = harness({ page: 'add-device', ...options });
+    await current.start();
+    assert.match(text(current.content), /一行命令安装/);
+    assert.doesNotMatch(text(current.content), /curl -fsSL/);
+    assert.equal(current.find(node => node.textContent === '复制安装命令'), undefined);
+  }
+});
+
 test('device page shows the ordered device manager before installation instructions', async () => {
   const current = harness({ page: 'add-device', devices: [
     { id: 'm2', name: 'Studio', ip: '100.64.0.22', online: true },

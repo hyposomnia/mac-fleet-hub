@@ -20,6 +20,7 @@ test('native release hashes actual app packages and derives feed from configured
   const { directory, metadata } = fixture();
   try {
     const { manifest, appcast } = createNativeRelease(directory, metadata);
+    assert.equal(manifest.installation_protocol, 1);
     assert.equal(manifest.bundle_id, 'com.macfleet.fleet-hub');
     assert.equal(manifest.assets.dmg.path, '/enroll/clients/12/Fleet-Hub.dmg');
     assert.equal(manifest.assets.dmg.size, 1024);

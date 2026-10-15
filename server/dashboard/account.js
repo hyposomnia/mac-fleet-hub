@@ -447,13 +447,36 @@
       renderDeviceList(deviceData.devices || [], settings.deviceAppearance || {}, deviceSection);
       const add = section('新增设备');
       add.id = 'add-device';
-      add.append(node('h3', 'macOS 客户端'));
+      const terminal = node('div', '', { className: 'account-install-method' });
+      terminal.append(node('h3', '一行命令安装'));
+      if (release?.installation_protocol === 1) {
+        terminal.append(node('p', '在 Mac 终端运行，自动安装或更新，然后打开浏览器授权。', { className: 'account-muted' }));
+        const installerURL = serviceOrigin + '/install.sh';
+        const command = "curl -fsSL '" + installerURL.replaceAll("'", "'\"'\"'") + "' | bash";
+        const commandRow = node('div', '', { className: 'account-install-command' });
+        const code = node('pre');
+        code.append(node('code', command));
+        commandRow.append(code);
+        button('复制安装命令', async () => {
+          if (!root.navigator?.clipboard?.writeText) throw new Error('浏览器无法复制，请手动复制安装命令。');
+          await root.navigator.clipboard.writeText(command);
+          status.textContent = '安装命令已复制。';
+        }, commandRow);
+        terminal.append(commandRow);
+        terminal.append(node('p', '授权后自动连接；需要磁盘权限时会打开系统设置和拖拽引导。', { className: 'account-muted' }));
+      } else {
+        terminal.append(node('p', release ? '当前版本暂不支持命令安装，请使用下方安装包。' : '客户端发布后开放命令安装。', { className: 'account-muted' }));
+      }
+      add.append(terminal);
+      const manual = node('div', '', { className: 'account-install-method' });
+      manual.append(node('h3', '下载安装包'));
+      add.append(manual);
       const downloads = node('div', '', { className: 'account-downloads' });
       if (release) {
         downloads.append(node('a', '下载 Fleet Agent Settings', { href: release.assets.dmg.path, download: 'Fleet-Agent-Settings.dmg', className: 'account-button primary' }));
-        add.append(downloads);
-        add.append(node('p', `Fleet Agent Settings ${release.version} · macOS ${release.minimum_macos} 及以上 · ${(release.assets.dmg.size / 1048576).toFixed(1)} MB`, { className: 'account-muted' }));
-      } else add.append(node('p', 'Fleet Agent Settings 尚未发布，暂不提供下载。', { className: 'account-error' }));
+        manual.append(downloads);
+        manual.append(node('p', `Fleet Agent Settings ${release.version} · macOS ${release.minimum_macos} 及以上 · ${(release.assets.dmg.size / 1048576).toFixed(1)} MB`, { className: 'account-muted' }));
+      } else manual.append(node('p', 'Fleet Agent Settings 尚未发布，暂不提供下载。', { className: 'account-error' }));
       const steps = node('ol', '', { className: 'account-steps' });
       for (const description of [
         '打开 DMG，将 Fleet Agent Settings 拖入“应用程序”，或点击“安装并启动”。内置 Fleet Agent，无需另行下载。',
@@ -463,7 +486,7 @@
         '在“磁盘权限”打开系统设置，将页面中的 Fleet Agent.app 图标拖入完全磁盘访问列表并打开开关，返回点击“重启并检查”。',
         '关闭应用窗口后，后台继续运行。',
       ]) steps.append(node('li', description));
-      add.append(steps);
+      manual.append(steps);
       const address = node('p', '', { className: 'account-service-address' });
       const copy = node('button', '', { type: 'button', className: 'account-copy-icon', title: '复制服务器地址' });
       address.append(node('span', '本服务网页地址：'), node('a', serviceOrigin, { href: serviceOrigin }), copy);
@@ -475,7 +498,7 @@
           status.textContent = '服务器地址已复制。';
         } catch (error) { status.textContent = error.message; }
       };
-      add.append(address);
+      manual.append(address);
       add.append(node('p', '更新：Fleet Agent Settings → 关于 → 检查更新。', { className: 'account-muted' }));
     }
 

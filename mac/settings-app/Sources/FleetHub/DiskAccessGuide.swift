@@ -73,7 +73,7 @@ struct DiskAccessInstructions: View {
             Text("Fleet Agent.app").font(.system(size: 16, weight: .semibold))
             Text("授权后可在网页端访问本机文件，\n也能直接查看 AI Coding 会话关联的文件。")
                 .foregroundStyle(theme.secondaryText).multilineTextAlignment(.center).frame(maxWidth: 420)
-            Text("将图标拖入「完全磁盘访问」，再打开开关。")
+            Text("列表中已有 Fleet Agent，请打开开关；\n没有则将图标拖入列表。")
                 .foregroundStyle(theme.secondaryText).multilineTextAlignment(.center)
             Button("在访达中显示") { NSWorkspace.shared.activateFileViewerSelecting([application.url]) }
                 .buttonStyle(.link)
@@ -92,6 +92,15 @@ final class DiskAccessGuideController: ObservableObject {
     func authorize(applicationURL: URL, prepare: () async throws -> Void) async throws {
         try await prepare()
         try show(applicationURL: applicationURL)
+    }
+
+    func waitForAccess(applicationURL: URL, recheck: () async -> DiskState, sleep: () async throws -> Void = { try await Task.sleep(nanoseconds: 2_000_000_000) }) async throws {
+        try show(applicationURL: applicationURL)
+        while true {
+            try Task.checkCancellation()
+            if await recheck() == .verified { return }
+            try await sleep()
+        }
     }
 
     func show(applicationURL: URL) throws {

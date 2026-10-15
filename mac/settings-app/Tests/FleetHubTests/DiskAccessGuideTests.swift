@@ -34,6 +34,34 @@ final class DiskAccessGuideTests: XCTestCase {
         XCTAssertFalse(opened)
     }
 
+    func testGuideWaitsThroughUnknownAndRestrictedUntilActualVerification() async throws {
+        let agent = try fixture().appendingPathComponent("Fleet Agent.app")
+        try FileManager.default.createDirectory(at: agent, withIntermediateDirectories: true)
+        var opened = 0
+        var checks = 0
+        var sleeps = 0
+        let guide = DiskAccessGuideController(openSettings: { _ in opened += 1; return true })
+        try await guide.waitForAccess(applicationURL: agent, recheck: {
+            checks += 1
+            return checks == 1 ? .unknown : checks == 2 ? .restricted : .verified
+        }, sleep: { sleeps += 1 })
+        XCTAssertEqual(opened, 1)
+        XCTAssertEqual(checks, 3)
+        XCTAssertEqual(sleeps, 2)
+    }
+
+    func testGuideCancellationDoesNotCompleteOrReopenSystemSettings() async throws {
+        let agent = try fixture().appendingPathComponent("Fleet Agent.app")
+        try FileManager.default.createDirectory(at: agent, withIntermediateDirectories: true)
+        var opened = 0
+        let guide = DiskAccessGuideController(openSettings: { _ in opened += 1; return true })
+        do {
+            try await guide.waitForAccess(applicationURL: agent, recheck: { .restricted }, sleep: { throw CancellationError() })
+            XCTFail("completed without disk access")
+        } catch { XCTAssertTrue(error is CancellationError) }
+        XCTAssertEqual(opened, 1)
+    }
+
     private func fixture() throws -> URL {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("fleet-drag-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)

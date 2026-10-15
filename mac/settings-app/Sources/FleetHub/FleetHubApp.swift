@@ -1,7 +1,6 @@
 import SwiftUI
 import FleetCore
 
-@main
 struct FleetHubApp: App {
     @NSApplicationDelegateAdaptor(FleetApplicationDelegate.self) private var delegate
     @StateObject private var model: SettingsModel

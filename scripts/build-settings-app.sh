@@ -61,6 +61,7 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
 <key>CFBundleIdentifier</key><string>com.macfleet.fleet-hub</string>
 <key>CFBundleName</key><string>Fleet Agent Settings</string>
 <key>CFBundleDisplayName</key><string>Fleet Agent Settings</string>
+<key>FleetInstallProtocol</key><integer>1</integer>
 <key>CFBundleExecutable</key><string>Fleet Agent Settings</string>
 <key>CFBundleIconFile</key><string>AppIcon</string>
 <key>CFBundlePackageType</key><string>APPL</string>

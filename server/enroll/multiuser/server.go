@@ -196,6 +196,10 @@ func (server *Server) ServeHTTP(writer http.ResponseWriter, request *http.Reques
 	writer.Header().Set("X-Content-Type-Options", "nosniff")
 	writer.Header().Set("Referrer-Policy", "same-origin")
 	path := request.URL.Path
+	if path == "/install.sh" {
+		server.handleNativeInstall(writer, request)
+		return
+	}
 	if path == "/healthz" {
 		if err := server.db.PingContext(request.Context()); err != nil {
 			reject(writer, 503, "unavailable")
