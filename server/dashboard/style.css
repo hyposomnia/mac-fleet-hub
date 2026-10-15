@@ -1,4 +1,4 @@
-@import url("titanium.css?v=227");
+@import url("titanium.css?v=228");
 
 /* ============================================================
    mac fleet hub —— 设计系统 v2（令牌 + 组件 + 布局）
@@ -278,7 +278,7 @@ button, input, textarea, select { font: inherit; color: inherit; }
 button { cursor: pointer; border: 0; background: none; }
 .mono { font-family: var(--mono); }
 ::selection { background: var(--accent-soft); }
-:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; box-shadow: 0 0 0 5px color-mix(in srgb, var(--highlight) 24%, transparent); }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; box-shadow: none; }
 
 /* 进行中是必要的实时状态反馈；保留小尺寸匀速旋转，其他动效仍被压缩。 */
 @media (prefers-reduced-motion: reduce) {
@@ -2295,9 +2295,10 @@ html[data-workspace-tab="true"] .preview-actions .iconbtn { width: 26px; height:
 #session-archive-toggle[aria-pressed="true"] svg rect { fill: currentColor; }
 .empty-chat-form { position: absolute; bottom: 20px; left: 20px; right: 20px; pointer-events: auto; text-align: left; }
 .empty-chat-context { display: flex; gap: 8px; margin-bottom: 8px; }
-.empty-chat-context select { width: auto; max-width: 45%; background: var(--surface-1); }
+.empty-chat-context select { width: auto; max-width: 45%; background: color-mix(in srgb, var(--chat-text) 4%, transparent); }
+.empty-chat-context select:hover { background: color-mix(in srgb, var(--chat-text) 7%, transparent); }
 .empty-chat-compose { display: flex; align-items: flex-end; gap: 10px; padding: 16px; background: var(--surface-1); border-radius: var(--radius-card); box-shadow: var(--e2); }
-.empty-chat-compose textarea { flex: 1; min-width: 0; resize: none; border: 0; background: transparent; outline: none; }
+.empty-chat-compose textarea { flex: 1; min-width: 0; resize: none; border: 0; background: transparent; outline: none; box-shadow: none; }
 .empty-chat-compose svg { width: 20px; height: 20px; }
 
 /* New-session project context, shared with self-hosted UI. */
