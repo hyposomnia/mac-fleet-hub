@@ -1,4 +1,4 @@
-@import url("titanium.css?v=243");
+@import url("titanium.css?v=244");
 
 /* ============================================================
    mac fleet hub —— 设计系统 v2（令牌 + 组件 + 布局）
@@ -2368,10 +2368,15 @@ html[data-workspace-tab="true"] .preview-encoding-control::after { right: 10px; 
     background: transparent; box-shadow: none;
   }
   #app[data-rail-collapsed="true"] #rail .modeseg button { color: var(--text-1); }
+  #app[data-rail-collapsed="true"] #rail .modeseg button[aria-selected="true"] { color: var(--accent-text); }
   #app[data-rail-collapsed="true"] #rail .host { position: relative; }
+  #app[data-rail-collapsed="true"] #rail .host:not([aria-current="true"]) > :first-child { opacity: .65; }
   #app[data-rail-collapsed="true"] #rail .modeseg button[aria-selected="true"]::after,
   #app[data-rail-collapsed="true"] #rail .host[aria-current="true"]::after {
     content: ''; position: absolute; bottom: 2px; left: 50%; transform: translateX(-50%);
     width: 4px; height: 4px; border-radius: 50%; background: var(--highlight); pointer-events: none;
   }
 }
+
+/* Keep both composer actions circular in every responsive layout. */
+#chat-send, #empty-chat-send { border-radius: 50%; }
