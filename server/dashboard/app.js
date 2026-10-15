@@ -942,6 +942,10 @@ function openUnifiedSettings(page, trigger) {
   }
   return FleetSettingsDialog.active.open(page, trigger);
 }
+function maskedAccessKey(value) {
+  const secret = String(value || '');
+  return secret.length > 20 ? `${secret.slice(0, 12)}••••••${secret.slice(-4)}` : '••••••';
+}
 function renderAccessKeys() {
   const root = $('#automation-key-list');
   root.replaceChildren();
@@ -950,25 +954,26 @@ function renderAccessKeys() {
     return;
   }
   for (const key of automationAccessKeys) {
+    const canCopy = Boolean(key.recoverable && key.key);
     const copy = h('button', {
-      type: 'button', class: 'btn sm', text: '复制', disabled: key.recoverable ? null : '',
-      onclick: () => copyAccessKeyValue(key.key),
+      type: 'button', class: 'btn sm', text: '复制', disabled: canCopy ? null : '',
+      onclick: () => { if (canCopy) copyAccessKeyValue(key.key); },
     });
     const request = h('a', {
       href: '#', class: 'automation-doc-link automation-key-request-link', text: '复制请求示例',
-      'aria-disabled': String(!key.recoverable),
-      title: key.recoverable ? '复制 curl 请求' : '旧版密钥原文不可恢复',
-      onclick: (event) => { event.preventDefault(); if (key.recoverable) copyAccessKeyRequest(key); },
+      'aria-disabled': String(!canCopy), tabindex: canCopy ? null : '-1',
+      title: canCopy ? '复制 curl 请求' : '旧版密钥原文不可恢复',
+      onclick: (event) => { event.preventDefault(); if (canCopy) copyAccessKeyRequest(key); },
     });
     const edit = h('button', { type: 'button', class: 'btn sm automation-key-edit', text: '编辑', 'aria-expanded': 'false', onclick: () => openAccessKeyForm(key) });
-    const secret = key.recoverable ? key.key : '旧版密钥原文不可恢复；该密钥仍可继续使用';
+    const secret = canCopy ? maskedAccessKey(key.key) : '旧版密钥原文不可恢复；该密钥仍可继续使用';
     root.append(h('article', { class: 'automation-key-card', dataset: { keyId: key.id } },
       h('div', { class: 'automation-key-head' },
         h('div', { class: 'automation-key-title' },
           h('strong', { text: key.name || '未命名密钥' })),
-        h('div', { class: 'automation-key-actions' }, request, edit)),
-      h('div', { class: 'api-key-copy-row' },
-        h('input', { class: 'input tnum', readonly: '', value: secret, 'aria-label': `${key.name || '访问密钥'}的值` }), copy),
+        h('div', { class: 'automation-key-actions' }, edit)),
+      h('div', { class: 'api-key-copy-row automation-key-copy-row' },
+        h('code', { class: 'automation-key-value tnum', text: secret, 'aria-label': canCopy ? '访问密钥（已掩码）' : secret }), copy, request),
       h('div', { class: 'automation-key-meta' },
         h('span', { class: 'automation-key-scope', text: accessKeyBindingLabel(key.binding) }),
         h('span', { text: `RPM：${key.rpm || 10}` }),

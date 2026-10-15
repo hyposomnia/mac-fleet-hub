@@ -53,6 +53,7 @@ enum TitaniumStyle {
 }
 
 struct TitaniumIconButtonStyle: ButtonStyle {
+    @Environment(\.fleetStyle) private var style
     var size: CGFloat = 44
     var foreground = "text-1"
     var background: Color = .clear
@@ -63,8 +64,8 @@ struct TitaniumIconButtonStyle: ButtonStyle {
             .font(.system(size: 16, weight: .regular))
             .frame(width: size, height: size)
             .contentShape(Rectangle())
-            .foregroundStyle(TitaniumStyle.color(foreground))
-            .background(configuration.isPressed ? TitaniumStyle.color("surface-hover") : background,
+            .foregroundStyle(style.color(foreground))
+            .background(configuration.isPressed ? style.color("surface-hover") : background,
                         in: RoundedRectangle(cornerRadius: TitaniumStyle.radius(radius)))
     }
 }

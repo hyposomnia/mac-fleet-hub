@@ -18,6 +18,7 @@ struct FleetDevice: Codable, Identifiable {
     let name: String
     let online: Bool
     var icon: String? = nil
+    var text: String? = nil
     var color: String? = nil
     var count: Int? = nil
 

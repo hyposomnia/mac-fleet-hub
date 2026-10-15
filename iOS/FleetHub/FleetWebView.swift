@@ -18,10 +18,26 @@ struct FleetWebView: UIViewRepresentable {
             source: bootstrapScript,
             injectionTime: .atDocumentStart, forMainFrameOnly: true
         ))
+        configuration.userContentController.addUserScript(WKUserScript(
+            source: Self.appearanceScript, injectionTime: .atDocumentEnd, forMainFrameOnly: true
+        ))
+        configuration.userContentController.addUserScript(WKUserScript(
+            source: Self.workspaceScript, injectionTime: .atDocumentEnd, forMainFrameOnly: true
+        ))
+        configuration.userContentController.addUserScript(WKUserScript(
+            source: Self.composerScript, injectionTime: .atDocumentEnd, forMainFrameOnly: true
+        ))
+        configuration.userContentController.addUserScript(WKUserScript(
+            source: Self.dialogScript, injectionTime: .atDocumentEnd, forMainFrameOnly: true
+        ))
         let view = WKWebView(frame: .zero, configuration: configuration)
         view.navigationDelegate = context.coordinator
         view.uiDelegate = context.coordinator
         view.scrollView.contentInsetAdjustmentBehavior = .never
+        view.isOpaque = false
+        view.backgroundColor = .clear
+        view.scrollView.backgroundColor = .clear
+        view.underPageBackgroundColor = .clear
         view.allowsBackForwardNavigationGestures = false
         view.isInspectable = _isDebugAssertConfiguration()
         view.accessibilityIdentifier = "session-webview"
@@ -31,7 +47,14 @@ struct FleetWebView: UIViewRepresentable {
     }
 
     func updateUIView(_ view: WKWebView, context: Context) {
-        view.evaluateJavaScript(layoutScript)
+        let hidden = store.nativeSheet != nil || store.webDialog != nil || store.deviceSheet
+        let modal = store.nativeSheet == nil && store.webDialog == nil && (store.webOverlayVisible || store.snapshot?.overlay != nil)
+        if view.accessibilityElementsHidden != hidden { view.accessibilityElementsHidden = hidden }
+        if view.accessibilityViewIsModal != modal { view.accessibilityViewIsModal = modal }
+        if context.coordinator.appliedLayoutScript != layoutScript {
+            context.coordinator.appliedLayoutScript = layoutScript
+            view.evaluateJavaScript(layoutScript)
+        }
     }
 
     private var layoutScript: String {
@@ -47,10 +70,53 @@ struct FleetWebView: UIViewRepresentable {
         #endif
         return script
     }
+
+    static var appearanceScript: String {
+        guard let url = Bundle.main.url(forResource: "native_appearance", withExtension: "js"),
+              let script = try? String(contentsOf: url, encoding: .utf8) else {
+            preconditionFailure("Missing shared native appearance resource")
+        }
+        return script
+    }
+
+    static var workspaceScript: String {
+        guard let url = Bundle.main.url(forResource: "native_workspace", withExtension: "js"),
+              let script = try? String(contentsOf: url, encoding: .utf8) else {
+            preconditionFailure("Missing shared native workspace resource")
+        }
+        return script
+    }
+
+    static var dialogScript: String {
+        guard let url = Bundle.main.url(forResource: "native_dialogs", withExtension: "js"),
+              let script = try? String(contentsOf: url, encoding: .utf8) else { preconditionFailure("Missing native dialog adapter") }
+        return script
+    }
+
+    static var composerScript: String {
+        guard let scriptURL = Bundle.main.url(forResource: "mobile_composer", withExtension: "js"),
+              let styleURL = Bundle.main.url(forResource: "mobile_composer", withExtension: "css"),
+              let script = try? String(contentsOf: scriptURL, encoding: .utf8),
+              let css = try? String(contentsOf: styleURL, encoding: .utf8),
+              let encoded = try? JSONEncoder().encode(css),
+              let literal = String(data: encoded, encoding: .utf8) else {
+            preconditionFailure("Missing shared mobile composer resources")
+        }
+        return """
+        (function () {
+            if (window !== window.top || window.__fleetNativeVersion !== 1 || !['/', '/index.html'].includes(location.pathname)) return;
+            let style = document.getElementById('fleet-mobile-composer-style');
+            if (!style) { style = document.createElement('style'); style.id = 'fleet-mobile-composer-style'; document.head.append(style); }
+            style.textContent = \(literal);
+            \(script)
+        })();
+        """
+    }
 }
 
 @MainActor
 final class WebCoordinator: WebInteractionCoordinator, WKScriptMessageHandler {
+    var appliedLayoutScript = ""
     func userContentController(_ controller: WKUserContentController, didReceive message: WKScriptMessage) {
         guard message.frameInfo.isMainFrame, let url = message.frameInfo.request.url,
               let gateway = store?.gateway, GatewayAddress.sameOrigin(url, gateway),
