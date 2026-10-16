@@ -43,6 +43,8 @@ case "$MODE" in
   400)        printf '{"error":{"code":"bad_request"}}\n400' ;;
   noreply)    exit 7 ;;
   timeout)    exit 28 ;;
+  health)     if [[ $n -le 1 ]]; then exit 7; else printf 'ok\n200'; fi ;;
+  badhealth)  printf 'not-ok\n200' ;;
 esac
 CURL_STUB
 chmod +x "$TMP/bin/curl"
@@ -98,6 +100,56 @@ else
   echo "✗ 单次超时没有透传：$(cat "$TMP/args.log")" >&2
   fails=1
 fi
+
+# A successful launchctl load can precede its health listener. Exercise the
+# same health gate used by migration, including a reachable but invalid body.
+sed -n '/^wait_agent_health() {/,/^}/p' "$SCRIPT" >> "$TMP/helper.sh"
+if ! grep -q '^wait_agent_health() {' "$TMP/helper.sh"; then
+  echo '✗ migration has no bounded startup health gate' >&2
+  exit 1
+fi
+cat "$TMP/helper.sh" > "$TMP/health-runner.sh"
+printf '\nwait_agent_health "http://127.0.0.1:7682"\n' >> "$TMP/health-runner.sh"
+for mode in health badhealth; do
+  echo 0 > "$TMP/counter"; : > "$TMP/args.log"
+  rc=0
+  COUNTER="$TMP/counter" ARGS_LOG="$TMP/args.log" MODE="$mode" PATH="$TMP/bin:$PATH" \
+    /bin/bash "$TMP/health-runner.sh" > "$TMP/health.out" 2>&1 || rc=$?
+  if [[ "$mode" == health && "$rc" == 0 && "$(cat "$TMP/counter")" == 2 ]] \
+     || [[ "$mode" == badhealth && "$rc" != 0 ]]; then
+    echo "✔ startup health gate ${mode}"
+  else
+    echo "✗ startup health gate ${mode} exit=${rc}" >&2
+    fails=1
+  fi
+done
+
+# A completed remote command failing its migration guard is not an SSH outage.
+# Repeating it can re-run service replacement, so only transport exit 255 retries.
+sed -n '/^ssh_retry() {/,/^}/p' "$ROOT/scripts/deploy-shared-config.sh" > "$TMP/ssh-helper.sh"
+cat > "$TMP/bin/ssh" <<'SSH_STUB'
+#!/usr/bin/env bash
+n=$(cat "$COUNTER" 2>/dev/null || echo 0)
+echo $((n + 1)) > "$COUNTER"
+exit "$SSH_EXIT"
+SSH_STUB
+chmod +x "$TMP/bin/ssh"
+printf 'die() { echo "$*" >&2; exit 1; }\n' > "$TMP/ssh-runner.sh"
+cat "$TMP/ssh-helper.sh" >> "$TMP/ssh-runner.sh"
+printf '\nssh_retry 22 fixture description true\n' >> "$TMP/ssh-runner.sh"
+for status in 75 255; do
+  echo 0 > "$TMP/counter"
+  COUNTER="$TMP/counter" SSH_EXIT="$status" PATH="$TMP/bin:$PATH" \
+    /bin/bash "$TMP/ssh-runner.sh" > "$TMP/ssh.out" 2>&1 || true
+  calls="$(cat "$TMP/counter")"
+  expected=1; [[ "$status" != 255 ]] || expected=3
+  if [[ "$calls" == "$expected" ]]; then
+    echo "✔ remote exit ${status} attempts=${calls}"
+  else
+    echo "✗ remote exit ${status}: expected ${expected} attempt(s), actual ${calls}" >&2
+    fails=1
+  fi
+done
 
 [[ "$fails" == 0 ]] || exit 1
 echo "migrate-agent-retry tests passed"

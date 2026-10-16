@@ -60,6 +60,12 @@ agent_api_retry() {
   exit 1
 }
 
+wait_agent_health() {
+  local body
+  body="$(agent_api_retry 20 3 "$1/api/health")" || return 1
+  [[ "$body" == ok ]]
+}
+
 [[ -f "$FLEET_PLIST" ]] || die "missing installed fleet-agent plist"
 [[ -d "$DESKTOP_APP" ]] || die "missing $DESKTOP_APP"
 [[ -n "${FLEET_UPDATE_BASE:-}" ]] || die "FLEET_UPDATE_BASE is required"
@@ -110,7 +116,7 @@ env "${setup_env[@]}" bash "$SCRIPT_DIR/setup-mac.sh"
 
 ip="$(/opt/homebrew/bin/tailscale ip -4 | head -n1)"
 [[ -n "$ip" ]] || die "missing mesh IP after setup"
-curl -fsS --max-time 3 "http://${ip}:7682/api/health" | grep -qx ok \
+wait_agent_health "http://${ip}:7682" \
   || die "fleet-agent is not healthy"
 
 echo "shared CLI hook 已配置；现在启动 Desktop 并检查其拥有的运行时 ..."
