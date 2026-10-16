@@ -4057,6 +4057,7 @@ function renderChatApprovalRequest(item) {
 function renderUserInputQuestion(item, question, index) {
   const name = `request-${item.requestId}-${index}`;
   const options = Array.isArray(question.options) ? question.options : [];
+  const multi = question.multiSelect === true;
   const drafts = state.chat ? (state.chat.questionDrafts ||= {}) : {};
   const draft = drafts[JSON.stringify([item.requestId, question.id])] ||= {};
   if (item.async && draft.choice === undefined && options.length) draft.choice = options[0].label;
@@ -4064,25 +4065,28 @@ function renderUserInputQuestion(item, question, index) {
   if (options.length) {
     for (const option of options) {
       fields.push(h('label', { class: 'chat-request-option' },
-        h('input', { type: 'radio', name, value: option.label, required: '',
-          checked: draft.choice === option.label ? '' : null,
-          onchange: () => { draft.choice = option.label; } }),
+        h('input', { type: multi ? 'checkbox' : 'radio', name, value: option.label, required: multi ? null : '',
+          checked: (multi ? draft.choices?.includes(option.label) : draft.choice === option.label) ? '' : null,
+          onchange: (event) => {
+            if (multi) draft.choices = event.currentTarget.checked ? [...new Set([...(draft.choices || []), option.label])] : (draft.choices || []).filter((value) => value !== option.label);
+            else draft.choice = option.label;
+          } }),
         h('span', { class: 'chat-request-option-copy' },
           h('span', { class: 'chat-request-option-label', text: option.label }),
           option.description ? h('span', { class: 'chat-request-option-desc', text: option.description }) : null)));
     }
     if (question.isOther) {
-      const radio = h('input', { type: 'radio', name, value: '__other__', required: '',
-        checked: draft.choice === '__other__' ? '' : null,
-        onchange: () => { draft.choice = '__other__'; } });
+      const radio = h('input', { type: multi ? 'checkbox' : 'radio', name, value: '__other__', required: multi ? null : '',
+        checked: (multi ? draft.otherSelected : draft.choice === '__other__') ? '' : null,
+        onchange: (event) => { if (multi) draft.otherSelected = event.currentTarget.checked; else draft.choice = '__other__'; } });
       fields.push(h('label', { class: 'chat-request-option other' },
         radio,
         h('span', { class: 'chat-request-option-copy' },
           h('span', { class: 'chat-request-option-label', text: '其他' }),
           h('input', { class: 'chat-request-input', type: question.isSecret ? 'password' : 'text',
             dataset: { otherFor: name }, autocomplete: 'off', placeholder: '输入其他答案', value: draft.other || '',
-            onfocus: () => { radio.checked = true; draft.choice = '__other__'; },
-            oninput: (event) => { draft.other = event.currentTarget.value; radio.checked = true; draft.choice = '__other__'; } }))));
+            onfocus: () => { radio.checked = true; draft.choice = '__other__'; draft.otherSelected = true; },
+            oninput: (event) => { draft.other = event.currentTarget.value; radio.checked = true; draft.choice = '__other__'; draft.otherSelected = true; } }))));
     }
   } else {
     const field = h(question.isSecret ? 'input' : 'textarea', {
@@ -4100,6 +4104,7 @@ function renderUserInputQuestion(item, question, index) {
   return h('fieldset', { class: 'chat-request-fieldset', disabled: chatMutationsBlocked() || item.submitting ? '' : null, dataset: { questionId: question.id, fieldName: name } },
     question.header ? h('legend', { text: question.header }) : null,
     h('div', { class: 'chat-request-question', text: question.question || '' }),
+    question.detail ? h('div', { class: 'chat-request-question-detail', text: question.detail }) : null,
     ...fields);
 }
 
@@ -4108,21 +4113,26 @@ function userInputResponse(form, item) {
   for (const fieldset of $$('[data-question-id]', form)) {
     const id = fieldset.dataset.questionId;
     const name = fieldset.dataset.fieldName;
-    const options = $$(`input[type="radio"][name="${CSS.escape(name)}"]`, fieldset);
-    let value = '';
+    const options = $$(`input[type="radio"][name="${CSS.escape(name)}"], input[type="checkbox"][name="${CSS.escape(name)}"]`, fieldset);
+    const values = [];
+    let custom;
     if (options.length) {
-      const selected = options.find((option) => option.checked);
-      if (!selected) throw new Error('请回答所有问题。');
-      value = selected.value;
-      if (value === '__other__') {
-        value = $(`[data-other-for="${CSS.escape(name)}"]`, fieldset)?.value.trim() || '';
-        if (!value) throw new Error('请输入“其他”答案。');
+      const selected = options.filter((option) => option.checked);
+      if (!selected.length) throw new Error('请回答所有问题。');
+      for (const option of selected) {
+        if (option.value === '__other__') {
+          custom = $(`[data-other-for="${CSS.escape(name)}"]`, fieldset)?.value.trim() || '';
+          if (!custom) throw new Error('请输入“其他”答案。');
+          values.push(custom);
+        } else values.push(option.value);
       }
     } else {
-      value = $(`[name="${CSS.escape(name)}"]`, fieldset)?.value || '';
+      const value = $(`[name="${CSS.escape(name)}"]`, fieldset)?.value || '';
       if (!value.trim()) throw new Error('请回答所有问题。');
+      values.push(value);
     }
-    answers[id] = { answers: [value] };
+    answers[id] = { answers: values };
+    if (custom !== undefined && item.questions?.find((question) => question.id === id)?.dshQuestion) answers[id].custom = custom;
   }
   return { answers };
 }

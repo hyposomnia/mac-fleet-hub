@@ -47,10 +47,14 @@ type dshChatBackend struct {
 	lastErr  error
 	hostSeen bool
 
-	eventMu       sync.Mutex
-	waterfall     *dshStream
-	clientID      string
-	stopWaterfall context.CancelFunc
+	waterfallMu     sync.Mutex
+	eventMu         sync.Mutex
+	waterfall       *dshStream
+	clientID        string
+	stopWaterfall   context.CancelFunc
+	interactions    map[string]dshInteraction
+	questionWaiting map[string]bool
+	waterfallWanted bool
 
 	sessMu   sync.Mutex
 	sessions map[string]*dshSession
@@ -89,6 +93,8 @@ func newDSHChatBackend(home, logPath, endpointOverride string) *dshChatBackend {
 		sessions:         map[string]*dshSession{},
 		subs:             map[string]map[chan ChatEvent]struct{}{},
 		backlog:          map[string][]ChatEvent{},
+		interactions:     map[string]dshInteraction{},
+		questionWaiting:  map[string]bool{},
 	}
 }
 
@@ -227,6 +233,7 @@ func (b *dshChatBackend) Resume(ctx context.Context, assistant, sessionID, mode 
 			result.Model, result.Effort = catalog.Default.value(), catalog.Default.Effort
 		}
 	}
+	result.History.Events = append(result.History.Events, b.pendingInteractions(sessionID)...)
 	return result, nil
 }
 
@@ -323,10 +330,16 @@ func (b *dshChatBackend) Events(ctx context.Context, assistant, sessionID string
 	if _, err := b.loadSnapshot(ctx, client, b.session(sessionID)); err != nil {
 		return nil, err
 	}
+	b.eventMu.Lock()
+	b.waterfallWanted = true
+	b.eventMu.Unlock()
+	if _, err := b.ensureWaterfall(ctx, client); err != nil {
+		return nil, err
+	}
 	b.startFollow(ctx, b.session(sessionID))
 
 	b.subMu.Lock()
-	backlog := b.backlog[sessionID]
+	backlog := append(b.backlog[sessionID], b.pendingInteractions(sessionID)...)
 	delete(b.backlog, sessionID)
 	ch := make(chan ChatEvent, len(backlog)+64)
 	for _, ev := range backlog {
@@ -358,24 +371,7 @@ func (b *dshChatBackend) Respond(ctx context.Context, assistant, sessionID, requ
 	if err != nil {
 		return err
 	}
-	eventID := strings.TrimSpace(requestID)
-	clientID, err := b.ensureWaterfall(ctx, client)
-	if err != nil {
-		return err
-	}
-	outcome, err := dshApprovalOutcome(response)
-	if err != nil {
-		return err
-	}
-	_, err = client.call(ctx, "$events/result", map[string]any{
-		"clientId": clientID,
-		"eventId":  eventID,
-		"outcome":  outcome,
-	})
-	if err != nil {
-		return b.translateCallError(err)
-	}
-	return nil
+	return b.respondInteraction(ctx, client, sessionID, strings.TrimSpace(requestID), response)
 }
 
 func (b *dshChatBackend) Interrupt(ctx context.Context, assistant, sessionID string) error {
@@ -428,6 +424,8 @@ func (b *dshChatBackend) Control(ctx context.Context, assistant, sessionID strin
 //
 // 审批与提问的回答案必须带上这个 clientId，所以它在整个进程生命周期内保持有效。
 func (b *dshChatBackend) ensureWaterfall(ctx context.Context, client *dshClient) (string, error) {
+	b.waterfallMu.Lock()
+	defer b.waterfallMu.Unlock()
 	b.eventMu.Lock()
 	if b.clientID != "" && b.waterfall != nil {
 		id := b.clientID
@@ -472,63 +470,28 @@ func (b *dshChatBackend) runWaterfall(ctx context.Context, stream *dshStream) {
 		raw, err := stream.Recv(ctx)
 		if err != nil {
 			b.eventMu.Lock()
+			var expired []string
 			if b.waterfall == stream {
 				b.waterfall = nil
 				b.clientID = ""
+				for id, request := range b.interactions {
+					if request.CallID == "" {
+						expired = append(expired, id)
+					}
+				}
 			}
 			b.eventMu.Unlock()
+			for _, id := range expired {
+				b.resolveInteraction(id, map[string]any{"decision": "disconnected"})
+			}
 			return
 		}
-		var frame struct {
-			Type    string          `json:"type"`
-			EventID string          `json:"eventId"`
-			Event   string          `json:"event"`
-			Payload json.RawMessage `json:"payload"`
-		}
-		if json.Unmarshal(raw, &frame) != nil {
-			continue
-		}
-		switch frame.Type {
-		case "approval/request", "user-questions/request":
-			b.publishInteraction(frame.Type, frame.EventID, frame.Payload)
-		case "cancel":
-			// 另一个客户端（例如 Desktop GUI）先答了：必须把本地待答卡片收掉，
-			// 否则用户会对着一个已经失效的审批按钮点。
-			b.publish(frameSessionID(frame.Payload), []ChatEvent{
-				newChatEvent("interaction_resolved", "dsh", frameSessionID(frame.Payload), "", frame.EventID,
-					map[string]any{"requestId": frame.EventID, "response": map[string]any{"decision": "cancelled"}}),
-			}...)
-		}
+		b.handleWaterfall(raw)
 	}
 }
 
 func (b *dshChatBackend) publishInteraction(kind, eventID string, payload json.RawMessage) {
-	var data map[string]any
-	_ = json.Unmarshal(payload, &data)
-	if data == nil {
-		data = map[string]any{}
-	}
-	sessionID, _ := data["sessionId"].(string)
-	requestMethod := "item/commandExecution/requestApproval"
-	eventType := "interaction_request"
-	if kind == "user-questions/request" {
-		requestMethod = "item/tool/requestUserInput"
-	}
-	body := map[string]any{
-		"requestId":     eventID,
-		"requestMethod": requestMethod,
-		// DSH 的审批 outcome 只有 allowed-once / rejected：没有会话级授权，
-		// 所以只允许"允许一次 / 拒绝"两个决定。
-		"allowedDecisions": []string{"allow_once", "decline"},
-		"raw":              data,
-	}
-	if questions, ok := data["questions"]; ok {
-		body["questions"] = questions
-	}
-	if message, ok := data["message"].(string); ok {
-		body["message"] = message
-	}
-	b.publish(sessionID, newChatEvent(eventType, "dsh", sessionID, "", eventID, body))
+	b.rememberInteraction(kind, eventID, frameSessionID(payload), payload)
 }
 
 // startFollow 启动会话的实时订阅协程（幂等）。
@@ -683,7 +646,9 @@ func (b *dshChatBackend) loadSnapshot(ctx context.Context, client *dshClient, s 
 			model, effort = m, e
 		}
 	}
-	return dshHistoryPageOfRecords(s, model, effort), nil
+	page := dshHistoryPageOfRecords(s, model, effort)
+	page.Events = append(page.Events, b.pendingInteractions(s.id)...)
+	return page, nil
 }
 
 func (b *dshChatBackend) storeSnapshot(s *dshSession, records []json.RawMessage, cursor int64, hasMore bool) {
@@ -780,6 +745,13 @@ func (b *dshChatBackend) dshListSessions(ctx context.Context) ([]Session, error)
 	if err != nil {
 		return nil, b.translateCallError(err)
 	}
+	b.eventMu.Lock()
+	wanted := b.waterfallWanted
+	b.eventMu.Unlock()
+	if wanted {
+		_, _ = b.ensureWaterfall(ctx, client)
+	}
+	b.syncQuestionListing(value)
 	var listing struct {
 		Items []struct {
 			SessionID   string `json:"sessionId"`
@@ -816,6 +788,7 @@ func (b *dshChatBackend) dshListSessions(ctx context.Context) ([]Session, error)
 			Live:       !item.Blank,
 			Status:     status,
 			ProjectCwd: item.Cwd,
+			Waiting:    b.sessionHasQuestions(item.SessionID),
 		})
 	}
 	return out, nil
@@ -984,7 +957,7 @@ func dshApprovalOutcome(response json.RawMessage) (map[string]any, error) {
 		return nil, fmt.Errorf("无法解析审批响应: %w", err)
 	}
 	if len(body.Answers) > 0 {
-		return map[string]any{"kind": "result", "value": map[string]any{"answers": body.Answers}}, nil
+		return nil, errors.New("DSH 问题回答需要对应的原始请求")
 	}
 	switch strings.ToLower(strings.TrimSpace(body.Decision)) {
 	case "accept", "allow", "allowed-once", "allow_once":

@@ -123,6 +123,7 @@ func (b *dshChatBackend) sessionSelections(ctx context.Context, client *dshClien
 	if err != nil {
 		return last, next, b.translateCallError(err)
 	}
+	b.syncQuestionListing(value)
 	var listing struct {
 		Items []struct {
 			SessionID   string `json:"sessionId"`

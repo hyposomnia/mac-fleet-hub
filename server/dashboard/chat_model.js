@@ -650,6 +650,7 @@
         const item = upsertItem(next, requestId, () => ({ id: requestId, type, status: 'pending' }));
         item.type = type;
         item.requestId = requestId;
+        item.status = 'pending';
         item.requestMethod = method;
         item.itemId = data.itemId || ev.itemId || '';
         item.turnId = firstString(ev && ev.turnId, data.turnId, data.turn_id, item.turnId);
