@@ -800,8 +800,19 @@ apply_desktop_aqua_environment() {
   done
   return 1
 }
+wait_agent_health() {
+  local body attempt
+  for attempt in {1..20}; do
+    if body="$(curl -fsS --max-time 3 "$1/api/health" 2>/dev/null)" && [[ "$body" == ok ]]; then
+      return 0
+    fi
+    [[ "$attempt" == 20 ]] || sleep 1
+  done
+  echo 'fleet-agent health did not become ready after launchd load' >&2
+  return 1
+}
 if [[ "$CODEX_APPSERVER_MODE" == "shared" ]]; then
-  curl -fsS --max-time 3 "http://${TS_IP}:${AGENT_PORT}/api/health" | grep -qx ok || exit 1
+  wait_agent_health "http://${TS_IP}:${AGENT_PORT}" || exit 1
   GUI_ENV_TOUCHED=1
   "$CODEX_DESKTOP_ENV_HELPER" shared "$CODEX_HOOK_CONFIG" || exit 1
   apply_desktop_aqua_environment shared || exit 1
