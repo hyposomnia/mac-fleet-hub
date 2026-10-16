@@ -50,7 +50,13 @@ case 'ditto': {
   fs.copyFileSync(path.join(root, 'app.json'), path.join(app, 'Contents/Info.plist'));
   fs.writeFileSync(path.join(app, 'Contents/MacOS/Fleet Agent Settings'), '#!/bin/bash\\nprintf \\"%s\\\\n\\" \\"$@\\" > \\"$INSTALL_FIXTURE/executed\\"\\nexit 0\\n', { mode: 0o755 }); break;
 }
-case 'codesign': case 'spctl': case 'lipo': break;
+case 'lipo': {
+  // Apple's documented grammar places the input before the variadic operation;
+  // stricter Xcode releases interpret every following argument as an architecture.
+  if (!fs.existsSync(args[0]) || args[1] !== '-verify_arch' || args.length < 3 || args.slice(2).some(a => !['arm64','x86_64'].includes(a))) process.exit(1);
+  break;
+}
+case 'codesign': case 'spctl': break;
 default: process.exit(99);
 }
 `;
@@ -69,7 +75,21 @@ default: process.exit(99);
   } finally { rmSync(root, { recursive: true, force: true }); }
 }
 
-test('one-line installer verifies the immutable package before invoking only the no-window entry', () => {
+test('one-line installer verifies the immutable package before invoking only the no-window entry', t => {
+  let universal;
+  if (process.platform === 'darwin') {
+    const fixture = mkdtempSync(join(tmpdir(), 'fleet-real-lipo-'));
+    t.after(() => rmSync(fixture, {recursive:true, force:true}));
+    const input = join(fixture, 'fixture.c');
+    writeFileSync(input, 'int fleet_lipo_fixture(void) { return 0; }\n');
+    for (const arch of ['arm64','x86_64']) {
+      const built=spawnSync('/usr/bin/clang',['-arch',arch,'-c',input,'-o',join(fixture,arch+'.o')],{encoding:'utf8'});
+      assert.equal(built.status,0,built.stderr);
+    }
+    universal=join(fixture,'Universal installer with spaces');
+    const fat=spawnSync('/usr/bin/lipo',['-create',join(fixture,'arm64.o'),join(fixture,'x86_64.o'),'-output',universal],{encoding:'utf8'});
+    assert.equal(fat.status,0,fat.stderr);
+  }
   for (const machine of ['arm64', 'x86_64']) {
     const result = run({ machine });
     assert.equal(result.status, 0, result.stderr);
@@ -83,6 +103,11 @@ test('one-line installer verifies the immutable package before invoking only the
       assert.equal(parsed.status, 0, parsed.stderr);
     }
     assert.ok(result.calls.find(call => call.name === 'spctl'));
+    if (universal) {
+      const invocation=result.calls.find(call => call.name === 'lipo').args.map(arg => arg.endsWith('/Contents/MacOS/Fleet Agent Settings') ? universal : arg);
+      const verified=spawnSync('/usr/bin/lipo',invocation,{encoding:'utf8'});
+      assert.equal(verified.status,0,verified.stderr);
+    }
     const downloads = result.calls.filter(call => call.name === 'curl');
     assert.equal(downloads.length, 2);
     assert.ok(downloads.every(call => call.args.includes('--proto') && !call.args.includes('--location')));
