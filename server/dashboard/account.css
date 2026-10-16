@@ -276,6 +276,8 @@ body:has(#fleet-settings-modal:not([hidden])) .pwa-update { visibility: hidden; 
 
 :is(.account-auth, .account-admin) .account-theme button svg.ic { width: 18px; height: 18px; stroke-width: 1.6; flex: none; }
 
+[data-theme-choice="dark"] svg.ic { stroke-linejoin: miter; }
+
 [data-theme-choice="light"]:is(:hover, [aria-pressed="true"]) svg.ic circle,
 [data-theme-choice="dark"]:is(:hover, [aria-pressed="true"]) svg.ic path,
 [data-theme-choice="system"]:is(:hover, [aria-pressed="true"]) svg.ic rect {
