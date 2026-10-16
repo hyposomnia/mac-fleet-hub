@@ -1042,6 +1042,9 @@ html.automation-doc-root, html.automation-doc-root body { height: auto; min-heig
 .chat-approval-actions, .chat-error-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
 .chat-request-message { margin-bottom: 8px; line-height: 1.45; white-space: pre-wrap; }
 .chat-request { width: min(86%, 560px); }
+.chat-async-questions { width: min(100%, 560px); }
+.chat-question-answer { padding-bottom: 13px; }
+.chat-question-answer-text { margin-bottom: 5px; white-space: pre-wrap; overflow-wrap: anywhere; }
 .chat-request-detail { margin-top: 7px; color: var(--chat-text-2); }
 .chat-request-json { max-height: 220px; margin: 8px 0 0; padding: 8px; overflow: auto; border-radius: var(--radius-compact); background: var(--chat-code-bg); color: var(--chat-text-1); font: var(--t-secondary)/1.45 var(--mono); white-space: pre-wrap; }
 .chat-request-fieldset { min-width: 0; margin: 0; padding: 0 0 13px; border: 0; }

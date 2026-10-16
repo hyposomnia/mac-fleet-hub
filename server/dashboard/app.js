@@ -3145,6 +3145,11 @@ function tagChatItemNode(node, key, value) {
   return node;
 }
 
+function chatItemRenderState(item, showMeta, chat = state.chat) {
+  return [item, showMeta, item.questions?.map((question) => asyncQuestionSubmission(question.id, chat)),
+    Boolean(chat?.asyncQuestionSends?.[item.id]?.pending)];
+}
+
 function chatActivityScrollTop(scrollTop, scrollHeight, clientHeight, nextScrollHeight) {
   const wasAtBottom = scrollHeight - scrollTop - clientHeight <= 2;
   return wasAtBottom ? Math.max(0, nextScrollHeight - clientHeight) : scrollTop;
@@ -3526,7 +3531,7 @@ function renderChat({ preserveScroll = false, forceBottom = false } = {}) {
       )
       : [tagChatRenderNode(renderChatItem(unit.entries[0].item,
         unit.entries[0].item.type === 'user' && metaVisible.has(unit.entries[0].id)),
-      `item:${unit.entries[0].id}`, [unit.entries[0].item, metaVisible.has(unit.entries[0].id)])];
+      `item:${unit.entries[0].id}`, chatItemRenderState(unit.entries[0].item, metaVisible.has(unit.entries[0].id), chat))];
     for (const row of rows) {
       if (row) stack.append(row);
     }
@@ -4160,34 +4165,47 @@ function renderChatApprovalRequest(item) {
 function renderUserInputQuestion(item, question, index) {
   const name = `request-${item.requestId}-${index}`;
   const options = Array.isArray(question.options) ? question.options : [];
+  const drafts = state.chat ? (state.chat.questionDrafts ||= {}) : {};
+  const draft = drafts[JSON.stringify([item.requestId, question.id])] ||= {};
+  if (item.async && draft.choice === undefined && options.length) draft.choice = options[0].label;
   const fields = [];
   if (options.length) {
     for (const option of options) {
       fields.push(h('label', { class: 'chat-request-option' },
-        h('input', { type: 'radio', name, value: option.label, required: '' }),
+        h('input', { type: 'radio', name, value: option.label, required: '',
+          checked: draft.choice === option.label ? '' : null,
+          onchange: () => { draft.choice = option.label; } }),
         h('span', { class: 'chat-request-option-copy' },
           h('span', { class: 'chat-request-option-label', text: option.label }),
           option.description ? h('span', { class: 'chat-request-option-desc', text: option.description }) : null)));
     }
     if (question.isOther) {
+      const radio = h('input', { type: 'radio', name, value: '__other__', required: '',
+        checked: draft.choice === '__other__' ? '' : null,
+        onchange: () => { draft.choice = '__other__'; } });
       fields.push(h('label', { class: 'chat-request-option other' },
-        h('input', { type: 'radio', name, value: '__other__', required: '' }),
+        radio,
         h('span', { class: 'chat-request-option-copy' },
           h('span', { class: 'chat-request-option-label', text: '其他' }),
           h('input', { class: 'chat-request-input', type: question.isSecret ? 'password' : 'text',
-            dataset: { otherFor: name }, autocomplete: 'off', placeholder: '输入其他答案' }))));
+            dataset: { otherFor: name }, autocomplete: 'off', placeholder: '输入其他答案', value: draft.other || '',
+            onfocus: () => { radio.checked = true; draft.choice = '__other__'; },
+            oninput: (event) => { draft.other = event.currentTarget.value; radio.checked = true; draft.choice = '__other__'; } }))));
     }
   } else {
-    fields.push(h(question.isSecret ? 'input' : 'textarea', {
+    const field = h(question.isSecret ? 'input' : 'textarea', {
       class: 'chat-request-input',
       type: question.isSecret ? 'password' : null,
       name,
       rows: question.isSecret ? null : '3',
       required: '',
       autocomplete: question.isSecret ? 'new-password' : 'off',
-    }));
+      oninput: (event) => { draft.text = event.currentTarget.value; },
+    });
+    field.value = draft.text || '';
+    fields.push(field);
   }
-  return h('fieldset', { class: 'chat-request-fieldset', disabled: chatMutationsBlocked() ? '' : null, dataset: { questionId: question.id, fieldName: name } },
+  return h('fieldset', { class: 'chat-request-fieldset', disabled: chatMutationsBlocked() || item.submitting ? '' : null, dataset: { questionId: question.id, fieldName: name } },
     question.header ? h('legend', { text: question.header }) : null,
     h('div', { class: 'chat-request-question', text: question.question || '' }),
     ...fields);
@@ -4238,8 +4256,81 @@ function renderChatUserInputRequest(item) {
   h('div', { class: 'chat-approval-body' },
     ...(item.questions || []).map((question, index) => renderUserInputQuestion(item, question, index)),
     h('div', { class: 'chat-approval-actions' },
-      h('button', { type: 'submit', class: 'btn sm primary', disabled: chatMutationsBlocked() ? '' : null }, '提交回答'))));
+      h('button', { type: 'submit', class: 'btn sm primary', disabled: chatMutationsBlocked() || item.submitting ? '' : null }, item.submitting ? '正在提交…' : '提交回答'))));
   return chatRow(form, 'approval');
+}
+
+function asyncQuestionSubmission(questionId, chat = state.chat) {
+  if (Object.hasOwn(chat?.model?.questionReplies || {}, questionId)) {
+    return { status: 'answered', answer: chat.model.questionReplies[questionId] };
+  }
+  for (const item of chat?.followups || []) {
+    if (item.status === 'cancelled') continue;
+    const reply = FleetChatModel.parseQuestionReply(item.text).find((entry) => entry.questionItemId === questionId);
+    if (reply) return { status: item.status === 'failed' ? 'failed' : 'saved', answer: reply.answer };
+  }
+  for (const item of Object.values(chat?.model?.items || {})) {
+    if (!item.optimistic) continue;
+    const reply = item.questionReplies?.find((entry) => entry.questionItemId === questionId);
+    if (reply) return { status: 'saved', answer: reply.answer };
+  }
+  return null;
+}
+
+function renderChatAsyncQuestions(item) {
+  const chat = state.chat;
+  const submitting = Boolean(chat?.asyncQuestionSends?.[item.id]?.pending);
+  const pending = item.questions.filter((question) => !asyncQuestionSubmission(question.id, chat));
+  const request = { requestId: item.id, questions: pending, async: true, submitting };
+  const form = h('form', {
+    class: 'chat-approval chat-request chat-async-questions', dataset: { asyncQuestionId: item.id },
+    onsubmit: async (event) => {
+      event.preventDefault();
+      try { await respondAsyncQuestions(chat, item, pending, userInputResponse(event.currentTarget, request)); }
+      catch (error) { toast(error.message, 'err'); }
+    },
+  }, h('div', { class: 'chat-approval-h', text: pending.length ? `${assistantLabel()} 想了解` : '你的回答' }),
+  h('div', { class: 'chat-approval-body' },
+    ...item.questions.map((question, index) => {
+      const submission = asyncQuestionSubmission(question.id, chat);
+      if (!submission) return renderUserInputQuestion(request, question, index);
+      const label = submission.status === 'answered' ? '已回答'
+        : (submission.status === 'failed' ? '发送失败，请在消息队列中重试' : '回答已保存，正在发送');
+      return h('div', { class: 'chat-question-answer' },
+        h('div', { class: 'chat-request-question', text: question.question }),
+        h('div', { class: 'chat-question-answer-text', text: submission.answer }),
+        h('div', { class: 'muted', text: label }));
+    }),
+    pending.length ? h('div', { class: 'chat-approval-actions' },
+      h('button', { type: 'submit', class: 'btn sm primary', disabled: chatMutationsBlocked(chat) || submitting ? '' : null }, submitting ? '正在提交…' : '提交回答')) : null));
+  return chatRow(form, 'assistant');
+}
+
+async function respondAsyncQuestions(chat, item, questions, response) {
+  if (state.chat !== chat || chatMutationsBlocked(chat)) return;
+  const sends = chat.asyncQuestionSends ||= {};
+  if (sends[item.id]?.pending || questions.some((question) => asyncQuestionSubmission(question.id, chat))) return;
+  const text = FleetChatModel.questionReplyText(questions, response.answers);
+  const send = sends[item.id] ||= { id: `answer-${Date.now()}-${Math.random().toString(16).slice(2)}` };
+  send.pending = true;
+  chat.model = FleetChatModel.appendUserMessage(chat.model, text, send.id, []);
+  renderChat({ preserveScroll: true });
+  let queued = false;
+  try {
+    // auto inserts into the active shared turn, or starts a new turn when idle.
+    const displayText = FleetChatModel.parseQuestionReply(text).map((reply) => `${reply.question}\n${reply.answer}`).join('\n\n');
+    const saved = await saveServerChatQueueItem(chat, { id: send.id, text, displayText, images: [], skills: [] }, 'auto');
+    queued = Boolean(saved);
+    if (!saved) chat.model = FleetChatModel.removeMessage(chat.model, send.id);
+    await loadServerChatQueue(chat);
+    queued ||= (chat.followups || []).some((entry) => entry.clientMessageId === send.id)
+      || Object.values(chat.model.items).some((entry) => entry.clientId === send.id && !entry.optimistic);
+  } finally {
+    send.pending = false;
+    // A later answer after cancellation/partial replies needs a fresh queue id.
+    if (queued) delete sends[item.id];
+    if (state.chat === chat) renderChat({ preserveScroll: true });
+  }
 }
 
 function mcpEnumOptions(schema) {
@@ -4401,6 +4492,7 @@ function renderChatItem(item, showMeta = true, itemID = '', expanded = null) {
     return row;
   }
   if (item.type === 'assistant') {
+    if (item.questions?.length) return renderChatAsyncQuestions(item);
     return chatRow(h('div', { class: 'chat-card' },
       FleetMarkdown.renderMarkdown(item.text, chatMediaSrc, chatLinkHref)),
     'assistant');

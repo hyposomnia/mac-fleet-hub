@@ -4,7 +4,7 @@
   function createChatState() {
     return {
       phase: 'idle', activeTurnId: '', turnOwner: '', turnProgress: '', messages: [], items: {},
-      requests: {}, approvals: {}, turnUsage: {}, error: null,
+      requests: {}, approvals: {}, questionReplies: {}, turnUsage: {}, error: null,
     };
   }
 
@@ -18,6 +18,7 @@
       items: { ...(state.items || {}) },
       requests: { ...(state.requests || {}) },
       approvals: { ...(state.approvals || {}) },
+      questionReplies: { ...(state.questionReplies || {}) },
       turnUsage: { ...(state.turnUsage || {}) },
       error: state.error || null,
     };
@@ -40,6 +41,60 @@
 
   function asObject(value) {
     return value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+  }
+
+  // Async questions are agentMessage metadata, not blocking server requests.
+  // Use the same question identity and reply envelope as Codex Desktop.
+  function asyncQuestions(itemId, questions) {
+    if (!Array.isArray(questions)) return [];
+    return questions.flatMap((question, index) => {
+      if (!question || typeof question.title !== 'string' || !question.title.trim()) return [];
+      return [{
+        id: JSON.stringify(['request_user_input_async', itemId, index]),
+        question: question.title,
+        options: (Array.isArray(question.options) ? question.options : [])
+          .filter((option) => typeof option === 'string' && option.trim()).map((label) => ({ label })),
+        isOther: true,
+      }];
+    });
+  }
+
+  function parseQuestionReply(text) {
+    const start = '<send_user_message_question_reply>';
+    const end = '</send_user_message_question_reply>';
+    const raw = String(text || '').trim();
+    if (!raw.startsWith(start) || !raw.endsWith(end)) return [];
+    try {
+      const value = JSON.parse(raw.slice(start.length, -end.length));
+      const replies = Array.isArray(value) ? value : [value];
+      if (!replies.length || !replies.every((reply) => {
+        if (!reply || typeof reply.questionItemId !== 'string' || typeof reply.question !== 'string' || typeof reply.answer !== 'string') return false;
+        const id = JSON.parse(reply.questionItemId);
+        return Array.isArray(id) && id.length === 3 && id[0] === 'request_user_input_async'
+          && typeof id[1] === 'string' && Number.isInteger(id[2]) && id[2] >= 0;
+      })) return [];
+      return replies.map(({ questionItemId, question, answer }) => ({ questionItemId, question, answer }));
+    } catch (_) { return []; }
+  }
+
+  function questionReplyText(questions, answers) {
+    const replies = questions.map((question) => {
+      const answer = answers[question.id]?.answers?.[0];
+      if (typeof answer !== 'string' || !answer.trim()) throw new Error('请回答所有问题。');
+      return { questionItemId: question.id, question: question.question, answer };
+    });
+    if (!replies.length) throw new Error('没有可回答的问题。');
+    return `<send_user_message_question_reply>\n${JSON.stringify(replies)}\n</send_user_message_question_reply>`;
+  }
+
+  function applyQuestionReply(item, text) {
+    item.questionReplies = parseQuestionReply(text);
+    item.text = item.questionReplies.length
+      ? item.questionReplies.map((reply) => `${reply.question}\n${reply.answer}`).join('\n\n') : text;
+  }
+
+  function rememberQuestionReplies(next, item) {
+    for (const reply of item.questionReplies || []) next.questionReplies[reply.questionItemId] = reply.answer;
   }
 
   function chatPhase(value) {
@@ -280,6 +335,7 @@
       id: itemId, clientId: itemId, type: 'user', text: text || '',
       images: (images || []).slice(), sentAtMs: Date.now(), optimistic: true,
     };
+    applyQuestionReply(next.items[itemId], text || '');
     next.messages.push(itemId);
     return next;
   }
@@ -343,6 +399,7 @@
     next.items = { ...history.items, ...next.items };
     for (const historyId of reconciled.keys()) delete next.items[historyId];
     next.approvals = { ...history.approvals, ...next.approvals };
+    next.questionReplies = { ...history.questionReplies, ...next.questionReplies };
     next.turnUsage = { ...history.turnUsage, ...next.turnUsage };
     return next;
   }
@@ -434,6 +491,10 @@
         const finalText = data.text || (data.item && data.item.text) || '';
         const item = upsertItem(next, itemId, () => ({ id: itemId, type: 'assistant', text: '', done: false }));
         if (finalText) item.text = finalText;
+        const source = asObject(data.item);
+        if (Array.isArray(data.questions) || Array.isArray(source.questions)) {
+          item.questions = asyncQuestions(firstString(source.id, data.id, itemId), data.questions || source.questions);
+        }
         mergeAssistantMetadata(item, data, ev);
         mergePendingTurnUsage(next, item);
         const historyTurnComplete = data.__history && historicalAssistantCompletesTurn(data, item);
@@ -517,7 +578,10 @@
         item.clientId = clientId || item.clientId || '';
         if (targetId !== itemId) item.serverItemId = itemId;
         item.turnId = firstString(ev && ev.turnId, data.turnId, data.turn_id, item.turnId);
-        item.text = data.text || item.text || '';
+        const replyText = data.text || (Array.isArray(data.content)
+          ? data.content.filter((part) => part.type === 'text').map((part) => part.text || '').join('\n') : '');
+        if (replyText) applyQuestionReply(item, replyText);
+        rememberQuestionReplies(next, item);
         item.images = (data.images || item.images || []).slice();
         item.optimistic = false;
         if (item.steering) item.steeringStatus = 'persisted';
@@ -650,6 +714,7 @@
   const api = {
     createChatState, appendUserMessage, appendSteeringMessage, removeMessage, prependHistory,
     reduceChatEvent, normalizeDiffFiles, chatPhase, chatTurnProgress, followupAckId, uuidV7TimeMs,
+    parseQuestionReply, questionReplyText,
   };
   root.FleetChatModel = api;
   if (typeof module !== 'undefined') module.exports = api;
