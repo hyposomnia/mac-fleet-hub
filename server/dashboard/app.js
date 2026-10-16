@@ -4548,10 +4548,35 @@ function renderChatMessageAttachment(att) {
   return href ? h('a', { class: 'chat-file-link', href, download: att.name || '附件', title: `下载 ${att.name || '附件'}` }, card) : card;
 }
 
+function renderChatBrowserComments(reference, raw) {
+  return h('div', { class: 'chat-browser-comments' },
+    ...reference.comments.map((comment) => {
+      let source = h('span', { class: 'chat-browser-source', text: comment.url });
+      try {
+        const url = new URL(comment.url);
+        if (['https:', 'http:'].includes(url.protocol)) {
+          source = h('a', { class: 'chat-browser-source', href: url.href, text: url.host,
+            title: url.href, target: '_blank', rel: 'noopener noreferrer' });
+        }
+      } catch (_) { /* Keep unknown sources as inert text. */ }
+      return h('section', { class: 'chat-browser-comment', 'aria-label': `网页批注 ${comment.number}` },
+        h('div', { class: 'chat-browser-heading annotation-owned' },
+          h('span', { class: 'chat-browser-label', text: `网页批注 ${comment.number}` }), source),
+        comment.target ? h('blockquote', { class: 'chat-browser-target', text: comment.target }) : null,
+        comment.text ? h('div', { class: 'chat-browser-comment-text', text: comment.text }) : null);
+    }),
+    h('details', { class: 'chat-browser-details annotation-owned' },
+      h('summary', { text: '查看引用详情' }),
+      h('pre', { text: raw })),
+    reference.text ? h('div', { class: 'chat-browser-request', text: reference.text }) : null);
+}
+
 function renderChatItem(item, showMeta = true, itemID = '', expanded = null) {
   if (item.type === 'user') {
     const parts = [];
-    if (item.text) parts.push(h('div', { text: item.text, dataset: {annotationMessage:item.id, annotationNativeMessage:item.serverItemId || item.id} }));
+    const reference = FleetChatModel.parseBrowserComments(item.text);
+    if (item.text) parts.push(h('div', { dataset: {annotationMessage:item.id, annotationNativeMessage:item.serverItemId || item.id} },
+      reference ? renderChatBrowserComments(reference, item.text) : document.createTextNode(item.text)));
     if (item.annotations?.items?.length && annotationUI) parts.push(annotationUI.sentAttachment(item.annotations));
     if (item.images && item.images.length) {
       parts.push(h('div', { class: 'chat-images' }, item.images.map(renderChatMessageAttachment)));
@@ -4567,7 +4592,7 @@ function renderChatItem(item, showMeta = true, itemID = '', expanded = null) {
       h('div', { class: 'chat-card' }, parts.length ? parts : h('div', { text: '' })),
       meta),
     'user');
-    row.dataset.chatTurnPin = firstChatLine(item.text);
+    row.dataset.chatTurnPin = firstChatLine(reference ? (reference.text || reference.comments[0].text || reference.comments[0].target) : item.text);
     return row;
   }
   if (item.type === 'assistant') {

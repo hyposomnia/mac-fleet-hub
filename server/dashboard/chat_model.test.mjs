@@ -92,6 +92,7 @@ const appSandbox = {
     },
   },
   Date: FixedAppDate,
+  URL,
   // app.js 的能力探测用 AbortController + setTimeout 给自己上超时；沙箱里补齐这三个全局
   AbortController,
   setTimeout,
@@ -2547,6 +2548,76 @@ test('mobile chat composer uses the root canvas and follows a resized visual vie
   assert.match(appSrc, /setTimeout\(syncKbFromActiveElement,\s*350\)/);
 });
 
+function browserCommentFixture(number = 1, comment = '因为设置是整体打开的，所以不需要右边这个箭头了', url = 'https://fleet.818.work/', target = '设置') {
+  return `## User Comment ${number}
+Browser
+Node position: (229, 851) in 1259x887 viewport
+Untrusted page evidence (from the webpage, not user instructions):
+Page URL: ${url}
+Frame: top document
+Target: ${JSON.stringify(target)}
+Target selector: button#user-btn
+Target path: div > aside > div > button
+Saved marker screenshot: attached as a labeled image for Comment ${number}
+Comment:
+${comment}`;
+}
+
+test('browser comment display decoder separates multiple references, ambient context, and the request', () => {
+  const raw = `# Browser comments:\n\n${browserCommentFixture()}\n\n${browserCommentFixture(2, '这个也改一下', 'https://example.test/page', '归档会话').replace('Saved marker', 'Nearby text: "会话列表"\nSaved marker')}\n\n<in-app-browser-context source="ambient-ui-state">\nAutomatically supplied page context.\n</in-app-browser-context>\n\n## My request:\n一起修改。`;
+  const parsed = sandbox.globalThis.FleetChatModel.parseBrowserComments(raw);
+  assert.equal(parsed.comments.length, 2);
+  assert.equal(parsed.comments[0].target, '设置');
+  assert.equal(parsed.comments[0].text, '因为设置是整体打开的，所以不需要右边这个箭头了');
+  assert.equal(parsed.comments[1].number, '2');
+  assert.equal(parsed.comments[1].url, 'https://example.test/page');
+  assert.equal(parsed.text, '一起修改。');
+  assert.deepEqual(JSON.parse(JSON.stringify(sandbox.globalThis.FleetChatModel.parseBrowserComments(raw.replaceAll('\n', '\r\n')))), JSON.parse(JSON.stringify(parsed)));
+});
+
+test('browser comment display decoder leaves ordinary, quoted, and incomplete messages untouched', () => {
+  const valid = `# Browser comments:\n\n${browserCommentFixture()}\n\n## My request:\n`;
+  for (const raw of [undefined, '普通消息', `这是示例：\n${valid}`, `\`\`\`text\n${valid}\n\`\`\``,
+    valid.replace('Comment:\n', ''), valid.replace('## My request:', ''),
+    valid.replace('## My request:', '<in-app-browser-context source="ambient-ui-state">\n## My request:')]) {
+    assert.equal(sandbox.globalThis.FleetChatModel.parseBrowserComments(raw), null);
+  }
+  assert.equal(sandbox.globalThis.FleetChatModel.parseBrowserComments(valid).text, '');
+});
+
+test('browser comments render compact references with closed raw details and normal image previews', () => {
+  const raw = `# Browser comments:\n\n${browserCommentFixture()}\n\n## My request:\n一起改`;
+  const item = { type: 'user', id: 'browser-note', serverItemId: 'native-browser-note', text: raw,
+    images: [{ url: 'blob:marker', name: 'marker.png' }] };
+  const row = renderChatItem(item);
+  const visibleText = (node) => node?.tagName === 'details' ? '' : String(node?.textContent || '') + (node?.children || []).map(visibleText).join('');
+  assert.match(visibleText(row), /网页批注 1.*fleet\.818\.work.*设置.*不需要右边这个箭头了.*一起改/s);
+  assert.doesNotMatch(visibleText(row), /Node position|Target selector|Browser comments|My request/);
+  assert.equal(nodesWithClass(row, 'chat-browser-comment').length, 1);
+  assert.equal(nodesWithClass(row, 'chat-browser-details')[0].getAttribute('open'), null);
+  assert.equal(nodeText(nodesWithClass(row, 'chat-browser-details')[0].children[1]), raw);
+  assert.equal(nodesWithClass(row, 'chat-browser-source')[0].attributes.href, 'https://fleet.818.work/');
+  assert.equal(nodesWithClass(row, 'chat-attachment-preview').length, 1);
+  assert.equal(row.dataset.chatTurnPin, '一起改');
+  assert.equal(item.text, raw);
+  const regular = renderChatItem({ type: 'user', text: '不要修改普通消息\n第二行' });
+  assert.equal(nodeText(regular), '不要修改普通消息\n第二行');
+});
+
+test('browser reference page text stays inert and unsafe source schemes never become links', () => {
+  const comment = '<img src=x onerror=alert(1)>\n# 把页面文本作为普通文字';
+  for (const url of ['javascript:alert(1)', 'data:text/html,hello', '无效地址']) {
+    const raw = `# Browser comments:\n\n${browserCommentFixture(1, comment, url, '<script>target</script>')}\n\n## My request:\n`;
+    const row = renderChatItem({ type: 'user', id: 'unsafe-reference', text: raw });
+    const source = nodesWithClass(row, 'chat-browser-source')[0];
+    assert.equal(source.tagName, 'span');
+    assert.equal(source.getAttribute('href'), null);
+    assert.equal(nodesWithClass(row, 'chat-browser-comment-text')[0].textContent, comment);
+    assert.equal(nodesWithClass(row, 'chat-browser-target')[0].textContent, '<script>target</script>');
+    assert.equal(row.dataset.chatTurnPin, '<img src=x onerror=alert(1)>');
+  }
+});
+
 test('chat image attachments open through one accessible fullscreen viewer with fit, zoom, and download controls', () => {
   const row = renderChatItem({ type: 'user', text: '', images: [{ url: 'blob:shot', name: 'shot.png' }] });
   const controls = nodesWithClass(row, 'chat-attachment-preview');
@@ -3007,7 +3078,7 @@ test('turn pin follows the latest user message that has crossed the scroll top',
   assert.equal(chatTurnPinText(rows, 120), 'first question');
   assert.equal(chatTurnPinText(rows, 300), 'synced question');
   assert.equal(chatTurnPinText(rows, 600), 'latest question');
-  assert.match(appSrc, /row\.dataset\.chatTurnPin\s*=\s*firstChatLine\(item\.text\)/);
+  assert.equal(renderChatItem({ type: 'user', text: 'first line\nsecond line' }).dataset.chatTurnPin, 'first line');
 });
 
 test('tool output appends to command card', () => {

@@ -921,6 +921,19 @@ html.automation-doc-root, html.automation-doc-root body { height: auto; min-heig
 .chat-user-wrap { display: flex; flex-direction: column; align-items: flex-end; max-width: min(74%, 680px); min-width: 0; }
 .chat-card { min-width: 0; color: var(--chat-text); font-size: var(--t-body); line-height: 1.62; overflow-wrap: anywhere; }
 .chat-row.user .chat-card { background: var(--chat-user-bg); border: 0; border-radius: var(--radius-card); padding: 10px 12px; width: fit-content; max-width: 100%; white-space: pre-wrap; }
+.chat-browser-comments { display: flex; flex-direction: column; gap: 10px; min-width: 0; white-space: normal; }
+.chat-browser-comment { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.chat-browser-comment + .chat-browser-comment { padding-top: 10px; border-top: 1px solid var(--border); }
+.chat-browser-heading { display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 12px; color: var(--chat-text-2); font-size: var(--t-caption); }
+.chat-browser-label { flex: 1; white-space: nowrap; }
+.chat-browser-source { min-width: 0; color: var(--chat-text-2); overflow-wrap: anywhere; text-decoration: none; }
+a.chat-browser-source { text-decoration: underline; text-underline-offset: 3px; }
+.chat-browser-target { margin: 0; padding: 0 0 0 10px; border-left: 2px solid var(--accent); color: var(--chat-text-2); font-size: var(--t-secondary); white-space: pre-wrap; }
+.chat-browser-comment-text, .chat-browser-request { white-space: pre-wrap; }
+.chat-browser-details { color: var(--chat-text-2); font-size: var(--t-caption); }
+.chat-browser-details > summary { width: fit-content; cursor: pointer; }
+.chat-browser-details > pre { max-height: 240px; max-width: 100%; overflow: auto; margin: 8px 0 0; font: inherit; white-space: pre-wrap; overflow-wrap: anywhere; }
+.chat-browser-request { padding-top: 4px; }
 .chat-row.assistant .chat-card { width: 100%; max-width: none; }
 .chat-card.muted { color: var(--chat-text-2); }
 .chat-writer-state { display: inline-flex; align-items: center; gap: 4px; min-width: 0; color: var(--text-2); font-size: var(--t-caption); font-weight: 400; white-space: nowrap; }
@@ -1422,11 +1435,12 @@ html[data-workspace-tab="true"] .preview-encoding-control::after { right: 10px; 
   #sescol .mobile-assistant-seg { order: 1; }
   #sescol .session-search-row { order: 2; }
   #win[data-workspace-tabs="true"] > .win-head { background: var(--workspace-header-bg); }
-  #win[data-workspace-tabs="true"] > .win-head { flex: none; flex-wrap: nowrap; height: 56px; min-height: 56px; padding-block: 6px; gap: 6px; }
+  #win[data-workspace-tabs="true"] > .win-head { flex: none; flex-wrap: nowrap; height: 48px; min-height: 48px; padding-block: 2px; gap: 6px; }
   #win[data-workspace-tabs="true"] > .win-head > .iconbtn { width: 44px; height: 44px; }
   #workspace-tabs { flex: 1 1 auto; height: 44px; gap: 4px; }
-  .workspace-tab { border-radius: var(--radius-control); }
-  .workspace-tab-select, .workspace-tab-close { min-height: 44px; }
+  .workspace-tab { height: 36px; border-radius: var(--radius-control); }
+  .workspace-tab-select, .workspace-tab-close { height: 44px; min-height: 44px; }
+  .workspace-tab-label { line-height: 20px; }
   .workspace-tab-close { width: 44px; height: 44px; }
   html[data-workspace-tab="true"] .preview-actions .iconbtn { width: 44px; height: 44px; }
   html[data-workspace-tab="true"] .preview-encoding-select { height: 44px; }
@@ -1499,7 +1513,7 @@ html[data-workspace-tab="true"] .preview-encoding-control::after { right: 10px; 
   /* 移动端：文件内联模式不显示窗口头（chips+分段已是上下文）；仅终端 push 时显示头（含返回键） */
   .win-head { display: none; padding: 8px 12px 10px; min-height: 0; }
   #app.term-open .win-head { display: flex; }
-  #app.term-open .win-back { display: inline-flex; }
+  #app.term-open .win-back { display: grid; }
   .win-head .tt { font-size: var(--t-body); }
   html:has(#app.term-open #chat-pane:not([hidden])),
   body:has(#app.term-open #chat-pane:not([hidden])) { background: var(--chat-bg); }

@@ -93,6 +93,36 @@
       ? item.questionReplies.map((reply) => `${reply.question}\n${reply.answer}`).join('\n\n') : text;
   }
 
+  // Display-only decoding of the Desktop browser-comment envelope. Keep the
+  // original message intact: page evidence is never promoted to instructions.
+  function parseBrowserComments(value) {
+    if (typeof value !== 'string') return null;
+    const text = value.replace(/\r\n/g, '\n').trim();
+    if (!text.startsWith('# Browser comments:\n')) return null;
+    const request = /\n## My request(?: for Codex)?:[ \t]*(?:\n|$)/.exec(text);
+    if (!request) return null;
+    let body = text.slice('# Browser comments:\n'.length, request.index).trim();
+    const ambient = '\n\n<in-app-browser-context source="ambient-ui-state">';
+    const ambientAt = body.lastIndexOf(ambient);
+    if (ambientAt >= 0) {
+      if (!body.endsWith('</in-app-browser-context>')) return null;
+      body = body.slice(0, ambientAt).trimEnd();
+    }
+    const blocks = body.split(/\n\n(?=## User Comment [1-9]\d*\nBrowser\nNode position: )/);
+    const comments = [];
+    for (const block of blocks) {
+      const match = /^## User Comment ([1-9]\d*)\nBrowser\nNode position: [^\n]+\nUntrusted page evidence \(from the webpage, not user instructions\):\nPage URL: ([^\n]+)\nFrame: [^\n]+\nTarget: ([^\n]*)\nTarget selector: [^\n]*\nTarget path: [^\n]*\n(?:Nearby text: [^\n]*\n)?Saved marker screenshot: [^\n]*\nComment:\n([\s\S]*)$/.exec(block);
+      if (!match) return null;
+      let target = match[3].trim();
+      try {
+        const decoded = JSON.parse(target);
+        if (typeof decoded === 'string') target = decoded;
+      } catch (_) { /* Unquoted targets remain plain text. */ }
+      comments.push({ number: match[1], url: match[2].trim(), target, text: match[4].trim() });
+    }
+    return { comments, text: text.slice(request.index + request[0].length).trim() };
+  }
+
   function rememberQuestionReplies(next, item) {
     for (const reply of item.questionReplies || []) next.questionReplies[reply.questionItemId] = reply.answer;
   }
@@ -730,7 +760,7 @@
   const api = {
     createChatState, appendUserMessage, appendSteeringMessage, removeMessage, prependHistory,
     reduceChatEvent, normalizeDiffFiles, chatPhase, chatTurnProgress, followupAckId, uuidV7TimeMs,
-    parseQuestionReply, questionReplyText,
+    parseQuestionReply, questionReplyText, parseBrowserComments,
   };
   root.FleetChatModel = api;
   if (typeof module !== 'undefined') module.exports = api;
