@@ -843,12 +843,44 @@ function wireAppearanceSettings() {
   $('#appearance-reset').onclick = () => fillAppearancePalette(FleetTheme.paletteDefaults);
   $('#appearance-save').onclick = saveAppearanceSettings;
 }
+let fileViewChangeSeq = 0;
+let fileViewSaveQueue = Promise.resolve();
+
+function saveFileViewPreference(view, { ifAbsent = false } = {}) {
+  const account = globalThis.FleetAuth?.user?.id;
+  if (!account) return Promise.resolve();
+  const seq = fileViewChangeSeq;
+  // Serialize rapid clicks so an older request cannot overwrite the final choice.
+  fileViewSaveQueue = fileViewSaveQueue.then(async () => {
+    if (FleetAuth.user?.id !== account) return;
+    const r = await fetch(`${BASE}/api/settings`, {
+      method: 'PATCH', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ fileView: view, ifAbsent }),
+    });
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const saved = await r.json();
+    if (FleetAuth.user?.id !== account || fileViewChangeSeq !== seq) return;
+    if (ifAbsent) setFileView(saved.fileView, { save: false });
+  }).catch(error => {
+    if (FleetAuth.user?.id === account) toast('查看方式保存失败：' + error.message, 'err');
+  });
+  return fileViewSaveQueue;
+}
+
 async function refreshSettings() {
+  const viewSeq = fileViewChangeSeq;
+  const account = globalThis.FleetAuth?.user?.id;
   try {
     const r = await fetch(`${BASE}/api/settings`, { cache: 'no-store' });
     if (r.ok) {
-      const {deviceAppearance, deviceOrder, palette, ...settings} = await r.json();
-      state.settings = { ...SETTINGS_DEFAULT, ...settings }; evictChatCache(); return;
+      const {deviceAppearance, deviceOrder, palette, fileView, ...settings} = await r.json();
+      if (account && FleetAuth.user?.id !== account) return;
+      state.settings = { ...SETTINGS_DEFAULT, ...settings };
+      if (fileViewChangeSeq === viewSeq) {
+        if (fileView) setFileView(fileView, { save: false });
+        else await saveFileViewPreference(state.fileView, { ifAbsent: true });
+      }
+      evictChatCache(); return;
     }
   } catch (_) {}
   if (!state.settings) state.settings = { ...SETTINGS_DEFAULT }; // 拉取失败：用默认，不阻塞
@@ -884,7 +916,7 @@ async function saveSettings() {
       method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body),
     });
     if (!r.ok) throw new Error('HTTP ' + r.status);
-    const {deviceAppearance, deviceOrder, palette, ...settings} = await r.json();
+    const {deviceAppearance, deviceOrder, palette, fileView, ...settings} = await r.json();
     state.settings = { ...SETTINGS_DEFAULT, ...settings };
     globalThis.FleetSettingsDialog?.active?.markSaved();
     closeOverlay('settings-modal');
@@ -7171,8 +7203,12 @@ function handleFileColumnsWheel(event) {
   wrap.scrollLeft += delta * unit;
 }
 
-function setFileView(view) {
+function setFileView(view, { save = true } = {}) {
   const next = normalizeFileView(view);
+  if (save) {
+    fileViewChangeSeq++;
+    saveFileViewPreference(next);
+  }
   if (next === state.fileView) {
     syncFileViewUI();
     return;
@@ -8704,6 +8740,8 @@ async function initAuthenticatedDashboard() {
   }
 }
 function stopAuthenticatedDashboard() {
+  fileViewChangeSeq++;
+  state.settings = null;
   globalThis.FleetSettingsDialog?.active?.reset();
   globalThis.FleetDeviceAppearance?.reset();
   removeEventListener('focus', refreshDeviceAppearance);

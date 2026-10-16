@@ -67,13 +67,14 @@ type dashboardPreferences struct {
 	MobileScrollback     int                         `json:"mobileScrollback"`
 	AutoCloseMinutes     int                         `json:"autoCloseMinutes"`
 	ChatCacheMaxSessions int                         `json:"chatCacheMaxSessions"`
+	FileView             string                      `json:"fileView,omitempty"`
 	DeviceAppearance     map[string]deviceAppearance `json:"deviceAppearance"`
 	DeviceOrder          []string                    `json:"deviceOrder"`
 	Palette              *themePalette               `json:"palette"`
 }
 
-// Caller holds server.mu so settings POST, appearance PATCH and palette PUT
-// cannot lose each other's fields. Existing integer-only preference rows remain readable.
+// Caller holds server.mu so settings POST, appearance/file view PATCH and palette PUT
+// cannot lose each other's fields. Missing fileView permits one-time browser migration.
 func (server *Server) loadDashboardPreferences(userID int64) (dashboardPreferences, error) {
 	preferences := dashboardPreferences{DesktopMaxWindows: 10, DesktopScrollback: 5000,
 		MobileMaxWindows: 4, MobileScrollback: 5000, AutoCloseMinutes: 30, ChatCacheMaxSessions: 6,
@@ -108,7 +109,14 @@ func (server *Server) loadDashboardPreferences(userID int64) (dashboardPreferenc
 	if preferences.Palette != nil && !preferences.Palette.validate() {
 		return preferences, fmt.Errorf("invalid theme palette")
 	}
+	if preferences.FileView != "" && !validFileView(preferences.FileView) {
+		return preferences, fmt.Errorf("invalid file view")
+	}
 	return preferences, nil
+}
+
+func validFileView(view string) bool {
+	return view == "icons" || view == "list" || view == "columns"
 }
 
 func validDeviceID(id string) bool {
@@ -167,11 +175,20 @@ func (server *Server) handlePreferences(writer http.ResponseWriter, request *htt
 			Appearance *deviceAppearance `json:"appearance"`
 			IfAbsent   bool              `json:"ifAbsent"`
 			Order      *[]string         `json:"order"`
+			FileView   *string           `json:"fileView"`
 		}
 		if !decode(writer, request, &input) {
 			return
 		}
-		if input.Order != nil {
+		if input.FileView != nil {
+			if !validFileView(*input.FileView) {
+				reject(writer, 400, "文件查看方式格式错误")
+				return
+			}
+			if preferences.FileView == "" || !input.IfAbsent {
+				preferences.FileView = *input.FileView
+			}
+		} else if input.Order != nil {
 			seen := map[string]bool{}
 			for _, id := range *input.Order {
 				if !validDeviceID(id) || seen[id] || !owned[id] {

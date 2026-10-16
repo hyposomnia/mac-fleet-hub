@@ -119,7 +119,7 @@ test('session loss stops dashboard polling, closes chat streams and clears priva
       fileEntries: [{}], fileColumns: [{}], fileUploads: { items: [{}] }, assistantInfo: {} },
     MACS: [{}], macNames: { m1: 'private' }, automationAccessKeys: [{}], automationRecordKeys: [{}],
     automationEditingKey: {}, automationBindingSessions: [{}], automationBindingCatalog: new Map([['m1\ncodex', [{}]]]),
-    automationBindingCatalogSeq: 4, $$: () => [] };
+    automationBindingCatalogSeq: 4, fileViewChangeSeq: 0, $$: () => [] };
   vm.runInNewContext(source, sandbox);
   sandbox.stopAuthenticatedDashboard();
   assert.equal(workspaceResets, 1);
@@ -134,6 +134,8 @@ test('session loss stops dashboard polling, closes chat streams and clears priva
   assert.equal(sandbox.state.fileEntries.length, 0);
   assert.equal(sandbox.automationBindingCatalog.size, 0);
   assert.equal(sandbox.automationBindingCatalogSeq, 5);
+  assert.equal(sandbox.fileViewChangeSeq, 1);
+  assert.equal(sandbox.state.settings, null);
 });
 
 test('repeated session settings saves keep shared objects out of integer preference requests', async () => {
@@ -143,7 +145,7 @@ test('repeated session settings saves keep shared objects out of integer prefere
     $: selector => ({value: selector === '#st-auto-close' ? '0' : '9'}), closeOverlay() {}, toast() {}, evictChatCache() {},
     fetch: async (_, options) => {
       requests.push(JSON.parse(options.body));
-      return {ok: true, json: async () => ({chatCacheMaxSessions: 9, deviceAppearance: {m1: {icon: 'mini', color: 'teal'}}, deviceOrder: ['m1'], palette: {light: {}, dark: {}}})};
+      return {ok: true, json: async () => ({chatCacheMaxSessions: 9, fileView: 'columns', deviceAppearance: {m1: {icon: 'mini', color: 'teal'}}, deviceOrder: ['m1'], palette: {light: {}, dark: {}}})};
     } };
   vm.runInNewContext(source, sandbox);
   await sandbox.saveSettings();

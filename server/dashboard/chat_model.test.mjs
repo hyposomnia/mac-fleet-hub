@@ -1688,6 +1688,92 @@ test('file browser supports persistent icon, list, and column views', () => {
   assert.doesNotMatch(styleCSS, /\.file-view-switch\s*\{[^}]*order:\s*3/);
 });
 
+function fileViewPreferenceHarness(fetch) {
+  const context = {
+    document: { ...appSandbox.document },
+    FleetChatModel: sandbox.globalThis.FleetChatModel,
+    FleetUploadModel: uploadSandbox.globalThis.FleetUploadModel,
+    FleetAuth: { user: { id: 7 } },
+    fetch, localStorage: { setItem() {} },
+  };
+  vm.createContext(context);
+  vm.runInContext(appSrc, context);
+  vm.runInContext(`globalThis.viewTest = {
+    state, refresh: refreshSettings, setView: setFileView,
+    saved: () => fileViewSaveQueue, messages: [],
+  };
+  closeFileMenus = syncFileViewUI = renderFileEntries = restoreFileColumnPath = evictChatCache = () => {};
+  toast = (message) => viewTest.messages.push(message);`, context);
+  return context.viewTest;
+}
+
+test('file view restores the account server choice and migrates local-only preferences once', async () => {
+  let serverView = 'columns';
+  const requests = [];
+  const h = fileViewPreferenceHarness(async (_url, options = {}) => {
+    requests.push(options);
+    if (options.method === 'PATCH') {
+      const input = JSON.parse(options.body);
+      if (!serverView || !input.ifAbsent) serverView = input.fileView;
+    }
+    return { ok: true, json: async () => serverView ? { fileView: serverView } : {} };
+  });
+  h.state.fileView = 'icons';
+  await h.refresh();
+  assert.equal(h.state.fileView, 'columns', 'server choice overrides this browser cache');
+  assert.equal(requests.length, 1, 'restoring must not write settings');
+  assert.equal(h.state.settings.fileView, undefined, 'session settings remain an integer-only payload');
+  serverView = '';
+  h.state.fileView = 'icons';
+  await h.refresh();
+  assert.equal(serverView, 'icons');
+  assert.deepEqual(JSON.parse(requests.at(-1).body), { fileView: 'icons', ifAbsent: true });
+});
+
+test('rapid file view changes save in order and a failed save does not block the next one', async () => {
+  let fail = true;
+  const requests = [];
+  const pending = [];
+  const h = fileViewPreferenceHarness((_url, options) => {
+    requests.push(JSON.parse(options.body).fileView);
+    return new Promise(resolve => pending.push(() => resolve({
+      ok: !fail, status: fail ? 503 : 200, json: async () => ({ fileView: requests.at(-1) }),
+    })));
+  });
+  h.setView('icons');
+  h.setView('columns');
+  h.setView('list');
+  await Promise.resolve();
+  assert.deepEqual(requests, ['icons']);
+  pending.shift()();
+  for (let i = 0; !pending.length && i < 20; i++) await Promise.resolve();
+  assert.equal(pending.length, 1);
+  fail = false;
+  assert.deepEqual(requests, ['icons', 'columns']);
+  pending.shift()();
+  for (let i = 0; !pending.length && i < 20; i++) await Promise.resolve();
+  assert.equal(pending.length, 1);
+  pending.shift()();
+  await h.saved();
+  assert.deepEqual(requests, ['icons', 'columns', 'list']);
+  assert.equal(h.state.fileView, 'list');
+  assert.equal(h.messages.length, 1);
+  assert.match(h.messages[0], /查看方式保存失败/);
+});
+
+test('a slow startup settings response cannot replace a newer file view selection', async () => {
+  let finishRead;
+  const h = fileViewPreferenceHarness((_url, options = {}) => options.method === 'PATCH'
+    ? Promise.resolve({ ok: true, json: async () => ({ fileView: 'icons' }) })
+    : new Promise(resolve => { finishRead = () => resolve({ ok: true, json: async () => ({ fileView: 'columns' }) }); }));
+  const refresh = h.refresh();
+  h.setView('icons');
+  await h.saved();
+  finishRead();
+  await refresh;
+  assert.equal(h.state.fileView, 'icons');
+});
+
 test('column view routes Shift+wheel to horizontal scrolling and preserves other wheel gestures', () => {
   const handleWheel = vm.runInContext(
     "typeof handleFileColumnsWheel === 'function' ? handleFileColumnsWheel : null", appSandbox,
