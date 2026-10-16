@@ -68,6 +68,31 @@
     return range;
   }
 
+  function selectionFragments(doc, range, selector) {
+    const fragments = [];
+    // Paragraph/whole-block selections can end on an ancestor or at the start
+    // of the next block. Use the text actually covered, not endpoint parents.
+    for (const sourceNode of doc.querySelectorAll(selector)) {
+      if (!range.intersectsNode(sourceNode)) continue;
+      const view = snapshot(sourceNode);
+      const selected = view.entries.flatMap((entry) => {
+        if (!range.intersectsNode(entry.node)) return [];
+        const from = range.startContainer === entry.node ? range.startOffset : 0;
+        const to = range.endContainer === entry.node ? range.endOffset : entry.node.data.length;
+        return to > from ? [{ from: entry.start + from, to: entry.start + to }] : [];
+      });
+      if (!selected.length) continue;
+      const from = selected[0].from, to = selected[selected.length - 1].to;
+      const text = view.text.slice(from, to);
+      if (!text.trim()) continue;
+      fragments.push({ sourceNode, note: { text, locator: {
+        version: A.textVersion(view.text), startOffset: from, endOffset: to, exact: text,
+        prefix: view.text.slice(Math.max(0, from - 64), from), suffix: view.text.slice(to, to + 64),
+      } } });
+    }
+    return fragments;
+  }
+
   function init({ getChat, onChange, notify = () => {} }) {
     const frames = new Map();
     const activePointers = new Set();
@@ -89,7 +114,7 @@
     editor.hidden = true;
     const comment = el('textarea');
     comment.rows = 1;
-    comment.placeholder = '添加注释（可选）';
+    comment.placeholder = '添加注释';
     comment.setAttribute('aria-label', '注释内容');
     const save = button('✓', saveEditor, 'annotation-save');
     save.setAttribute('aria-label', '保存注释');
@@ -121,11 +146,12 @@
     }
     function outside(event) {
       if (owns(event.target)) return;
-      // A drag begins by clearing the previous selection. pointerup captures
-      // only the new range, so a blank click cannot resurrect the old menu.
+      // Let the browser keep its native range during multi-click selection.
+      // A blank click collapses it before pointerup captures the new range.
+      const selecting = event.target?.closest?.('[data-annotation-message], #preview-markdown, #preview-text');
       const had = selection || editing;
-      if (had) closeEditor();
-      else clearNative();
+      if (had) closeEditor({ clear: !selecting });
+      else if (!selecting) clearNative();
       if (panel && !panel.contains(event.target)) closePanel();
     }
     document.addEventListener('pointerdown', outside, true);
@@ -219,10 +245,10 @@
         (frameInfo.key !== keyFor(chat) || frameInfo.frame.hidden || !frameInfo.frame.isConnected)
       )
         return;
-      let note, rect, sourceNode;
+      let fragments, rect;
       const file = frameInfo && frameInfo.frame.contentWindow.FleetPreview?.annotationSelection?.();
       if (file) {
-        note = { text: file.text, locator: file.locator };
+        fragments = [{ note: { text: file.text, locator: file.locator } }];
         rect = position(file.rect, frameInfo.frame);
       } else {
         const sel = doc.getSelection();
@@ -233,49 +259,30 @@
           return;
         }
         const range = sel.getRangeAt(0);
-        const element = (node) => (node.nodeType === 1 ? node : node.parentElement);
-        const start = element(range.startContainer),
-          end = element(range.endContainer);
-        sourceNode = frameInfo
-          ? start?.closest('#preview-markdown')
-          : start?.closest('[data-annotation-message]');
-        if (!sourceNode || !sourceNode.contains(end) || start.closest(excluded) || end.closest(excluded))
-          return;
-        const view = snapshot(sourceNode);
-        const selected = view.entries.filter((entry) => range.intersectsNode(entry.node));
-        if (!selected.length) return;
-        const first = selected[0],
-          last = selected[selected.length - 1];
-        const from = first.start + (range.startContainer === first.node ? range.startOffset : 0);
-        const to = last.start + (range.endContainer === last.node ? range.endOffset : last.node.data.length);
-        const text = view.text.slice(from, to);
-        note = {
-          text,
-          locator: {
-            version: A.textVersion(view.text),
-            startOffset: from,
-            endOffset: to,
-            exact: text,
-            prefix: view.text.slice(Math.max(0, from - 64), from),
-            suffix: view.text.slice(to, to + 64),
-          },
-        };
+        fragments = selectionFragments(doc, range, frameInfo ? '#preview-markdown' : '[data-annotation-message]');
         rect = position(range.getBoundingClientRect(), frameInfo?.frame);
       }
-      if (!note.text.trim()) return;
-      const fleetSource = {
-        deviceId: chat.macId,
-        assistant: chat.assistant,
-        sessionId: chat.sessionId,
-        kind: frameInfo ? 'file' : 'message',
-        locator: {
-          ...note.locator,
-          ...(frameInfo ? { path: frameInfo.path } : { itemId: sourceNode.dataset.annotationMessage }),
+      const candidates = fragments.filter(({ note }) => note.text.trim()).map(({ note, sourceNode }) => ({
+        id: root.crypto.randomUUID(), text: note.text,
+        fleetSource: {
+          deviceId: chat.macId,
+          assistant: chat.assistant,
+          sessionId: chat.sessionId,
+          kind: frameInfo ? 'file' : 'message',
+          locator: {
+            ...note.locator,
+            ...(frameInfo ? { path: frameInfo.path } : { itemId: sourceNode.dataset.annotationMessage }),
+          },
         },
-      };
-      const candidate = { id: root.crypto.randomUUID(), text: note.text, fleetSource };
+      }));
+      if (!candidates.length) {
+        selection = null;
+        menu.hidden = true;
+        redraw();
+        return;
+      }
       try {
-        A.validateDraft([...(chat.annotations || []), candidate]);
+        A.validateDraft([...(chat.annotations || []), ...candidates]);
       } catch (error) {
         selection = null;
         menu.hidden = true;
@@ -283,7 +290,8 @@
         notify(error.message);
         return;
       }
-      selection = { chat, note: candidate, rect, sourceNode };
+      selection = { chat, note: candidates[0], notes: candidates, rect,
+        sourceNode: fragments[0].sourceNode, sourceNodes: fragments.map(({ sourceNode }) => sourceNode).filter(Boolean) };
       menu.hidden = false;
       place(menu, rect);
       redraw();
@@ -347,18 +355,20 @@
         return;
       }
       const { chat, savedId } = editing;
-      const note = A.copy(editing.note);
       const value = comment.value.trim();
-      if (value) note.annotation = value;
-      else delete note.annotation;
       const next = [...(chat.annotations || [])];
       const index = next.findIndex((item) => item.id === savedId);
       if (savedId && index < 0) {
         closeEditor();
         return;
       }
-      if (index < 0) next.push(note);
-      else next[index] = note;
+      const notes = A.copy(editing.notes || [editing.note]);
+      for (const note of notes) {
+        if (value) note.annotation = value;
+        else delete note.annotation;
+      }
+      if (index < 0) next.push(...notes);
+      else next[index] = notes[0];
       try {
         A.validateDraft(next);
       } catch (error) {
@@ -611,7 +621,10 @@
       for (const frame of frames.keys()) if (!frame.isConnected) frames.delete(frame);
       const notes = [...(chat.annotations || [])];
       const savedIds = new Set(notes.map((note) => note.id));
-      if (selection && !notes.some((note) => note.id === selection.note.id)) notes.push(selection.note);
+      for (const note of selection?.notes || (selection ? [selection.note] : [])) {
+        if (!notes.some((saved) => saved.id === note.id)) notes.push(note);
+      }
+      const pendingIds = new Set((selection?.notes || (selection ? [selection.note] : [])).map((note) => note.id));
       const occupied = [];
       notes.forEach((note, index) => {
         let resolved = resolve(note),
@@ -639,7 +652,7 @@
           if (rect.bottom < 0 || rect.top > root.innerHeight) continue;
           const highlight = el(
             'span',
-            'annotation-highlight' + (selection?.note.id === note.id ? ' is-editing' : '')
+            'annotation-highlight' + (pendingIds.has(note.id) ? ' is-editing' : '')
           );
           Object.assign(highlight.style, {
             left: `${rect.left}px`,
@@ -695,7 +708,6 @@
           icon.innerHTML =
             '<path d="M21 11.5a8.5 8.5 0 0 1-8.5 8.5 9 9 0 0 1-4-.9L3 21l1.9-5.5a9 9 0 0 1-.9-4A8.5 8.5 0 0 1 12.5 3 8.5 8.5 0 0 1 21 11.5Z"/>';
           trigger.prepend(icon);
-          trigger.append(el('span', 'annotation-chip-chevron', '⌄'));
           trigger.setAttribute('aria-haspopup', 'dialog');
           const remove = button(
             '×',
@@ -783,7 +795,7 @@
       rangeFor,
       ownsSelection: (node) =>
         !!(
-          (selection?.sourceNode && node.contains(selection.sourceNode)) ||
+          (selection?.sourceNodes || [selection?.sourceNode]).some((source) => source && node.contains(source)) ||
           (() => {
             const sel = root.getSelection();
             return sel?.rangeCount && !sel.isCollapsed && node.contains(sel.anchorNode);

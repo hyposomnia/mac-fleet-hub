@@ -304,9 +304,6 @@
   width: 16px;
   height: 16px;
 }
-.annotation-chip-chevron {
-  margin-left: 2px;
-}
 .annotation-owned .annotation-marker {
   font: 11px/1 var(--font);
 }
