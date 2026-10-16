@@ -121,12 +121,23 @@ func desktopDiskProbe(path string) error {
 	return err
 }
 
-func probeDesktopFullDiskAccess(protected string, diagnostics []string, probe func(string) error) desktopDiskAccess {
-	protectedError := probe(protected)
-	result := probeDesktopDiskAccess([]string{protected}, func(string) error { return protectedError })
-	if result.State == "restricted" && !errors.Is(protectedError, syscall.EPERM) {
-		result.State = "unknown"
+func probeDesktopFullDiskAccess(protected []string, diagnostics []string, probe func(string) error) desktopDiskAccess {
+	result := desktopDiskAccess{State: "unknown", Source: "background", CheckedAt: time.Now().Unix()}
+	// A user TCC database need not exist. Only a protected database, never an
+	// ordinary readable directory, can establish full disk access.
+	for _, path := range protected {
+		err := probe(path)
+		if err == nil {
+			result.State = "verified"
+			result.VerifiedTargets++
+			break
+		}
+		if errors.Is(err, syscall.EPERM) {
+			result.State = "restricted"
+			result.DeniedTargets = append(result.DeniedTargets, path)
+		}
 	}
+
 	for _, path := range diagnostics {
 		if errors.Is(probe(path), os.ErrPermission) {
 			result.DeniedTargets = append(result.DeniedTargets, path)
@@ -154,7 +165,7 @@ func desktopDiskStatus() desktopDiskAccess {
 		return desktopDiskAccess{State: "unknown", Source: "unverified-process", CheckedAt: time.Now().Unix()}
 	}
 	home, _ := os.UserHomeDir()
-	result := probeDesktopFullDiskAccess(filepath.Join(home, "Library", "Application Support", "com.apple.TCC", "TCC.db"), []string{filepath.Join(home, "Library", "Messages", "chat.db"), filepath.Join(home, "Library", "Safari", "History.db"), filepath.Join(home, "Library", "Mail")}, desktopDiskProbe)
+	result := probeDesktopFullDiskAccess([]string{filepath.Join(home, "Library", "Application Support", "com.apple.TCC", "TCC.db"), "/Library/Application Support/com.apple.TCC/TCC.db"}, []string{filepath.Join(home, "Library", "Messages", "chat.db"), filepath.Join(home, "Library", "Safari", "History.db"), filepath.Join(home, "Library", "Mail")}, desktopDiskProbe)
 	for index, path := range result.DeniedTargets {
 		result.DeniedTargets[index], _ = filepath.Rel(home, path)
 	}

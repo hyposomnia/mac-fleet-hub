@@ -115,6 +115,11 @@ final class SettingsTests: XCTestCase {
         XCTAssertEqual(model.diskState, .unknown)
     }
 
+    func testUnknownDiskEvidenceExplainsCompletedCheck() {
+        XCTAssertEqual(DiskAccess(state: "unknown", source: "background", checkedAt: 1, verifiedTargets: 0).label, "暂无法确认")
+        XCTAssertEqual(DiskAccess(state: "unknown", source: "background", checkedAt: 0, verifiedTargets: 0).label, "待检查")
+    }
+
     func testUIEvidenceAndMissingTargetsDoNotImplyFDA() {
         XCTAssertEqual(DiskAccess(state: "verified", source: "ui", checkedAt: 1, verifiedTargets: 1).verifiedState, .unknown)
         XCTAssertEqual(DiskAccess(state: "verified", source: "background", checkedAt: 1, verifiedTargets: 0).verifiedState, .unknown)

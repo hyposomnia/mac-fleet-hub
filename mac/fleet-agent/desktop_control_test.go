@@ -146,7 +146,7 @@ func TestDesktopFullDiskAccessRequiresProtectedDatabaseNotOtherFilePermissions(t
 		{"Unix permissions do not prove a TCC denial", "unknown", syscall.EACCES, nil},
 	} {
 		t.Run(fixture.name, func(t *testing.T) {
-			result := probeDesktopFullDiskAccess("TCC.db", []string{"Mail"}, func(path string) error {
+			result := probeDesktopFullDiskAccess([]string{"TCC.db"}, []string{"Mail"}, func(path string) error {
 				if path == "TCC.db" {
 					return fixture.protected
 				}
@@ -184,5 +184,31 @@ func TestDesktopDiskProbeDoesNotClaimLaunchdEvidenceInUICaller(t *testing.T) {
 	status := desktopDiskStatus()
 	if status.State != "unknown" || status.Source == "background" {
 		t.Fatalf("non-launchd process claimed background FDA: %+v", status)
+	}
+}
+
+func TestDesktopFullDiskAccessFallsBackToSystemDatabase(t *testing.T) {
+	for _, fixture := range []struct {
+		name         string
+		user, system error
+		want         string
+	}{
+		{"missing user database", os.ErrNotExist, nil, "verified"},
+		{"both missing", os.ErrNotExist, os.ErrNotExist, "unknown"},
+		{"system TCC denial", os.ErrNotExist, syscall.EPERM, "restricted"},
+		{"system Unix denial", os.ErrNotExist, syscall.EACCES, "unknown"},
+		{"user works", nil, os.ErrNotExist, "verified"},
+	} {
+		t.Run(fixture.name, func(t *testing.T) {
+			result := probeDesktopFullDiskAccess([]string{"user", "system"}, nil, func(path string) error {
+				if path == "user" {
+					return fixture.user
+				}
+				return fixture.system
+			})
+			if result.State != fixture.want {
+				t.Fatalf("got %+v, want %s", result, fixture.want)
+			}
+		})
 	}
 }

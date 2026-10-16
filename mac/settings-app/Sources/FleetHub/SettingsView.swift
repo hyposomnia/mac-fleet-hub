@@ -436,7 +436,7 @@ struct SettingsView: View {
                     Label("完全磁盘访问", systemImage: "internaldrive")
                         .fontWeight(.medium).foregroundStyle(theme.accent)
                     Spacer()
-                    Label(model.diskState.label, systemImage: model.diskState == .verified ? "checkmark.circle.fill" : "exclamationmark.circle")
+                    Label(model.status?.diskAccess.label ?? model.diskState.label, systemImage: model.diskState == .verified ? "checkmark.circle.fill" : "exclamationmark.circle")
                         .foregroundStyle(model.diskState == .verified ? theme.online : theme.warning)
                     Button { Task { await model.recheckDisk() } } label: { Image(systemName: "arrow.clockwise") }
                         .accessibilityLabel("重新检查后台权限")
@@ -465,6 +465,12 @@ struct SettingsView: View {
                     }
                 }
                 .frame(maxWidth: .infinity)
+                if model.diskState == .unknown {
+                    Text(model.status == nil
+                         ? "后台尚未连接，暂时无法检查磁盘访问权限。"
+                         : "后台尚无法确认完全磁盘访问权限。若系统开关已开启，无需反复授权；可重启并检查。检测结果不影响已有文件访问。")
+                        .font(.callout).foregroundStyle(theme.secondaryText)
+                }
                 if let evidence = model.status?.diskAccess, !(evidence.deniedTargets ?? []).isEmpty {
                     DisclosureGroup("检测详情") {
                         Text((evidence.deniedTargets ?? []).joined(separator: "\n"))

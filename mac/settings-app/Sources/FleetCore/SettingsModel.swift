@@ -56,6 +56,10 @@ public struct DiskAccess: Codable, Equatable, Sendable {
         case verifiedTargets = "verified_targets"
         case deniedTargets = "denied_targets"
     }
+    public var label: String {
+        if verifiedState == .unknown && checkedAt > 0 { return "暂无法确认" }
+        return verifiedState.label
+    }
     public var verifiedState: DiskState {
         guard source == "background", checkedAt > 0 else { return .unknown }
         if state == "restricted" { return .restricted }
