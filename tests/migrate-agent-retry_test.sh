@@ -43,8 +43,8 @@ case "$MODE" in
   400)        printf '{"error":{"code":"bad_request"}}\n400' ;;
   noreply)    exit 7 ;;
   timeout)    exit 28 ;;
-  health)     if [[ $n -le 1 ]]; then exit 7; else printf 'ok\n200'; fi ;;
-  badhealth)  printf 'not-ok\n200' ;;
+  health)     if [[ $n -le 1 ]]; then exit 7; elif [[ " $* " == *' -w '* ]]; then printf 'ok\n200'; else printf ok; fi ;;
+  badhealth)  if [[ " $* " == *' -w '* ]]; then printf 'not-ok\n200'; else printf not-ok; fi ;;
 esac
 CURL_STUB
 chmod +x "$TMP/bin/curl"
@@ -123,6 +123,23 @@ for mode in health badhealth; do
     fails=1
   fi
 done
+
+sed -n '/^wait_agent_health() {/,/^}/p' "$ROOT/mac/setup-mac.sh" > "$TMP/setup-health-runner.sh"
+if ! grep -q '^wait_agent_health() {' "$TMP/setup-health-runner.sh"; then
+  echo '✗ shared installer has no bounded startup health gate' >&2
+  exit 1
+fi
+printf '\nwait_agent_health "http://127.0.0.1:7682"\n' >> "$TMP/setup-health-runner.sh"
+echo 0 > "$TMP/counter"; : > "$TMP/args.log"
+rc=0
+COUNTER="$TMP/counter" ARGS_LOG="$TMP/args.log" MODE=health PATH="$TMP/bin:$PATH" \
+  /bin/bash "$TMP/setup-health-runner.sh" > "$TMP/setup-health.out" 2>&1 || rc=$?
+if [[ "$rc" == 0 && "$(cat "$TMP/counter")" == 2 ]]; then
+  echo '✔ shared installer waits for delayed health listener'
+else
+  echo "✗ shared installer startup health exit=${rc}" >&2
+  fails=1
+fi
 
 # A completed remote command failing its migration guard is not an SSH outage.
 # Repeating it can re-run service replacement, so only transport exit 255 retries.
