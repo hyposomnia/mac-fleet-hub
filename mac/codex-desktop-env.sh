@@ -8,4 +8,4 @@ source "$SCRIPT_DIR/codex-bin-resolve.sh"
 export FLEET_CODEX_DESKTOP_APP_PATH
 FLEET_CODEX_DESKTOP_APP_PATH="$(/usr/bin/plutil -extract appPath raw -o - "$CONFIG")"
 node_bin="$(fleet_resolve_keeper_node)"
-exec "$node_bin" "$SCRIPT_DIR/codex-desktop-env.mjs" "$CONFIG" "${1:-clear}"
+exec "$node_bin" "$SCRIPT_DIR/codex-desktop-env.mjs" "$CONFIG" "${1:-clear}" "${3:-}"

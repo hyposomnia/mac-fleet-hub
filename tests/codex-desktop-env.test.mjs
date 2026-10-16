@@ -69,3 +69,11 @@ test('REQ-06/07: transaction rollback restores immediate shared state, not origi
   configureDesktopEnvironment({ ...f, mode: 'clear' });
   assert.equal(f.values.CODEX_APP_SERVER_WS_URL, 'ws://127.0.0.1:1234/rpc');
 });
+
+test('REQ-06/07: legacy migration keeps the original GUI values for eventual uninstall', t => {
+  const f = fixture(t, { CODEX_APP_SERVER_WS_URL: 'ws://127.0.0.1:47682/rpc' });
+  configureDesktopEnvironment({ ...f, mode: 'shared', previousValues: { CODEX_APP_SERVER_WS_URL: '', CODEX_APP_SERVER_USE_LOCAL_DAEMON: '1' } });
+  configureDesktopEnvironment({ ...f, mode: 'clear' });
+  assert.equal(f.values.CODEX_APP_SERVER_WS_URL, undefined);
+  assert.equal(f.values.CODEX_APP_SERVER_USE_LOCAL_DAEMON, '1');
+});

@@ -37,6 +37,7 @@ test('REQ-01: initialize profile distinguishes primary, validator and sandbox', 
 test('REQ-03: reject network exposure and ambiguous listener endpoints', () => {
   const base = { listenURL: 'ws://127.0.0.1:47682', proxySocket: '/tmp/fleet-test.sock', stateDir: '/tmp/fleet-test', codexHome: '/tmp/codex' };
   assert.equal(validateRuntimeConfig(base).endpoint, 'ws://127.0.0.1:47682/rpc');
+  assert.equal(validateRuntimeConfig({ ...base, listenURL: 'ws://127.0.0.1:80' }).listenURL, 'ws://127.0.0.1:80');
   for (const listenURL of ['ws://0.0.0.0:1234', 'ws://100.64.0.3:1234', 'ws://localhost:1234', 'wss://127.0.0.1:1234', 'ws://user@127.0.0.1:1234', 'ws://127.0.0.1:1234/rpc', 'ws://127.0.0.1:1234?x=1', 'ws://127.0.0.1:0']) {
     assert.throws(() => validateRuntimeConfig({ ...base, listenURL }), /listener/);
   }
@@ -44,9 +45,9 @@ test('REQ-03: reject network exposure and ambiguous listener endpoints', () => {
 });
 
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import net from 'node:net';
+import http from 'node:http';
 import { spawn } from 'node:child_process';
 import readline from 'node:readline';
 import { once } from 'node:events';
@@ -150,4 +151,25 @@ test('REQ-02: a second client with conflicting configuration cannot attach to th
   const b = f.client(['app-server'], { ...f.config, codexHome: f.config.codexHome + '-other' }); b.send(primary());
   await assert.rejects(b.next(), /another Desktop instance or configuration/);
   assert.equal(fs.readFileSync(path.join(f.dir, 'spawns'), 'utf8').trim().split('\n').length, 1);
+});
+
+test('REQ-03: Unix compatibility proxy forwards actual HTTP bytes in both directions', { timeout: 30000 }, async t => {
+  const f = await fixture(t); const a = f.client(); a.send(primary()); await a.next();
+  const result = await new Promise((resolve, reject) => {
+    const request = http.get({ socketPath: f.config.proxySocket, path: '/readyz' }, response => {
+      let body = ''; response.setEncoding('utf8'); response.on('data', data => { body += data; });
+      response.on('end', () => resolve({ status: response.statusCode, body }));
+    });
+    request.on('error', reject);
+  });
+  assert.deepEqual(result, { status: 200, body: 'ok' });
+});
+
+test('REQ-02/03: an endpoint inconsistent with live owner metadata is rejected before connecting', { timeout: 30000 }, async t => {
+  const f = await fixture(t); const a = f.client(); a.send(primary()); await a.next();
+  const file = path.join(f.config.stateDir, 'runtime.json');
+  const state = JSON.parse(fs.readFileSync(file)); state.endpoint = 'ws://127.0.0.1:1/rpc';
+  fs.writeFileSync(file, JSON.stringify(state));
+  const b = f.client(); b.send(primary());
+  await assert.rejects(b.next(), /shared runtime endpoint/);
 });

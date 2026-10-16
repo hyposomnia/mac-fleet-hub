@@ -9,7 +9,7 @@ function launchctl(command, key, value) {
   return execFileSync('/bin/launchctl', [command, key, ...(value === undefined ? [] : [value])], { encoding: 'utf8' }).replace(/\n$/, '');
 }
 
-export function configureDesktopEnvironment({ mode, launcher, snapshotPath, launchctl: run = launchctl }) {
+export function configureDesktopEnvironment({ mode, launcher, snapshotPath, previousValues = {}, launchctl: run = launchctl }) {
   if (!['shared', 'clear', 'check', 'commit', 'rollback'].includes(mode)) throw new Error('expected shared, clear, check, commit or rollback mode');
   if (!path.isAbsolute(launcher) || !path.isAbsolute(snapshotPath)) throw new Error('Desktop environment paths must be absolute');
   const operationPath = snapshotPath + '.operation';
@@ -37,7 +37,14 @@ export function configureDesktopEnvironment({ mode, launcher, snapshotPath, laun
   }
   if (mode === 'shared' && fresh) {
     privateDirectory(path.dirname(snapshotPath));
-    saved = { schema: 1, previous: current, applied: desired };
+    const original = { ...current };
+    for (const key of keys.slice(2)) {
+      if (previousValues[key] !== undefined) {
+        if (typeof previousValues[key] !== 'string') throw new Error('invalid legacy environment value');
+        original[key] = previousValues[key];
+      }
+    }
+    saved = { schema: 1, previous: original, applied: desired };
     fs.writeFileSync(snapshotPath, JSON.stringify(saved), { mode: 0o600, flag: 'wx' });
   }
   const mutate = (key, value) => value ? run('setenv', key, value) : run('unsetenv', key);
@@ -72,6 +79,13 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
   try {
     const directory = path.dirname(process.argv[2]);
     readPrivateJSON(process.argv[2]);
-    configureDesktopEnvironment({ mode: process.argv[3] || 'clear', launcher: path.join(directory, 'codex-desktop-launch.sh'), snapshotPath: path.join(directory, `codex-desktop-environment.${execFileSync('/bin/launchctl', ['managername'], { encoding: 'utf8' }).trim() === 'Aqua' ? 'Aqua' : 'Background'}.json`) });
+    const scope = execFileSync('/bin/launchctl', ['managername'], { encoding: 'utf8' }).trim() === 'Aqua' ? 'Aqua' : 'Background';
+    let previousValues = {};
+    if (process.argv[4]) {
+      const legacy = readPrivateJSON(process.argv[4]);
+      previousValues = legacy.user && legacy.aqua ? legacy[scope === 'Aqua' ? 'aqua' : 'user'] : legacy;
+      if (!previousValues || !keys.slice(2).every(key => typeof previousValues[key] === 'string')) throw new Error('invalid legacy environment snapshot');
+    }
+    configureDesktopEnvironment({ mode: process.argv[3] || 'clear', launcher: path.join(directory, 'codex-desktop-launch.sh'), snapshotPath: path.join(directory, `codex-desktop-environment.${scope}.json`), previousValues });
   } catch (error) { process.stderr.write(`mac-fleet Desktop environment: ${error.message}\n`); process.exit(1); }
 }

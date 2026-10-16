@@ -25,15 +25,14 @@ export function classifyHandshake(message) {
 }
 
 export function validateRuntimeConfig(config) {
-  let url;
-  try { url = new URL(config.listenURL); } catch { throw new Error('invalid shared listener'); }
-  if (url.protocol !== 'ws:' || url.hostname !== '127.0.0.1' || !url.port || Number(url.port) < 1 || url.pathname !== '/' || url.search || url.hash || url.username || url.password) {
-    throw new Error('shared listener must be ws://127.0.0.1:<port>');
-  }
+  const match = typeof config.listenURL === 'string' && /^ws:\/\/127\.0\.0\.1:([0-9]{1,5})\/?$/.exec(config.listenURL);
+  if (!match || Number(match[1]) < 1 || Number(match[1]) > 65535) throw new Error('shared listener must be ws://127.0.0.1:<port>');
+  const port = Number(match[1]);
+  const listenURL = `ws://127.0.0.1:${port}`;
   for (const key of ['proxySocket', 'stateDir', 'codexHome']) {
     if (typeof config[key] !== 'string' || !path.isAbsolute(config[key])) throw new Error(`${key} must be absolute`);
   }
-  return { ...config, listenURL: url.origin, endpoint: `${url.origin}/rpc`, port: Number(url.port) };
+  return { ...config, listenURL, endpoint: `${listenURL}/rpc`, port };
 }
 
 import fs from 'node:fs';
@@ -154,6 +153,7 @@ async function acquireLock(config) {
 }
 
 export function validateState(state, config, codexBin, desktop) {
+  if (state?.endpoint !== config.endpoint || typeof state.generation !== 'string' || !state.generation) throw new Error('invalid shared runtime endpoint or generation');
   if (state?.key !== configurationKey(config, codexBin) || !sameProcess(state.desktop, desktop)) throw new Error('shared runtime belongs to another Desktop instance or configuration');
   const owner = processIdentity(state.owner?.pid), codex = processIdentity(state.codex?.pid);
   if (!sameProcess(state.owner, owner) || owner.ppid !== desktop.pid || !sameProcess(state.codex, codex) || codex.ppid !== owner.pid) throw new Error('shared runtime process ancestry is stale');

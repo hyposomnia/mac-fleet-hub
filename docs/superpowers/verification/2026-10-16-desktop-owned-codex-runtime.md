@@ -20,6 +20,8 @@
 
 ## 自动验证
 
-`bash scripts/verify.sh` 最终一轮 exit 0：Go agent/enroll、355 个 dashboard JS、19 个 runtime/env/install 行为测试和全部 shell 层均通过。真实输出为 `ok fleet-agent 3.143s`（首轮），`ok fleet-enroll (cached)`，`tests 355 / pass 355 / fail 0`，`tests 19 / pass 19 / fail 0`，最后 `==> 全部验证通过 ✓`。
+`bash scripts/verify.sh` 最终一轮 exit 0：Go agent/enroll、355 个 dashboard JS、22 个 runtime/env/install 行为测试和全部 shell 层均通过。真实输出为 `ok fleet-agent 3.143s`（首轮），`ok fleet-enroll (cached)`，`tests 355 / pass 355 / fail 0`，`tests 22 / pass 22 / fail 0`，最后 `==> 全部验证通过 ✓`。
 
 源码验证、隔离实机验证与正式签名发布分别计数；此记录不声称生产部署完成。
+
+补充红绿测试覆盖 legacy GUI 快照迁移、显式 80 端口、真实 Unix proxy 双向流量和元数据端点不一致。最终全仓检查后再次确认生产 `/readyz` HTTP 200；隔离实例、临时认证及站点偏好已清理。SaaS 原生适配及其签名发行仍在对应分支维护。
