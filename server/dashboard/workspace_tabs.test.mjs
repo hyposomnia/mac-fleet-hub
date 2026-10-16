@@ -216,6 +216,7 @@ test('integration loads workspace before app, restores chat on navigation and is
 test('workspace tabs use compact icon labels and a single integrated header', async () => {
   const css = await readFile(new URL('./style.css', import.meta.url), 'utf8');
   assert.match(css, /\.workspace-tab-select \{[^}]*height: 28px;[^}]*padding: 0 9px;/);
+  assert.match(css, /\.workspace-tab\[data-selected="true"\] \{[^}]*background: var\(--chat-user-bg\);/);
   assert.doesNotMatch(css, /\.workspace-tab[^,{]*:hover/);
   assert.match(css, /#win\[data-workspace-tabs="true"\] > \.win-head \.info \{ display: none;/);
   const {api, elements: e} = setup(); api.open(url('a.md'));

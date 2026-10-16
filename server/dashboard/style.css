@@ -1384,7 +1384,7 @@ html[data-workspace-tab="true"] .preview-encoding-control::after { right: 10px; 
 #win[data-workspace-tabs="true"] > .win-head .info { display: none; }
 #win[data-workspace-tabs="true"] > .win-head > .iconbtn { width: 28px; height: 28px; }
 .workspace-tab { display: flex; align-items: center; flex: 0 1 220px; min-width: 90px; max-width: 220px; border: 0; border-radius: var(--radius-compact); background: transparent; color: var(--text-2); }
-.workspace-tab[data-selected="true"] { background: var(--surface-1); color: var(--text); box-shadow: var(--e1); }
+.workspace-tab[data-selected="true"] { background: var(--chat-user-bg); color: var(--text); box-shadow: var(--e1); }
 .workspace-tab-select { display: flex; align-items: center; gap: 7px; flex: 1; min-width: 0; height: 28px; min-height: 28px; padding: 0 9px; border: 0; border-radius: var(--radius-compact); font-size: var(--t-secondary); line-height: 1; }
 .workspace-tab-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .workspace-tab-icon { display: flex; flex: none; }
