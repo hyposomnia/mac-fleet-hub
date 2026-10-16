@@ -10,10 +10,15 @@ EXPECTED_BRANCH="${FLEET_RELEASE_BRANCH:-main}"
 die() { echo "✗ $*" >&2; exit 1; }
 step() { echo; echo "==> $*"; }
 ssh_retry() {
-  local port="$1" target="$2" description="$3" command="$4" attempt
+  local port="$1" target="$2" description="$3" command="$4" attempt status
   for attempt in 1 2 3; do
     echo ">>> ssh $target:$port — $description (attempt $attempt/3)"
-    if ssh -o BatchMode=yes -o ConnectTimeout=8 -p "$port" "$target" "$command"; then return 0; fi
+    if ssh -o BatchMode=yes -o ConnectTimeout=8 -p "$port" "$target" "$command"; then
+      return 0
+    else
+      status=$?
+      [[ "$status" == 255 ]] || die "远端步骤失败：$target:$port (exit=$status)"
+    fi
   done
   die "SSH 连续三次失败：$target:$port"
 }

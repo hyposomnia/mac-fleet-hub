@@ -2,6 +2,8 @@
 
 ## 2026-10-16
 
+- shared 配置迁移等待 agent 健康监听启动；配置发布只重试 SSH 连接故障，远端检查失败立即停止，避免重复替换服务。
+
 - Codex shared 运行时由 Desktop 经签名 Node CLI bridge 启动，保留内置浏览器所需进程祖先链；Desktop 与 Fleet 复用同一 listener 和物理 writer。增加系统锁并发启动、私有状态/代理校验、传输背压、大消息和崩溃回收；网络检查与预览进程保持官方 CLI 行为。
 - 原生客户端复用公共 hook 安装器，分别管理 GUI/user 域配置，后台包及其 Codex 脚本在同一事务内迁移和回滚；`doctor --fix` 保持 Desktop 对运行时的所有权。
 - shared 安装改用持久 CLI hook，保存并按所有权恢复 GUI 配置；迁移要求 Desktop 关闭和会话空闲，支持事务回滚，不自动结束 App。移除 agent 启动时注入旧 WebSocket GUI 设置的行为。Desktop 退出时报告不可用，不创建独立 writer。
