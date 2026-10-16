@@ -24,6 +24,9 @@ step "Shell 工具测试：tests/tailscale-utils_test.sh"
 bash "$ROOT/tests/tailscale-utils_test.sh"
 echo "tailscale-utils tests passed"
 
+step "Desktop-owned Codex runtime 行为测试：node --test"
+node --test "$ROOT/tests/codex-desktop-bridge.test.mjs" "$ROOT/tests/codex-desktop-env.test.mjs" "$ROOT/tests/codex-desktop-install.test.mjs"
+
 step "Mac shared 安装测试：tests/setup-mac-shared_test.sh"
 bash "$ROOT/tests/setup-mac-shared_test.sh"
 

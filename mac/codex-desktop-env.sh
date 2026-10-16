@@ -1,24 +1,11 @@
-#!/bin/sh
-set -eu
-
-mode=${1:-clear}
-endpoint=${2:-}
-
-case "$mode" in
-  shared)
-    case "$endpoint" in
-      ws://127.0.0.1:*|ws://localhost:*|ws://\[::1\]:*) ;;
-      *) echo "invalid Codex Desktop shared endpoint: $endpoint" >&2; exit 64 ;;
-    esac
-    /bin/launchctl unsetenv CODEX_APP_SERVER_USE_LOCAL_DAEMON 2>/dev/null || true
-    exec /bin/launchctl setenv CODEX_APP_SERVER_WS_URL "$endpoint"
-    ;;
-  clear)
-    /bin/launchctl unsetenv CODEX_APP_SERVER_USE_LOCAL_DAEMON 2>/dev/null || true
-    exec /bin/launchctl unsetenv CODEX_APP_SERVER_WS_URL
-    ;;
-  *)
-    echo "usage: codex-desktop-env.sh shared <ws-url> | clear" >&2
-    exit 64
-    ;;
-esac
+#!/bin/bash
+set -euo pipefail
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+CONFIG="${2:-$SCRIPT_DIR/codex-desktop.json}"
+# clear before first installation has no owned environment to restore.
+if [[ "${1:-clear}" == clear && ! -e "$CONFIG" ]]; then exit 0; fi
+source "$SCRIPT_DIR/codex-bin-resolve.sh"
+export FLEET_CODEX_DESKTOP_APP_PATH
+FLEET_CODEX_DESKTOP_APP_PATH="$(/usr/bin/plutil -extract appPath raw -o - "$CONFIG")"
+node_bin="$(fleet_resolve_keeper_node)"
+exec "$node_bin" "$SCRIPT_DIR/codex-desktop-env.mjs" "$CONFIG" "${1:-clear}"

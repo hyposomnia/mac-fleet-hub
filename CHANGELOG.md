@@ -1,5 +1,10 @@
 # Changelog
 
+## 2026-10-16
+
+- Codex shared 运行时由 Desktop 经签名 Node CLI bridge 启动，保留内置浏览器所需进程祖先链；Desktop 与 Fleet 复用同一 listener 和物理 writer。增加系统锁并发启动、私有状态/代理校验、传输背压、大消息和崩溃回收；网络检查与预览进程保持官方 CLI 行为。
+- shared 安装改用持久 CLI hook，保存并按所有权恢复 GUI 配置；迁移要求 Desktop 关闭和会话空闲，支持事务回滚，不自动结束 App。移除 agent 启动时注入旧 WebSocket GUI 设置的行为。Desktop 退出时报告不可用，不创建独立 writer。
+
 ## 2026-10-15
 
 - Fleet Agent / Web v226：shared 模式下网页可直接追加指令、停止、处理审批和修改权限设置，统一操作同一个 app-server 的当前轮次；会话快照携带共享模式，网页不再因轮次由 Desktop 发起而进入只读或等待接管。

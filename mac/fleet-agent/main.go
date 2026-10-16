@@ -33,7 +33,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"sort"
 	"strconv"
 	"strings"
@@ -53,8 +52,8 @@ type Config struct {
 	CodexBin          string // codex 可执行文件
 	CodexMode         string // app-server 连接模式：shared / isolated / daemon / auto / stdio
 	CodexSock         string // Fleet app-server endpoint：Unix socket 或 shared loopback WS
-	CodexDesktopURL   string // Desktop 直连 shared app-server 的 loopback WS URL
-	CodexDesktopShare bool   // 让 Codex.app 与 Fleet 连接同一个 loopback WebSocket app-server
+	CodexDesktopURL   string // shared listener 的 loopback WS URL（由安装器配置）
+	CodexDesktopShare bool   // 安装器启用 Desktop 拥有的共享运行时
 	MacIndex          string // 1/2/3 → 终端入口 /m{idx}/term
 	IdleSec           int64  // 空闲回收秒数（默认 1800）
 	AutoCmdR          bool   // 会话结束自动给 Desktop 发 Cmd+R
@@ -2001,10 +2000,6 @@ func main() {
 
 func runServer() {
 	cfg = loadConfig()
-	home, _ := os.UserHomeDir()
-	if err := configureCodexDesktopSharedDaemon(cfg, home, runtime.GOOS); err != nil {
-		log.Printf("配置 Codex.app app-server 连接策略失败；重启 App 后连接模式可能未更新：%v", err)
-	}
 	agentChatBackend = newAgentChatBackend()
 	var err error
 	agentChatQueue, err = openChatQueue(cfg.ChatQueueFile)

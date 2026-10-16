@@ -10,7 +10,7 @@
     <array>
         <string>__CODEX_DESKTOP_ENV_HELPER__</string>
         <string>__CODEX_DESKTOP_ENV_MODE__</string>
-        <string>__CODEX_DESKTOP_WS_URL__</string>
+        <string>__CODEX_HOOK_CONFIG__</string>
     </array>
     <key>RunAtLoad</key>
     <true/>

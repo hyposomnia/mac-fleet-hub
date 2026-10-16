@@ -2,7 +2,6 @@ package main
 
 import (
 	"os"
-	"reflect"
 	"regexp"
 	"testing"
 )
@@ -32,17 +31,7 @@ func TestLoadConfigDefaultsToSharedCodexWebSocket(t *testing.T) {
 	if !config.CodexDesktopShare {
 		t.Fatal("CodexDesktopShare got false want true")
 	}
-	wantLaunchctl := [][]string{
-		{"unsetenv", codexDesktopLocalDaemonEnv},
-		{"setenv", codexDesktopWebSocketEnv, codexSharedWebSocketEndpoint},
-	}
-	operations, err := codexDesktopLaunchctlOperations(config, "darwin")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got := launchctlArgs(operations); !reflect.DeepEqual(got, wantLaunchctl) {
-		t.Fatalf("default launchctl operations got %#v want %#v", got, wantLaunchctl)
-	}
+
 }
 
 func TestLoadConfigAllowsExplicitIsolatedCodexDaemon(t *testing.T) {
@@ -59,17 +48,7 @@ func TestLoadConfigAllowsExplicitIsolatedCodexDaemon(t *testing.T) {
 	if config.CodexDesktopShare {
 		t.Fatal("CodexDesktopShare got true want false")
 	}
-	wantLaunchctl := [][]string{
-		{"unsetenv", codexDesktopLocalDaemonEnv},
-		{"unsetenv", codexDesktopWebSocketEnv},
-	}
-	operations, err := codexDesktopLaunchctlOperations(config, "darwin")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got := launchctlArgs(operations); !reflect.DeepEqual(got, wantLaunchctl) {
-		t.Fatalf("isolated launchctl operations got %#v want %#v", got, wantLaunchctl)
-	}
+
 }
 
 // DSH 默认开启：装了 DSH Desktop 的机器只要 Desktop 一起来就该立刻能用，

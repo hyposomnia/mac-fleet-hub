@@ -110,47 +110,27 @@ env "${setup_env[@]}" bash "$SCRIPT_DIR/setup-mac.sh"
 
 ip="$(/opt/homebrew/bin/tailscale ip -4 | head -n1)"
 [[ -n "$ip" ]] || die "missing mesh IP after setup"
-curl -fsS --max-time 3 "http://127.0.0.1:${SHARED_PORT}/readyz" >/dev/null \
-  || die "shared app-server is not ready"
 curl -fsS --max-time 3 "http://${ip}:7682/api/health" | grep -qx ok \
   || die "fleet-agent is not healthy"
 
-echo "确认 turn 仍为空闲，然后确定性重启 ChatGPT Desktop ..."
-FLEET_CODEX_HOME="$CODEX_HOME_DIR" bash "$SCRIPT_DIR/check-codex-idle.sh"
-desktop_process_pid() {
-  /bin/ps -axo pid=,command= | awk -v cmd="$DESKTOP_APP/Contents/MacOS/ChatGPT" '$2 == cmd && NF == 2 && !found {print $1; found=1}'
-}
-/usr/bin/osascript -e 'tell application id "com.openai.codex" to quit' >/dev/null 2>&1 || true
+echo "shared CLI hook 已配置；现在启动 Desktop 并检查其拥有的运行时 ..."
+/usr/bin/open --env "CODEX_CLI_PATH=$HOME/.local/lib/macfleet/codex-desktop-launch.sh" \
+  --env CODEX_APP_SERVER_FORCE_CLI=1 --env CODEX_APP_SERVER_WS_URL \
+  --env CODEX_APP_SERVER_USE_LOCAL_DAEMON -a "$DESKTOP_APP"
+source "$SCRIPT_DIR/codex-bin-resolve.sh"
+node_bin="$(fleet_resolve_keeper_node)"
+status=""
 for _ in {1..30}; do
-  [[ -n "$(desktop_process_pid)" ]] || break
+  if status="$("$node_bin" "$SCRIPT_DIR/codex-desktop-install.mjs" status "$HOME/.local/lib/macfleet" 2>/dev/null)"; then break; fi
   sleep 1
 done
-if [[ -n "$(desktop_process_pid)" ]]; then
-  desktop_pid="$(desktop_process_pid)"
-  echo "ChatGPT 未响应 AppleScript quit；向已确认空闲的 PID ${desktop_pid} 发送 SIGTERM。"
-  kill -TERM "$desktop_pid"
-  for _ in {1..15}; do
-    kill -0 "$desktop_pid" 2>/dev/null || break
-    sleep 1
-  done
-  kill -0 "$desktop_pid" 2>/dev/null && die "ChatGPT ignored SIGTERM; refusing to use SIGKILL"
-fi
-/usr/bin/open --env "CODEX_APP_SERVER_WS_URL=$SHARED_WS_URL" -a "$DESKTOP_APP"
-
-desktop_pid=""
-for _ in {1..30}; do
-  desktop_pid="$(desktop_process_pid)"
-  if [[ -n "$desktop_pid" ]] && /usr/sbin/lsof -n -P -a -p "$desktop_pid" -iTCP:"$SHARED_PORT" 2>/dev/null | grep -q ESTABLISHED; then
-    break
-  fi
-  sleep 1
-done
-[[ -n "$desktop_pid" ]] || die "ChatGPT did not restart"
-/usr/sbin/lsof -n -P -a -p "$desktop_pid" -iTCP:"$SHARED_PORT" 2>/dev/null | grep -q ESTABLISHED \
-  || die "ChatGPT did not connect to shared app-server"
-if /bin/ps -axo ppid=,command= | awk -v pid="$desktop_pid" '$1 == pid && /codex .*app-server/ {found=1} END {exit !found}'; then
-  die "ChatGPT still spawned a private app-server"
-fi
+[[ -n "$status" ]] || die "Desktop-owned shared runtime did not become ready"
+desktop_pid="$(json_field "$status" desktopPid)"
+owner_pid="$(json_field "$status" ownerPid)"
+server_pid="$(json_field "$status" codexPid)"
+[[ -n "$desktop_pid" && -n "$owner_pid" && -n "$server_pid" ]] || die "runtime status omitted process identities"
+/usr/sbin/lsof -n -P -a -p "$owner_pid" -iTCP:"$SHARED_PORT" 2>/dev/null | grep -q ESTABLISHED \
+  || die "Desktop bridge did not connect to shared app-server"
 
 # A read-only skills request forces fleet-agent to initialize its own WS client.
 agent_api_retry 10 30 -H 'Content-Type: application/json' \
@@ -180,16 +160,5 @@ if [[ -n "$probe_session" ]]; then
   [[ "$lock_owner" == "$server_pid" ]] || die "thread writer PID is $lock_owner, expected shared server $server_pid"
 fi
 
-desktop_mcp="$DESKTOP_APP/Contents/Resources/plugins/openai-bundled/plugins/codex-app-tools/desktop-mcp.json"
-if [[ -f "$desktop_mcp" ]]; then
-  app_tools_pid=""
-  for _ in {1..45}; do
-    app_tools_pid="$(pgrep -P "$server_pid" -f 'codex-app-tools/server.mjs|server.mjs' | head -n1 || true)"
-    [[ -n "$app_tools_pid" ]] && break
-    sleep 1
-  done
-  [[ -n "$app_tools_pid" ]] || die "Codex App tools MCP did not become ready"
-fi
-
 codesign --verify --deep --strict "$HOME/.local/bin/fleet-agent"
-echo "shared_uat_ok host=$(hostname) server_pid=$server_pid desktop_pid=$desktop_pid agent_pid=$agent_pid writer_pid=${lock_owner:-none} app_tools_pid=${app_tools_pid:-unsupported} backup=$backup_dir"
+echo "shared_uat_ok host=$(hostname) server_pid=$server_pid desktop_pid=$desktop_pid agent_pid=$agent_pid writer_pid=${lock_owner:-none} backup=$backup_dir"
