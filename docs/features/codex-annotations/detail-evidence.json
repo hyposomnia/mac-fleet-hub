@@ -1,0 +1,98 @@
+{
+  "date": "2026-10-16",
+  "passed": 9,
+  "checks": [
+    "添加到对话浮层和内部按钮均为两端半圆",
+    "点击空白处清除原生选区并关闭菜单，pointerup 不重新显示",
+    "输入框注释数量附件使用半圆胶囊",
+    "清除临时选区保留已保存注释、编号和 composer 附件",
+    "明暗 × 桌面手机四态光标行框中心与浮层中心误差小于 0.5px",
+    "四态保持 44 / 48px 紧凑高度且无横向溢出",
+    "浅色与深色实际 ::selection RGB 均来自当前主题 accent",
+    "光标居中调整后仍可 Shift+Enter 换行和自动增高",
+    "浏览器无 error / warn 日志"
+  ],
+  "geometry": [
+    {
+      "activeHighlight": "color-mix(in srgb,#356b5b 32%,transparent)",
+      "caretLineCenterOffset": 0,
+      "editor": {
+        "height": 44,
+        "radius": "999px",
+        "width": 294
+      },
+      "lineHeight": 20,
+      "paddingTop": 8,
+      "scrollWidth": 1440,
+      "selectionBackground": "color(srgb 0.207843 0.419608 0.356863 / 0.22)",
+      "theme": "light",
+      "themeAccent": "#356b5b",
+      "width": 1440
+    },
+    {
+      "activeHighlight": "color-mix(in srgb,#78b59d 36%,transparent)",
+      "caretLineCenterOffset": 0,
+      "editor": {
+        "height": 44,
+        "radius": "999px",
+        "width": 294
+      },
+      "lineHeight": 20,
+      "paddingTop": 8,
+      "scrollWidth": 1440,
+      "selectionBackground": "color(srgb 0.470588 0.709804 0.615686 / 0.26)",
+      "theme": "dark",
+      "themeAccent": "#78b59d",
+      "width": 1440
+    },
+    {
+      "activeHighlight": "color-mix(in srgb,#78b59d 36%,transparent)",
+      "caretLineCenterOffset": 0,
+      "editor": {
+        "height": 48,
+        "radius": "999px",
+        "width": 344
+      },
+      "lineHeight": 24,
+      "paddingTop": 6,
+      "scrollWidth": 390,
+      "selectionBackground": "color(srgb 0.470588 0.709804 0.615686 / 0.26)",
+      "theme": "dark",
+      "themeAccent": "#78b59d",
+      "width": 390
+    },
+    {
+      "activeHighlight": "color-mix(in srgb,#356b5b 32%,transparent)",
+      "caretLineCenterOffset": 0,
+      "editor": {
+        "height": 48,
+        "radius": "999px",
+        "width": 344
+      },
+      "lineHeight": 24,
+      "paddingTop": 6,
+      "scrollWidth": 390,
+      "selectionBackground": "color(srgb 0.207843 0.419608 0.356863 / 0.22)",
+      "theme": "light",
+      "themeAccent": "#356b5b",
+      "width": 390
+    }
+  ],
+  "addMenuGeometry": {
+    "buttonRadius": "999px",
+    "height": 44.796875,
+    "radius": "999px",
+    "width": 97
+  },
+  "chipGeometry": {
+    "height": 36,
+    "radius": "999px",
+    "width": 132.9453125
+  },
+  "blankClick": {
+    "menuHidden": true,
+    "ranges": 1,
+    "text": ""
+  },
+  "errors": []
+}

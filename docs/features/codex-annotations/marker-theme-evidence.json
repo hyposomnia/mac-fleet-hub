@@ -1,0 +1,71 @@
+{
+  "date": "2026-10-16",
+  "passed": 5,
+  "states": [
+    {
+      "markers": [
+        {
+          "background": "rgb(53, 107, 91)",
+          "color": "rgb(255, 255, 255)",
+          "number": "1"
+        }
+      ],
+      "scrollWidth": 1440,
+      "theme": "light",
+      "width": 1440,
+      "accent": "#356b5b"
+    },
+    {
+      "markers": [
+        {
+          "background": "rgb(120, 181, 157)",
+          "color": "rgb(0, 0, 0)",
+          "number": "1"
+        }
+      ],
+      "scrollWidth": 1440,
+      "theme": "dark",
+      "width": 1440,
+      "accent": "#78b59d"
+    },
+    {
+      "markers": [
+        {
+          "background": "rgb(120, 181, 157)",
+          "color": "rgb(0, 0, 0)",
+          "number": "1"
+        }
+      ],
+      "scrollWidth": 390,
+      "theme": "dark",
+      "width": 390,
+      "accent": "#78b59d"
+    },
+    {
+      "markers": [
+        {
+          "background": "rgb(53, 107, 91)",
+          "color": "rgb(255, 255, 255)",
+          "number": "1"
+        }
+      ],
+      "scrollWidth": 390,
+      "theme": "light",
+      "width": 390,
+      "accent": "#356b5b"
+    },
+    {
+      "markers": [
+        {
+          "background": "rgb(53, 107, 91)",
+          "color": "rgb(255, 255, 255)",
+          "number": "2"
+        }
+      ],
+      "scrollWidth": 390,
+      "theme": "light",
+      "width": 390,
+      "accent": "#356b5b"
+    }
+  ]
+}

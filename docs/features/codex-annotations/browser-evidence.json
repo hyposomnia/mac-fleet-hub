@@ -1,0 +1,106 @@
+{
+  "date": "2026-10-16",
+  "environment": "Google Chrome via CUA; local static prototype only",
+  "passed": 18,
+  "checks": [
+    "桌面单行浮层 294×44px，垂直内边距 2px",
+    "浮层只有输入与一个保存勾选，没有底部工具行",
+    "Enter 保存后出现数量附件，编辑器关闭",
+    "Esc 删除正在编辑的已保存草稿与对应附件",
+    "Esc 删除新建注释临时标记",
+    "删除首条注释后剩余注释重新编号，主草稿保留",
+    "Codex 回复保持 codex-annotation 命名空间",
+    "Codex 保留原生包络首换行与 codex-annotation 提示",
+    "DeepSeek 样例回复使用模型无关的 fleet-annotation",
+    "Fleet 自有上下文没有 Codex 或 DSH 名称",
+    "Fleet 自有格式只传选文与评论，不冒用原生 source",
+    "明暗 × 桌面手机四态无横向溢出",
+    "四态胶囊高度为桌面 44px / 手机 48px，半圆端帽",
+    "注释设计稿没有 hover 视觉样式",
+    "手机保存按钮保持 44×44px 命中区",
+    "Shift+Enter 换行保留胶囊形态，评论区受高度限制",
+    "空评论仍可保存并从 composer 发送",
+    "本轮浏览器无 error / warn 日志"
+  ],
+  "geometry": [
+    {
+      "editor": {
+        "height": 44,
+        "radius": "999px",
+        "width": 294
+      },
+      "hoverRules": 0,
+      "save": {
+        "height": 32,
+        "width": 32
+      },
+      "scrollWidth": 1440,
+      "theme": "light",
+      "width": 1440
+    },
+    {
+      "editor": {
+        "height": 44,
+        "radius": "999px",
+        "width": 294
+      },
+      "hoverRules": 0,
+      "save": {
+        "height": 32,
+        "width": 32
+      },
+      "scrollWidth": 1440,
+      "theme": "dark",
+      "width": 1440
+    },
+    {
+      "editor": {
+        "height": 48,
+        "radius": "999px",
+        "width": 344
+      },
+      "hoverRules": 0,
+      "save": {
+        "height": 44,
+        "width": 44
+      },
+      "scrollWidth": 390,
+      "theme": "dark",
+      "width": 390
+    },
+    {
+      "editor": {
+        "height": 48,
+        "radius": "999px",
+        "width": 344
+      },
+      "hoverRules": 0,
+      "save": {
+        "height": 44,
+        "width": 44
+      },
+      "scrollWidth": 390,
+      "theme": "light",
+      "width": 390
+    }
+  ],
+  "formats": {
+    "codex": [
+      ":codex-annotation{index=\"1\"}",
+      ":codex-annotation{index=\"2\"}"
+    ],
+    "fleet": [
+      ":fleet-annotation{index=\"1\"}",
+      ":fleet-annotation{index=\"2\"}"
+    ],
+    "fleetPromptContainsModelName": false,
+    "fleetOmittedNativeSource": true
+  },
+  "errors": [],
+  "limits": [
+    "No production API or model requests",
+    "No native Codex / DSH interoperability UAT",
+    "No native touch selection, virtual keyboard or PWA UAT",
+    "Prototype uses in-memory drafts"
+  ]
+}
