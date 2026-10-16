@@ -245,9 +245,8 @@ struct SessionPanel: View {
     var compact = false
     let pinned: Bool
     let togglePin: () -> Void
-    @State private var renameTarget: FleetSession?
-    @State private var renameValue = ""
     @State private var deleteTarget: FleetSession?
+    @FocusState private var searchFocused: Bool
 
     private var recent: Bool { store.snapshot?.view == "recent" }
     private var ordered: [FleetSession] {
@@ -258,7 +257,7 @@ struct SessionPanel: View {
         VStack(spacing: 0) {
             VStack(spacing: compact ? 10 : 9) {
             HStack(spacing: 10) {
-                assistantPicker
+                assistantPicker.disabled(store.busy)
                 if !compact {
                 Button(action: togglePin) { Image(systemName: pinned ? "pin.fill" : "pin.slash") }
                     .buttonStyle(TitaniumIconButtonStyle(size: 36, foreground: pinned ? "accent-text" : "text-1", background: pinned ? style.selection : .clear, radius: "compact"))
@@ -272,14 +271,17 @@ struct SessionPanel: View {
                     .buttonStyle(TitaniumIconButtonStyle(size: compact ? 44 : 36, foreground: store.snapshot?.archived == true ? "accent-text" : "text-1", background: store.snapshot?.archived == true ? style.selection : .clear, radius: compact ? "control" : "compact"))
                     .accessibilityLabel(store.snapshot?.archived == true ? "显示当前会话" : "显示已归档会话")
                     .accessibilityIdentifier("session-archive-toggle")
+                    .disabled(store.busy)
                 Button { store.send("view", values: ["view": recent ? "project" : "recent"]) } label: {
                     Image(systemName: recent ? "folder" : "clock")
                 }
                 .buttonStyle(TitaniumIconButtonStyle(size: compact ? 44 : 36, foreground: recent ? "accent-text" : "text-1", background: recent ? style.selection : .clear, radius: compact ? "control" : "compact")).accessibilityLabel(recent ? "按项目分组" : "按最近更新排序")
                 .accessibilityIdentifier("session-view-toggle")
+                .disabled(store.busy)
                 HStack(spacing: 7) {
                     Image(systemName: "magnifyingglass").font(.system(size: 15)).foregroundStyle(style.color("text-2"))
                     TextField(store.snapshot?.archived == true ? "搜索已归档会话" : "搜索全部未归档会话", text: $store.search)
+                        .focused($searchFocused).submitLabel(.search).onSubmit { searchFocused = false }
                         .textInputAutocapitalization(.never).autocorrectionDisabled()
                         .accessibilityIdentifier("session-search")
                         .font(TitaniumStyle.font(compact ? "control" : "secondary"))
@@ -291,9 +293,9 @@ struct SessionPanel: View {
                 .background(style.color("surface-2"), in: RoundedRectangle(cornerRadius: TitaniumStyle.radius(compact ? "control" : "compact")))
                 Button(action: newSession) { Image(systemName: "plus") }
                     .buttonStyle(TitaniumIconButtonStyle(size: compact ? 44 : 36, foreground: "accent-contrast", background: style.color("accent"), radius: compact ? "control" : "compact")).accessibilityLabel("新建无项目会话")
-                    .accessibilityIdentifier("new-session").disabled(!store.canCreateSession)
+                    .accessibilityIdentifier("new-session").disabled(!store.canCreateSession || store.busy)
             }
-            }.padding(.horizontal, compact ? 14 : 10).padding(.top, compact ? 10 : 14).padding(.bottom, 10).disabled(store.busy)
+            }.padding(.horizontal, compact ? 14 : 10).padding(.top, compact ? 10 : 14).padding(.bottom, 10)
             if store.snapshot?.assistant == .dsh {
                 if store.snapshot?.degraded == true {
                     Text("DSH Desktop 未运行，当前仅显示磁盘会话（只读）").font(.footnote).padding(8)
@@ -341,17 +343,10 @@ struct SessionPanel: View {
             .refreshable { store.send("refresh") }
         }
         .onChange(of: store.search) { _, _ in store.searchChanged() }
+        .onChange(of: store.openedSequence) { _, _ in searchFocused = false }
+        .onDisappear { searchFocused = false }
         .background(style.color("bg")).accessibilityElement(children: .contain)
         .accessibilityIdentifier("session-panel")
-        .alert("重命名会话", isPresented: Binding(get: { renameTarget != nil }, set: { if !$0 { renameTarget = nil } }), presenting: renameTarget) { session in
-            TextField("会话名称", text: $renameValue)
-            Button("取消", role: .cancel) { renameTarget = nil }
-            Button("保存") {
-                store.action("rename", session: session, value: renameValue)
-                renameTarget = nil
-            }.keyboardShortcut(.defaultAction)
-                .disabled(renameValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-        }
         .alert("永久删除会话？", isPresented: Binding(get: { deleteTarget != nil }, set: { if !$0 { deleteTarget = nil } }), presenting: deleteTarget) { session in
             Button("取消", role: .cancel) { deleteTarget = nil }
             Button("删除", role: .destructive) {
@@ -484,7 +479,7 @@ struct SessionPanel: View {
         }
         let pin = session.pinned ? "unpin" : "pin"
         if actions.contains(pin) { Button(session.pinned ? "取消置顶" : "置顶") { store.action(pin, session: session) } }
-        if actions.contains("rename") { Button("重命名") { renameValue = session.title; renameTarget = session } }
+        if actions.contains("rename") { Button("重命名") { searchFocused = false; store.nativeSheet = .rename(session) } }
         if actions.contains("delete") { Button("删除", role: .destructive) { deleteTarget = session } }
     }
 }

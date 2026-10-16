@@ -1,5 +1,49 @@
 import SwiftUI
 
+struct NativeSessionRenameEditor: View {
+    @ObservedObject var store: FleetStore
+    let session: FleetSession
+    @State private var name: String
+
+    init(store: FleetStore, session: FleetSession) {
+        self.store = store
+        self.session = session
+        _name = State(initialValue: session.title)
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            NativeDrawerHeader(title: "重命名会话", close: close)
+            ScrollView {
+                NativeCard(title: "") {
+                    NativeField(title: "会话名称", value: $name)
+                }.padding(16).frame(maxWidth: 800).frame(maxWidth: .infinity)
+            }.scrollDismissesKeyboard(.interactively)
+            HStack {
+                Button("取消", action: close)
+                Spacer()
+                Button("保存") {
+                    guard canSave else { return }
+                    store.action("rename", session: session, value: name)
+                    close()
+                }.buttonStyle(NativePrimaryButtonStyle())
+                    .disabled(!canSave)
+            }.padding(16)
+        }.accessibilityElement(children: .contain).accessibilityIdentifier("native-session-rename")
+            .onDisappear { store.webView?.window?.endEditing(true) }
+    }
+
+    private var canSave: Bool {
+        store.ready && !store.busy && !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
+            store.sessions.contains(where: { $0.id == session.id && $0.actions?.contains("rename") == true })
+    }
+
+    private func close() {
+        store.webView?.window?.endEditing(true)
+        store.nativeSheet = nil
+    }
+}
+
 struct NativeDeviceEditor: View {
     @Environment(\.fleetStyle) private var style
     @ObservedObject var store: FleetStore

@@ -2,6 +2,7 @@
 
 最新 Web 交互差异与共用边界：[交互对齐记录](../docs/ios-web-interaction-parity.md)。
 本轮 SaaS 与真机安装证据：[2026-10-15 UAT 记录](../docs/ios-saas-uat-2026-10-15.md)。
+Duo 双状态与软键盘验证：[2026-10-16 适配记录](../docs/ios-duo-uat-2026-10-16.md)。
 
 原生 SwiftUI 设备栏、会话栏与现有 dashboard 会话窗口组合。最低 iOS 17；普通 iPhone、宽屏展开状态和 iPad 共用一套实现。iPhone Duo 不依赖未经验证的机型名称、屏幕尺寸或铰链 API，按窗口实际可用宽度适配。
 
@@ -22,6 +23,8 @@
 ## 构建
 
 打开已经生成并入库的 `FleetHub.xcodeproj`，选择 FleetHub scheme 和 iPhone / iPad 模拟器。真机安装前在 Xcode 配置自己的开发 Team。
+
+Duo 必须使用 Xcode 27.1 SDK 构建并选择 iOS 27.1 的 iPhone Duo。仅安装新 Xcode 而仍由旧的 `xcode-select` 路径构建，会继续使用旧 SDK 的兼容布局。可用 `DEVELOPER_DIR=/path/to/Xcode.app/Contents/Developer` 为构建和 `xcrun` 单独选用新工具链，不必修改系统默认值。Duo 的设备界面由新版 Device Hub 提供，不是旧 Simulator.app。
 
 若修改项目定义，使用 XcodeGen 重新生成：
 
@@ -70,7 +73,22 @@ xcodebuild -project FleetHub.xcodeproj -scheme FleetHub \
   -derivedDataPath /tmp/fleet-ios-tests CODE_SIGNING_ALLOWED=NO test
 ```
 
-再选择宽屏模拟器（例如 iPad Air 11-inch），验证三栏和独立收起。设备名称和 runtime 可按 `xcrun simctl list devices available` 调整。UI 测试的本地 HTTP 网关参数仅在 Debug 接受，Release 仍只接受 HTTPS。测试数据不包含真实账号或节点。
+再选择 iPhone Duo，使用 Device Hub 的 Closed / Open 验证同一进程的折叠往返；宽屏 iPad 只用于额外窗口尺寸回归，不能代替 Duo。设备名称和 runtime 可按 `xcrun simctl list devices available` 调整。UI 测试的本地 HTTP 网关参数仅在 Debug 接受，Release 仍只接受 HTTPS。测试数据不包含真实账号或节点。
+
+键盘回归前，在 Device Hub 的 Device → Keyboard 中关闭 Simulate Hardware Keyboard。若该显示表面曾手动隐藏软键盘，点击输入框后用 Toggle Software Keyboard 恢复显示，再不干预地重新运行测试；手动切换中的诊断轮不计作通过。`testSoftwareKeyboard*` 必须能找到完整字母/数字按键，并验证键盘与当前窗口的实际交集高度及输入框不被遮挡；仅有键盘工具条或屏幕外的键盘节点不计通过。覆盖搜索、原生重命名、聊天草稿、设备名、URL、数字、密码和文件命名。
+
+连续折叠用例默认跳过；先启动 fixture，再显式启用并单独运行：
+
+```sh
+curl -fsS -X POST -H 'Content-Type: application/json' \
+  -d '{"enabled":true,"stage":"idle"}' http://localhost:18765/__duo
+xcodebuild -project iOS/FleetHub.xcodeproj -scheme FleetHub \
+  -destination 'platform=iOS Simulator,name=iPhone Duo,OS=27.1' \
+  -parallel-testing-enabled NO -collect-test-diagnostics never \
+  -only-testing:FleetHubUITests/FleetHubDuoUITests CODE_SIGNING_ALLOWED=NO test
+```
+
+用 `curl -fsS http://localhost:18765/__duo` 读取阶段，依次在 Device Hub 执行 `close-before-start` → Closed、`open-with-keyboard` → Open、`close-with-settings` → Closed、`reopen-preserving-sidebars` → Open。每阶段最多等待五分钟；完成后须看到 `complete` 及首页加载/会话恢复各一次、消息发送零次。恢复普通回归前 POST `{"enabled":false}`。Duo 自动旋转后使用实际 UIWindow 的边界做断言，不能使用仍指向外屏坐标的 XCUIApplication.frame。
 
 额外浏览器回归需安装 Playwright 并使用本机 Chrome：
 

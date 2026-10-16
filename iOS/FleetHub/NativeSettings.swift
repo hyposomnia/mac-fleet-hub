@@ -59,21 +59,32 @@ struct NativeField: View {
     @FocusState private var focused: Bool
     var body: some View {
         VStack(alignment: .leading, spacing: 7) {
-            HStack {
-                Text(title).font(.system(size: 13)).foregroundStyle(style.color("text-1"))
-                Spacer(minLength: 8)
-                Button("完成输入") { focused = false }
-                    .font(.caption).foregroundStyle(style.color("accent-text"))
-                    .opacity(focused ? 1 : 0).allowsHitTesting(focused).accessibilityHidden(!focused)
-            }.frame(minHeight: 32)
+            NativeFieldLabel(title: title, focused: focused) { focused = false }
             Group {
                 if secure { SecureField(title, text: $value) }
                 else { TextField(title, text: $value).keyboardType(keyboard) }
             }
             .focused($focused).textInputAutocapitalization(.never).autocorrectionDisabled()
+            .submitLabel(.done).onSubmit { focused = false }
             .font(.system(size: 16)).padding(.horizontal, 12).frame(minHeight: 44)
             .background(style.color("surface-2"), in: RoundedRectangle(cornerRadius: 12))
         }
+    }
+}
+
+struct NativeFieldLabel: View {
+    @Environment(\.fleetStyle) private var style
+    let title: String
+    let focused: Bool
+    var done: () -> Void
+    var body: some View {
+        HStack {
+            Text(title).font(.system(size: 13)).foregroundStyle(style.color("text-1"))
+            Spacer(minLength: 8)
+            Button("完成输入", action: done)
+                .font(.caption).foregroundStyle(style.color("accent-text"))
+                .opacity(focused ? 1 : 0).allowsHitTesting(focused).accessibilityHidden(!focused)
+        }.frame(minHeight: 32)
     }
 }
 
