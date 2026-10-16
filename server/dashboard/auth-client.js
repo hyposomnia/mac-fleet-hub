@@ -26,6 +26,7 @@
     }
 
     function clearPrivate(identity = user?.id) {
+      const annotationCleanup = environment.clearAnnotationDrafts?.(identity);
       for (const name of ['localStorage', 'sessionStorage']) {
         try {
           const storage = environment[name];
@@ -35,19 +36,22 @@
           }
         } catch (_) {}
       }
+      return annotationCleanup;
     }
 
     function invalidate({ broadcast = true, returnTo } = {}) {
       if (expired) return;
       expired = true;
       generation++;
-      clearPrivate();
+      const cleanup = clearPrivate();
       user = null;
       csrfToken = '';
       environment.onUnauthorized?.();
       if (broadcast) broadcastChange();
       const next = safeNext(returnTo ?? (environment.location.pathname + environment.location.search));
-      environment.location.replace(`/auth${next === '/' ? '' : `?next=${encodeURIComponent(next)}`}`);
+      const redirect = () => environment.location.replace(`/auth${next === '/' ? '' : `?next=${encodeURIComponent(next)}`}`);
+      if (cleanup?.then) return cleanup.then(redirect, redirect);
+      redirect();
     }
 
     function broadcastChange() {
@@ -131,7 +135,7 @@
 
     async function logout() {
       await json('/api/auth/logout', { method: 'POST' });
-      invalidate({ returnTo: '/' });
+      return invalidate({ returnTo: '/' });
     }
 
     function storageKey(key) {
@@ -160,6 +164,7 @@
     const nativeFetch = root.fetch.bind(root);
     const client = createClient({ fetch: nativeFetch, location: root.location,
       get localStorage() { return root.localStorage; }, get sessionStorage() { return root.sessionStorage; },
+      clearAnnotationDrafts: (identity) => root.FleetAnnotations?.clearAccount(identity).catch((error) => root.console.warn('无法清除注释草稿', error)),
       onIdentity: () => { root.FleetTheme?.refresh(); root.FleetTheme?.refreshPalette().catch(() => {}); },
       onUnauthorized: () => {
         root.document.documentElement.dataset.auth = 'expired';

@@ -3577,6 +3577,10 @@ func collabToolTitle(tool string) string {
 
 func visibleCodexHistoryUserText(s string) string {
 	text := strings.TrimSpace(s)
+	// Preserve native annotation envelopes, including the leading newline.
+	if strings.HasPrefix(s, "\n# Response annotations:\n") {
+		return s
+	}
 	if strings.HasPrefix(text, "# Files mentioned by the user") {
 		for _, marker := range []string{"## My request for Codex:", "## My request:"} {
 			if i := strings.Index(text, marker); i >= 0 {

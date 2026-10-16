@@ -1,0 +1,51 @@
+2026-10-16 / macOS
+Command: bash scripts/verify.sh
+Exit status: 0
+
+==> Go 测试：mac/fleet-agent (go test ./...)
+ok  	fleet-agent	(cached)
+==> 原生组网验证：系统路由、IP TLS 目标身份及证书拒绝条件
+ok  	fleet-agent	1.078s
+==> Go 测试：server/enroll (go test ./...)
+ok  	fleet-enroll	(cached)
+ok  	fleet-enroll/multiuser	(cached)
+==> Dashboard JS 测试：server/dashboard (node --test)
+==> 候选安装包与独立网关配置测试
+==> 原生设置应用：校验 Sparkle SDK 与 Swift 测试
+	 Executed 11 tests, with 0 failures (0 unexpected) in 0.003 (0.004) seconds
+	 Executed 8 tests, with 0 failures (0 unexpected) in 0.010 (0.011) seconds
+	 Executed 5 tests, with 0 failures (0 unexpected) in 0.002 (0.002) seconds
+	 Executed 1 test, with 0 failures (0 unexpected) in 0.000 (0.000) seconds
+	 Executed 6 tests, with 0 failures (0 unexpected) in 4.053 (4.053) seconds
+	 Executed 31 tests, with 0 failures (0 unexpected) in 4.068 (4.071) seconds
+	 Executed 31 tests, with 0 failures (0 unexpected) in 4.068 (4.072) seconds
+	 Executed 8 tests, with 0 failures (0 unexpected) in 0.013 (0.014) seconds
+	 Executed 10 tests, with 0 failures (0 unexpected) in 0.018 (0.018) seconds
+	 Executed 4 tests, with 0 failures (0 unexpected) in 0.007 (0.007) seconds
+	 Executed 3 tests, with 0 failures (0 unexpected) in 0.007 (0.007) seconds
+	 Executed 4 tests, with 0 failures (0 unexpected) in 0.002 (0.002) seconds
+	 Executed 2 tests, with 0 failures (0 unexpected) in 0.000 (0.000) seconds
+	 Executed 4 tests, with 0 failures (0 unexpected) in 0.002 (0.002) seconds
+	 Executed 35 tests, with 0 failures (0 unexpected) in 0.158 (0.160) seconds
+	 Executed 1 test, with 0 failures (0 unexpected) in 0.000 (0.000) seconds
+	 Executed 7 tests, with 0 failures (0 unexpected) in 0.703 (0.704) seconds
+	 Executed 13 tests, with 0 failures (0 unexpected) in 0.004 (0.005) seconds
+	 Executed 9 tests, with 0 failures (0 unexpected) in 0.006 (0.007) seconds
+	 Executed 3 tests, with 0 failures (0 unexpected) in 0.001 (0.002) seconds
+	 Executed 5 tests, with 0 failures (0 unexpected) in 0.001 (0.002) seconds
+	 Executed 5 tests, with 0 failures (0 unexpected) in 0.001 (0.001) seconds
+	 Executed 113 tests, with 0 failures (0 unexpected) in 0.924 (0.932) seconds
+	 Executed 113 tests, with 0 failures (0 unexpected) in 0.924 (0.933) seconds
+==> Shell 工具测试：tests/tailscale-utils_test.sh
+==> Desktop-owned Codex runtime 行为测试：node --test
+==> Mac shared 安装测试：tests/setup-mac-shared_test.sh
+==> 逐用户客户端授权：tests/client-authorization_test.sh
+==> Codex 路径解析回归（R2）：tests/codex-bin-resolve_test.sh
+==> 卸载还原 GUI 域环境变量回归（R1/R3）：tests/uninstall-restore_test.sh
+==> Codex 空闲迁移守卫测试：tests/check-codex-idle_test.sh
+==> Fleet 自更新安全守卫测试：tests/check-fleet-update-safe_test.sh
+==> nginx 站点配置测试：tests/nginx-config_test.sh
+==> 统一多用户部署测试：tests/multiuser-server_test.sh
+==> shell 变量花括号守卫：tests/bash-var-brace_test.sh
+==> shared 迁移 agent API 重试：tests/migrate-agent-retry_test.sh
+==> 全部验证通过 ✓

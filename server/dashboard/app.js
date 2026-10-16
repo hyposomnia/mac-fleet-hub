@@ -1275,7 +1275,7 @@ function estimateChatBytes(chat) {
   try { textBytes += JSON.stringify({
     historyCursor: chat.historyCursor, models: chat.models, efforts: chat.efforts, serviceTiers: chat.serviceTiers,
     selectedModel: chat.selectedModel, selectedEffort: chat.selectedEffort, selectedServiceTier: chat.selectedServiceTier,
-    approvalMode: chat.approvalMode, draft: chat.draft,
+    approvalMode: chat.approvalMode, draft: chat.draft, annotations: chat.annotations,
   }).length * 2; } catch (_) {}
   const imageIds = new Set();
   let imageBytes = 0;
@@ -1463,7 +1463,7 @@ function markSessionRead(session) {
     state.sessionReadAt.set(key, next);
     persistSessionReadState();
   }
-  const chat = state.chatCache.get(chatCacheKey(session.macId, session.sessionId));
+  const chat = state.chatCache.get(chatCacheKey(session.macId, session.sessionId, session.assistant));
   if (chat) chat.unread = false;
   // The agent owns the shared cursor; another browser will receive it on the next list refresh.
   // Do not send a wall-clock timestamp: it would mark replies arriving shortly afterward as read.
@@ -1489,7 +1489,7 @@ function sessionIsUnread(session) {
   if (session.desktopUnread === true) return true;
   const readAt = Math.max(sharedReadAt, state.sessionReadAt.get(sessionKey(session)) || 0);
   if (readAt >= activity && readAt > 0) return false;
-  const chat = state.chatCache.get(chatCacheKey(session.macId, session.sessionId));
+  const chat = state.chatCache.get(chatCacheKey(session.macId, session.sessionId, session.assistant));
   if (chat?.unread) return true;
   return readAt > 0 && activity > readAt;
 }
@@ -1896,7 +1896,7 @@ function sessionRow(s) {
   const assistant = s.assistant || state.assistant;
   const capabilities = assistantCapabilities(assistant, macId);
   const selfDraw = canSelfDrawChat(assistant, macId);
-  const chatConnected = capabilities.selfDraw && isChatConnectionKept(macId, sid);
+  const chatConnected = capabilities.selfDraw && isChatConnectionKept(macId, sid, assistant);
   const sessionRunning = capabilities.selfDraw && isSessionRunning(s, macId);
   const live = !!s.pty; // 兼容 agent 返回的既有进程状态
   const pin = s.pinned
@@ -1993,7 +1993,7 @@ async function mutateSession(session, action, value = '', { throwOnError = false
       body: JSON.stringify({ assistant: session.assistant || state.assistant, sessionId: session.sessionId, action, value }),
     });
     if (action === 'delete') {
-      const key = chatCacheKey(session.macId, session.sessionId);
+      const key = chatCacheKey(session.macId, session.sessionId, session.assistant);
       const chat = state.chatCache.get(key);
       if (chat) {
         if (state.chat === chat) { closeChatPane(); showEmpty(); }
@@ -2413,7 +2413,7 @@ function restoreTermOrEmpty() {
   const macId = state.selectedSessionMacId, sessionId = state.selectedSid;
   const assistant = state.selectedSessionAssistant || state.assistant;
   if (macId && sessionId && assistant === state.assistant && canSelfDrawChat(assistant, macId)) {
-    const cached = state.chatCache.get(chatCacheKey(macId, sessionId));
+    const cached = state.chatCache.get(chatCacheKey(macId, sessionId, assistant));
     const chat = cached?.assistant === assistant ? cached : null;
     if (chat && state.chat === chat) {
       window.FleetWorkspaceTabs?.activateSession?.(sessionKey(chat));
@@ -2433,8 +2433,8 @@ function restoreTermOrEmpty() {
 // ============================================================
 //  Codex 自绘会话（实验）：独立于 ttyd / iframe pool，仅替换右侧窗口区域
 // ============================================================
-function chatCacheKey(macId, sessionId) {
-  return `${macId || ''}\n${sessionId || ''}`;
+function chatCacheKey(macId, sessionId, assistant = state.assistant) {
+  return `${macId || ''}\n${assistant || 'codex'}\n${sessionId || ''}`;
 }
 
 function normalizeChatDraft(value) {
@@ -2606,6 +2606,7 @@ function selectChatSkill(index = state.chat?.skillMenu?.index || 0) {
 function saveChatDraft(chat = state.chat) {
   const input = $('#chat-input');
   if (chat && input) chat.draft = normalizeChatDraft(input.value);
+  persistAnnotationDraft(chat);
 }
 
 function isChatRunning(chat) {
@@ -2740,6 +2741,7 @@ function applyChatControlSnapshot(chat, source, requestSeq = 0) {
   chat.controlAppliedRequestSeq = Math.max(Number(chat.controlAppliedRequestSeq) || 0, Number(requestSeq) || 0);
   chat.accessMode = snapshot.accessMode === 'read_only' ? 'read_only' : 'read_write';
   chat.sharedRuntime = snapshot.sharedRuntime === true;
+  chat.annotationVersion = snapshot.annotationVersion || '';
   chat.writerOwner = snapshot.writerOwner || '';
   chat.turnPhase = snapshot.turnPhase === 'running' ? 'running' : (snapshot.turnPhase === 'idle' ? 'idle' : 'unknown');
   chat.activeTurnId = snapshot.activeTurnId || '';
@@ -2763,6 +2765,7 @@ function applyChatControlSnapshot(chat, source, requestSeq = 0) {
       chat.model = FleetChatModel.removeMessage(chat.model, item.clientMessageId);
     } else if (!chat.model?.items?.[item.clientMessageId]) {
       chat.model = FleetChatModel.appendUserMessage(chat.model, (item.displayText || item.text || '').trim(), item.clientMessageId, item.images || []);
+      if (item.annotations) chat.model.items[item.clientMessageId].annotations = FleetAnnotations.copy(item.annotations);
     }
   }
   return true;
@@ -2883,6 +2886,8 @@ async function editServerChatQueue(item) {
   if (!chat || !item || !chatQueuePresentation(item).actions.includes('cancel')) return;
   if (!await decideServerChatQueue(item, 'cancel') || state.chat !== chat) return;
   restoreChatComposerItem(chat, item);
+  if (chat.annotationVersion) chat.queueEdit = {id:item.id, clientMessageId:item.clientMessageId, stateVersion:item.stateVersion+1};
+  persistAnnotationDraft(chat);
   $('#chat-input')?.focus({ preventScroll: true });
 }
 
@@ -2940,7 +2945,7 @@ function chatCacheVictim(cache, currentChat) {
   let victimKey = '';
   let victim = null;
   for (const [key, chat] of cache) {
-    if (chat === currentChat || normalizeChatDraft(chat.draft).trim() || chat.attachments?.length || chat.deferredSend || isChatRunning(chat) || pendingChatRequestCount(chat) > 0) continue;
+    if (chat === currentChat || normalizeChatDraft(chat.draft).trim() || chat.annotations?.length || chat.attachments?.length || chat.deferredSend || isChatRunning(chat) || pendingChatRequestCount(chat) > 0) continue;
     if (!victim || (Number(chat.updatedAt) || 0) < (Number(victim.updatedAt) || 0)) {
       victimKey = key;
       victim = chat;
@@ -2968,7 +2973,7 @@ function updateChatUpdatedAt(chat, value) {
 
 function updateCachedChatFromSession(macId, session) {
   if (!session?.sessionId) return;
-  const chat = state.chatCache.get(chatCacheKey(macId, session.sessionId));
+  const chat = state.chatCache.get(chatCacheKey(macId, session.sessionId, session.assistant));
   updateChatUpdatedAt(chat, session.mtime);
   if (chat?.historyReady) session.waitingVisible = pendingChatInteractionCount(chat) > 0;
 }
@@ -3020,20 +3025,20 @@ function renderChatPendingInteraction(chat = state.chat) {
 
 function sessionHasVisibleRequest(session) {
   const cached = session?.sessionId && session?.macId
-    ? state.chatCache.get(chatCacheKey(session.macId, session.sessionId)) : null;
+    ? state.chatCache.get(chatCacheKey(session.macId, session.sessionId, session.assistant)) : null;
   const chat = cached && (!cached.assistant || cached.assistant === (session.assistant || state.assistant)) ? cached : null;
   if (pendingChatInteractionCount(chat) > 0) return true;
   if (chat?.historyReady) return false;
   return !!session?.waiting && session.waitingVisible !== false;
 }
 
-function isChatConnectionKept(macId, sessionId) {
-  const chat = state.chatCache.get(chatCacheKey(macId, sessionId));
+function isChatConnectionKept(macId, sessionId, assistant = state.assistant) {
+  const chat = state.chatCache.get(chatCacheKey(macId, sessionId, assistant));
   return !!(chat?.events && chat.events.readyState !== EventSource.CLOSED);
 }
 
 function isSessionRunning(session, macId = state.macId) {
-  const chat = session?.sessionId ? state.chatCache.get(chatCacheKey(macId, session.sessionId)) : null;
+  const chat = session?.sessionId ? state.chatCache.get(chatCacheKey(macId, session.sessionId, session.assistant)) : null;
   // 只有服务端控制快照能覆盖列表轮询状态；本地 history/submitting 不是运行态证据。
   if (chat?.controlReady) return isChatRunning(chat);
   return FleetChatModel.chatPhase(session?.status) === 'running';
@@ -3046,7 +3051,7 @@ function syncSessionRuntimeIndicators() {
     const key = `${row.dataset.mac}\n${row.dataset.assistant}\n${row.dataset.sid}`;
     const session = sessions.get(key);
     const running = isSessionRunning(session, row.dataset.mac);
-    row.classList.toggle('chat-connected', isChatConnectionKept(row.dataset.mac, row.dataset.sid));
+    row.classList.toggle('chat-connected', isChatConnectionKept(row.dataset.mac, row.dataset.sid, row.dataset.assistant));
     row.classList.toggle('session-running', running);
     row.classList.toggle('session-waiting', sessionHasVisibleRequest(session));
     updateSessionStateDot(row.querySelector('.session-state-dot'), session, running || !!session?.pty);
@@ -3067,6 +3072,7 @@ function closeChatPane({ dispose = false } = {}) {
     renderChatCacheStats();
   }
   state.chat = null;
+  annotationUI?.render();
   const pane = $('#chat-pane');
   if (pane) pane.hidden = true;
   closeChatOptions();
@@ -3234,7 +3240,7 @@ function reconcileChatStack(sc, nextStack) {
     let node = next;
     if (previous) {
       existing.delete(key);
-      if (previous.dataset.chatRenderSignature === next.dataset.chatRenderSignature) {
+      if (annotationUI?.ownsSelection(previous) || previous.dataset.chatRenderSignature === next.dataset.chatRenderSignature) {
         node = previous;
       } else if (previous.classList.contains('activity-group') && next.classList.contains('activity-group') &&
           reconcileChatActivityGroup(previous, next)) {
@@ -3579,6 +3585,7 @@ function renderChat({ preserveScroll = false, forceBottom = false } = {}) {
   if (progress) stack.append(tagChatRenderNode(progress, 'state:progress', FleetChatModel.chatTurnProgress(model)));
   if (model.error) stack.append(tagChatRenderNode(renderChatError(model.error), 'state:error', model.error));
   reconcileChatStack(sc, stack);
+  annotationUI?.redraw();
   syncCompactComposer();
   if (preserveScroll) sc.scrollTop = oldTop + (sc.scrollHeight - oldHeight);
   else if (forceBottom || stick) sc.scrollTop = sc.scrollHeight;
@@ -4512,7 +4519,8 @@ function renderChatMessageAttachment(att) {
 function renderChatItem(item, showMeta = true, itemID = '', expanded = null) {
   if (item.type === 'user') {
     const parts = [];
-    if (item.text) parts.push(h('div', { text: item.text }));
+    if (item.text) parts.push(h('div', { text: item.text, dataset: {annotationMessage:item.id, annotationNativeMessage:item.serverItemId || item.id} }));
+    if (item.annotations?.items?.length && annotationUI) parts.push(annotationUI.sentAttachment(item.annotations));
     if (item.images && item.images.length) {
       parts.push(h('div', { class: 'chat-images' }, item.images.map(renderChatMessageAttachment)));
     }
@@ -4532,8 +4540,8 @@ function renderChatItem(item, showMeta = true, itemID = '', expanded = null) {
   }
   if (item.type === 'assistant') {
     if (item.questions?.length) return renderChatAsyncQuestions(item);
-    return chatRow(h('div', { class: 'chat-card' },
-      FleetMarkdown.renderMarkdown(item.text, chatMediaSrc, chatLinkHref)),
+    return chatRow(h('div', { class: 'chat-card', dataset: {annotationMessage:item.id,annotationNativeMessage:item.serverItemId || item.id} },
+      FleetMarkdown.renderMarkdown(item.text, chatMediaSrc, chatLinkHref, globalThis.FleetAnnotations?.contextFor(state.chat?.model,item.id,state.chat?.assistant))),
     'assistant');
   }
   if (item.type === 'reasoning') {
@@ -5010,7 +5018,7 @@ function updateChatComposerState() {
   if (!send) return;
   const attachments = state.chat?.attachments || [];
   const blocked = attachments.some((att) => att.uploading || att.error || (!att.id && !att.pendingUpload));
-  const hasContent = Boolean(input?.value.trim()) || attachments.length > 0;
+  const hasContent = Boolean(input?.value.trim()) || attachments.length > 0 || (state.chat?.annotations?.length || 0) > 0;
   const action = chatComposerAction(state.chat, hasContent);
   const mutationBlocked = action === 'readonly' || action === 'transition' || action === 'loading';
   send.dataset.action = action;
@@ -5052,6 +5060,20 @@ function updateChatComposerState() {
 }
 
 let compactComposer;
+let annotationUI;
+function persistAnnotationDraft(chat) {
+  const account = globalThis.FleetAuth?.user?.id;
+  if (!chat || !globalThis.FleetAnnotations || !account || chat.annotationAccount !== account) return;
+  FleetAnnotations.saveDraft(account, chat).catch(() => {
+    if (!chat.annotationStorageError) toast('注释草稿未能保存到浏览器，请保持页面打开。', 'err');
+    chat.annotationStorageError = true;
+  });
+}
+function annotationsChanged(chat) {
+  chat.deferredSend = null;
+  persistAnnotationDraft(chat);
+  if (state.chat === chat) { renderChatAttachments(); renderChatFollowups(); updateChatComposerState(); }
+}
 function syncCompactComposer() {
   compactComposer?.update({sessionKey: state.chat ? `${state.chat.macId}/${state.chat.assistant}/${state.chat.sessionId}` : '',
     model: state.chat?.model, running: isChatRunning(state.chat), unread: !!state.chat?.unread});
@@ -5082,6 +5104,13 @@ function restoreChatComposerItem(chat, item) {
   const currentText = input ? input.value : chat.draft;
   chat.draft = mergeChatComposerText(item.displayText || item.text, currentText);
   chat.attachments = mergeChatAttachments(item.images, chat.attachments);
+  if (item.annotations?.items?.length) {
+    const seen = new Set((chat.annotations || []).map((note) => note.id));
+    chat.annotations = [...item.annotations.items.filter((note) => !seen.has(note.id)), ...(chat.annotations || [])];
+  }
+  if (item.queueEdit) chat.queueEdit = item.queueEdit;
+  if (item.annotations && globalThis.FleetAnnotations) chat.annotationFailedSend = {id:item.id,key:FleetAnnotations.submissionKey(item)};
+  persistAnnotationDraft(chat);
   if (!input) return;
   input.value = chat.draft;
   renderChatAttachments();
@@ -5103,7 +5132,7 @@ function renderChatFollowups() {
   for (const item of items) {
     const images = item.images || [];
     const label = item.displayText || item.text
-      || (item.skills?.length ? item.skills.map((skill) => `$${skill.name}`).join(' ') : `${images.length} 个附件`);
+      || (item.annotations?.items?.length ? `${item.annotations.items.length} 条注释` : (item.skills?.length ? item.skills.map((skill) => `$${skill.name}`).join(' ') : `${images.length} 个附件`));
     box.append(h('div', { class: 'chat-followup', dataset: { id: item.id } },
       svgIconParts('chat-followup-icon', [
         { tag: 'path', attrs: { d: 'M8 6h11M8 12h11M8 18h7' } },
@@ -5112,6 +5141,7 @@ function renderChatFollowups() {
         { tag: 'circle', attrs: { cx: '3.5', cy: '18', r: '1', fill: 'currentColor', stroke: 'none' } },
       ]),
       h('span', { class: 'chat-followup-text', text: label, title: label }),
+      item.annotations?.items?.length ? h('span', {class:'chat-followup-images',text:`${item.annotations.items.length} 条注释`}) : null,
       images.length ? h('span', { class: 'chat-followup-images', text: `+${images.length} 附件` }) : null,
       h('div', { class: 'chat-followup-actions' },
         h('button', { type: 'button', class: 'iconbtn bare chat-followup-edit', title: '编辑排队消息', 'aria-label': '编辑排队消息',
@@ -5130,8 +5160,11 @@ function renderChatAttachments() {
   const chat = state.chat;
   if (!box || !chat) { updateChatComposerState(); return; }
   const atts = chat.attachments || [];
-  box.hidden = atts.length === 0;
+  box.hidden = atts.length === 0 && !chat.annotations?.length;
+  const annotationDock = $('#chat-annotations');
   clear(box);
+  if (annotationDock) box.append(annotationDock);
+  annotationUI?.render();
   for (const att of atts) {
     box.append(h('div', { class: 'chat-att' + (att.error ? ' err' : '') },
       chatAttachmentIsImage(att) && att.previewUrl
@@ -5150,6 +5183,7 @@ function removeChatAttachment(localId) {
   chat.deferredSend = null;
   renderChatFollowups();
   chat.attachments = (chat.attachments || []).filter((att) => att.localId !== localId);
+  persistAnnotationDraft(chat);
   renderChatAttachments();
 }
 
@@ -5195,6 +5229,7 @@ async function uploadChatFile(chat, att, file) {
     att.error = e.message || '上传失败';
     toast('附件上传失败：' + att.error, 'err');
   } finally {
+    persistAnnotationDraft(chat);
     if (state.chat === chat) renderChatAttachments();
   }
 }
@@ -5216,7 +5251,7 @@ async function openChatSession(s) {
     el.dataset.sid === s.sessionId && el.dataset.mac === macId && el.dataset.assistant === state.assistant));
   closeChatPane();
   stopWatch(); hideBanner(); closeMenus();
-  const key = chatCacheKey(macId, s.sessionId);
+  const key = chatCacheKey(macId, s.sessionId, state.assistant);
   let chat = state.chatCache.get(key);
   if (chat) {
     chat.title = s.title || chat.title || `${assistantLabel()} 会话`;
@@ -5248,6 +5283,23 @@ async function openChatSession(s) {
       subagentTimer: null, subagentsPromise: null,
     };
     state.chatCache.set(key, chat);
+  }
+  if (!chat.annotationDraftLoaded && globalThis.FleetAnnotations && globalThis.FleetAuth?.user?.id) {
+    const account = FleetAuth.user.id;
+    chat.annotationAccount = account;
+    try {
+      const saved = await FleetAnnotations.loadDraft(account, chat);
+      if (saved && FleetAuth.user?.id === account) {
+        FleetAnnotations.validateDraft(saved.items || []);
+        chat.draft = saved.text || '';
+        chat.annotations = saved.items || [];
+        chat.attachments = saved.attachments || [];
+        chat.queueEdit = saved.queueEdit || null;
+        chat.annotationFailedSend = saved.failedSend || null;
+      }
+    } catch (_) { toast('浏览器无法恢复注释草稿。', 'err'); }
+    chat.annotationDraftLoaded = true;
+    if (state.selectedSid !== s.sessionId || state.selectedSessionMacId !== macId || state.assistant !== chat.assistant || FleetAuth.user?.id !== account) return;
   }
   state.chat = chat;
   chat.assistant = state.assistant;
@@ -5867,11 +5919,16 @@ async function ensurePendingChatStarted(chat) {
 
     const oldKey = chat.cacheKey;
     const oldWorkspaceKey = sessionKey(chat);
-    const newKey = chatCacheKey(chat.macId, sessionId);
+    const newKey = chatCacheKey(chat.macId, sessionId, chat.assistant);
     const preferredApproval = chat.approvalMode;
     state.chatCache.delete(oldKey);
     chat.cacheKey = newKey;
+    if (globalThis.FleetAnnotations && chat.annotationAccount) {
+      FleetAnnotations.saveDraft(chat.annotationAccount, {...chat, draft:'', annotations:[], attachments:[]}).catch(() => {});
+    }
     chat.sessionId = sessionId;
+    for (const note of chat.annotations || []) if (note.fleetSource) note.fleetSource.sessionId = sessionId;
+    persistAnnotationDraft(chat);
     globalThis.FleetWorkspaceTabs?.renameSession?.(oldWorkspaceKey, sessionKey(chat));
     chat.cwd = started.cwd || cwd;
     chat.skillsCwd = chat.cwd;
@@ -5936,7 +5993,7 @@ async function submitChatInput({ deliveryMode = 'next', chat = state.chat, defer
   const input = state.chat === chat ? $('#chat-input') : null;
   let raw = deferred ? chat.deferredSend?.raw || '' : (input?.value ?? chat.draft ?? '');
   if (sessionDeviceUnavailable(chat.macId)) {
-    if (raw.trim() || chat.attachments?.length) {
+    if (raw.trim() || chat.attachments?.length || chat.annotations?.length) {
       chat.draft = raw;
       chat.deferredSend = { raw, deliveryMode };
       renderChatFollowups(); updateChatComposerState(); syncPendingChatProject();
@@ -5985,23 +6042,31 @@ async function submitChatInput({ deliveryMode = 'next', chat = state.chat, defer
     const pending = chat.attachments || [];
     if (pending.some((att) => att.uploading)) { toast('附件还在上传，稍等一下。'); return; }
     if (pending.some((att) => att.error || !att.id)) { toast('有附件上传失败，先移除或重新选择。', 'err'); return; }
-    if (!text && pending.length === 0 && parsed.skills.length === 0) return;
+    if (!text && pending.length === 0 && parsed.skills.length === 0 && !chat.annotations?.length) return;
+    if (chat.annotations?.length && chat.annotationVersion !== FleetAnnotations.versionFor(chat.assistant)) { toast('此设备需要更新 Fleet 客户端后才能发送注释。', 'err'); return; }
+    const annotations = chat.annotations?.length ? {version: FleetAnnotations.versionFor(chat.assistant), items: FleetAnnotations.copy(chat.annotations)} : null;
     const images = pending.map((att) => ({
       localId: att.localId, id: att.id, name: att.name, mime: att.mime, size: att.size,
       url: att.url, previewUrl: att.previewUrl,
     }));
+    const queueEdit = chat.queueEdit; chat.queueEdit = null;
+    const failedSend = chat.annotationFailedSend; chat.annotationFailedSend = null;
     if (input) input.value = '';
     chat.deferredSend = null;
     chat.draft = '';
     resizeChatInput();
     chat.attachments = [];
+    chat.annotations = [];
+    persistAnnotationDraft(chat);
     renderChatAttachments();
     closeChatSkillMenu();
     const item = {
-      id: `follow-${Date.now()}-${Math.random().toString(16).slice(2)}`,
-      text, displayText: raw.trim(), images,
+      queueEdit, options:chatTurnOptions(chat),
+      id: queueEdit?.clientMessageId || `follow-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+      text, displayText: raw.trim(), images, annotations,
       skills: parsed.skills.map((skill) => ({ id: skill.id, name: skill.name })),
     };
+    if (!queueEdit && failedSend && failedSend.key === globalThis.FleetAnnotations?.submissionKey(item)) item.id = failedSend.id;
     await enqueueServerChatMessage(chat, item, deliveryMode);
   } finally {
     if (deferred) {
@@ -6015,6 +6080,7 @@ async function submitChatInput({ deliveryMode = 'next', chat = state.chat, defer
 
 async function enqueueServerChatMessage(chat, item, deliveryMode) {
   chat.model = FleetChatModel.appendUserMessage(chat.model, (item.displayText || item.text).trim(), item.id, item.images);
+  if (item.annotations) chat.model.items[item.id].annotations = FleetAnnotations.copy(item.annotations);
   chat.submitting = true;
   syncSessionRuntimeIndicators();
   if (state.chat === chat) {
@@ -6043,13 +6109,15 @@ async function saveServerChatQueueItem(chat, item, deliveryMode) {
       method: 'POST', headers: { 'content-type': 'application/json' },
       body: JSON.stringify({
         assistant: chat.assistant, sessionId: chat.sessionId, clientMessageId: item.id,
-        cwd: chat.cwd || '', text: item.text, displayText: item.displayText,
+        editQueueId:item.queueEdit?.id, stateVersion:item.queueEdit?.stateVersion,
+        cwd: chat.cwd || '', text: item.text, displayText: item.displayText, annotations: item.annotations,
         deliveryMode: deliveryMode === 'auto' ? 'auto' : 'next',
         skills: item.skills || [], images: item.images.map(({ id, name, mime, size, url }) => ({ id, name, mime, size, url })),
-        options: chatTurnOptions(chat),
+        options: item.options || chatTurnOptions(chat),
       }),
     });
   } catch (error) {
+    if (error.code === 'queue_state_conflict') item.queueEdit = null;
     toast('消息保存失败：' + error.message, 'err');
     return null;
   }
@@ -8218,6 +8286,8 @@ function init() {
     registerServiceWorker();
     return;
   }
+  annotationUI = window.FleetAnnotationUI?.init({getChat: () => state.chat, onChange: annotationsChanged, notify: (message) => toast(message)});
+  if (window.FleetAnnotationUI) window.FleetAnnotationUI.active = annotationUI;
   compactComposer = window.FleetCompactComposer?.init({onResize: resizeChatInput,
     onRead: () => {
       if (!state.chat) return;
@@ -8637,6 +8707,7 @@ function stopAuthenticatedDashboard() {
   globalThis.FleetSettingsDialog?.active?.reset();
   globalThis.FleetDeviceAppearance?.reset();
   removeEventListener('focus', refreshDeviceAppearance);
+  annotationUI?.reset();
   window.FleetWorkspaceTabs?.reset();
   authenticatedPollTimers.forEach(clearInterval);
   authenticatedPollTimers = [];

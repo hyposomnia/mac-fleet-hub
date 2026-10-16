@@ -2,7 +2,7 @@
   'use strict';
 
   const ALLOWED_TAGS = ['p', 'br', 'strong', 'em', 'del', 'blockquote', 'ul', 'ol', 'li', 'pre', 'code', 'a', 'img',
-    'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'hr', 'table', 'thead', 'tbody', 'tr', 'th', 'td'];
+    'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'hr', 'table', 'thead', 'tbody', 'tr', 'th', 'td', 'span'];
   const DIRECTIVE_LABELS = {
     'created-thread': '已创建任务',
     'git-create-branch': '已创建分支',
@@ -212,18 +212,40 @@
     return parts;
   }
 
-  function appendMarkdown(body, source, resolveMedia, resolveLink) {
+  function appendMarkdown(body, source, resolveMedia, resolveLink, annotationContext) {
     if (!root.marked || !root.DOMPurify) {
       const fallback = document.createElement('p');
       fallback.textContent = source;
       body.append(fallback);
       return;
     }
-    const parsed = root.marked.parse(source, { gfm: true, breaks: true });
+    const references = [];
+    const nonce = String(Math.random()).slice(2);
+    const parser = new root.marked.Marked({gfm: true, breaks: true});
+    parser.use({extensions: [{
+      name: 'fleetAnnotation', level: 'inline',
+      start: (source) => source.indexOf(':'),
+      tokenizer(source) {
+        const match = source.match(/^:(codex|fleet)-annotation\{index="([0-9]+)"\}/);
+        if (match) return {type: 'fleetAnnotation', raw: match[0], protocol: match[1], index: match[2]};
+      },
+      renderer(token) {
+        const index = references.push(token) - 1;
+        return `<span data-fleet-annotation="${nonce}:${index}">注释 ${token.index}</span>`;
+      },
+    }]});
+    const parsed = parser.parse(source);
     const chunk = document.createElement('div');
     chunk.innerHTML = root.DOMPurify.sanitize(parsed, {
       ALLOWED_TAGS,
       ALLOWED_ATTR: ['href', 'title', 'start', 'src', 'alt', 'class'],
+    });
+    chunk.querySelectorAll('[data-fleet-annotation]').forEach((placeholder) => {
+      const key = placeholder.getAttribute('data-fleet-annotation');
+      const token = key?.startsWith(nonce + ':') ? references[Number(key.slice(nonce.length + 1))] : null;
+      if (!token) return;
+      const reference = root.FleetAnnotationUI?.active?.reference(token.protocol, token.index, annotationContext);
+      if (reference) placeholder.replaceWith(reference);
     });
     chunk.querySelectorAll('pre').forEach(enhanceCodeBlock);
     chunk.querySelectorAll('a[href]').forEach((link) => {
@@ -311,13 +333,13 @@
     return row;
   }
 
-  function renderMarkdown(text, resolveMedia, resolveLink) {
+  function renderMarkdown(text, resolveMedia, resolveLink, annotationContext) {
     const body = document.createElement('div');
     body.className = 'chat-markdown';
     try {
       for (const part of splitCodexContent(text)) {
         if (part.type === 'directive') body.append(renderDirective(part.value));
-        else appendMarkdown(body, part.value, resolveMedia, resolveLink);
+        else appendMarkdown(body, part.value, resolveMedia, resolveLink, annotationContext);
       }
     } catch (_) {
       body.textContent = text || '…';

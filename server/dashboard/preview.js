@@ -57,6 +57,7 @@
   let imagePreview = null;
   let htmlPreview = null;
   let previewRequestVersion = 0;
+  let annotationSelectionChanged = () => {};
 
   function loadHEICDecoder() {
     if (typeof root.HeicTo === 'function') return Promise.resolve(root.HeicTo);
@@ -199,6 +200,7 @@
       indentUnit: 2,
       viewportMargin: 10,
     });
+    textEditor.on('cursorActivity', () => root.setTimeout(annotationSelectionChanged, 0));
     return textEditor;
   }
 
@@ -922,13 +924,69 @@
       const meta = await response.json();
       if (version !== previewRequestVersion) return;
       await renderPreview(meta, request);
+      document.dispatchEvent(new Event('fleet:preview-rendered'));
     } catch (error) {
       if (version !== previewRequestVersion) return;
       showPreviewError(error?.message || '无法预览文件。');
     }
   }
 
+
+  function annotationSelection() {
+    if (document.querySelector('#preview-text')?.hidden) return null;
+    const textarea = document.querySelector('#preview-code');
+    const text = textEditor ? textEditor.getValue() : textarea?.value || '';
+    const from = textEditor ? textEditor.indexFromPos(textEditor.getCursor('from')) : textarea?.selectionStart;
+    const to = textEditor ? textEditor.indexFromPos(textEditor.getCursor('to')) : textarea?.selectionEnd;
+    if (from == null || from === to) return null;
+    const start = textEditor ? textEditor.cursorCoords(textEditor.posFromIndex(from), 'window') : textarea.getBoundingClientRect();
+    const end = textEditor ? textEditor.cursorCoords(textEditor.posFromIndex(to), 'window') : start;
+    return {text: text.slice(from,to), locator: {version:root.FleetAnnotations.textVersion(text), startOffset:from,endOffset:to,exact:text.slice(from,to),
+      prefix:text.slice(Math.max(0,from-64),from),suffix:text.slice(to,to+64)}, rect:{left:start.left,right:end.right,top:start.top,bottom:end.bottom}};
+  }
+  function annotationRects(locator) {
+    const markdown = document.querySelector('#preview-markdown');
+    if (markdown && !markdown.hidden) {
+      const range = root.FleetAnnotationUI.rangeFor(markdown,locator);
+      return range ? [...range.getClientRects()].map(rect=>({left:rect.left,right:rect.right,top:rect.top,bottom:rect.bottom})) : [];
+    }
+    if (!textEditor || document.querySelector('#preview-text')?.hidden) return [];
+    const text = textEditor.getValue(), at = root.FleetAnnotations.locate(text,locator);
+    if (at < 0) return [];
+    const from=textEditor.posFromIndex(at), to=textEditor.posFromIndex(at+locator.exact.length), viewport=textEditor.getViewport();
+    const rects=[];
+    const bounds=textEditor.getWrapperElement().getBoundingClientRect();
+    for(let line=Math.max(from.line,viewport.from);line<=Math.min(to.line,viewport.to-1);line++) {
+      const start=textEditor.cursorCoords({line,ch:line===from.line?from.ch:0},'window');
+      const end=textEditor.cursorCoords({line,ch:line===to.line?to.ch:textEditor.getLine(line).length},'window');
+      rects.push({left:Math.max(bounds.left,start.left),right:Math.min(bounds.right,end.right),top:Math.max(bounds.top,start.top),bottom:Math.min(bounds.bottom,end.bottom)});
+    }
+    return rects.filter(rect=>rect.right>rect.left&&rect.bottom>rect.top);
+  }
+  function revealAnnotation(locator) {
+    const markdown=document.querySelector('#preview-markdown');
+    if (markdown && !markdown.hidden) {
+      const range=root.FleetAnnotationUI.rangeFor(markdown,locator);
+      if(!range)return false;
+      range.startContainer.parentElement?.scrollIntoView({block:'center'});
+      if(root.CSS?.highlights && root.Highlight) {
+        root.CSS.highlights.set('fleet-annotation-reveal',new root.Highlight(range));
+        root.setTimeout(()=>root.CSS.highlights.delete('fleet-annotation-reveal'),1600);
+      }
+      return true;
+    }
+    if(!textEditor || document.querySelector('#preview-text')?.hidden)return false;
+    const at=root.FleetAnnotations.locate(textEditor.getValue(),locator);if(at<0)return false;
+    const from=textEditor.posFromIndex(at),to=textEditor.posFromIndex(at+locator.exact.length);
+    textEditor.scrollIntoView({from,to},80);
+    const mark=textEditor.markText(from,to,{className:'annotation-text-reveal'});
+    root.setTimeout(()=>mark.clear(),1600);return true;
+  }
+
   root.FleetPreview = {
+    annotationSelection, annotationRects, revealAnnotation,
+    onAnnotationSelection(callback) { annotationSelectionChanged = callback; },
+    clearAnnotationSelection() { if(textEditor)textEditor.setCursor(textEditor.getCursor()); },
     resolveLocalLink, resourceURL, fileEndpoint, formatBytes, isPreviewRoute, previewRequest, previewPathSegments,
     safeHTMLDocument, rewriteCSSURLs, isTextPreviewPath, textPreviewMode, textWrapEnabled,
     htmlRuntimeResourcePath, updateTextWrapButton, setTextWrap, initRoute,

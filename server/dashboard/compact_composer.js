@@ -60,13 +60,13 @@
     output.addEventListener('click', () => { expanded(true); scroll?.focus({preventScroll: true}); });
     close?.addEventListener('click', () => expanded(false, true));
     function dismissOutside(event) {
-      if (isExpanded() && !pane.contains(event.target)) expanded(false);
+      if (isExpanded() && !pane.contains(event.target) && !event.target?.closest?.('.annotation-owned, .annotation-reference')) expanded(false);
     }
     doc.addEventListener('pointerdown', dismissOutside);
     doc.addEventListener('focusin', dismissOutside);
     doc.addEventListener('keydown', event => {
       if (event.key !== 'Escape' || event.defaultPrevented || !isExpanded()) return;
-      if (doc.querySelector('.chat-approval-trigger[aria-expanded="true"], .chat-options-trigger[aria-expanded="true"], #chat-skill-menu:not([hidden])')) return;
+      if (doc.querySelector('.chat-approval-trigger[aria-expanded="true"], .chat-options-trigger[aria-expanded="true"], #chat-skill-menu:not([hidden]), .annotation-editor:not([hidden]), .annotation-panel')) return;
       event.preventDefault();
       expanded(false, true);
     });

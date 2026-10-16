@@ -107,9 +107,11 @@ test('session loss stops dashboard polling, closes chat streams and clears priva
   let workspaceResets = 0;
   let composerResets = 0;
   let appearanceResets = 0;
+  let annotationResets = 0;
   const sandbox = { window: { FleetWorkspaceTabs: { reset: () => { workspaceResets++; } } },
     FleetDeviceAppearance: { reset: () => { appearanceResets++; } },
     removeEventListener() {}, refreshDeviceAppearance() {},
+    annotationUI: {reset:()=>{annotationResets++;}},
     compactComposer: { update: () => { composerResets++; } },
     authenticatedPollTimers: [1, 2], clearInterval: (timer) => cleared.push(timer), clearTimeout() {}, sessionSearchTimer: null,
     disposeChat: (chat) => closed.push(chat), state: { chat: { id: 'open' }, chatCache: new Map([['cached', { id: 'cached' }]]),
@@ -123,6 +125,7 @@ test('session loss stops dashboard polling, closes chat streams and clears priva
   assert.equal(workspaceResets, 1);
   assert.equal(composerResets, 1);
   assert.equal(appearanceResets, 1);
+  assert.equal(annotationResets, 1);
   assert.deepEqual(cleared, [1, 2]);
   assert.equal(closed.length, 2);
   assert.equal(sandbox.state.chatCache.size, 0);

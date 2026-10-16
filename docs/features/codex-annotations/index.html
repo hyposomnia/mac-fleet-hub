@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="light">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Fleet · 注释交互设计</title>
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="prototype.css">
+</head>
+<body>
+  <header class="review-bar" aria-label="设计评审工具">
+    <div class="review-title"><strong>注释交互</strong><span>可点击设计稿 · 模拟发送</span></div>
+    <nav class="review-scenes" aria-label="查看设计状态">
+      <button data-scene="select" aria-pressed="true">1 选中与填写</button>
+      <button data-scene="compose" aria-pressed="false">2 输入框展示</button>
+      <button data-scene="reply" aria-pressed="false">3 引用与回看</button>
+    </nav>
+    <div class="review-actions">
+      <select id="provider" aria-label="评审模型"><option value="codex">Codex</option><option value="deepseek">DeepSeek</option></select>
+      <button id="theme-toggle" aria-label="切换明暗主题">深色</button>
+      <details class="review-more"><summary>更多</summary><div><button id="empty-state">空态</button><button id="offline-state" aria-pressed="false">模拟离线</button><button id="readonly-state" aria-pressed="false">模拟只读</button><button id="long-state">长文本</button><button id="payload-toggle">查看模型上下文</button></div></details>
+    </div>
+  </header>
+
+  <div class="app-shell">
+    <aside class="session-sidebar" aria-label="会话">
+      <div class="brand"><span class="brand-mark">f</span><strong>mac fleet hub</strong></div>
+      <div class="device"><span class="device-letter">Air</span><div><strong>MacBook Air</strong><small><i></i> 在线</small></div></div>
+      <div class="sidebar-caption">mac-fleet-hub</div>
+      <div class="session active"><span class="session-dot"></span><div><strong>默认参数与运行时</strong><small>正在查看</small></div></div>
+      <div class="sidebar-bottom">会话与文件共享同一个输入框</div>
+    </aside>
+
+    <main class="workspace" id="workspace">
+      <header class="workspace-head"><span>mac-fleet-hub <span class="slash">/</span> <strong>默认参数与运行时</strong></span><span class="provider-label">Codex</span></header>
+      <nav class="workspace-tabs" aria-label="工作区" role="tablist"><button id="tab-chat" aria-selected="true" role="tab">对话</button><button id="tab-file" aria-selected="false" role="tab"><span class="file-icon">▤</span> runtime.md</button></nav>
+      <div class="workspace-body" id="workspace-body">
+        <section class="chat-view" id="chat-view" aria-label="对话内容">
+          <div class="chat-content">
+            <div class="user-message">默认参数和 shared runtime 这部分，帮我整理一下。</div>
+            <article class="assistant-message" aria-label="示例回答">
+              <div class="assistant-label">Codex</div>
+              <div class="selectable" id="source-chat" data-source-kind="message" data-message-id="demo-assistant-1">
+                <p>参数保持可选，尽量让默认值直接来自当前配置。</p>
+                <h2>默认参数</h2>
+                <p><code>steps</code> 直接放在 <code>businessParams.steps</code>，<span id="sample-quote">省略时使用模型或已选 LoRA 配置的默认值</span>，不再额外增加 advanced 容器。</p>
+                <p><code>size</code> 同时接受预设和自定义，例如 <code>1024×1024</code>、<code>1152×768</code>；自定义尺寸按模型对齐要求和显存预算校验。</p>
+                <h2>共享运行时</h2>
+                <p>Desktop 创建 shared runtime，Fleet 复用同一个 listener。<span id="sample-quote-2">配置完成后，需要完全重开 Desktop 并验证浏览器操作。</span></p>
+                <p>验收应包含打开网页、点击和截图，同时在两端打开同一个会话，确认只有一个底层 writer。</p>
+              </div>
+            </article>
+            <section id="sent-turns" aria-label="模拟发送记录"></section>
+          </div>
+        </section>
+        <section class="file-view" id="file-view" aria-label="文档内容" hidden>
+          <article class="document">
+            <div class="document-path">docs / runtime.md</div>
+            <div class="selectable" id="source-file" data-source-kind="file">
+              <h1>共享运行时验收</h1>
+              <p>Desktop 创建 shared runtime，Fleet 通过同一个 listener 接入。</p>
+              <h2>迁移与验证</h2>
+              <p><span id="file-quote">配置完成后，需要完全重开 Desktop 并验证浏览器操作。</span>健康检查只证明 RPC 传输就绪，浏览器后端可能稍后才发布。</p>
+              <p>在 Desktop 与 Fleet 中打开同一个会话，检查运行时连接与 writer。必须实际打开网页、点击并截图，记录完整的验收证据。</p>
+              <h2>默认参数</h2>
+              <p>参数省略时读取模型或已选 LoRA 配置的默认值。用户显式填写的参数应优先使用，并独立校验。</p>
+            </div>
+          </article>
+        </section>
+        <div class="annotation-markers" id="markers" aria-label="原文注释标记"></div>
+      </div>
+
+      <div class="composer-dock" id="composer-dock">
+        <div id="connection-state" class="connection-state" role="status" hidden></div>
+        <form class="composer" id="composer">
+          <div class="annotation-attachment" id="annotation-attachment" hidden>
+            <button class="annotation-chip" id="annotation-chip" type="button" aria-expanded="false" aria-controls="annotation-list"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 11.5a8.5 8.5 0 0 1-8.5 8.5H4v-8.5a8.5 8.5 0 1 1 17 0Z"/><path d="M8 9h8M8 13h5"/></svg><span id="annotation-count">2 条注释</span><svg class="chip-chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="m9 5 7 7-7 7"/></svg></button>
+            <button class="chip-remove" id="remove-all" type="button" aria-label="移除全部注释">×</button>
+          </div>
+          <textarea id="chat-input" aria-label="消息" rows="2" placeholder="给 Codex 发送消息…"></textarea>
+          <div class="composer-toolbar"><span class="context-note" id="context-note">mac-fleet-hub</span><div class="composer-right"><span id="model-label">Codex</span><button id="send" type="submit" aria-label="发送消息"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 19V5M6 11l6-6 6 6"/></svg></button></div></div>
+        </form>
+      </div>
+    </main>
+  </div>
+
+  <div class="selection-menu" id="selection-menu" role="toolbar" aria-label="选区操作" hidden><button id="add-annotation" type="button">添加到对话</button></div>
+  <section class="annotation-editor" id="annotation-editor" role="dialog" aria-label="填写注释，回车保存，Esc 删除" hidden>
+    <div class="editor-line"><textarea id="annotation-comment" aria-label="注释评论（可选）" rows="1" placeholder="添加可选评论…"></textarea><button type="button" id="save-annotation" aria-label="保存注释"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12 4 4L19 6"/></svg></button></div>
+  </section>
+  <div class="popover-shade" id="popover-shade" hidden></div>
+  <section class="annotation-list floating-panel" id="annotation-list" role="dialog" aria-label="待发送的注释" hidden>
+    <header><strong>待发送的注释</strong><button class="close" id="close-list" aria-label="关闭注释列表">×</button></header>
+    <ol id="annotation-items"></ol>
+  </section>
+  <section class="reference-popover floating-panel" id="reference-popover" role="dialog" aria-label="注释内容" hidden><header><strong id="reference-title">注释 1</strong><button class="close" id="close-reference" aria-label="关闭引用详情">×</button></header><div id="reference-body"></div><button class="source-link" id="reference-source">查看原文 ↗</button></section>
+  <aside class="payload-panel" id="payload-panel" aria-label="评审用模型上下文" hidden><header><strong>模型收到的文本 · 设计示例</strong><button class="close" id="close-payload" aria-label="关闭模型上下文">×</button></header><p>此面板仅供设计评审；没有调用模型或生产接口。</p><pre id="payload-text"></pre></aside>
+  <div class="toast" id="toast" role="status" hidden></div>
+  <script src="prototype.js"></script>
+</body>
+</html>

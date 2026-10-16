@@ -302,17 +302,18 @@ type ChatRuntimeState struct {
 // session mutations. Epoch + version let the browser reject late HTTP replies
 // without inventing any writer/turn/queue transitions locally.
 type ChatSessionControlSnapshot struct {
-	SharedRuntime   bool            `json:"sharedRuntime,omitempty"`
-	ServerEpoch     string          `json:"serverEpoch"`
-	SnapshotVersion uint64          `json:"snapshotVersion"`
-	AccessMode      string          `json:"accessMode"`
-	WriterOwner     string          `json:"writerOwner,omitempty"`
-	TurnPhase       string          `json:"turnPhase"`
-	ActiveTurnID    string          `json:"activeTurnId,omitempty"`
-	TurnOwner       string          `json:"turnOwner,omitempty"`
-	ApprovalMode    string          `json:"approvalMode"`
-	PendingRequests int             `json:"pendingRequests,omitempty"`
-	Items           []ChatQueueView `json:"items"`
+	SharedRuntime     bool            `json:"sharedRuntime,omitempty"`
+	AnnotationVersion string          `json:"annotationVersion,omitempty"`
+	ServerEpoch       string          `json:"serverEpoch"`
+	SnapshotVersion   uint64          `json:"snapshotVersion"`
+	AccessMode        string          `json:"accessMode"`
+	WriterOwner       string          `json:"writerOwner,omitempty"`
+	TurnPhase         string          `json:"turnPhase"`
+	ActiveTurnID      string          `json:"activeTurnId,omitempty"`
+	TurnOwner         string          `json:"turnOwner,omitempty"`
+	ApprovalMode      string          `json:"approvalMode"`
+	PendingRequests   int             `json:"pendingRequests,omitempty"`
+	Items             []ChatQueueView `json:"items"`
 }
 
 type ChatHistoryPage struct {
@@ -560,6 +561,12 @@ func handleChatResume(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		writeChatErr(w, err)
 		return
+	}
+	for i := range res.History.Events {
+		res.History.Events[i] = agentChatQueue.withAnnotations(res.History.Events[i])
+	}
+	for i := range res.PendingEvents {
+		res.PendingEvents[i] = agentChatQueue.withAnnotations(res.PendingEvents[i])
 	}
 	res.AccessMode = agentChatQueue.AccessMode(assistant, req.SessionID)
 	control, err := buildChatSessionControlSnapshot(r.Context(), assistant, req.SessionID)
@@ -898,6 +905,9 @@ func handleChatHistory(w http.ResponseWriter, r *http.Request) {
 		writeChatErr(w, err)
 		return
 	}
+	for i := range page.Events {
+		page.Events[i] = agentChatQueue.withAnnotations(page.Events[i])
+	}
 	writeJSON(w, page)
 }
 
@@ -1165,7 +1175,7 @@ func handleChatEvents(w http.ResponseWriter, r *http.Request) {
 			if !ok {
 				return
 			}
-			b, _ := json.Marshal(ev)
+			b, _ := json.Marshal(agentChatQueue.withAnnotations(ev))
 			_, _ = w.Write([]byte("data: "))
 			_, _ = w.Write(b)
 			_, _ = w.Write([]byte("\n\n"))

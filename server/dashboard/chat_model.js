@@ -336,6 +336,7 @@
       images: (images || []).slice(), sentAtMs: Date.now(), optimistic: true,
     };
     applyQuestionReply(next.items[itemId], text || '');
+    root.FleetAnnotations?.applyInput(next.items[itemId], text || '');
     next.messages.push(itemId);
     return next;
   }
@@ -398,6 +399,10 @@
     }
     next.items = { ...history.items, ...next.items };
     for (const historyId of reconciled.keys()) delete next.items[historyId];
+    for (const item of Object.values(next.items)) {
+      if (item.annotationInputIDs) item.annotationInputIDs = item.annotationInputIDs.map((id) => reconciled.get(id) || id);
+      if (item.type === 'assistant') root.FleetAnnotations?.freezeOutputScope(next, item, {history:true,changed:true});
+    }
     next.approvals = { ...history.approvals, ...next.approvals };
     next.questionReplies = { ...history.questionReplies, ...next.questionReplies };
     next.turnUsage = { ...history.turnUsage, ...next.turnUsage };
@@ -469,6 +474,11 @@
         next.phase = 'running';
         if (data.turnOwner || data.turn_owner) next.turnOwner = firstString(data.turnOwner, data.turn_owner);
         next.activeTurnId = firstString(ev && ev.turnId, data.turnId, data.turn_id, asObject(data.turn).id, next.activeTurnId);
+        for (let i = next.messages.length - 1; i >= 0; i--) {
+          const pending = next.items[next.messages[i]];
+          if (pending?.type !== 'user' || pending.turnId) break;
+          pending.turnId = next.activeTurnId;
+        }
         if (next.activeTurnId !== previousTurnId) {
           next.turnProgress = '';
           next.error = null;
@@ -481,6 +491,7 @@
         const item = upsertItem(next, itemId, () => ({ id: itemId, type: 'assistant', text: '', done: false }));
         item.turnId = firstString(ev && ev.turnId, data.turnId, data.turn_id, item.turnId);
         mergeAssistantMetadata(item, data, ev);
+        root.FleetAnnotations?.freezeOutputScope(next, item, {history:!!data.__history, changed:!!data.delta});
         mergePendingTurnUsage(next, item);
         if (!item.startedAtMs) item.startedAtMs = uuidV7TimeMs(item.turnId) || Date.now();
         item.text = (item.text || '') + (data.delta || '');
@@ -490,12 +501,14 @@
       case 'assistant_done': {
         const finalText = data.text || (data.item && data.item.text) || '';
         const item = upsertItem(next, itemId, () => ({ id: itemId, type: 'assistant', text: '', done: false }));
+        const previousText = item.text;
         if (finalText) item.text = finalText;
         const source = asObject(data.item);
         if (Array.isArray(data.questions) || Array.isArray(source.questions)) {
           item.questions = asyncQuestions(firstString(source.id, data.id, itemId), data.questions || source.questions);
         }
         mergeAssistantMetadata(item, data, ev);
+        root.FleetAnnotations?.freezeOutputScope(next, item, {history:!!data.__history, changed:item.text !== previousText});
         mergePendingTurnUsage(next, item);
         const historyTurnComplete = data.__history && historicalAssistantCompletesTurn(data, item);
         if (!item.completedAtMs) item.completedAtMs = data.__history ? uuidV7TimeMs(item.turnId || (ev && ev.turnId)) : Date.now();
@@ -577,10 +590,11 @@
         const item = upsertItem(next, targetId, () => ({ id: targetId, type: 'user', text: '', images: [] }));
         item.clientId = clientId || item.clientId || '';
         if (targetId !== itemId) item.serverItemId = itemId;
-        item.turnId = firstString(ev && ev.turnId, data.turnId, data.turn_id, item.turnId);
+        item.turnId = firstString(ev && ev.turnId, data.turnId, data.turn_id, item.turnId, next.activeTurnId);
         const replyText = data.text || (Array.isArray(data.content)
           ? data.content.filter((part) => part.type === 'text').map((part) => part.text || '').join('\n') : '');
         if (replyText) applyQuestionReply(item, replyText);
+        root.FleetAnnotations?.applyInput(item, replyText, data.annotations);
         rememberQuestionReplies(next, item);
         item.images = (data.images || item.images || []).slice();
         item.optimistic = false;

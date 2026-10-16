@@ -183,3 +183,17 @@ test('BFCache does not navigate away from unacknowledged recovery codes', async 
  addEventListener:(name,fn)=>{listeners[name]=fn},localStorage:storage(),sessionStorage:storage(),fetch:async()=>Response.json({state:'full'})};
  vm.runInNewContext(source,root);root.FleetAuth.setRecoveryPending(true);listeners.pageshow({persisted:true});await new Promise(resolve=>setImmediate(resolve));assert.deepEqual(redirects,[]);
 });
+
+test('logout hides the private UI immediately and waits for annotation storage cleanup before redirecting', async () => {
+ const sandbox={URL,Headers,Response};vm.runInNewContext(source,sandbox);
+ let finish,hidden=false;const redirects=[];
+ const cleanup=new Promise(resolve=>{finish=resolve});
+ const client=sandbox.FleetAuth.createClient({localStorage:storage(),sessionStorage:storage(),
+  location:{origin:'https://fleet.test',pathname:'/',search:'',replace:url=>redirects.push(url)},
+  clearAnnotationDrafts:identity=>identity==='alice'?cleanup:undefined,onUnauthorized:()=>{hidden=true},
+  fetch:async(url)=>url==='/api/auth/logout'?new Response(null,{status:204}):Response.json({user:{id:'alice'},csrf_token:'token'})});
+ await client.me();const leaving=client.logout();
+ await new Promise(resolve=>setImmediate(resolve));
+ assert.equal(hidden,true);assert.equal(client.user,null);assert.equal(redirects.length,0);
+ finish();await leaving;assert.deepEqual(redirects,['/auth']);
+});

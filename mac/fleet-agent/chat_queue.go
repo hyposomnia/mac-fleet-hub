@@ -53,30 +53,33 @@ type ChatTakeoverImpact struct {
 }
 
 type ChatQueueItem struct {
-	ID              string               `json:"id"`
-	ClientMessageID string               `json:"clientMessageId"`
-	Assistant       string               `json:"assistant"`
-	SessionID       string               `json:"sessionId"`
-	Cwd             string               `json:"cwd,omitempty"`
-	Text            string               `json:"text,omitempty"`
-	DisplayText     string               `json:"displayText,omitempty"`
-	Images          []ChatAttachment     `json:"images,omitempty"`
-	Skills          []ChatSkill          `json:"skills,omitempty"`
-	Options         ChatTurnOptions      `json:"options,omitempty"`
-	DeliveryMode    string               `json:"deliveryMode"`
-	Delivery        string               `json:"delivery,omitempty"`
-	WriterOwner     string               `json:"writerOwner,omitempty"`
-	Status          string               `json:"status"`
-	StateVersion    int64                `json:"stateVersion"`
-	Decision        string               `json:"decision,omitempty"`
-	AuditVersion    string               `json:"auditVersion,omitempty"`
-	Affected        []ChatTakeoverImpact `json:"affected,omitempty"`
-	TurnID          string               `json:"turnId,omitempty"`
-	Error           string               `json:"error,omitempty"`
-	CreatedAt       int64                `json:"createdAt"`
-	UpdatedAt       int64                `json:"updatedAt"`
-	AttemptedAt     int64                `json:"attemptedAt,omitempty"`
-	SentAt          int64                `json:"sentAt,omitempty"`
+	ID              string                  `json:"id"`
+	ClientMessageID string                  `json:"clientMessageId"`
+	Assistant       string                  `json:"assistant"`
+	SessionID       string                  `json:"sessionId"`
+	Cwd             string                  `json:"cwd,omitempty"`
+	Text            string                  `json:"text,omitempty"`
+	WireText        string                  `json:"wireText,omitempty"`
+	Annotations     *ChatAnnotationEnvelope `json:"annotations,omitempty"`
+	DisplayText     string                  `json:"displayText,omitempty"`
+	Images          []ChatAttachment        `json:"images,omitempty"`
+	Skills          []ChatSkill             `json:"skills,omitempty"`
+	Options         ChatTurnOptions         `json:"options,omitempty"`
+	DeliveryMode    string                  `json:"deliveryMode"`
+	Delivery        string                  `json:"delivery,omitempty"`
+	WriterOwner     string                  `json:"writerOwner,omitempty"`
+	Status          string                  `json:"status"`
+	CancelledFrom   string                  `json:"cancelledFrom,omitempty"`
+	StateVersion    int64                   `json:"stateVersion"`
+	Decision        string                  `json:"decision,omitempty"`
+	AuditVersion    string                  `json:"auditVersion,omitempty"`
+	Affected        []ChatTakeoverImpact    `json:"affected,omitempty"`
+	TurnID          string                  `json:"turnId,omitempty"`
+	Error           string                  `json:"error,omitempty"`
+	CreatedAt       int64                   `json:"createdAt"`
+	UpdatedAt       int64                   `json:"updatedAt"`
+	AttemptedAt     int64                   `json:"attemptedAt,omitempty"`
+	SentAt          int64                   `json:"sentAt,omitempty"`
 }
 
 // ChatQueueView is the browser projection of a persisted queue item. Legal
@@ -177,7 +180,7 @@ func (s backendChatQueueSender) Deliver(item ChatQueueItem) (chatQueueDeliveryRe
 		}
 	}
 	if item.DeliveryMode == chatDeliveryAuto {
-		result, steerErr := s.backend.Steer(ctx, item.Assistant, item.SessionID, item.ClientMessageID, item.Text, images, skills)
+		result, steerErr := s.backend.Steer(ctx, item.Assistant, item.SessionID, item.ClientMessageID, item.inputText(), images, skills)
 		if steerErr == nil {
 			return chatQueueDeliveryResult{TurnID: result.TurnID, Delivery: chatDeliverySteer}, nil
 		}
@@ -188,7 +191,7 @@ func (s backendChatQueueSender) Deliver(item ChatQueueItem) (chatQueueDeliveryRe
 	options := item.Options
 	options.ClientUserMessageID = item.ClientMessageID
 	options.ForceTakeover = item.Decision == "force" || item.Decision == "confirm-force"
-	result, err := s.backend.Input(ctx, item.Assistant, item.SessionID, item.Text, images, skills, options)
+	result, err := s.backend.Input(ctx, item.Assistant, item.SessionID, item.inputText(), images, skills, options)
 	return chatQueueDeliveryResult{TurnID: result.TurnID, Delivery: chatDeliveryStart}, err
 }
 
@@ -298,8 +301,9 @@ func buildChatSessionControlSnapshotLocked(ctx context.Context, assistant, sessi
 	}
 	epoch, version := nextChatControlSnapshotVersion()
 	return ChatSessionControlSnapshot{
-		SharedRuntime: runtimeState.SharedRuntime,
-		ServerEpoch:   epoch, SnapshotVersion: version,
+		SharedRuntime:     runtimeState.SharedRuntime,
+		AnnotationVersion: annotationVersion(assistant),
+		ServerEpoch:       epoch, SnapshotVersion: version,
 		AccessMode:  accessMode,
 		WriterOwner: runtimeState.WriterOwner, TurnPhase: phase,
 		ActiveTurnID: runtimeState.ActiveTurnID, TurnOwner: runtimeState.TurnOwner,
@@ -462,7 +466,7 @@ func (q *chatQueue) get(id string) (ChatQueueItem, bool) {
 	q.mu.Lock()
 	defer q.mu.Unlock()
 	item, ok := q.items[id]
-	return item, ok
+	return copyChatQueueAnnotations(item), ok
 }
 
 func chatSessionStateKey(assistant, sessionID string) string {
@@ -574,7 +578,7 @@ func (q *chatQueue) ClaimNext() (ChatQueueItem, bool, error) {
 	items := make([]ChatQueueItem, 0, len(q.items))
 	for _, item := range q.items {
 		if item.Status != chatQueueSent && item.Status != chatQueueCancelled {
-			items = append(items, item)
+			items = append(items, copyChatQueueAnnotations(item))
 		}
 	}
 	sort.Slice(items, func(i, j int) bool { return items[i].CreatedAt < items[j].CreatedAt })
@@ -617,7 +621,7 @@ func (q *chatQueue) ClaimNext() (ChatQueueItem, bool, error) {
 			q.items[current.ID] = snapshot
 			return ChatQueueItem{}, false, err
 		}
-		return current, true, nil
+		return copyChatQueueAnnotations(current), true, nil
 	}
 	if dirty {
 		if err := q.saveLocked(); err != nil {
@@ -643,12 +647,25 @@ func handleChatQueue(w http.ResponseWriter, r *http.Request) {
 		}
 		writeJSON(w, snapshot)
 	case http.MethodPost:
-		var item ChatQueueItem
-		if json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&item) != nil {
+		var request struct {
+			ChatQueueItem
+			EditQueueID string `json:"editQueueId"`
+		}
+		if json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&request) != nil {
 			http.Error(w, "bad request", http.StatusBadRequest)
 			return
 		}
-		stored, err := agentChatQueue.Enqueue(item)
+		var stored ChatQueueItem
+		var err error
+		if request.EditQueueID != "" {
+			stored, err = agentChatQueue.Revise(request.EditQueueID, request.StateVersion, request.ChatQueueItem)
+		} else {
+			stored, err = agentChatQueue.Enqueue(request.ChatQueueItem)
+		}
+		if errors.Is(err, errChatQueueStateConflict) {
+			writeErr(w, http.StatusConflict, "queue_state_conflict", "队列状态已变化，请重新确认。")
+			return
+		}
 		if err != nil {
 			writeErr(w, http.StatusBadRequest, "bad_queue_item", err.Error())
 			return
@@ -757,15 +774,14 @@ func newChatQueueID() string {
 	return fmt.Sprintf("queue-%d", time.Now().UnixNano())
 }
 
-func (q *chatQueue) Enqueue(input ChatQueueItem) (ChatQueueItem, error) {
-	q.mu.Lock()
-	defer q.mu.Unlock()
+func normalizeChatQueueInput(input ChatQueueItem) (ChatQueueItem, error) {
 	input.ClientMessageID = strings.TrimSpace(input.ClientMessageID)
 	input.Assistant = normAssistant(input.Assistant)
 	input.SessionID = strings.TrimSpace(input.SessionID)
 	input.WriterOwner = ""
 	input.ID = ""
 	input.Status = ""
+	input.CancelledFrom = ""
 	input.Delivery = ""
 	input.StateVersion = 0
 	input.Decision = ""
@@ -795,7 +811,12 @@ func (q *chatQueue) Enqueue(input ChatQueueItem) (ChatQueueItem, error) {
 	if input.DeliveryMode != chatDeliveryAuto && input.DeliveryMode != chatDeliveryNext {
 		return ChatQueueItem{}, errors.New("invalid delivery mode")
 	}
-	if strings.TrimSpace(input.Text) == "" && len(input.Images) == 0 && len(input.Skills) == 0 {
+	input.WireText = ""
+	input.Annotations, input.WireText, err = freezeChatAnnotations(input.Assistant, input.SessionID, input.Text, input.Annotations)
+	if err != nil {
+		return ChatQueueItem{}, err
+	}
+	if strings.TrimSpace(input.Text) == "" && input.Annotations == nil && len(input.Images) == 0 && len(input.Skills) == 0 {
 		return ChatQueueItem{}, errors.New("empty queue item")
 	}
 	if len(input.Images) > 20 || len(input.Skills) > 100 {
@@ -806,9 +827,20 @@ func (q *chatQueue) Enqueue(input ChatQueueItem) (ChatQueueItem, error) {
 			return ChatQueueItem{}, errors.New("invalid queue attachment")
 		}
 	}
+	return input, nil
+}
+
+func (q *chatQueue) Enqueue(input ChatQueueItem) (ChatQueueItem, error) {
+	normalized, err := normalizeChatQueueInput(input)
+	if err != nil {
+		return ChatQueueItem{}, err
+	}
+	input = normalized
+	q.mu.Lock()
+	defer q.mu.Unlock()
 	for _, item := range q.items {
 		if item.ClientMessageID == input.ClientMessageID && item.Assistant == input.Assistant && item.SessionID == input.SessionID {
-			return item, nil
+			return copyChatQueueAnnotations(item), nil
 		}
 	}
 	now := time.Now().UnixMilli()
@@ -822,7 +854,51 @@ func (q *chatQueue) Enqueue(input ChatQueueItem) (ChatQueueItem, error) {
 		delete(q.items, input.ID)
 		return ChatQueueItem{}, err
 	}
-	return input, nil
+	return copyChatQueueAnnotations(input), nil
+}
+
+func (q *chatQueue) Revise(id string, version int64, input ChatQueueItem) (ChatQueueItem, error) {
+	normalized, err := normalizeChatQueueInput(input)
+	if err != nil {
+		return ChatQueueItem{}, err
+	}
+	return q.editCancelled(id, version, normalized)
+}
+
+// Editing first cancels the queued delivery using its state version. Saving the
+// composer then revises that same item. A late save cannot mutate a claimed or
+// delivered message, nor silently create a second delivery.
+func (q *chatQueue) editCancelled(id string, version int64, input ChatQueueItem) (ChatQueueItem, error) {
+	operation := q.sessionOperation(input.Assistant, input.SessionID)
+	operation.Lock()
+	defer operation.Unlock()
+	if previous, exists := q.get(id); exists && previous.StateVersion > version {
+		normalized, err := normalizeChatQueueInput(previous)
+		if err == nil {
+			original, _ := json.Marshal(normalized)
+			incoming, _ := json.Marshal(input)
+			if string(original) == string(incoming) {
+				return previous, nil
+			}
+		}
+	}
+	return q.updateExpected(id, []string{chatQueueCancelled}, func(item *ChatQueueItem) error {
+		switch item.CancelledFrom {
+		case chatQueueQueued, chatQueueWaitingTurn, chatQueueWaitingWriter, chatQueueWaitingAccess, chatQueueWriterConfirmation, chatQueueTakeoverConfirmation:
+		default:
+			return errChatQueueStateConflict
+		}
+		if version != item.StateVersion || input.Assistant != item.Assistant || input.SessionID != item.SessionID || input.ClientMessageID != item.ClientMessageID {
+			return errChatQueueStateConflict
+		}
+		input.ID, input.CreatedAt, input.StateVersion = item.ID, item.CreatedAt, item.StateVersion
+		input.Status = chatQueueQueued
+		if q.sessions[chatSessionStateKey(input.Assistant, input.SessionID)].AccessMode == chatAccessReadOnly {
+			input.Status = chatQueueWaitingAccess
+		}
+		*item = input
+		return nil
+	})
 }
 
 func (q *chatQueue) List(assistant, sessionID string) []ChatQueueItem {
@@ -831,7 +907,7 @@ func (q *chatQueue) List(assistant, sessionID string) []ChatQueueItem {
 	items := make([]ChatQueueItem, 0)
 	for _, item := range q.items {
 		if (assistant == "" || item.Assistant == assistant) && (sessionID == "" || item.SessionID == sessionID) {
-			items = append(items, item)
+			items = append(items, copyChatQueueAnnotations(item))
 		}
 	}
 	sort.Slice(items, func(i, j int) bool { return items[i].CreatedAt < items[j].CreatedAt })
@@ -891,6 +967,9 @@ func (q *chatQueue) updateExpected(id string, expected []string, mutate func(*Ch
 	if err := mutate(&item); err != nil {
 		return ChatQueueItem{}, err
 	}
+	if item.Status == chatQueueCancelled && previous.Status != chatQueueCancelled {
+		item.CancelledFrom = previous.Status
+	}
 	item.UpdatedAt = time.Now().UnixMilli()
 	item.StateVersion++
 	q.items[id] = item
@@ -898,7 +977,7 @@ func (q *chatQueue) updateExpected(id string, expected []string, mutate func(*Ch
 		q.items[id] = previous
 		return ChatQueueItem{}, err
 	}
-	return item, nil
+	return copyChatQueueAnnotations(item), nil
 }
 
 func (q *chatQueue) saveLocked() error {

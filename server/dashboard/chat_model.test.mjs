@@ -928,7 +928,7 @@ test('pending Codex chat resolves the home directory once and migrates to the re
     return { ok: true, status: 200, async json() { return data; } };
   };
   const chat = {
-    cacheKey: 'm1\ndraft-local', macId: 'm1', sessionId: 'draft-local', cwd: '',
+    cacheKey: 'm1\ncodex\ndraft-local', macId: 'm1', sessionId: 'draft-local', cwd: '',
     title: '新Codex会话 · 无项目', pendingStart: true, unscoped: true,
     startPromise: null, starting: false, loading: false, events: null,
     approvalMode: 'full-access', approvalConfirmedMode: 'full-access',
@@ -942,13 +942,13 @@ test('pending Codex chat resolves the home directory once and migrates to the re
     assert.equal(JSON.parse(calls[1].options.body).cwd, '/Users/test');
     assert.equal(JSON.parse(calls[2].options.body).approvalMode, 'full-access');
     assert.equal(chat.sessionId, 'thread-real');
-    assert.equal(chat.cacheKey, 'm1\nthread-real');
+    assert.equal(chat.cacheKey, 'm1\ncodex\nthread-real');
     assert.equal(chat.pendingStart, false);
     assert.equal(chat.approvalMode, 'full-access');
     assert.equal(chat.approvalConfirmedMode, 'full-access');
     assert.equal(chat.controlReady, true);
-    assert.equal(appState.chatCache.has('m1\ndraft-local'), false);
-    assert.equal(appState.chatCache.get('m1\nthread-real'), chat);
+    assert.equal(appState.chatCache.has('m1\ncodex\ndraft-local'), false);
+    assert.equal(appState.chatCache.get('m1\ncodex\nthread-real'), chat);
   } finally {
     chat.events?.close();
     appSandbox.fetch = previousFetch;
@@ -2020,7 +2020,7 @@ test('chat cache update time is monotonic and green status follows EventSource s
   updateChatUpdatedAt(chat, 300);
   assert.equal(chat.updatedAt, 300);
 
-  appState.chatCache.set('m1\ns1', chat);
+  appState.chatCache.set('m1\ncodex\ns1', chat);
   assert.equal(isChatConnectionKept('m1', 's1'), true);
   chat.events.readyState = 2;
   assert.equal(isChatConnectionKept('m1', 's1'), false);
@@ -2032,7 +2032,7 @@ test('session running indicator prefers server control and falls back to the ses
   assert.equal(isSessionRunning(session, 'm1'), true);
   assert.equal(isSessionRunning({ ...session, status: 'idle' }, 'm1'), false);
 
-  const cacheKey = 'm1\nthread-status';
+  const cacheKey = 'm1\ncodex\nthread-status';
   const chat = { controlReady: true, turnPhase: 'running', submitting: false, model: { phase: 'running' } };
   appState.chatCache.set(cacheKey, chat);
   assert.equal(isSessionRunning({ ...session, status: 'idle' }, 'm1'), true);
@@ -3574,7 +3574,7 @@ const { chatCacheKey, pendingChatInteractionCount, renderChatPendingInteraction,
 test('Codex and DSH pending questions replace their running indicator with an answer badge', () => {
   for (const assistant of ['codex', 'dsh']) {
     const session = { macId: 'm-answer', sessionId: `question-${assistant}`, assistant, status: 'active', waiting: false };
-    const key = chatCacheKey(session.macId, session.sessionId);
+    const key = chatCacheKey(session.macId, session.sessionId, session.assistant);
     const chat = { assistant, historyReady: true, model: reduceChatEvent(createChatState(), {
       type: 'interaction_request', itemId: 'question-1', data: {
         requestId: 'question-1', requestMethod: 'item/tool/requestUserInput', questions: [{ id: 'q', question: 'Continue?' }],
@@ -3603,7 +3603,7 @@ test('Codex and DSH pending questions replace their running indicator with an an
 
 test('async question list badges follow pending, saved, cancelled, and answered states across history reloads', () => {
   const session = { macId: 'm-answer', sessionId: 'async-status', assistant: 'codex', status: 'active', waiting: false, waitingVisible: false };
-  const key = chatCacheKey(session.macId, session.sessionId);
+  const key = chatCacheKey(session.macId, session.sessionId, session.assistant);
   const chat = { assistant: 'codex', historyReady: true, followups: [], model: reduceChatEvent(createChatState(), asyncQuestionEvent) };
   appState.chatCache.set(key, chat);
   try {
@@ -3626,7 +3626,7 @@ test('async question list badges follow pending, saved, cancelled, and answered 
 
 test('a different assistant cache cannot overwrite the session waiting flag', () => {
   const session = { macId: 'm-answer', sessionId: 'same-id', assistant: 'dsh', status: 'active', waiting: true };
-  const key = chatCacheKey(session.macId, session.sessionId);
+  const key = chatCacheKey(session.macId, session.sessionId, session.assistant);
   appState.chatCache.set(key, { assistant: 'codex', historyReady: true, model: createChatState() });
   try { assert.equal(sessionStatus(session).label, '请输入回答'); }
   finally { appState.chatCache.delete(key); }
@@ -4025,7 +4025,7 @@ function sessionNavigationFixture() {
     globalThis.opened = [];
     openChatSession = session => {
       opened.push(session);
-      state.chat = state.chatCache.get(chatCacheKey(session.macId, session.sessionId)) || session;
+      state.chat = state.chatCache.get(chatCacheKey(session.macId, session.sessionId, session.assistant)) || session;
       state.macId = session.macId;
       showChatPane(state.chat.title, state.chat.cwd);
       $('#chat-input').value = state.chat.draft || '';
@@ -4105,8 +4105,8 @@ test('returning from files restores the selected cached conversation and its sav
   const other = {...chat, macId: 'm2', title: 'Other device'};
   Object.assign(state, {macId: 'm1', fileMacId: 'm2', selectedSid: chat.sessionId,
     selectedSessionMacId: 'm1', selectedSessionAssistant: 'codex', chat});
-  state.chatCache.set('m1\nselected-chat', chat);
-  state.chatCache.set('m2\nselected-chat', other);
+  state.chatCache.set('m1\ncodex\nselected-chat', chat);
+  state.chatCache.set('m2\ncodex\nselected-chat', other);
   // Soft refresh may replace the list while the document is open.
   state.sessionResults = [];
   elements.set('#chat-input', {value: '继续检查文档'});
@@ -4131,7 +4131,7 @@ test('restoring a mounted conversation keeps its current draft and does not reop
   const chat = {macId: 'm1', assistant: 'codex', sessionId: 'mounted-chat', title: 'Mounted'};
   Object.assign(state, {selectedSid: chat.sessionId, selectedSessionMacId: chat.macId,
     selectedSessionAssistant: chat.assistant, chat});
-  state.chatCache.set('m1\nmounted-chat', chat);
+  state.chatCache.set('m1\ncodex\nmounted-chat', chat);
   elements.set('#chat-input', {value: '未发送的草稿'});
   restoreTermOrEmpty();
   assert.equal(state.chat, chat);
@@ -4154,7 +4154,7 @@ test('an evicted selected conversation restores by its exact device and assistan
 test('closing a conversation or changing assistants does not restore a stale cached selection', () => {
   const {state, restoreTermOrEmpty, opened, elements} = sessionNavigationFixture();
   const chat = {macId: 'm1', assistant: 'codex', sessionId: 'old-chat', title: 'Old'};
-  state.chatCache.set('m1\nold-chat', chat);
+  state.chatCache.set('m1\ncodex\nold-chat', chat);
   restoreTermOrEmpty();
   assert.equal(opened.length, 0);
   assert.equal(elements.get('#empty-state').hidden, false);
@@ -4235,7 +4235,7 @@ test('session deletion keeps cached chat on failure and disposes it only on succ
     const session = {assistant:'dsh',macId:'m1',sessionId:'session-menu',title:'Menu',mtime:fixedAppNowMs};
     appState.assistantInfo = {m1:{dsh:{enabled:true,degraded:false,sessionActions:['delete']}}};
     appState.scope = 'active';
-    const chat = {macId:'m1',sessionId:'session-menu',cacheKey:'m1\nsession-menu'};
+    const chat = {macId:'m1',sessionId:'session-menu',cacheKey:'m1\ndsh\nsession-menu'};
     appState.chat = chat; appState.chatCache = new Map([[chat.cacheKey,chat]]);
     const menu = nodesWithClass(sessionRow(session), 'ses-menu')[0];
     assert.ok(menu);
@@ -4711,4 +4711,9 @@ test('resume still rejects malformed control snapshots after a valid polling res
     assert.match(h.state.chat.model.error, /无效的会话控制状态/);
     assert.equal(h.state.chat.controlVersion, 2);
   }
+});
+
+test('annotation chat caches isolate providers even when their session IDs collide',()=>{
+ assert.notEqual(chatCacheKey('m1','same-session','codex'),chatCacheKey('m1','same-session','dsh'));
+ assert.notEqual(chatCacheKey('m1','same-session','codex'),chatCacheKey('m2','same-session','codex'));
 });

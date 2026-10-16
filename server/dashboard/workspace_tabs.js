@@ -223,12 +223,15 @@
         frame.id = `workspace-file-${++init.sequence}`;
         frame.title = `文件预览：${target.name}`;
         frame.src = target.url;
+        const frameWorkspaceKey = workspaceKey;
         frame.onload = () => {
           // The trusted /view wrapper retains its existing scriptless HTML sandbox.
           try {
             const content = frame.contentDocument;
             if (content.documentElement) content.documentElement.dataset.workspaceTab = 'true';
             content.addEventListener('click', intercept);
+            root.FleetAnnotationUI?.active?.registerPreview(frame, target, frameWorkspaceKey);
+            content.addEventListener('fleet:preview-rendered', () => root.FleetAnnotationUI?.active?.registerPreview(frame, target, frameWorkspaceKey));
           } catch (_) {}
           if (model.active !== target.key) pause(frame);
         };
