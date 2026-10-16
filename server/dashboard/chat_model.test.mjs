@@ -4609,3 +4609,37 @@ test('historical image data uses the normal image preview instead of a download 
     assert.equal(nodesWithClass(row, 'chat-file-link').length, 0);
   }
 });
+
+test('DSH multi-select questions render checkboxes, retain drafts, and show question detail', () => {
+  const previous = appState.chat;
+  try {
+    appState.chat = { controlReady: true, accessMode: 'read_write' };
+    const question = { id: 'multi', question: 'Choose features', detail: 'Review these choices', multiSelect: true, isOther: true, dshQuestion: true, options: [{ label: 'A' }, { label: 'B' }] };
+    const allNodes = (node) => [node, ...(node.children || []).flatMap(allNodes)];
+    let fieldset = renderUserInputQuestion({ requestId: 'dsh-q' }, question, 0);
+    let choices = allNodes(fieldset).filter((node) => node.attributes?.type === 'checkbox');
+    assert.equal(choices.length, 3);
+    assert.equal(nodeText(fieldset).includes('Review these choices'), true);
+    choices[0].onchange({ currentTarget: { checked: true } });
+    choices[1].onchange({ currentTarget: { checked: true } });
+    fieldset = renderUserInputQuestion({ requestId: 'dsh-q' }, question, 0);
+    choices = allNodes(fieldset).filter((node) => node.attributes?.type === 'checkbox');
+    assert.equal(choices[0].getAttribute('checked'), '');
+    assert.equal(choices[1].getAttribute('checked'), '');
+    assert.equal(choices[0].getAttribute('required'), null);
+  } finally { appState.chat = previous; }
+});
+
+test('DSH question submissions preserve multiple choices and custom text separately', () => {
+  const userInputResponse = vm.runInContext('userInputResponse', appSandbox);
+  const fields = [
+    { dataset: { questionId: 'multi', fieldName: 'field-multi' }, querySelectorAll: () => [
+      { checked: true, value: 'A' }, { checked: true, value: 'B' }, { checked: false, value: 'C' }, { checked: true, value: '__other__' },
+    ], querySelector: () => ({ value: ' 自定义 ' }) },
+    { dataset: { questionId: 'text', fieldName: 'field-text' }, querySelectorAll: () => [], querySelector: () => ({ value: '自由文本' }) },
+  ];
+  const form = { querySelectorAll: () => fields };
+  appSandbox.CSS = { escape: (value) => value };
+  const result = userInputResponse(form, { questions: [{ id: 'multi', dshQuestion: true }, { id: 'text', dshQuestion: true }] });
+  assert.deepEqual(JSON.parse(JSON.stringify(result)), { answers: { multi: { answers: ['A', 'B', '自定义'], custom: '自定义' }, text: { answers: ['自由文本'] } } });
+});

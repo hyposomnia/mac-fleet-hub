@@ -280,6 +280,10 @@ func TestDSHChatRespondPostsOutcomeWithClientID(t *testing.T) {
 func TestDSHChatEventsDeliversLiveFrames(t *testing.T) {
 	host := newRecordingHost(t, map[string]any{"sessionId": "session-1"})
 	host.host.streamReply = func(endpoint, streamID string, send func(map[string]any)) {
+		if endpoint == "$events" {
+			send(map[string]any{"type": "item", "streamId": streamID, "value": map[string]any{"type": "ready", "clientId": "events-client"}})
+			return
+		}
 		if endpoint != "session/follow" {
 			return
 		}
