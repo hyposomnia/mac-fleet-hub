@@ -226,3 +226,33 @@ test('A05/A10 source navigation stays within the exact device, assistant and con
     assert.equal(A.sourceBelongsTo(note, chat), false);
   assert.equal(A.sourceBelongsTo(note, null), false);
 });
+
+test('A06/A09 structured skill content preserves the native annotation text part and user display body', () => {
+  const M = scope.globalThis.FleetChatModel;
+  const content = [
+    { type: 'skill', name: 'review', path: '/skills/review/SKILL.md' },
+    { type: 'text', text: native },
+  ];
+  let state = M.reduceChatEvent(M.createChatState(), {
+    type: 'user_done',
+    itemId: 'native-skill',
+    turnId: 't',
+    data: { text: '$review\n' + native, content },
+  });
+  assert.equal(state.items['native-skill'].text, '继续');
+  assert.equal(state.items['native-skill'].annotations.items.length, 1);
+  state = M.reduceChatEvent(M.createChatState(), {
+    type: 'user_done',
+    itemId: 'fleet-skill',
+    turnId: 't',
+    data: {
+      text: '$review\n' + native,
+      content,
+      wireText: native,
+      displayText: '$review 继续',
+      annotations: A.readWire(native).annotations,
+    },
+  });
+  assert.equal(state.items['fleet-skill'].text, '$review 继续');
+  assert.equal(state.items['fleet-skill'].wireText, native);
+});

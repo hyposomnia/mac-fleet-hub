@@ -30,3 +30,17 @@ func TestLoginEffectsArePublicWithoutExposingSettingsScripts(testContext *testin
 		}
 	}
 }
+
+func TestAnnotationDraftModuleLoadsOnPublicAuthPagesOnly(t *testing.T) {
+	server, _ := newTestServer(t)
+	browser := &testBrowser{server: server}
+	response := browser.request("GET", "/annotation_model.js?v=259", nil)
+	if response.Code != 200 || !strings.Contains(response.Body.String(), "FleetAnnotations") {
+		t.Fatalf("auth annotation module: status=%d", response.Code)
+	}
+	for _, path := range []string{"/annotation_ui.js?v=259", "/annotations.css?v=259", "/app.js?v=259", "/sw.js"} {
+		if response := browser.request("GET", path, nil); response.Code != 303 {
+			t.Fatalf("private asset %s: status=%d", path, response.Code)
+		}
+	}
+}

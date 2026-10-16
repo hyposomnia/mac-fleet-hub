@@ -211,3 +211,21 @@ func TestAnnotationRevisionHTTPContract(t *testing.T) {
 		t.Fatal("late HTTP revision changed frozen wire")
 	}
 }
+
+func TestAnnotationEventProjectionKeepsWireAndUserDisplayBody(t *testing.T) {
+	q, _ := openChatQueue(filepath.Join(t.TempDir(), "queue.json"))
+	item, err := q.Enqueue(ChatQueueItem{Assistant: "codex", SessionID: "thread", ClientMessageID: "skill-note", Text: "continue", DisplayText: "$review continue", Annotations: &ChatAnnotationEnvelope{Version: codexAnnotationVersion, Items: []ChatAnnotation{{Text: "quote"}}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	event := q.withAnnotations(newChatEvent("user_done", "codex", "thread", "turn", "native", map[string]any{"clientId": "skill-note", "text": "$review\n" + item.WireText}))
+	var data struct {
+		WireText    string                  `json:"wireText"`
+		DisplayText string                  `json:"displayText"`
+		Annotations *ChatAnnotationEnvelope `json:"annotations"`
+	}
+	json.Unmarshal(event.Data, &data)
+	if data.WireText != item.WireText || data.DisplayText != "$review continue" || data.Annotations == nil {
+		t.Fatalf("projected annotation input lost provenance: %+v", data)
+	}
+}

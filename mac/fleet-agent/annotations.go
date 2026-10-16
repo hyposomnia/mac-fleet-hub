@@ -165,6 +165,12 @@ func (q *chatQueue) withAnnotations(event ChatEvent) ChatEvent {
 	for _, item := range q.List(event.Assistant, event.SessionID) {
 		if item.ClientMessageID == clientID && item.Annotations != nil {
 			data["annotations"], _ = json.Marshal(item.Annotations)
+			data["wireText"], _ = json.Marshal(item.WireText)
+			display := item.DisplayText
+			if display == "" {
+				display = item.Text
+			}
+			data["displayText"], _ = json.Marshal(display)
 			event.Data, _ = json.Marshal(data)
 			break
 		}

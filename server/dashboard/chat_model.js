@@ -594,7 +594,8 @@
         const replyText = data.text || (Array.isArray(data.content)
           ? data.content.filter((part) => part.type === 'text').map((part) => part.text || '').join('\n') : '');
         if (replyText) applyQuestionReply(item, replyText);
-        root.FleetAnnotations?.applyInput(item, replyText, data.annotations);
+        root.FleetAnnotations?.applyInput(item, typeof data.wireText === 'string' ? data.wireText : replyText, data.annotations, data.content || asObject(data.item).content);
+        if (item.annotations && typeof data.displayText === 'string') item.text = data.displayText;
         rememberQuestionReplies(next, item);
         item.images = (data.images || item.images || []).slice();
         item.optimistic = false;

@@ -73,8 +73,15 @@
     }
   }
 
-  function applyInput(item, text, sidecar) {
-    const parsed = readWire(text);
+  function applyInput(item, text, sidecar, content = []) {
+    let parsed = readWire(text);
+    if (!parsed && Array.isArray(content)) {
+      const candidates = content
+        .filter((part) => part?.type === 'text')
+        .map((part) => readWire(part.text))
+        .filter(Boolean);
+      if (candidates.length === 1) parsed = candidates[0];
+    }
     if (parsed) {
       item.wireText = parsed.wireText;
       item.text = parsed.text;
