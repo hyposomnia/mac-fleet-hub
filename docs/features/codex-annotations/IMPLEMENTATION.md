@@ -50,3 +50,30 @@ go test -tags annotation_uat -run '^TestAnnotationBrowserServer$' -timeout 0 -v 
 项目全量验证实际输出摘要：[verify-summary.txt](implementation-evidence/verify-summary.txt)。最终界面：[final-v258.png](implementation-evidence/final-v258.png)。本地 provider 为测试替身；真实跨端及真机验收状态保持上表所列。
 
 登录页依赖的 `annotation_model.js` 由 SaaS 静态路由公开提供；`annotation_ui.js`、聊天脚本与 Service Worker 仍要求登录，见 multiuser/theme_asset_test.go。带 Skill 的输入从实际 text content 解析原生包络，队列 sidecar 另保留 wire 和用户展示正文，避免投影后的 Skill 标签破坏包络起始位置。
+
+## SaaS 部署记录
+
+2026-10-16，pm 已部署网页 v259 与对应 Linux 服务端，发布源码为 `b2ffad7ae19d076dc3683cee74178d21703c79ec`。发布包从该提交构建，159 个文件通过 SHA 校验；Linux 服务端 SHA-256 为 `ed58964db31106ad111328f3e073cfd3b2cc910e9a15aff77f8174fa250f955a`。部署保留上一版本回滚入口。
+
+部署后的实际输出：
+
+```text
+web_revision=b2ffad7ae19d076dc3683cee74178d21703c79ec
+server_sha256=ed58964db31106ad111328f3e073cfd3b2cc910e9a15aff77f8174fa250f955a
+active
+active
+public_asset_match=annotation_model.js
+public_asset_match=auth-client.js
+public_asset_match=style.css
+private_asset_status=annotation_ui.js:303
+private_asset_status=annotations.css:303
+private_asset_status=app.js:303
+private_asset_status=index.html:303
+private_asset_status=sw.js:303
+okok
+deploy_verified=b2ffad7ae19d076dc3683cee74178d21703c79ec
+```
+
+两个服务均为 active；`/healthz`、`/readyz` 各返回 `ok`。公开资源从公网下载逐字节匹配，私有资源未登录时重定向鉴权；已登录 Chrome 确认加载 v259。
+
+本轮未发布或替换 Mac 签名客户端。现有设备需更新对应 agent 后才能发送注释；真实 Codex Desktop 双向互通、DeepSeek 模型回引及手机真机验收仍待执行。
