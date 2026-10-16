@@ -817,7 +817,11 @@ html.automation-doc-root, html.automation-doc-root body { height: auto; min-heig
   border: 1.5px solid var(--text-2); border-top-color: var(--text-1);
   animation: spin .8s linear infinite;
 }
-.session-state-dot.waiting { background: var(--wait); box-shadow: 0 0 0 3px var(--wait-soft); }
+.session-state-dot.waiting {
+  display: inline-flex; align-items: center; width: auto; height: auto; padding: 3px 8px;
+  border: 0; border-radius: 999px; background: var(--accent-soft); color: var(--accent-text);
+  box-shadow: none; animation: none; font-size: var(--t-caption); font-weight: 600; line-height: 1.35; white-space: nowrap;
+}
 .ses-top .t { flex: 1; font-weight: 500; font-size: var(--t-body); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 /* 终止进程图标：仅「已开 pty / 有进程」(.conn) 的会话显示（不论是否选中）；非删除，终止后会话仍保留 */
 /* 正常态：静态绿点（无呼吸）；hover：红色停止按钮（圆形边框） */

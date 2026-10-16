@@ -1362,7 +1362,7 @@ test('special session states use trailing indicators and never render relative t
   const runningDot = nodesWithClass(running, 'session-state-dot')[0];
   const unreadDot = nodesWithClass(unread, 'session-state-dot')[0];
   const archivedDot = nodesWithClass(archived, 'session-state-dot')[0];
-  assert.equal(waitingDot?.attributes['aria-label'], '等待回复');
+  assert.equal(waitingDot?.attributes['aria-label'], '请输入回答');
   assert.equal(runningDot?.attributes['aria-label'], '进行中');
   assert.equal(unreadDot?.attributes['aria-label'], '未读');
   assert.equal(archivedDot?.attributes['aria-label'], '已归档');
@@ -1609,8 +1609,8 @@ test('queue transcript cards render exactly the actions permitted by the state m
 });
 
 test('external writer messages use the agent queue and render takeover actions below the user message', () => {
-  // 队列按 (assistant, sessionId) 分区：assistant 随当前自绘助手走（原断言写死 codex）
-  assert.match(appSrc, /chat\/queue\?assistant=\$\{state\.assistant\}/);
+  // 后台会话仍使用自己的 assistant，不能跟着当前标签切换。
+  assert.match(appSrc, /chat\/queue\?assistant=\$\{chat\.assistant \|\| state\.assistant\}/);
   assert.match(appSrc, /chat\/queue\/decision/);
   assert.match(appSrc, /enqueueServerChatMessage/);
   assert.match(appSrc, /中断全部并接管/);
@@ -1744,11 +1744,11 @@ test('takeover is offered only for an external writer, never the current Fleet t
 
 test('waiting reply label is suppressed after an opened chat proves there is no actionable request', () => {
   assert.equal(sessionStatus({ waiting: true, waitingVisible: false, status: 'active' }).label, '进行中');
-  assert.equal(sessionStatus({ waiting: true, waitingVisible: true, status: 'active' }).label, '等待回复');
+  assert.equal(sessionStatus({ waiting: true, waitingVisible: true, status: 'active' }).label, '请输入回答');
   assert.match(appSrc, /for \(const event of resumed\.pendingEvents \|\| \[\]\)/);
   assert.match(appSrc, /function pendingChatRequestCount/);
   assert.match(appSrc, /request\?\.status === 'pending'/);
-  assert.match(appSrc, /session\.waitingVisible = pendingChatRequestCount\(chat\) > 0/);
+  assert.match(appSrc, /session\.waitingVisible = pendingChatInteractionCount\(chat\) > 0/);
   assert.match(appSrc, /chat\.pendingRequestCount = pendingChatRequestCount\(chat\)/);
 });
 
@@ -3763,6 +3763,91 @@ test('async answers use the durable auto queue with exact ids and preserve the c
     appState.chat = previous;
     vm.runInContext('({api, loadServerChatQueue, renderChat} = __questionOriginals);', appSandbox);
   }
+});
+
+const { chatCacheKey, pendingChatInteractionCount, renderChatPendingInteraction, updateSessionStateDot } = vm.runInContext(
+  '({ chatCacheKey, pendingChatInteractionCount, renderChatPendingInteraction, updateSessionStateDot })', appSandbox,
+);
+
+test('Codex and DSH pending questions replace their running indicator with an answer badge', () => {
+  for (const assistant of ['codex', 'dsh']) {
+    const session = { macId: 'm-answer', sessionId: `question-${assistant}`, assistant, status: 'active', waiting: false };
+    const key = chatCacheKey(session.macId, session.sessionId);
+    const chat = { assistant, historyReady: true, model: reduceChatEvent(createChatState(), {
+      type: 'interaction_request', itemId: 'question-1', data: {
+        requestId: 'question-1', requestMethod: 'item/tool/requestUserInput', questions: [{ id: 'q', question: 'Continue?' }],
+      },
+    }) };
+    appState.chatCache.set(key, chat);
+    try {
+      const row = sessionRow(session);
+      const indicator = nodesWithClass(row, 'session-state-dot')[0];
+      assert.equal(indicator.textContent, '请输入回答');
+      assert.equal(indicator.attributes.role, 'status');
+      assert.ok(indicator.className.endsWith(' waiting'));
+      assert.equal(indicator.className.includes('running'), false);
+      chat.model.requests['question-1'].submitting = true;
+      assert.equal(sessionStatus(session).className, 'running');
+      chat.model.requests['question-1'].submitting = false;
+      assert.equal(sessionStatus(session).className, 'waiting');
+      chat.model = reduceChatEvent(chat.model, { type: 'interaction_resolved', data: { requestId: 'question-1' } });
+      updateSessionStateDot(indicator, session);
+      assert.equal(indicator.textContent, '');
+      assert.equal(indicator.attributes.role, 'img');
+      assert.ok(indicator.className.endsWith(' running'));
+    } finally { appState.chatCache.delete(key); }
+  }
+});
+
+test('async question list badges follow pending, saved, cancelled, and answered states across history reloads', () => {
+  const session = { macId: 'm-answer', sessionId: 'async-status', assistant: 'codex', status: 'active', waiting: false, waitingVisible: false };
+  const key = chatCacheKey(session.macId, session.sessionId);
+  const chat = { assistant: 'codex', historyReady: true, followups: [], model: reduceChatEvent(createChatState(), asyncQuestionEvent) };
+  appState.chatCache.set(key, chat);
+  try {
+    const questions = chat.model.items['ask-async'].questions;
+    const text = questionReplyText(questions, Object.fromEntries(questions.map((question) => [question.id, { answers: ['answer'] }])));
+    assert.equal(pendingChatInteractionCount(chat), 2);
+    assert.equal(sessionStatus(session).label, '请输入回答');
+    chat.followups = [{ status: 'steering', text }];
+    assert.equal(pendingChatInteractionCount(chat), 0);
+    assert.equal(sessionStatus(session).className, 'running');
+    chat.followups = [{ status: 'cancelled', text }];
+    assert.equal(sessionStatus(session).className, 'waiting');
+    chat.model = prependHistory(createChatState(), [asyncQuestionEvent,
+      { type: 'user_done', itemId: 'persisted-answer', data: { text } }]);
+    chat.followups = [];
+    assert.equal(pendingChatInteractionCount(chat), 0);
+    assert.equal(sessionStatus(session).className, 'running');
+  } finally { appState.chatCache.delete(key); }
+});
+
+test('a different assistant cache cannot overwrite the session waiting flag', () => {
+  const session = { macId: 'm-answer', sessionId: 'same-id', assistant: 'dsh', status: 'active', waiting: true };
+  const key = chatCacheKey(session.macId, session.sessionId);
+  appState.chatCache.set(key, { assistant: 'codex', historyReady: true, model: createChatState() });
+  try { assert.equal(sessionStatus(session).label, '请输入回答'); }
+  finally { appState.chatCache.delete(key); }
+});
+
+test('answer prompt points to the pending form without describing an async turn as paused', () => {
+  const host = testElement('div');
+  const originalQuery = appSandbox.document.querySelector;
+  let scrolled = false;
+  appSandbox.document.querySelector = (selector) => selector === '#chat-pending-interaction' ? host
+    : selector.includes('data-needs-answer="true"') ? { scrollIntoView() { scrolled = true; } } : null;
+  try {
+    const chat = { model: reduceChatEvent(createChatState(), asyncQuestionEvent) };
+    renderChatPendingInteraction(chat);
+    assert.equal(host.hidden, false);
+    assert.ok(nodeText(host).includes('请输入回答'));
+    assert.equal(nodeText(host).includes('任务已暂停'), false);
+    host.children[1].onclick();
+    assert.equal(scrolled, true);
+    chat.model = createChatState();
+    renderChatPendingInteraction(chat);
+    assert.equal(host.hidden, true);
+  } finally { appSandbox.document.querySelector = originalQuery; }
 });
 
 test('image tool projection keeps a renderable media path and command actions', () => {

@@ -1401,7 +1401,7 @@ function sessionRenderSignature(session) {
     projectName: session?.projectName || '', projectCwd: session?.projectCwd || '',
     projectless: !!session?.projectless, mtime: Number(session?.mtime) || 0,
     outputEndedAt: Number(session?.outputEndedAt) || 0, unread: sessionIsUnread(session),
-    pinned: !!session?.pinned, pty: !!session?.pty, waiting: !!session?.waiting,
+    pinned: !!session?.pinned, pty: !!session?.pty, waiting: sessionHasVisibleRequest(session),
     status: session?.status || '', live: !!session?.live,
   });
 }
@@ -1784,7 +1784,7 @@ async function refreshSessionsSoft() {
 
 // 会话行：统一聊天入口，展示运行状态、置顶与会话操作。
 function sessionStatus(session, running = !!session?.pty || FleetChatModel.chatPhase(session?.status) === 'running') {
-  if (sessionHasVisibleRequest(session)) return { label: '等待回复', className: 'waiting' };
+  if (sessionHasVisibleRequest(session)) return { label: '请输入回答', className: 'waiting' };
   if (running) return { label: '进行中', className: 'running' };
   if (sessionIsUnread(session)) return { label: '未读', className: 'unread' };
   if (state.scope === 'all') return { label: '已归档', className: 'archived' };
@@ -1796,6 +1796,8 @@ function updateSessionStateDot(dot, session, running) {
   const status = sessionStatus(session, running);
   dot.className = `session-state-dot ${status.className}`;
   dot.title = status.label;
+  dot.textContent = status.className === 'waiting' ? status.label : '';
+  dot.setAttribute('role', status.className === 'waiting' ? 'status' : 'img');
   dot.setAttribute('aria-label', status.label);
 }
 
@@ -2633,7 +2635,7 @@ async function loadServerChatQueue(chat) {
   if (!chat || chat.pendingStart) return;
   const requestSeq = beginChatControlRequest(chat);
   try {
-    const result = await api(chat.macId, `chat/queue?assistant=${state.assistant}&sessionId=${encodeURIComponent(chat.sessionId)}`);
+    const result = await api(chat.macId, `chat/queue?assistant=${chat.assistant || state.assistant}&sessionId=${encodeURIComponent(chat.sessionId)}`);
     if (!applyChatControlSnapshot(chat, result, requestSeq)) {
       if (markChatControlSyncFailure(chat) && state.chat === chat) {
         renderChatOwnershipHead(chat);
@@ -2643,6 +2645,7 @@ async function loadServerChatQueue(chat) {
       }
       return false;
     }
+    syncSessionRuntimeIndicators();
     if (state.chat === chat) {
       renderChat();
       renderChatFollowups();
@@ -2823,11 +2826,20 @@ function updateCachedChatFromSession(macId, session) {
   if (!session?.sessionId) return;
   const chat = state.chatCache.get(chatCacheKey(macId, session.sessionId));
   updateChatUpdatedAt(chat, session.mtime);
-  if (chat?.historyReady) session.waitingVisible = pendingChatRequestCount(chat) > 0;
+  if (chat?.historyReady) session.waitingVisible = pendingChatInteractionCount(chat) > 0;
 }
 
 function pendingChatRequestCount(chat) {
-  return Object.values(chat?.model?.requests || {}).filter((request) => request?.status === 'pending').length;
+  return Object.values(chat?.model?.requests || {}).filter((request) => request?.status === 'pending' && !request.submitting).length;
+}
+
+function pendingChatAsyncQuestions(chat) {
+  return Object.values(chat?.model?.items || {}).filter((item) => item?.type === 'assistant')
+    .flatMap((item) => (item.questions || []).filter((question) => !asyncQuestionSubmission(question.id, chat)));
+}
+
+function pendingChatInteractionCount(chat) {
+  return pendingChatRequestCount(chat) + pendingChatAsyncQuestions(chat).length;
 }
 
 function visiblePendingChatRequestCount(chat) {
@@ -2838,21 +2850,24 @@ function renderChatPendingInteraction(chat = state.chat) {
   const host = $('#chat-pending-interaction');
   if (!host) return;
   clear(host);
-  const count = visiblePendingChatRequestCount(chat);
+  const asyncQuestions = pendingChatAsyncQuestions(chat);
+  const count = visiblePendingChatRequestCount(chat) + asyncQuestions.length;
   if (!chat || count < 1) {
     host.hidden = true;
     return;
   }
   const actionable = Object.values(chat.model?.requests || {}).find((request) => request?.status === 'pending');
+  const needsAnswer = asyncQuestions.length > 0 || actionable?.type === 'request_user_input';
   host.hidden = false;
   host.append(
     h('div', { class: 'chat-pending-interaction-copy' },
-      h('strong', { text: '等待你审批或回答' }),
-      h('span', { text: actionable ? '任务已暂停，处理后才会继续输出。' : '请求正在同步；若连接已丢失，服务端会在无进展超时后自动释放。' })),
+      h('strong', { text: needsAnswer ? '请输入回答' : '等待你审批或回答' }),
+      h('span', { text: needsAnswer ? '选择选项或填写答案后提交。' : (actionable ? '任务已暂停，处理后才会继续输出。' : '请求正在同步；若连接已丢失，服务端会在无进展超时后自动释放。') })),
     h('button', {
-      type: 'button', class: 'btn sm accent', text: '等待你处理', disabled: actionable ? null : '',
+      type: 'button', class: 'btn sm accent', text: needsAnswer ? '前往回答' : '等待你处理', disabled: actionable || asyncQuestions.length ? null : '',
       onclick: () => {
-        const target = $('#chat-scroll .chat-request[data-request-id]');
+        const target = asyncQuestions.length ? $('#chat-scroll .chat-async-questions[data-needs-answer="true"]')
+          : $('#chat-scroll .chat-request[data-request-id]');
         if (target) target.scrollIntoView({ behavior: 'smooth', block: 'center' });
       },
     }),
@@ -2860,10 +2875,12 @@ function renderChatPendingInteraction(chat = state.chat) {
 }
 
 function sessionHasVisibleRequest(session) {
-  if (!session?.waiting || session.waitingVisible === false) return false;
-  if (!session?.sessionId || !session?.macId) return true;
-  const chat = state.chatCache.get(chatCacheKey(session.macId, session.sessionId));
-  return !chat?.historyReady || pendingChatRequestCount(chat) > 0;
+  const cached = session?.sessionId && session?.macId
+    ? state.chatCache.get(chatCacheKey(session.macId, session.sessionId)) : null;
+  const chat = cached && (!cached.assistant || cached.assistant === (session.assistant || state.assistant)) ? cached : null;
+  if (pendingChatInteractionCount(chat) > 0) return true;
+  if (chat?.historyReady) return false;
+  return !!session?.waiting && session.waitingVisible !== false;
 }
 
 function isChatConnectionKept(macId, sessionId) {
@@ -3270,7 +3287,7 @@ function renderChatSubagentDetail(chat) {
       : [renderChatItem(unit.entries[0].item, false)];
     for (const row of rows) if (row) stack.append(row);
   }
-  const progress = renderChatTurnProgress(FleetChatModel.chatTurnProgress(model));
+  const progress = pendingChatInteractionCount(chat) ? null : renderChatTurnProgress(FleetChatModel.chatTurnProgress(model));
   if (progress) stack.append(progress);
   if (detail.error) stack.append(renderChatError(detail.error));
   if (!stack.children.length) stack.append(h('div', { class: 'chat-subagent-detail-empty', text: status.key === 'running' ? 'Sub Agent 正在启动…' : '暂无可显示的执行记录' }));
@@ -4158,7 +4175,7 @@ function renderChatAsyncQuestions(item) {
   const pending = item.questions.filter((question) => !asyncQuestionSubmission(question.id, chat));
   const request = { requestId: item.id, questions: pending, async: true, submitting };
   const form = h('form', {
-    class: 'chat-approval chat-request chat-async-questions', dataset: { asyncQuestionId: item.id },
+    class: 'chat-approval chat-request chat-async-questions', dataset: { asyncQuestionId: item.id, needsAnswer: pending.length ? 'true' : 'false' },
     onsubmit: async (event) => {
       event.preventDefault();
       try { await respondAsyncQuestions(chat, item, pending, userInputResponse(event.currentTarget, request)); }
@@ -4189,6 +4206,7 @@ async function respondAsyncQuestions(chat, item, questions, response) {
   const send = sends[item.id] ||= { id: `answer-${Date.now()}-${Math.random().toString(16).slice(2)}` };
   send.pending = true;
   chat.model = FleetChatModel.appendUserMessage(chat.model, text, send.id, []);
+  syncSessionRuntimeIndicators();
   renderChat({ preserveScroll: true });
   let queued = false;
   try {
@@ -4204,6 +4222,7 @@ async function respondAsyncQuestions(chat, item, questions, response) {
     send.pending = false;
     // A later answer after cancellation/partial replies needs a fresh queue id.
     if (queued) delete sends[item.id];
+    syncSessionRuntimeIndicators();
     if (state.chat === chat) renderChat({ preserveScroll: true });
   }
 }
@@ -5539,7 +5558,7 @@ async function loadOlderChatHistory() {
 function startChatEvents(chat = state.chat) {
   if (!chat) return;
   if (chat.events && chat.events.readyState !== EventSource.CLOSED) return;
-  const url = `${apiBase(chat.macId)}/api/chat/events?assistant=${state.assistant}&sessionId=${encodeURIComponent(chat.sessionId)}`;
+  const url = `${apiBase(chat.macId)}/api/chat/events?assistant=${chat.assistant || state.assistant}&sessionId=${encodeURIComponent(chat.sessionId)}`;
   const es = new EventSource(url);
   chat.events = es;
   syncSessionRuntimeIndicators();
@@ -5942,6 +5961,7 @@ async function respondChatRequest(requestId, response) {
   const request = chat?.model?.requests?.[String(requestId)];
   if (chatMutationsBlocked(chat) || !requestId || request?.submitting) return;
   if (request) request.submitting = true;
+  syncSessionRuntimeIndicators();
   if (state.chat === chat) renderChat();
   try {
     await api(chat.macId, 'chat/respond', {
@@ -5957,6 +5977,8 @@ async function respondChatRequest(requestId, response) {
       renderChat();
     }
     toast('提交失败：' + e.message, 'err');
+  } finally {
+    syncSessionRuntimeIndicators();
   }
 }
 
