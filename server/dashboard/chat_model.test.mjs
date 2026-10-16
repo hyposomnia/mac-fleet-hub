@@ -3630,6 +3630,137 @@ test('server requests preserve their native method and project dedicated interac
   assert.equal(state.requests['71'].status, 'resolved');
 });
 
+const asyncQuestionEvent = {
+  type: 'assistant_done', itemId: 'ask-async', turnId: 'turn-async',
+  data: { item: { id: 'ask-async', type: 'agentMessage', text: 'Which scope?', delivery: 'async', questions: [
+    { title: 'Which scope?', options: ['This device', 'All devices'] },
+    { title: 'Any details?' },
+  ] } },
+};
+const { parseQuestionReply, questionReplyText } = sandbox.globalThis.FleetChatModel;
+const { renderChatAsyncQuestions, renderUserInputQuestion, asyncQuestionSubmission, respondAsyncQuestions, chatItemRenderState } = vm.runInContext(
+  '({ renderChatAsyncQuestions, renderUserInputQuestion, asyncQuestionSubmission, respondAsyncQuestions, chatItemRenderState })', appSandbox,
+);
+
+test('async questions retain Desktop question identities for live and history messages without pausing the turn', () => {
+  const live = reduceChatEvent(createChatState(), asyncQuestionEvent);
+  const item = live.items['ask-async'];
+  assert.equal(item.type, 'assistant');
+  assert.equal(item.questions.length, 2);
+  assert.equal(item.questions[0].id, '["request_user_input_async","ask-async",0]');
+  assert.equal(item.questions[0].options[1].label, 'All devices');
+  assert.equal(item.questions[0].isOther, true);
+  assert.equal(item.questions[1].options.length, 0);
+  assert.equal(Object.keys(live.requests).length, 0);
+  const history = prependHistory(createChatState(), [{ ...asyncQuestionEvent, data: asyncQuestionEvent.data.item }]);
+  assert.deepEqual(JSON.parse(JSON.stringify(history.items['ask-async'].questions)), JSON.parse(JSON.stringify(item.questions)));
+});
+
+test('Desktop replies resolve exact questions even before their older history page is loaded', () => {
+  const item = reduceChatEvent(createChatState(), asyncQuestionEvent).items['ask-async'];
+  const text = questionReplyText([item.questions[0]], { [item.questions[0].id]: { answers: ['My custom answer'] } });
+  let state = reduceChatEvent(createChatState(), { type: 'user_done', itemId: 'desktop-reply', data: { text } });
+  assert.equal(state.items['desktop-reply'].text, 'Which scope?\nMy custom answer');
+  assert.equal(state.items['desktop-reply'].text.includes('<send_user_message_question_reply>'), false);
+  state = prependHistory(state, [asyncQuestionEvent]);
+  assert.equal(state.questionReplies[item.questions[0].id], 'My custom answer');
+  assert.equal(state.questionReplies[item.questions[1].id], undefined);
+  assert.equal(parseQuestionReply(text)[0].questionItemId, item.questions[0].id);
+  assert.equal(parseQuestionReply('ordinary user input').length, 0);
+  assert.equal(parseQuestionReply('<send_user_message_question_reply>{}</send_user_message_question_reply>').length, 0);
+  assert.throws(() => questionReplyText(item.questions, {}), /请回答所有问题/);
+});
+
+test('async reply projection distinguishes saving from delivery and handles live user content', () => {
+  let state = reduceChatEvent(createChatState(), asyncQuestionEvent);
+  const question = state.items['ask-async'].questions[0];
+  const text = questionReplyText([question], { [question.id]: { answers: ['All devices'] } });
+  state = appendUserMessage(state, text, 'reply-client', []);
+  assert.equal(state.questionReplies[question.id], undefined);
+  state = reduceChatEvent(state, {
+    type: 'user_done', itemId: 'reply-server', data: { clientId: 'reply-client', content: [{ type: 'text', text }] },
+  });
+  assert.equal(state.questionReplies[question.id], 'All devices');
+  assert.equal(state.items['reply-client'].optimistic, false);
+  assert.equal(state.messages.filter((id) => id === 'reply-client').length, 1);
+});
+
+test('async forms render choices, free text, and only unanswered questions', () => {
+  const previous = appState.chat;
+  try {
+    appState.chat = { controlReady: true, accessMode: 'read_write', model: reduceChatEvent(createChatState(), asyncQuestionEvent) };
+    const item = appState.chat.model.items['ask-async'];
+    let row = renderChatAsyncQuestions(item);
+    assert.equal(nodesWithClass(row, 'chat-request-option').length, 3);
+    assert.equal(nodesWithClass(row, 'chat-request-fieldset').length, 2);
+    assert.equal(nodeText(row).includes('提交回答'), true);
+    const before = JSON.stringify(chatItemRenderState(item, false));
+    appState.chat.model.questionReplies[item.questions[0].id] = 'All devices';
+    row = renderChatAsyncQuestions(item);
+    assert.equal(nodesWithClass(row, 'chat-request-fieldset').length, 1);
+    assert.equal(nodeText(row).includes('All devices'), true);
+    assert.notEqual(JSON.stringify(chatItemRenderState(item, false)), before);
+  } finally { appState.chat = previous; }
+});
+
+test('question drafts survive transcript rerenders and read-only forms stay disabled', () => {
+  const previous = appState.chat;
+  try {
+    appState.chat = { controlReady: true, accessMode: 'read_write' };
+    const question = { id: 'detail', question: 'Details?' };
+    let fieldset = renderUserInputQuestion({ requestId: 'async-1', async: true }, question, 0);
+    let input = nodesWithClass(fieldset, 'chat-request-input')[0];
+    input.oninput({ currentTarget: { value: 'Keep this while tokens stream' } });
+    fieldset = renderUserInputQuestion({ requestId: 'async-1', async: true }, question, 0);
+    assert.equal(nodesWithClass(fieldset, 'chat-request-input')[0].value, 'Keep this while tokens stream');
+    appState.chat.accessMode = 'read_only';
+    fieldset = renderUserInputQuestion({ requestId: 'async-1', async: true }, question, 0);
+    assert.equal(fieldset.getAttribute('disabled'), '');
+  } finally { appState.chat = previous; }
+});
+
+test('queued async answers disable duplicate submission and cancellation makes them answerable again', () => {
+  const model = reduceChatEvent(createChatState(), asyncQuestionEvent);
+  const question = model.items['ask-async'].questions[0];
+  const text = questionReplyText([question], { [question.id]: { answers: ['This device'] } });
+  const chat = { model, followups: [{ status: 'steering', text }] };
+  assert.equal(asyncQuestionSubmission(question.id, chat).status, 'saved');
+  chat.followups[0].status = 'failed';
+  assert.equal(asyncQuestionSubmission(question.id, chat).status, 'failed');
+  chat.followups[0].status = 'cancelled';
+  assert.equal(asyncQuestionSubmission(question.id, chat), null);
+});
+
+test('async answers use the durable auto queue with exact ids and preserve the composer draft', async () => {
+  const previous = appState.chat;
+  const calls = [];
+  appSandbox.__questionQueueCalls = calls;
+  vm.runInContext(`globalThis.__questionOriginals = {api, loadServerChatQueue, renderChat};
+    api = async (macId, path, options) => { __questionQueueCalls.push({macId, path, body: JSON.parse(options.body)}); return {ok:true}; };
+    loadServerChatQueue = async () => true; renderChat = () => {};`, appSandbox);
+  try {
+    const chat = { macId: 'm2', sessionId: 'thread-async', assistant: 'codex', controlReady: true, accessMode: 'read_write',
+      draft: 'Unrelated composer draft', model: reduceChatEvent(createChatState(), asyncQuestionEvent), followups: [] };
+    appState.chat = chat;
+    const item = chat.model.items['ask-async'];
+    const answers = Object.fromEntries(item.questions.map((question, i) => [question.id, { answers: [i ? 'Free text' : 'All devices'] }]));
+    await respondAsyncQuestions(chat, item, item.questions, { answers });
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0].path, 'chat/queue');
+    assert.equal(calls[0].body.deliveryMode, 'auto');
+    assert.equal(calls[0].body.sessionId, 'thread-async');
+    assert.equal(parseQuestionReply(calls[0].body.text)[1].questionItemId, item.questions[1].id);
+    assert.equal(calls[0].body.displayText.includes('<send_user_message_question_reply>'), false);
+    assert.equal(chat.draft, 'Unrelated composer draft');
+    assert.equal(chat.model.questionReplies[item.questions[0].id], undefined);
+    await respondAsyncQuestions(chat, item, item.questions, { answers });
+    assert.equal(calls.length, 1);
+  } finally {
+    appState.chat = previous;
+    vm.runInContext('({api, loadServerChatQueue, renderChat} = __questionOriginals);', appSandbox);
+  }
+});
+
 test('image tool projection keeps a renderable media path and command actions', () => {
   const state = reduceChatEvent(createChatState(), {
     type: 'tool_update',
