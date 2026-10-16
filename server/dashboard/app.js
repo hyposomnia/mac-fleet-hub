@@ -2580,6 +2580,8 @@ function isNewerChatControlSnapshot(chat, snapshot, requestSeq = 0) {
 
 function isCompleteChatControlSnapshot(snapshot) {
   return !!snapshot
+    && typeof snapshot.serverEpoch === 'string' && snapshot.serverEpoch.trim().length > 0
+    && Number.isSafeInteger(snapshot.snapshotVersion) && snapshot.snapshotVersion > 0
     && ['read_write', 'read_only'].includes(snapshot.accessMode)
     && ['untrusted', 'on-request', 'full-access'].includes(snapshot.approvalMode)
     && ['running', 'idle', 'unknown'].includes(snapshot.turnPhase)
@@ -2631,12 +2633,20 @@ function applyChatControlSnapshot(chat, source, requestSeq = 0) {
   return true;
 }
 
+// A valid response may arrive after a newer snapshot was already applied.
+// Accept the operation's response while preserving the newer control state.
+function acceptChatControlSnapshot(chat, source, requestSeq = 0) {
+  if (!chat || !isCompleteChatControlSnapshot(source?.control || source)) return false;
+  applyChatControlSnapshot(chat, source, requestSeq);
+  return true;
+}
+
 async function loadServerChatQueue(chat) {
   if (!chat || chat.pendingStart) return;
   const requestSeq = beginChatControlRequest(chat);
   try {
     const result = await api(chat.macId, `chat/queue?assistant=${chat.assistant || state.assistant}&sessionId=${encodeURIComponent(chat.sessionId)}`);
-    if (!applyChatControlSnapshot(chat, result, requestSeq)) {
+    if (!acceptChatControlSnapshot(chat, result, requestSeq)) {
       if (markChatControlSyncFailure(chat) && state.chat === chat) {
         renderChatOwnershipHead(chat);
         renderChat();
@@ -2719,7 +2729,7 @@ async function decideServerChatQueue(item, action) {
       body: JSON.stringify({ id: item.id, action, auditVersion: item.auditVersion || '', stateVersion: item.stateVersion }),
     });
     if (action === 'cancel') chat.model = FleetChatModel.removeMessage(chat.model, item.clientMessageId);
-    if (!applyChatControlSnapshot(chat, control, requestSeq)) {
+    if (!acceptChatControlSnapshot(chat, control, requestSeq)) {
       item.decisionPending = '';
       await loadServerChatQueue(chat);
     } else completed = true;
@@ -5178,7 +5188,7 @@ async function openChatSession(s) {
         chat.model = FleetChatModel.reduceChatEvent(chat.model, event);
       }
       configureChatOptions(chat, resumed);
-      if (!applyChatControlSnapshot(chat, resumed, controlRequestSeq)) throw new Error('服务端返回了无效的会话控制状态');
+      if (!acceptChatControlSnapshot(chat, resumed, controlRequestSeq)) throw new Error('服务端返回了无效的会话控制状态');
       chat.historyCursor = resumed.history?.nextCursor || '';
       chat.historyReady = true;
       chat.loading = false;
@@ -5721,7 +5731,7 @@ async function ensurePendingChatStarted(chat) {
     chat.controlReady = false;
     chat.accessMode = 'unknown';
     configureChatOptions(chat, started);
-    if (!applyChatControlSnapshot(chat, started, controlRequestSeq)) throw new Error('服务端返回了无效的会话控制状态');
+    if (!acceptChatControlSnapshot(chat, started, controlRequestSeq)) throw new Error('服务端返回了无效的会话控制状态');
     chat.approvalMode = preferredApproval;
     state.chatCache.set(newKey, chat);
     state.selectedSid = sessionId;
@@ -5738,7 +5748,7 @@ async function ensurePendingChatStarted(chat) {
           body: JSON.stringify({ assistant: state.assistant, sessionId: chat.sessionId, approvalMode: preferredApproval }),
         });
         chat.approvalUpdatePending = false;
-        if (!applyChatControlSnapshot(chat, control, settingsRequestSeq)) throw new Error('服务端返回了无效的权限状态');
+        if (!acceptChatControlSnapshot(chat, control, settingsRequestSeq)) throw new Error('服务端返回了无效的权限状态');
         chat.approvalMode = chat.approvalConfirmedMode;
       } catch (error) {
         chat.approvalUpdatePending = false;
