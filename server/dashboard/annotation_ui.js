@@ -70,6 +70,7 @@
 
   function init({ getChat, onChange, notify = () => {} }) {
     const frames = new Map();
+    const activePointers = new Set();
     const dock = document.querySelector('#chat-annotations');
     let selection = null,
       editing = null,
@@ -210,7 +211,7 @@
       node.style.top = `${Math.max(top + 12, Math.min(rect.bottom + 8, top + height - size.height - 12))}px`;
     }
     function capture(doc, frameInfo) {
-      if (editing || panel) return;
+      if (activePointers.size || editing || panel) return;
       const chat = getChat();
       if (!chat || !['codex', 'dsh'].includes(chat.assistant)) return;
       if (
@@ -288,23 +289,29 @@
       redraw();
     }
     function listen(doc, frameInfo) {
-      doc.addEventListener('pointerup', () => root.setTimeout(() => capture(doc, frameInfo), 0));
+      doc.addEventListener('pointerdown', (event) => {
+        if (owns(event.target)) return;
+        activePointers.add(event.pointerId);
+        root.clearTimeout(doc.annotationSelectionTimer);
+        if (frameInfo) outside(event);
+      }, true);
+      doc.addEventListener('pointerup', (event) => {
+        activePointers.delete(event.pointerId);
+        root.setTimeout(() => capture(doc, frameInfo), 0);
+      }, true);
+      doc.addEventListener('pointercancel', (event) => {
+        activePointers.delete(event.pointerId);
+        root.clearTimeout(doc.annotationSelectionTimer);
+      }, true);
       doc.addEventListener('keyup', (event) => {
         if (event.key !== 'Escape' && !owns(event.target)) capture(doc, frameInfo);
       });
       // iOS adjusts native selection handles without another pointerup.
       doc.addEventListener('selectionchange', () => {
         root.clearTimeout(doc.annotationSelectionTimer);
+        if (activePointers.size) return;
         doc.annotationSelectionTimer = root.setTimeout(() => capture(doc, frameInfo), 150);
       });
-      if (frameInfo)
-        doc.addEventListener(
-          'pointerdown',
-          (event) => {
-            if (!owns(event.target)) outside(event);
-          },
-          true
-        );
       doc.addEventListener(
         'scroll',
         () => {
@@ -603,6 +610,7 @@
       if (!chat) return;
       for (const frame of frames.keys()) if (!frame.isConnected) frames.delete(frame);
       const notes = [...(chat.annotations || [])];
+      const savedIds = new Set(notes.map((note) => note.id));
       if (selection && !notes.some((note) => note.id === selection.note.id)) notes.push(selection.note);
       const occupied = [];
       notes.forEach((note, index) => {
@@ -641,7 +649,7 @@
           });
           layer.append(highlight);
         }
-        if (!rects.length) return;
+        if (!rects.length || !savedIds.has(note.id)) return;
         const rect = rects[rects.length - 1];
         if (rect.bottom < 0 || rect.top > root.innerHeight) return;
         let x = Math.min(root.innerWidth - 38, rect.right + 4),
