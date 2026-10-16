@@ -77,6 +77,19 @@ shared_install_block="$(awk '
 
 tmpdir="$(mktemp -d "${TMPDIR:-/tmp}/macfleet-shared-plist.XXXXXX")"
 trap 'rm -rf "$tmpdir"' EXIT
+# The rollout unpacks into /tmp (a macOS symlink to /private/tmp). Node's ESM
+# entrypoint is physical, so passing a logical alias silently skips its CLI guard.
+mkdir -p "$tmpdir/package"
+cp "$ROOT/mac/"*.mjs "$tmpdir/package/"
+ln -s "$tmpdir/package" "$tmpdir/package-alias"
+for entry in "$SETUP" "$MIGRATE"; do
+  sed -n '/^SCRIPT_DIR=/p' "$entry" > "$tmpdir/package/probe.sh"
+  printf '\nexec node "$SCRIPT_DIR/codex-desktop-install.mjs" check-removal "%s/absent"\n' "$tmpdir" >> "$tmpdir/package/probe.sh"
+  result=0
+  bash "$tmpdir/package-alias/probe.sh" > "$tmpdir/entry.out" 2>&1 || result=$?
+  [[ "$result" != 0 ]] && grep -q 'mac-fleet hook install:' "$tmpdir/entry.out" \
+    || fail "$(basename "$entry") skipped the real Node CLI through a directory alias"
+done
 # Shared is Desktop-owned and must have no launchd-owned listener template.
 [[ ! -e "$ROOT/mac/com.macfleet.codex-shared-app-server.plist" ]] || fail "shared daemon template remains"
 contains "$SETUP" 'hook_install install'

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
 FLEET_PLIST="$HOME/Library/LaunchAgents/com.macfleet.fleet-agent.plist"
 APPSERVER_PLIST="$HOME/Library/LaunchAgents/com.macfleet.codex-app-server.plist"
 DESKTOP_APP="/Applications/ChatGPT.app"

@@ -3,6 +3,7 @@
 ## 2026-10-16
 
 - shared 配置迁移等待 agent 健康监听启动；配置发布只重试 SSH 连接故障，远端检查失败立即停止，避免重复替换服务。
+- 修复从 `/tmp` 等目录别名执行安装时跳过 ESM hook CLI 的问题，安装与迁移统一使用物理脚本路径。
 
 - Codex shared 运行时由 Desktop 经签名 Node CLI bridge 启动，保留内置浏览器所需进程祖先链；Desktop 与 Fleet 复用同一 listener 和物理 writer。增加系统锁并发启动、私有状态/代理校验、传输背压、大消息和崩溃回收；网络检查与预览进程保持官方 CLI 行为。
 - 原生客户端复用公共 hook 安装器，分别管理 GUI/user 域配置，后台包及其 Codex 脚本在同一事务内迁移和回滚；`doctor --fix` 保持 Desktop 对运行时的所有权。
