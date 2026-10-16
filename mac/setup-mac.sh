@@ -30,7 +30,7 @@ CODEX_APP_PATH="${FLEET_CODEX_DESKTOP_APP_PATH:-/Applications/ChatGPT.app}"
 CODEX_KEEPER_NODE="/Applications/ChatGPT.app/Contents/Resources/cua_node/bin/node"
 CODEX_DESKTOP_ENV_HELPER="$CODEX_KEEPER_DIR/codex-desktop-env.sh"
 CODEX_DESKTOP_ENV_MODE="clear"
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
 
 # --- 0. Homebrew ---
 command -v brew >/dev/null 2>&1 || { echo "未找到 Homebrew，请先装：https://brew.sh" >&2; exit 1; }
