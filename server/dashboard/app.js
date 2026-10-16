@@ -4190,14 +4190,20 @@ async function respondAsyncQuestions(chat, item, questions, response) {
   send.pending = true;
   chat.model = FleetChatModel.appendUserMessage(chat.model, text, send.id, []);
   renderChat({ preserveScroll: true });
+  let queued = false;
   try {
     // auto inserts into the active shared turn, or starts a new turn when idle.
     const displayText = FleetChatModel.parseQuestionReply(text).map((reply) => `${reply.question}\n${reply.answer}`).join('\n\n');
     const saved = await saveServerChatQueueItem(chat, { id: send.id, text, displayText, images: [], skills: [] }, 'auto');
+    queued = Boolean(saved);
     if (!saved) chat.model = FleetChatModel.removeMessage(chat.model, send.id);
     await loadServerChatQueue(chat);
+    queued ||= (chat.followups || []).some((entry) => entry.clientMessageId === send.id)
+      || Object.values(chat.model.items).some((entry) => entry.clientId === send.id && !entry.optimistic);
   } finally {
     send.pending = false;
+    // A later answer after cancellation/partial replies needs a fresh queue id.
+    if (queued) delete sends[item.id];
     if (state.chat === chat) renderChat({ preserveScroll: true });
   }
 }

@@ -3755,6 +3755,10 @@ test('async answers use the durable auto queue with exact ids and preserve the c
     assert.equal(chat.model.questionReplies[item.questions[0].id], undefined);
     await respondAsyncQuestions(chat, item, item.questions, { answers });
     assert.equal(calls.length, 1);
+    chat.model = removeMessage(chat.model, calls[0].body.clientMessageId);
+    await respondAsyncQuestions(chat, item, item.questions, { answers });
+    assert.equal(calls.length, 2);
+    assert.notEqual(calls[0].body.clientMessageId, calls[1].body.clientMessageId);
   } finally {
     appState.chat = previous;
     vm.runInContext('({api, loadServerChatQueue, renderChat} = __questionOriginals);', appSandbox);
