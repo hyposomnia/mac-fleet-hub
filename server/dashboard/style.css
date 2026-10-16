@@ -2153,7 +2153,7 @@ html[data-workspace-tab="true"] .preview-encoding-control::after { right: 10px; 
   .empty-chat-form { display: none; }
   .session-search-row { grid-template-columns: 46px 46px minmax(0, 1fr) 46px; min-width: 0; width: 100%; margin-top: 10px; }
   .session-search-row .mobile-new-session { display: grid; }
-  .session-search-row .session-searchbar { min-height: 44px; height: 44px; }
+  .session-search-row .session-searchbar { min-height: 44px; height: 44px; background: transparent; }
   .session-search-row .iconbtn { width: 46px; height: 46px; min-width: 46px; max-width: 46px; padding: 0; }
   .session-searchbar input { font-size: var(--t-title); }
   #sescol { flex: 1; min-height: 0; border: 0; }
