@@ -1953,8 +1953,8 @@ function renderSessionArchiveAction(session) {
     'aria-label': archived ? '移回当前会话' : '归档会话',
     onclick: (event) => { event.stopPropagation(); return mutateSession(session, action); },
   }, svgIcon('ic', archived
-    ? 'M5 8v11h14V8M3 3h18v5H3ZM12 17v-6M9 14l3-3 3 3'
-    : 'M5 8v11h14V8M3 3h18v5H3ZM10 12h4'));
+    ? 'M5 8v11a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8M4 4h16a1 1 0 0 1 1 1v2a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1ZM12 17v-6M9 14l3-3 3 3'
+    : 'M5 8v11a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8M4 4h16a1 1 0 0 1 1 1v2a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1ZM10 12h4'));
 }
 
 function renderSessionMenu(session) {
