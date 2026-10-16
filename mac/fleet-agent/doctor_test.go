@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"fmt"
+	"net"
 	"os"
 	"path/filepath"
 	"strings"
@@ -17,14 +18,13 @@ type doctorFakes struct {
 	listen     string
 	health     string
 	plist      map[string]string
-	guiEnv     string
+	guiCLI     string
+	guiForce   string
 	guiErr     error
 	ready      bool
 	binVersion string
 	resolve    func(configured, appPath, codexHome string) (string, string, error)
-	runErr     map[string]error // 命令 → 错误（模拟 launchctl 失败）
 
-	cmds   []string
 	probes int
 }
 
@@ -43,14 +43,12 @@ func useDoctorFakes(t *testing.T, f *doctorFakes) *doctorFakes {
 	oldLoaded, oldPID, oldHealth := doctorSvcLoaded, doctorSvcPID, doctorProbeHealth
 	oldPlistEnv, oldListEnv := doctorPlistEnv, doctorListEnv
 	oldResolve, oldBinVersion := doctorResolveBin, doctorBinVersion
-	oldProbe, oldRunCmd := doctorProbeReadyz, doctorRunCmd
-	oldAttempts, oldInterval := doctorFixAttempts, doctorFixInterval
+	oldProbe := doctorProbeReadyz
 	t.Cleanup(func() {
 		doctorSvcLoaded, doctorSvcPID, doctorProbeHealth = oldLoaded, oldPID, oldHealth
 		doctorPlistEnv, doctorListEnv = oldPlistEnv, oldListEnv
 		doctorResolveBin, doctorBinVersion = oldResolve, oldBinVersion
-		doctorProbeReadyz, doctorRunCmd = oldProbe, oldRunCmd
-		doctorFixAttempts, doctorFixInterval = oldAttempts, oldInterval
+		doctorProbeReadyz = oldProbe
 	})
 
 	doctorSvcLoaded = func() bool { return f.loaded }
@@ -58,11 +56,16 @@ func useDoctorFakes(t *testing.T, f *doctorFakes) *doctorFakes {
 	doctorProbeHealth = func(string) string { return f.health }
 	doctorPlistEnv = func(key string) string { return f.plist[key] }
 	doctorListEnv = func(key string) (string, error) {
-		if key != codexDesktopWebSocketEnv {
-			return "", fmt.Errorf("测试只期望查询 %s，实际 %s", codexDesktopWebSocketEnv, key)
+		switch key {
+		case codexDesktopCLIPathEnv:
+			return f.guiCLI, f.guiErr
+		case codexDesktopForceCLIEnv:
+			return f.guiForce, f.guiErr
+		default:
+			return "", fmt.Errorf("unexpected GUI key %s", key)
 		}
-		return f.guiEnv, f.guiErr
 	}
+
 	doctorResolveBin = func(configured, appPath, codexHome string) (string, string, error) {
 		return f.resolve(configured, appPath, codexHome)
 	}
@@ -71,27 +74,8 @@ func useDoctorFakes(t *testing.T, f *doctorFakes) *doctorFakes {
 		f.probes++
 		return f.ready
 	}
-	doctorRunCmd = func(name string, args ...string) (string, error) {
-		line := name + " " + strings.Join(args, " ")
-		f.cmds = append(f.cmds, line)
-		if f.runErr != nil {
-			if err, ok := f.runErr[line]; ok {
-				return "launchctl: 模拟失败", err
-			}
-		}
-		return "", nil
-	}
-	doctorFixAttempts, doctorFixInterval = 1, 0 // 测试里不做真实等待
-	return f
-}
 
-func (f *doctorFakes) hasCmd(substr string) bool {
-	for _, cmd := range f.cmds {
-		if strings.Contains(cmd, substr) {
-			return true
-		}
-	}
-	return false
+	return f
 }
 
 // reportLine 返回报告中以 label 开头的第一行（去缩进）；找不到返回空串。
@@ -117,10 +101,16 @@ func reportValue(report, label string) string {
 // writeTestSock 造一个假 Unix proxy 文件并设定权限。
 func writeTestSock(t *testing.T, perm os.FileMode) string {
 	t.Helper()
-	path := filepath.Join(t.TempDir(), "codex-app-server.sock")
-	if err := os.WriteFile(path, []byte("sock"), 0o600); err != nil {
+	dir, err := os.MkdirTemp("/tmp", "fleet-doctor.")
+	if err != nil {
 		t.Fatal(err)
 	}
+	path := filepath.Join(dir, "proxy.sock")
+	listener, err := net.Listen("unix", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { listener.Close(); os.RemoveAll(dir) })
 	if err := os.Chmod(path, perm); err != nil {
 		t.Fatal(err)
 	}
@@ -138,7 +128,8 @@ func healthyDoctorFakes(t *testing.T) *doctorFakes {
 			"FLEET_CODEX_DESKTOP_WS_URL": codexSharedWebSocketEndpoint,
 			"FLEET_CODEX_APPSERVER_SOCK": writeTestSock(t, 0o600),
 		},
-		guiEnv:     codexSharedWebSocketEndpoint,
+		guiCLI:     filepath.Join(os.Getenv("HOME"), ".local/lib/macfleet/codex-desktop-launch.sh"),
+		guiForce:   "1",
 		ready:      true,
 		binVersion: "0.159.0",
 		resolve: func(string, string, string) (string, string, error) {
@@ -148,7 +139,7 @@ func healthyDoctorFakes(t *testing.T) *doctorFakes {
 }
 
 func TestDoctorHealthyReport(t *testing.T) {
-	f := healthyDoctorFakes(t)
+	healthyDoctorFakes(t)
 	var buf bytes.Buffer
 	if code := doctorRun(&buf, false); code != 0 {
 		t.Fatalf("健康应返回 0，实际 %d\n%s", code, buf.String())
@@ -191,15 +182,12 @@ func TestDoctorHealthyReport(t *testing.T) {
 	if !strings.Contains(report, "暂无（未发现需要修复的问题）") {
 		t.Fatalf("健康时不应给修复建议:\n%s", report)
 	}
-	if len(f.cmds) != 0 {
-		t.Fatalf("非 --fix 不应执行任何命令: %v", f.cmds)
-	}
 }
 
 func TestDoctorFailedWhenAppServerNotReadyAndEnvHijacked(t *testing.T) {
 	f := healthyDoctorFakes(t)
 	f.ready = false
-	f.guiEnv = "ws://127.0.0.1:1/rpc" // 指向死端口
+	f.guiCLI = "ws://127.0.0.1:1/rpc" // 指向死端口
 
 	var buf bytes.Buffer
 	code := doctorRun(&buf, false)
@@ -210,7 +198,7 @@ func TestDoctorFailedWhenAppServerNotReadyAndEnvHijacked(t *testing.T) {
 	if got := reportValue(report, "readyz"); !strings.Contains(got, "未 ready") {
 		t.Fatalf("readyz=%q\n%s", got, report)
 	}
-	if got := reportValue(report, "判定"); !strings.Contains(got, "与配置不一致") || !strings.Contains(got, "风险：Desktop 可能被指向死端口") {
+	if got := reportValue(report, "判定"); !strings.Contains(got, "与配置不一致") || !strings.Contains(got, "Desktop CLI hook") {
 		t.Fatalf("判定=%q\n%s", got, report)
 	}
 	if !strings.Contains(report, "结论：FAILED") || !strings.Contains(report, "fleet-agent doctor --fix") {
@@ -218,86 +206,12 @@ func TestDoctorFailedWhenAppServerNotReadyAndEnvHijacked(t *testing.T) {
 	}
 }
 
-func TestDoctorFixPreservesSharedIntentAndDoesNotKillRunningKeeper(t *testing.T) {
-	f := healthyDoctorFakes(t)
-	f.ready = false
-
-	var buf bytes.Buffer
-	code := doctorRun(&buf, true)
-	if code != 1 {
-		t.Fatalf("--fix 后仍不 ready 应返回 1，实际 %d\n%s", code, buf.String())
-	}
-	if f.hasCmd("launchctl unsetenv ") || f.hasCmd("launchctl kickstart -k") {
-		t.Fatalf("恢复不能分流 Desktop 或强杀 writer: %v", f.cmds)
-	}
-	if !f.hasCmd("launchctl kickstart gui/") || !f.hasCmd("/"+codexAppServerLabel) {
-		t.Fatalf("未发出 kickstart: %v", f.cmds)
-	}
-	if f.probes < 2 {
-		t.Fatalf("--fix 后必须重新探测 readyz，probes=%d", f.probes)
-	}
-	out := buf.String()
-	for _, want := range []string{
-		"$ launchctl kickstart gui/",
-		"结论：FAILED（shared app-server 仍未 ready）",
-	} {
-		if !strings.Contains(out, want) {
-			t.Fatalf("--fix 输出缺少 %q:\n%s", want, out)
-		}
-	}
-}
-
-// --fix 恢复成功时必须返回 0，并提示如何让 Desktop 重新接入。
-func TestDoctorFixReportsRecovery(t *testing.T) {
-	f := healthyDoctorFakes(t)
-	f.ready = false
-	// 第一次探测（报告）失败，之后的复测成功。
-	f.probes = -1 // 让下方闭包按第几次调用翻转
-	doctorProbeReadyz = func(string, time.Duration) bool {
-		f.probes++
-		return f.probes > 0
-	}
-
-	var buf bytes.Buffer
-	if code := doctorRun(&buf, true); code != 0 {
-		t.Fatalf("恢复后应返回 0，实际 %d\n%s", code, buf.String())
-	}
-	out := buf.String()
-	if !strings.Contains(out, "结论：HEALTHY（shared app-server 已恢复）") {
-		t.Fatalf("缺少恢复结论:\n%s", out)
-	}
-	if !strings.Contains(out, "codex-desktop-env.sh shared") {
-		t.Fatalf("缺少 Desktop 重新接入提示:\n%s", out)
-	}
-}
-
-func TestDoctorFixStartFailurePreservesSharedIntent(t *testing.T) {
-	f := healthyDoctorFakes(t)
-	f.ready = false
-	f.runErr = map[string]error{
-		"launchctl kickstart " + svcDomain() + "/" + codexAppServerLabel: fmt.Errorf("模拟失败"),
-	}
-	var buf bytes.Buffer
-	if code := doctorRun(&buf, true); code != 1 {
-		t.Fatalf("失败须返回 1: %d", code)
-	}
-	if !strings.Contains(buf.String(), "模拟失败") {
-		t.Fatalf("未输出启动失败原因: %s", buf.String())
-	}
-	if f.hasCmd("unsetenv") || f.hasCmd("kickstart -k") {
-		t.Fatalf("故障不能取消共享或强杀: %v", f.cmds)
-	}
-}
-
 func TestDoctorFixDoesNothingWhenReady(t *testing.T) {
-	f := healthyDoctorFakes(t)
+	healthyDoctorFakes(t)
 
 	var buf bytes.Buffer
 	if code := doctorRun(&buf, true); code != 0 {
 		t.Fatalf("ready 时 --fix 应返回 0，实际 %d\n%s", code, buf.String())
-	}
-	if len(f.cmds) != 0 {
-		t.Fatalf("ready 时不允许修改任何环境: %v", f.cmds)
 	}
 	if !strings.Contains(buf.String(), "不做任何 GUI 域改动") {
 		t.Fatalf("缺少 ready 短路说明:\n%s", buf.String())
@@ -333,9 +247,6 @@ func TestDoctorUsesLiveReadinessDespiteOldStateFile(t *testing.T) {
 	if code := doctorRun(&buf, true); code != 0 || !strings.Contains(buf.String(), "结论：HEALTHY") {
 		t.Fatalf("live ready listener should be healthy: %d\n%s", code, buf.String())
 	}
-	if len(f.cmds) != 0 {
-		t.Fatalf("old state triggered a repair: %v", f.cmds)
-	}
 	f.ready = false
 	buf.Reset()
 	if code := doctorRun(&buf, false); code != 1 || !strings.Contains(buf.String(), "结论：FAILED") {
@@ -367,12 +278,12 @@ func TestDoctorFailsOnUnresolvableCodexAndNoService(t *testing.T) {
 	}
 }
 
-// 非 shared 模式：不做 readyz 判定，GUI 域应清空；残留注入要报风险。
-func TestDoctorIsolatedModeExpectsClearedGUIEnv(t *testing.T) {
+// 非 shared 模式不探测 listener；安装器按所有权恢复，用户自定义值保留。
+func TestDoctorIsolatedModePreservesCustomGUIEnv(t *testing.T) {
 	f := healthyDoctorFakes(t)
 	f.plist["FLEET_CODEX_APPSERVER_MODE"] = codexAppServerModeIsolated
 	f.ready = false
-	f.guiEnv = ""
+	f.guiCLI = ""
 
 	var buf bytes.Buffer
 	if code := doctorRun(&buf, false); code != 0 {
@@ -382,16 +293,16 @@ func TestDoctorIsolatedModeExpectsClearedGUIEnv(t *testing.T) {
 	if got := reportValue(report, "readyz"); !strings.Contains(got, "跳过") {
 		t.Fatalf("readyz=%q\n%s", got, report)
 	}
-	if got := reportValue(report, "判定"); !strings.Contains(got, "已清空") {
+	if got := reportValue(report, "判定"); !strings.Contains(got, "保留用户自定义值") {
 		t.Fatalf("判定=%q\n%s", got, report)
 	}
 
-	f.guiEnv = codexSharedWebSocketEndpoint
+	f.guiCLI = codexSharedWebSocketEndpoint
 	buf.Reset()
 	if code := doctorRun(&buf, false); code != 0 {
 		t.Fatalf("isolated + 残留注入应 DEGRADED（0），实际 %d\n%s", code, buf.String())
 	}
-	if got := reportValue(buf.String(), "判定"); !strings.Contains(got, "非预期注入") {
+	if got := reportValue(buf.String(), "判定"); !strings.Contains(got, "保留用户自定义值") {
 		t.Fatalf("判定=%q\n%s", got, buf.String())
 	}
 }
@@ -399,5 +310,20 @@ func TestDoctorIsolatedModeExpectsClearedGUIEnv(t *testing.T) {
 func TestDoctorUnknownFlagReturnsUsageError(t *testing.T) {
 	if code := runDoctor([]string{"--bogus"}); code != 2 {
 		t.Fatalf("未知参数应返回 2，实际 %d", code)
+	}
+}
+
+func TestDoctorFixDoesNotCreateRuntimeOutsideDesktop(t *testing.T) {
+	f := healthyDoctorFakes(t)
+	f.ready = false
+	var out bytes.Buffer
+	if code := doctorRun(&out, true); code != 1 {
+		t.Fatalf("unavailable runtime must remain explicit: %d", code)
+	}
+	if strings.Contains(out.String(), "launchctl kickstart") || strings.Contains(out.String(), "$ launchctl") {
+		t.Fatal(out.String())
+	}
+	if !strings.Contains(out.String(), "Desktop") {
+		t.Fatal(out.String())
 	}
 }

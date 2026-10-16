@@ -174,7 +174,7 @@ test('native packaging requires verified bundled runtime instead of developer Ho
 
 test('native packaging and lifecycle use the original shared Codex components', () => {
   const script = read('./build-settings-app.sh');
-  for (const file of ['codex-keeper-launch.sh', 'codex-bin-resolve.sh', 'codex-shared-app-server.mjs', 'codex-desktop-env.sh', 'check-codex-idle.sh', 'com.macfleet.codex-shared-app-server.plist', 'com.macfleet.codex-desktop-env.plist']) {
+  for (const file of ['codex-bin-resolve.sh', 'codex-desktop-install.mjs', 'codex-desktop-launch.sh', 'codex-desktop-bridge.mjs', 'codex-runtime-guard.mjs', 'codex-desktop-env.mjs', 'codex-desktop-env.sh', 'check-codex-idle.sh', 'com.macfleet.codex-desktop-env.plist']) {
     assert.ok(script.includes(file), `missing original component ${file}`);
   }
   const management = read('../mac/settings-app/Sources/FleetCore/NativeManagement.swift');

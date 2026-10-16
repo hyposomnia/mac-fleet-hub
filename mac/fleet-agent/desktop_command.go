@@ -14,10 +14,6 @@ import (
 	"time"
 )
 
-func desktopMayConfigureEnvironment() bool {
-	return os.Getenv("FLEET_DESKTOP_MANAGED") != "1"
-}
-
 func desktopRequest(ctx context.Context, directory, action string, input io.Reader, output io.Writer) error {
 	method, endpoint := http.MethodGet, "/status"
 	switch action {

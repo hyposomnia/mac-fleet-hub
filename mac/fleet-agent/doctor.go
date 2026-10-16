@@ -1,5 +1,4 @@
-// fleet-agent doctor inspects shared readiness and can start a stopped keeper.
-// Shared Desktop intent is preserved; recovery never kills an active writer.
+// fleet-agent doctor inspects Desktop-owned shared readiness without changing its lifecycle.
 package main
 
 import (
@@ -12,9 +11,6 @@ import (
 )
 
 const (
-	// shared app-server 的 launchd 标签（见 mac/com.macfleet.codex-shared-app-server.plist）。
-	codexAppServerLabel = "com.macfleet.codex-app-server"
-
 	doctorAppPathEnv          = "FLEET_CODEX_DESKTOP_APP_PATH"
 	doctorCodexVersionTimeout = 5 * time.Second
 )
@@ -30,12 +26,7 @@ var (
 	doctorResolveBin  = resolveCodexBin
 	doctorBinVersion  = codexBinVersion
 	doctorProbeReadyz = probeReadyz
-	doctorRunCmd      = runCmd
 	doctorPlistPath   = svcPlistPath
-
-	// --fix 复测次数与间隔（测试里调小以免真等待）。
-	doctorFixAttempts = 6
-	doctorFixInterval = time.Second
 )
 
 // doctorSummary 是报告里给调用方（退出码、--fix 决策）看的结论。
@@ -43,7 +34,7 @@ type doctorSummary struct {
 	failed     bool   // 发现明确故障 → 退出码 1
 	sharedMode bool   // 当前是否 shared 模式
 	ready      bool   // shared app-server readyz 是否 ready（非 shared 模式视为无需修复）
-	desktopURL string // 期望注入 GUI 域的 Desktop WS 端点
+	desktopURL string // shared listener 的 loopback WS 端点
 }
 
 // runDoctor：`fleet-agent doctor [--fix]` 的入口。
@@ -203,7 +194,7 @@ func buildDoctorReport() (string, doctorSummary) {
 		fmt.Fprintf(&b, "  readyz     %s（%s）\n", readyText, readyzURL(desktopURL))
 		if !summary.ready {
 			summary.failed = true
-			fixes = append(fixes, fmt.Sprintf("shared app-server 未 ready：运行 `fleet-agent doctor --fix`；仍失败看 %s 与 `launchctl print gui/<uid>/%s`。", codexAppServerLogPath(), codexAppServerLabel))
+			fixes = append(fixes, fmt.Sprintf("shared app-server 未 ready：运行 `fleet-agent doctor --fix` 查看 Desktop 启动说明；日志 %s。", codexAppServerLogPath()))
 		}
 	}
 
@@ -215,18 +206,18 @@ func buildDoctorReport() (string, doctorSummary) {
 	case sockRaw == "":
 		degraded = true
 		b.WriteString("  Unix proxy （未配置）\n")
-		fixes = append(fixes, "未配置 FLEET_CODEX_APPSERVER_SOCK：shared 模式应指向 keeper 提供的 0600 Unix proxy。")
+		fixes = append(fixes, "未配置 FLEET_CODEX_APPSERVER_SOCK：shared 模式应指向 Desktop bridge 提供的 0600 Unix proxy。")
 	case strings.HasPrefix(sockRaw, "ws://") || strings.HasPrefix(sockRaw, "wss://"):
 		fmt.Fprintf(&b, "  Unix proxy 不适用（FLEET_CODEX_APPSERVER_SOCK 是 loopback WS 端点 %s）\n", sockRaw)
 	default:
 		sockPath := strings.TrimPrefix(sockRaw, "unix://")
-		info, err := os.Stat(sockPath)
+		info, err := os.Lstat(sockPath)
 		switch {
 		case err != nil:
 			degraded = true
 			fmt.Fprintf(&b, "  Unix proxy %s（不可用: %v）\n", sockPath, err)
-			fixes = append(fixes, "shared app-server 的 Unix proxy 不存在：确认 com.macfleet.codex-app-server 已加载，`launchctl print gui/<uid>/"+codexAppServerLabel+"`。")
-		case info.Mode().Perm() != 0o600:
+			fixes = append(fixes, "shared Unix proxy 不存在：确认 Desktop 已通过 Fleet CLI hook 启动。")
+		case info.Mode()&os.ModeSocket == 0 || info.Mode().Perm() != 0o600:
 			degraded = true
 			fmt.Fprintf(&b, "  Unix proxy %s（权限 %04o，应为 0600）\n", sockPath, info.Mode().Perm())
 			fixes = append(fixes, fmt.Sprintf("Unix proxy %s 权限为 %04o：应为 0600，重跑 `bash mac/setup-mac.sh` 修复。", sockPath, info.Mode().Perm()))
@@ -237,35 +228,24 @@ func buildDoctorReport() (string, doctorSummary) {
 
 	// ---------------- GUI 域环境变量 ----------------
 	b.WriteString("GUI 域环境变量\n")
-	actual, getenvErr := doctorListEnv(codexDesktopWebSocketEnv)
-	actual = strings.TrimSpace(actual)
-	actualText := actual
-	if actualText == "" {
-		actualText = "（空）"
-	}
-	fmt.Fprintf(&b, "  %s  %s\n", codexDesktopWebSocketEnv, actualText)
+	actual, getenvErr := doctorListEnv(codexDesktopCLIPathEnv)
+	force, forceErr := doctorListEnv(codexDesktopForceCLIEnv)
+	home, _ := os.UserHomeDir()
+	want := filepath.Join(home, ".local", "lib", "macfleet", "codex-desktop-launch.sh")
+	fmt.Fprintf(&b, "  %s  %s\n", codexDesktopCLIPathEnv, strings.TrimSpace(actual))
+	fmt.Fprintf(&b, "  %s  %s\n", codexDesktopForceCLIEnv, strings.TrimSpace(force))
 	switch {
-	case getenvErr != nil:
+	case getenvErr != nil || forceErr != nil:
 		degraded = true
-		fmt.Fprintf(&b, "  判定       读取失败：%v\n", getenvErr)
+		fmt.Fprintf(&b, "  判定       读取失败：%v %v\n", getenvErr, forceErr)
 	case !summary.sharedMode:
-		if actual == "" {
-			fmt.Fprintf(&b, "  判定       已清空（%s 模式期望）\n", mode)
-		} else {
-			degraded = true
-			fmt.Fprintf(&b, "  判定       非预期注入（%s 模式应清空；风险：Desktop 可能被指向死端口）\n", mode)
-			fixes = append(fixes, "非 shared 模式仍注入 CODEX_APP_SERVER_WS_URL：运行 `launchctl unsetenv CODEX_APP_SERVER_WS_URL`。")
-		}
-	case actual == "":
-		degraded = true
-		fmt.Fprintf(&b, "  判定       为空（shared 模式下 Desktop 不会自动接入；期望 %s）\n", desktopURL)
-		fixes = append(fixes, fmt.Sprintf("GUI 域未注入 Desktop WS：确认 shared app-server ready 后运行 `bash mac/codex-desktop-env.sh shared %s` 并用 `/usr/bin/open --env %s=%s -a %s` 重开 ChatGPT.app。", desktopURL, codexDesktopWebSocketEnv, desktopURL, appPath))
-	case actual == desktopURL:
+		b.WriteString("  判定       由安装器按所有权恢复；保留用户自定义值\n")
+	case strings.TrimSpace(actual) == want && strings.TrimSpace(force) == "1":
 		b.WriteString("  判定       与配置一致\n")
 	default:
 		degraded = true
-		fmt.Fprintf(&b, "  判定       与配置不一致（配置 %s，实际 %s；风险：Desktop 可能被指向死端口）\n", desktopURL, actual)
-		fixes = append(fixes, fmt.Sprintf("GUI 域 WS 端点与配置不一致：确认 shared 恢复后运行 `bash mac/codex-desktop-env.sh shared %s` 并重开 ChatGPT.app。", desktopURL))
+		b.WriteString("  判定       与配置不一致（Desktop CLI hook 未匹配）\n")
+		fixes = append(fixes, "CODEX_CLI_PATH / CODEX_APP_SERVER_FORCE_CLI 未匹配：通过原安装器恢复 hook，完成活动 turn 后退出并重开 Desktop。")
 	}
 
 	conclusion := "HEALTHY"
@@ -287,42 +267,13 @@ func buildDoctorReport() (string, doctorSummary) {
 	return b.String(), summary
 }
 
-// doctorFix starts a stopped keeper without interrupting a concurrently running listener.
+// doctorFix keeps recovery under Desktop ownership. Starting a launchd keeper
+// here would restore the browser ancestry bug and potentially create a writer.
 func doctorFix(out io.Writer, desktopURL string) int {
-	target := svcDomain() + "/" + codexAppServerLabel
-	probeTarget := readyzURL(desktopURL)
-
-	fmt.Fprintln(out, "== doctor --fix：shared app-server 未 ready，开始自愈 ==")
-
-	fmt.Fprintf(out, "$ launchctl kickstart %s\n", target)
-	if detail, err := doctorRunCmd("launchctl", "kickstart", target); err != nil {
-		fmt.Fprintf(out, "  → 失败: %v %s\n", err, firstLine(detail))
-	} else {
-		fmt.Fprintln(out, "  → ok，已请求启动 shared app-server")
-	}
-
-	fmt.Fprintf(out, "重新探测 %s …\n", probeTarget)
-	ready := false
-	for attempt := 1; attempt <= doctorFixAttempts; attempt++ {
-		if doctorProbeReadyz(desktopURL, desktopEnvReadyzTimeout) {
-			ready = true
-			break
-		}
-		if attempt < doctorFixAttempts && doctorFixInterval > 0 {
-			time.Sleep(doctorFixInterval)
-		}
-	}
-
-	if !ready {
-		fmt.Fprintln(out, "结论：FAILED（shared app-server 仍未 ready）")
-		fmt.Fprintf(out, "  下一步：查看 %s 与 `launchctl print %s`。\n", codexAppServerLogPath(), target)
-		return 1
-	}
-
-	fmt.Fprintln(out, "结论：HEALTHY（shared app-server 已恢复）")
-	fmt.Fprintf(out, "提示：如需 Desktop 立即重新接入，运行 `bash mac/codex-desktop-env.sh shared %s`，再用 `/usr/bin/open --env %s=%s -a %s` 重开 app。\n",
-		desktopURL, codexDesktopWebSocketEnv, desktopURL, defaultCodexDesktopApp)
-	return 0
+	fmt.Fprintln(out, "Desktop 拥有共享运行时；doctor --fix 不启动 listener、不修改 GUI 环境，也不退出 Desktop。")
+	fmt.Fprintln(out, "确认已通过原安装器安装 CLI hook，然后启动 Desktop；若 Desktop 已打开，完成活动 turn 后完全退出并重开。")
+	fmt.Fprintf(out, "待 Desktop 启动后检查 %s；内置浏览器后端可能稍后才就绪。\n", readyzURL(desktopURL))
+	return 1
 }
 
 // fleetLogPath 返回本机 Fleet 日志文件路径：默认 ~/Library/Logs/macfleet，
@@ -338,5 +289,4 @@ func fleetLogPath(name string) string {
 	return filepath.Join(home, "Library", "Logs", "macfleet", name)
 }
 
-// Shared launchd stderr path from mac/com.macfleet.codex-shared-app-server.plist.
-func codexAppServerLogPath() string { return "/tmp/macfleet-codex-app-server.err" }
+func codexAppServerLogPath() string { return "~/Library/Logs/com.openai.codex/" }

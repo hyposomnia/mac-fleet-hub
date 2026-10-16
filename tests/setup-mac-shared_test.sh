@@ -4,15 +4,14 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SETUP="$ROOT/mac/setup-mac.sh"
 APPSERVER_PLIST="$ROOT/mac/com.macfleet.codex-app-server.plist"
-SHARED_APPSERVER_PLIST="$ROOT/mac/com.macfleet.codex-shared-app-server.plist"
-SHARED_KEEPER="$ROOT/mac/codex-shared-app-server.mjs"
+
+
 DESKTOP_ENV_PLIST="$ROOT/mac/com.macfleet.codex-desktop-env.plist"
 DESKTOP_ENV_HELPER="$ROOT/mac/codex-desktop-env.sh"
 MIGRATE="$ROOT/mac/migrate-existing-client-to-shared.sh"
 RELEASE="$ROOT/scripts/release-fleet-agent.sh"
 CONFIG_DEPLOY="$ROOT/scripts/deploy-shared-config.sh"
 RESOLVER="$ROOT/mac/codex-bin-resolve.sh"
-KEEPER_LAUNCHER="$ROOT/mac/codex-keeper-launch.sh"
 UNINSTALL="$ROOT/mac/uninstall.sh"
 
 fail() {
@@ -27,30 +26,16 @@ contains() {
 
 bash -n "$SETUP"
 /usr/bin/plutil -lint "$APPSERVER_PLIST" >/dev/null
-/usr/bin/plutil -lint "$SHARED_APPSERVER_PLIST" >/dev/null
 /usr/bin/plutil -lint "$DESKTOP_ENV_PLIST" >/dev/null
 bash -n "$DESKTOP_ENV_HELPER"
 bash -n "$MIGRATE" "$RELEASE" "$CONFIG_DEPLOY"
-bash -n "$RESOLVER" "$KEEPER_LAUNCHER" "$UNINSTALL"
-if [[ -x /Applications/ChatGPT.app/Contents/Resources/cua_node/bin/node ]]; then
-  /Applications/ChatGPT.app/Contents/Resources/cua_node/bin/node --check "$SHARED_KEEPER"
-fi
-
 contains "$SETUP" 'CODEX_APPSERVER_MODE="${FLEET_CODEX_APPSERVER_MODE:-shared}"'
 contains "$SETUP" 'CODEX_DESKTOP_SHARED_DAEMON="${FLEET_CODEX_DESKTOP_SHARED_DAEMON:-1}"'
 contains "$SETUP" 'CODEX_APPSERVER_SOCK="${CODEX_APPSERVER_SOCK:-$HOME/.macfleet/codex-app-server.sock}"'
 contains "$SETUP" 'CODEX_DESKTOP_WS_URL="${FLEET_CODEX_DESKTOP_WS_URL:-ws://127.0.0.1:47682/rpc}"'
 contains "$SETUP" 'CODEX_APPSERVER_LISTEN="ws://127.0.0.1:${CODEX_APPSERVER_PORT}"'
-contains "$SETUP" 'launchctl setenv CODEX_APP_SERVER_WS_URL "$CODEX_DESKTOP_WS_URL"'
-contains "$SETUP" 'launchctl unsetenv CODEX_APP_SERVER_USE_LOCAL_DAEMON'
 contains "$SETUP" '"$CODEX_BIN" app-server daemon stop'
-contains "$SETUP" 'render "$SCRIPT_DIR/com.macfleet.codex-shared-app-server.plist"'
-contains "$SETUP" 'install -m 0700 "$SCRIPT_DIR/codex-shared-app-server.mjs" "$CODEX_KEEPER_SCRIPT"'
 contains "$SETUP" 'launchctl bootstrap "$GUI_DOMAIN" "$LA/com.macfleet.codex-desktop-env.plist"'
-contains "$SETUP" 'curl -fsS --max-time 1 "http://127.0.0.1:${CODEX_APPSERVER_PORT}/readyz"'
-contains "$SHARED_KEEPER" 'kindAndPermissions === 0o140600'
-contains "$SHARED_KEEPER" 'mcp_servers.codex_app='
-contains "$MIGRATE" '/usr/bin/open --env "CODEX_APP_SERVER_WS_URL=$SHARED_WS_URL"'
 contains "$MIGRATE" 'Fleet PID is not connected to the shared Unix proxy'
 contains "$RELEASE" '\"\$bin\" update'
 
@@ -58,26 +43,15 @@ contains "$RELEASE" '\"\$bin\" update'
 contains "$SETUP" 'source "$SCRIPT_DIR/codex-bin-resolve.sh"'
 contains "$SETUP" 'fleet_resolve_codex_bin'
 contains "$SETUP" 'fleet_resolve_keeper_node'
-contains "$SETUP" 'install -m 0700 "$SCRIPT_DIR/codex-bin-resolve.sh" "$CODEX_RESOLVER"'
 if rg -qF -- '/Applications/ChatGPT.app/Contents/Resources/codex"' "$SETUP"; then
   fail "setup-mac.sh 仍写死旧版 codex 路径"
 fi
 contains "$RESOLVER" 'codex-cli/codex-package.json'
 contains "$RESOLVER" 'chatgpt-layout-manifest'
-# Main's keeper gets the resolved binary from the installer and launchd runs signed Node directly.
-contains "$SHARED_KEEPER" 'const codexBin = process.env.FLEET_CODEX_BIN;'
-if rg -q 'resolveCodexBin|endpoint_ready|fail-open' "$SHARED_KEEPER" "$DESKTOP_ENV_HELPER"; then
-  fail "shared runtime diverges from main with its own resolver or Desktop fallback"
+contains "$SETUP" 'hook_install install'
+if rg -q 'newDesktopEnvWatchdog|configureCodexDesktopSharedDaemon' "$ROOT/mac/fleet-agent/main.go"; then
+  fail "agent still changes Desktop GUI environment"
 fi
-if rg -q 'newDesktopEnvWatchdog' "$ROOT/mac/fleet-agent/main.go"; then
-  fail "agent still changes shared Desktop intent on readiness failure"
-fi
-
-# --- 风险点 R1/R5：GUI 域变量必须「就绪后才注入」，卸载必须还原 ---
-readiness_line="$(rg -n 'SHARED_READY=1' "$SETUP" | head -1 | cut -d: -f1)"
-inject_line="$(rg -n 'if ! apply_desktop_env' "$SETUP" | head -1 | cut -d: -f1)"
-[[ -n "$readiness_line" && -n "$inject_line" ]] || fail "未找到就绪检查或注入调用"
-(( inject_line > readiness_line )) || fail "GUI 域变量注入发生在就绪检查之前（R5 未满足）"
 contains "$SETUP" 'guiEnvPrevious'
 contains "$SETUP" 'write_install_manifest'
 contains "$UNINSTALL" 'launchctl unsetenv "$var"'
@@ -103,36 +77,12 @@ shared_install_block="$(awk '
 
 tmpdir="$(mktemp -d "${TMPDIR:-/tmp}/macfleet-shared-plist.XXXXXX")"
 trap 'rm -rf "$tmpdir"' EXIT
-rendered="$tmpdir/com.macfleet.codex-app-server.plist"
-sed -e 's#__CODEX_BIN__#/tmp/codex#g' \
-    -e 's#__CODEX_APPSERVER_LISTEN__#ws://127.0.0.1:47682#g' \
-    -e 's#__CODEX_APPSERVER_SOCK__#/tmp/codex-shared-proxy.sock#g' \
-    -e 's#__CODEX_KEEPER_NODE__#/tmp/openai-node#g' \
-    -e 's#__CODEX_KEEPER_SCRIPT__#/tmp/codex-shared-app-server.mjs#g' \
-    -e 's#__CODEX_KEEPER_LAUNCHER__#/tmp/codex-keeper-launch.sh#g' \
-    -e 's#__CODEX_RESOLVER__#/tmp/codex-bin-resolve.sh#g' \
-    -e 's#__FLEET_LOG_DIR__#/tmp/macfleet-logs#g' \
-    -e 's#__FLEET_STATE_DIR__#/tmp/macfleet-state#g' \
-    -e 's#__CODEX_HOME__#/tmp/codex-home#g' \
-    -e 's#__BREW_PREFIX__#/opt/homebrew#g' \
-    "$SHARED_APPSERVER_PLIST" > "$rendered"
-/usr/bin/plutil -lint "$rendered" >/dev/null
-
-# Reuse main's signed Node -> keeper -> single listener chain.
-[[ "$(/usr/bin/plutil -extract ProgramArguments.0 raw -o - "$rendered")" == "/tmp/openai-node" ]]
-[[ "$(/usr/bin/plutil -extract ProgramArguments.1 raw -o - "$rendered")" == "/tmp/codex-shared-app-server.mjs" ]]
-[[ "$(/usr/bin/plutil -extract KeepAlive raw -o - "$rendered")" == "true" ]]
-[[ "$(/usr/bin/plutil -extract ThrottleInterval raw -o - "$rendered")" == "2" ]]
-[[ "$(/usr/bin/plutil -extract EnvironmentVariables.FLEET_CODEX_BIN raw -o - "$rendered")" == "/tmp/codex" ]]
-[[ "$(/usr/bin/plutil -extract EnvironmentVariables.FLEET_CODEX_APPSERVER_LISTEN raw -o - "$rendered")" == "ws://127.0.0.1:47682" ]]
-[[ "$(/usr/bin/plutil -extract EnvironmentVariables.FLEET_CODEX_APPSERVER_PROXY_SOCK raw -o - "$rendered")" == "/tmp/codex-shared-proxy.sock" ]]
-if rg -qF -- '__' "$rendered"; then
-  fail "shared plist 渲染后仍残留未替换占位符"
-fi
-
-if rg -qF -- '--remote-control' "$APPSERVER_PLIST"; then
-  fail "shared LaunchAgent still enables the old remote-control mode"
-fi
+# Shared is Desktop-owned and must have no launchd-owned listener template.
+[[ ! -e "$ROOT/mac/com.macfleet.codex-shared-app-server.plist" ]] || fail "shared daemon template remains"
+contains "$SETUP" 'hook_install install'
+contains "$SETUP" 'apply_desktop_aqua_environment shared'
+contains "$MIGRATE" 'CODEX_CLI_PATH=$HOME/.local/lib/macfleet/codex-desktop-launch.sh'
+bash -n "$ROOT/mac/codex-desktop-launch.sh" "$ROOT/mac/codex-bin-resolve.sh" "$ROOT/mac/uninstall.sh"
 
 # fleet-agent plist 的 DSH 占位符必须能被渲染，且默认关闭。
 AGENT_PLIST="$ROOT/mac/com.macfleet.fleet-agent.plist"

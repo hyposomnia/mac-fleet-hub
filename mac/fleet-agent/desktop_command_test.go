@@ -39,16 +39,3 @@ func TestDesktopCommandOnlyReadsBackgroundEvidence(t *testing.T) {
 		t.Fatal("reported failed save as successful")
 	}
 }
-
-func TestNativeAgentLeavesInitialDesktopEnvironmentToVerifiedInstaller(t *testing.T) {
-	t.Setenv("FLEET_DESKTOP_MANAGED", "1")
-	t.Setenv("FLEET_CODEX_APPSERVER_MODE", "shared")
-	t.Setenv("FLEET_CODEX_DESKTOP_SHARED_DAEMON", "1")
-	if desktopMayConfigureEnvironment() {
-		t.Fatal("native Agent must leave initial GUI configuration to the verified shared installer")
-	}
-	t.Setenv("FLEET_DESKTOP_MANAGED", "")
-	if !desktopMayConfigureEnvironment() {
-		t.Fatal("changed legacy client behavior")
-	}
-}

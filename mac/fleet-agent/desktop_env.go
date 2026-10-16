@@ -10,6 +10,9 @@ import (
 	"time"
 )
 
+const codexDesktopCLIPathEnv = "CODEX_CLI_PATH"
+const codexDesktopForceCLIEnv = "CODEX_APP_SERVER_FORCE_CLI"
+
 const desktopEnvReadyzTimeout = 2 * time.Second
 
 // launchctlRun 是 launchctl 调用的可替换入口（测试注入假实现，不真改 GUI 域环境）。

@@ -5,393 +5,198 @@ import XCTest
 
 @MainActor
 final class CodexSharedRuntimeTests: XCTestCase {
-    func testMigratedCodexHomeUsesTheSameSharedWriterConfiguration() async throws {
-        let fixture = try SharedFixture()
-        defer { fixture.remove() }
-        try PrivateRuntime.write(JSONEncoder().encode(["FLEET_CODEX_HOME": "/custom/codex"]), to: fixture.layout.state.appendingPathComponent("migrated-environment.json"))
-        try await fixture.runtime.start()
-        let environment = try fixture.definition()["EnvironmentVariables"] as! [String: String]
-        XCTAssertEqual(environment["CODEX_HOME"], "/custom/codex")
-        XCTAssertEqual(environment["FLEET_CODEX_APPSERVER_LISTEN"], "ws://127.0.0.1:47682")
+    func testStartInstallsDesktopHookWithoutStartingOrWaitingForAListener() async throws {
+        let f = try HookFixture(); defer { f.remove() }
+        try await f.runtime.start()
+        XCTAssertTrue(f.events.contains("install"))
+        XCTAssertTrue(f.events.contains("gui-shared"))
+        XCTAssertTrue(f.events.contains("user-shared"))
+        XCTAssertFalse(f.events.contains("listener-bootstrap"))
+        XCTAssertFalse(f.events.contains("ready"))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: f.marker.path))
+        let definition = try f.job("codex-desktop-env.plist")
+        let args = try XCTUnwrap(definition["ProgramArguments"] as? [String])
+        XCTAssertEqual(args[0], "/bin/bash")
+        XCTAssertEqual(args[1], f.hook.appendingPathComponent("codex-desktop-env.sh").path)
+        XCTAssertEqual(args[3], f.hook.appendingPathComponent("codex-desktop.json").path)
+        XCTAssertFalse(args.joined().contains("Preview.app"))
     }
 
-    func testPreviewUsesMatchingResourcesWithoutChangingInstalledAgentResources() async throws {
-        let fixture = try SharedFixture(previewResources: true)
-        defer { fixture.remove() }
-        let installed = fixture.layout.backgroundApplication.appendingPathComponent("Contents/Resources/codex/com.macfleet.codex-shared-app-server.plist")
-        let oldTemplate = try Data(contentsOf: installed)
-        try await fixture.runtime.start()
-        XCTAssertEqual(try fixture.definition()["ProgramArguments"] as? [String], ["/fixture/signed-node", fixture.resources.appendingPathComponent("codex-shared-app-server.mjs").path])
-        let desktop = try PropertyListSerialization.propertyList(from: PrivateRuntime.read(fixture.layout.state.appendingPathComponent("codex-desktop-env.plist")), format: nil) as! [String: Any]
-        XCTAssertEqual(desktop["ProgramArguments"] as? [String], ["/bin/bash", fixture.resources.appendingPathComponent("codex-desktop-env.sh").path, "shared", "ws://127.0.0.1:47682/rpc"])
-        XCTAssertEqual(try Data(contentsOf: installed), oldTemplate)
+    func testMigratedHomeAndPackageArePassedToTheCommonInstaller() async throws {
+        let f = try HookFixture(preview: true); defer { f.remove() }
+        try PrivateRuntime.write(JSONEncoder().encode(["FLEET_CODEX_HOME": "/custom/codex"]), to: f.layout.state.appendingPathComponent("migrated-environment.json"))
+        try await f.runtime.start()
+        let call = try XCTUnwrap(f.installArguments)
+        XCTAssertEqual(call[0], f.layout.codexResources.appendingPathComponent("codex-desktop-install.mjs").path)
+        XCTAssertTrue(call.contains("/custom/codex"))
+        XCTAssertTrue(call.contains(f.hook.path))
+        XCTAssertTrue(call.contains(f.layout.home.appendingPathComponent(".macfleet/codex-app-server.sock").path))
     }
 
-    func testUnknownTemplateParameterFailsBeforeChangingServicesOrEnvironment() async throws {
-        let fixture = try SharedFixture()
-        defer { fixture.remove() }
-        let template = fixture.resources.appendingPathComponent("com.macfleet.codex-shared-app-server.plist")
-        let text = try String(contentsOf: template).replacingOccurrences(of: "__CODEX_KEEPER_NODE__", with: "__UNSUPPORTED_NODE__")
-        try Data(text.utf8).write(to: template)
-        do { try await fixture.runtime.start(); XCTFail("accepted unresolved template") }
-        catch { XCTAssertEqual(error.localizedDescription, "Codex 启动定义包含未解析参数。") }
-        XCTAssertFalse(fixture.events.contains("bootstrap"))
-        XCTAssertFalse(fixture.events.contains("desktop-env"))
-        XCTAssertFalse(FileManager.default.fileExists(atPath: fixture.definitionURL.path))
+    func testActiveDesktopRejectsMigrationBeforeAnyServiceOrEnvironmentMutation() async throws {
+        let f = try HookFixture(); defer { f.remove() }
+        f.desktopOpen = true
+        await expectFailure { try await f.runtime.start() }
+        XCTAssertFalse(f.events.contains("install"))
+        XCTAssertFalse(f.events.contains("legacy-bootout"))
+        XCTAssertFalse(f.events.contains("gui-shared"))
     }
 
-    func testDesktopHelperIsLoadedIntoAquaRatherThanTheCallersBootstrapDomain() async throws {
-        let fixture = try SharedFixture()
-        defer { fixture.remove() }
-        try await fixture.runtime.start()
-        let url = fixture.layout.state.appendingPathComponent("codex-desktop-env.plist")
-        let plist = try PropertyListSerialization.propertyList(from: PrivateRuntime.read(url), format: nil) as! [String: Any]
-        XCTAssertEqual(plist["Label"] as? String, "com.macfleet.codex-desktop-env")
-        XCTAssertEqual(plist["LimitLoadToSessionType"] as? String, "Aqua")
-        XCTAssertEqual(plist["ProgramArguments"] as? [String], ["/bin/bash", fixture.resources.appendingPathComponent("codex-desktop-env.sh").path, "shared", "ws://127.0.0.1:47682/rpc"])
-        XCTAssertTrue(fixture.events.contains("aqua-bootstrap"))
+    func testOwnedLegacyKeeperIsRetiredOnlyAfterIdleGuardAndRestoredOnFailure() async throws {
+        let f = try HookFixture(); defer { f.remove() }
+        try f.legacy()
+        let bytes = try PrivateRuntime.read(f.legacyDefinition)
+        f.helperFails = true
+        await expectFailure { try await f.runtime.start() }
+        XCTAssertLessThan(try XCTUnwrap(f.events.firstIndex(of: "idle")), try XCTUnwrap(f.events.firstIndex(of: "legacy-bootout")))
+        XCTAssertTrue(f.events.contains("rollback"))
+        XCTAssertTrue(f.events.contains("legacy-bootstrap"))
+        XCTAssertTrue(f.events.contains("gui-rollback"))
+        XCTAssertEqual(try PrivateRuntime.read(f.legacyDefinition), bytes)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: f.marker.path))
     }
 
-    func testSnapshotKeepsAquaAndUserEnvironmentsSeparate() async throws {
-        let fixture = try SharedFixture()
-        defer { fixture.remove() }
-        try await fixture.runtime.start()
-        let snapshot = try JSONSerialization.jsonObject(with: PrivateRuntime.read(fixture.layout.state.appendingPathComponent("codex-desktop-environment.json"))) as! [String: Any]
-        let aqua = try XCTUnwrap(snapshot["aqua"] as? [String: String])
-        let user = try XCTUnwrap(snapshot["user"] as? [String: String])
-        XCTAssertEqual(aqua["CODEX_APP_SERVER_USE_LOCAL_DAEMON"], "1")
-        XCTAssertEqual(user["CODEX_APP_SERVER_USE_LOCAL_DAEMON"], "")
-        try await fixture.runtime.remove()
-        XCTAssertEqual(fixture.aquaEnvironment["CODEX_APP_SERVER_USE_LOCAL_DAEMON"], "1")
-        XCTAssertEqual(fixture.aquaEnvironment["CODEX_APP_SERVER_WS_URL"], "")
-        XCTAssertEqual(fixture.userEnvironment["CODEX_APP_SERVER_USE_LOCAL_DAEMON"], "")
-    }
-
-    func testLegacySnapshotCanBeRestoredAfterAquaUpgrade() async throws {
-        let fixture = try SharedFixture()
-        defer { fixture.remove() }
-        let snapshot = fixture.layout.state.appendingPathComponent("codex-desktop-environment.json")
-        try PrivateRuntime.write(Data("{\"CODEX_APP_SERVER_WS_URL\":\"\",\"CODEX_APP_SERVER_USE_LOCAL_DAEMON\":\"\"}".utf8), to: snapshot)
-        try await fixture.runtime.start()
-        try await fixture.runtime.remove()
-        XCTAssertEqual(fixture.aquaEnvironment["CODEX_APP_SERVER_USE_LOCAL_DAEMON"], "")
-        XCTAssertFalse(FileManager.default.fileExists(atPath: snapshot.path))
-    }
-
-    func testFailedAquaHelperRollsBackNewKeeperAndBothEnvironments() async throws {
-        let fixture = try SharedFixture()
-        defer { fixture.remove() }
-        fixture.helperExit = 1
-        do { try await fixture.runtime.start(); XCTFail("accepted failed Aqua helper") }
-        catch {}
-        XCTAssertFalse(fixture.loaded)
-        XCTAssertEqual(fixture.aquaEnvironment["CODEX_APP_SERVER_USE_LOCAL_DAEMON"], "1")
-        XCTAssertEqual(fixture.userEnvironment["CODEX_APP_SERVER_WS_URL"], "")
-    }
-
-    func testNativeStartUsesOriginalKeeperAndOnlySetsDesktopEnvironmentAfterReady() async throws {
-        let fixture = try SharedFixture()
-        defer { fixture.remove() }
-        try await fixture.runtime.start()
-        let plist = try fixture.definition()
-        XCTAssertEqual(plist["Label"] as? String, "com.macfleet.codex-app-server")
-        XCTAssertEqual(plist["ProgramArguments"] as? [String], ["/fixture/signed-node", fixture.resources.appendingPathComponent("codex-shared-app-server.mjs").path])
-        let env = try XCTUnwrap(plist["EnvironmentVariables"] as? [String: String])
-        XCTAssertEqual(env["FLEET_CODEX_APPSERVER_LISTEN"], "ws://127.0.0.1:47682")
-        XCTAssertEqual(env["FLEET_CODEX_APPSERVER_PROXY_SOCK"], fixture.layout.home.appendingPathComponent(".macfleet/codex-app-server.sock").path)
-        XCTAssertEqual(env["FLEET_CODEX_BIN"], "/fixture/codex")
-        XCTAssertEqual(plist["KeepAlive"] as? Bool, true)
-        XCTAssertEqual(plist["ThrottleInterval"] as? Int, 2)
-        XCTAssertLessThan(try XCTUnwrap(fixture.events.firstIndex(of: "ready")), try XCTUnwrap(fixture.events.firstIndex(of: "desktop-env")))
-        XCTAssertTrue(fixture.events.contains("bootstrap"))
-    }
-
-    func testExistingSharedServiceIsReusedWithoutRestartOrEnvironmentMutation() async throws {
-        let fixture = try SharedFixture()
-        defer { fixture.remove() }
-        fixture.loaded = true
-        try await fixture.runtime.start()
-        XCTAssertFalse(fixture.events.contains("bootstrap"))
-        XCTAssertFalse(fixture.events.contains("bootout"))
-        XCTAssertFalse(fixture.events.contains("desktop-env"))
-        XCTAssertFalse(FileManager.default.fileExists(atPath: fixture.definitionURL.path))
-        try await fixture.runtime.remove()
-        XCTAssertFalse(fixture.events.contains("bootout"))
-    }
-
-    func testStoppedOwnedKeeperCanStartAgainWithoutKillingARunningProcess() async throws {
-        let fixture = try SharedFixture()
-        defer { fixture.remove() }
-        try await fixture.runtime.start()
-        fixture.events.removeAll()
-        fixture.stopped = true
-        fixture.ready = false
-        try await fixture.runtime.start()
-        XCTAssertTrue(fixture.events.contains("kickstart"))
-        XCTAssertFalse(fixture.events.contains("bootout"))
-        XCTAssertTrue(fixture.events.contains("desktop-env"))
-    }
-
-    func testUnavailableOwnedListenerPreservesSharedDesktopIntent() async throws {
-        let fixture = try SharedFixture()
-        defer { fixture.remove() }
-        try await fixture.runtime.start()
-        fixture.events.removeAll()
-        fixture.ready = false
-        do { try await fixture.runtime.start(); XCTFail("accepted dead listener") }
-        catch {}
-        XCTAssertFalse(fixture.events.contains("clear-env"))
-        XCTAssertEqual(fixture.aquaEnvironment["CODEX_APP_SERVER_WS_URL"], "ws://127.0.0.1:47682/rpc")
-        XCTAssertFalse(fixture.events.contains("bootout"))
-        XCTAssertFalse(fixture.events.contains("kickstart"))
-    }
-
-    func testIdleOwnedLegacyLauncherMigratesToMainKeeper() async throws {
-        let fixture = try SharedFixture()
-        defer { fixture.remove() }
-        try await fixture.installLegacyDefinition()
-        try await fixture.runtime.start()
-        XCTAssertEqual(try fixture.definition()["ProgramArguments"] as? [String], ["/fixture/signed-node", fixture.resources.appendingPathComponent("codex-shared-app-server.mjs").path])
-        XCTAssertEqual(fixture.events.filter { ["idle", "bootout", "bootstrap"].contains($0) }, ["idle", "bootout", "bootstrap"])
-    }
-
-    func testBusyOwnedLegacyLauncherIsPreserved() async throws {
-        let fixture = try SharedFixture()
-        defer { fixture.remove() }
-        try await fixture.installLegacyDefinition()
-        let original = try PrivateRuntime.read(fixture.definitionURL)
-        fixture.busy = true
-        do { try await fixture.runtime.start(); XCTFail("replaced active shared keeper") }
-        catch {}
-        XCTAssertTrue(fixture.events.contains("idle"))
-        XCTAssertFalse(fixture.events.contains("bootout"))
-        XCTAssertFalse(fixture.events.contains("desktop-env"))
-        XCTAssertEqual(try PrivateRuntime.read(fixture.definitionURL), original)
-    }
-
-    func testFailedLegacyMigrationRestoresLoadedDefinitionAndEnvironment() async throws {
-        let fixture = try SharedFixture()
-        defer { fixture.remove() }
-        try await fixture.installLegacyDefinition()
-        let original = try PrivateRuntime.read(fixture.definitionURL)
-        let previousEnvironment = fixture.aquaEnvironment
-        fixture.failNextKeeperBootstrap = true
-        do { try await fixture.runtime.start(); XCTFail("accepted failed replacement bootstrap") }
-        catch {}
-        XCTAssertEqual(try PrivateRuntime.read(fixture.definitionURL), original)
-        XCTAssertTrue(fixture.loaded)
-        XCTAssertEqual(fixture.aquaEnvironment, previousEnvironment)
-        XCTAssertEqual(fixture.events.filter { ["bootout", "bootstrap"].contains($0) }, ["bootout", "bootstrap"])
-    }
-
-    func testFailedReadyCheckRollsBackOnlyNewSharedServiceAndRestoresEnvironment() async throws {
-        let fixture = try SharedFixture()
-        defer { fixture.remove() }
-        fixture.ready = false
-        do { try await fixture.runtime.start(); XCTFail("accepted dead shared listener") }
-        catch {}
-        XCTAssertEqual(fixture.events.filter { ["bootstrap", "bootout"].contains($0) }, ["bootstrap", "bootout"])
-        XCTAssertFalse(fixture.events.contains("desktop-env"))
-        XCTAssertFalse(FileManager.default.fileExists(atPath: fixture.definitionURL.path))
-        XCTAssertTrue(fixture.events.contains("restore-env"))
-    }
-
-    func testUninstallChecksDesktopTurnsBeforeStoppingAndRestoresPreviousEnvironment() async throws {
-        let fixture = try SharedFixture()
-        defer { fixture.remove() }
-        try await fixture.runtime.start()
-        fixture.events.removeAll()
-        fixture.busy = true
-        do { try await fixture.runtime.remove(); XCTFail("stopped active Desktop turn") }
-        catch {}
-        XCTAssertFalse(fixture.events.contains("bootout"))
-        XCTAssertTrue(FileManager.default.fileExists(atPath: fixture.definitionURL.path))
-        fixture.busy = false
-        try await fixture.runtime.remove()
-        XCTAssertLessThan(try XCTUnwrap(fixture.events.firstIndex(of: "idle")), try XCTUnwrap(fixture.events.firstIndex(of: "bootout")))
-        XCTAssertTrue(fixture.events.contains("restore-env"))
-        XCTAssertFalse(FileManager.default.fileExists(atPath: fixture.definitionURL.path))
-    }
-
-    func testMissingCodexDoesNotInstallServiceOrChangeDesktopEnvironment() async throws {
-        let fixture = try SharedFixture()
-        defer { fixture.remove() }
-        fixture.codexInstalled = false
-        try await fixture.runtime.start()
-        XCTAssertFalse(fixture.events.contains("bootstrap"))
-        XCTAssertFalse(fixture.events.contains("desktop-env"))
-        XCTAssertFalse(FileManager.default.fileExists(atPath: fixture.definitionURL.path))
-    }
-
-    func testUnhealthyAgentCannotRedirectDesktopEvenWhenSharedListenerIsReady() async throws {
-        let fixture = try SharedFixture()
-        defer { fixture.remove() }
-        fixture.agentReady = false
-        do { try await fixture.runtime.start(); XCTFail("redirected Desktop before Agent was ready") }
-        catch {}
-        XCTAssertFalse(fixture.events.contains("desktop-env"))
-        XCTAssertTrue(fixture.events.contains("bootout"))
-    }
-
-    func testReadinessRejectsNonLoopbackListenerAndUnsafeProxy() async throws {
-        for unsafe in ["listener", "proxy"] {
-            let fixture = try SharedFixture()
-            defer { fixture.remove() }
-            fixture.loaded = true
-            fixture.unsafe = unsafe
-            do { try await fixture.runtime.start(); XCTFail("accepted unsafe \(unsafe)") }
-            catch {}
-            XCTAssertFalse(fixture.events.contains("bootout"))
-            XCTAssertFalse(fixture.events.contains("desktop-env"))
+    func testBusyLegacyKeeperAndForeignDefinitionAreNeverStopped() async throws {
+        for foreign in [false, true] {
+            let f = try HookFixture(); defer { f.remove() }
+            try f.legacy(); f.busy = !foreign; f.foreign = foreign
+            await expectFailure { try await f.runtime.start() }
+            XCTAssertFalse(f.events.contains("legacy-bootout"))
+            XCTAssertFalse(f.events.contains("install"))
         }
+    }
+
+    func testRepeatedStartDoesNotRestartDesktopRuntime() async throws {
+        let f = try HookFixture(); defer { f.remove() }
+        try await f.runtime.start(); f.current = true; f.events.removeAll(); f.desktopOpen = true
+        try await f.runtime.start()
+        XCTAssertFalse(f.events.contains("listener-bootstrap"))
+        XCTAssertFalse(f.events.contains("legacy-bootout"))
+        XCTAssertFalse(f.events.contains("ready"))
+    }
+
+    func testCommonHookOwnedByAnotherInstallerIsReusedAndNotRemoved() async throws {
+        let f = try HookFixture(); defer { f.remove() }
+        f.current = true
+        try await f.runtime.start(); f.events.removeAll()
+        try await f.runtime.remove()
+        XCTAssertFalse(f.events.contains("remove"))
+        XCTAssertFalse(f.events.contains("gui-clear"))
+    }
+
+    func testRemovalRequiresDesktopClosedAndRestoresBothDomainsBeforeRemovingFiles() async throws {
+        let f = try HookFixture(); defer { f.remove() }
+        try await f.runtime.start(); f.events.removeAll(); f.desktopOpen = true
+        await expectFailure { try await f.runtime.remove() }
+        XCTAssertFalse(f.events.contains("remove"))
+        XCTAssertFalse(f.events.contains("gui-clear"))
+        f.desktopOpen = false
+        try await f.runtime.remove()
+        XCTAssertLessThan(try XCTUnwrap(f.events.firstIndex(of: "gui-clear")), try XCTUnwrap(f.events.firstIndex(of: "remove")))
+        XCTAssertLessThan(try XCTUnwrap(f.events.firstIndex(of: "user-clear")), try XCTUnwrap(f.events.firstIndex(of: "remove")))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: f.marker.path))
+    }
+
+    func testMissingCodexLeavesOptionalChatUnconfigured() async throws {
+        let f = try HookFixture(); defer { f.remove() }; f.installed = false
+        try await f.runtime.start()
+        XCTAssertFalse(f.events.contains("install"))
+        XCTAssertFalse(f.events.contains("gui-shared"))
+    }
+
+    func testInstallerFailureBeforeEnvironmentChangesDoesNotReloadExistingJobs() async throws {
+        let f = try HookFixture(); defer { f.remove() }
+        try await f.runtime.start()
+        f.current = true; f.installFails = true; f.events.removeAll()
+        await expectFailure { try await f.runtime.start() }
+        XCTAssertFalse(f.events.contains("gui-shared"))
+        XCTAssertFalse(f.events.contains("user-shared"))
+        XCTAssertFalse(f.events.contains("gui-rollback"))
+        XCTAssertEqual(f.jobs.count, 2)
+    }
+
+    private func expectFailure(_ body: () async throws -> Void) async {
+        do { try await body(); XCTFail("accepted unsafe runtime change") } catch {}
     }
 }
 
 @MainActor
-private final class SharedFixture {
-    let root: URL
+private final class HookFixture {
     let layout: RuntimeLayout
-    let resources: URL
-    let definitionURL: URL
-    var loaded = false
-    var stopped = false
-    var ready = true
-    var busy = false
-    var codexInstalled = true
-    var agentReady = true
-    var unsafe = ""
-    var failNextKeeperBootstrap = false
+    var root: URL { layout.home }
+    var hook: URL { root.appendingPathComponent(".local/lib/macfleet") }
+    var marker: URL { layout.state.appendingPathComponent("codex-hook-install.json") }
+    var legacyDefinition: URL { layout.state.appendingPathComponent("codex-app-server.plist") }
     var events: [String] = []
-    var aquaJobs: [String: String] = [:]
-    var helperExit = 0
-    var aquaEnvironment = ["CODEX_APP_SERVER_WS_URL": "", "CODEX_APP_SERVER_USE_LOCAL_DAEMON": "1"]
-    var userEnvironment = ["CODEX_APP_SERVER_WS_URL": "", "CODEX_APP_SERVER_USE_LOCAL_DAEMON": ""]
-    lazy var runtime = CodexSharedRuntime(layout: layout, execute: { [unowned self] executable, arguments, _, _ in
-        try self.execute(executable, arguments)
-    }, readyAttempts: 1)
-
-    init(previewResources: Bool = false) throws {
-        root = URL(fileURLWithPath: "/private/tmp/fleet-shared-\(UUID().uuidString)")
-        let preview = previewResources ? root.appendingPathComponent("Fleet Hub Preview.app/Contents/Resources/codex") : nil
-        layout = RuntimeLayout(application: URL(fileURLWithPath: "/Applications/Fleet Hub.app"), home: root, codexResources: preview)
-        resources = layout.codexResources
-        definitionURL = layout.state.appendingPathComponent("codex-app-server.plist")
-        try PrivateRuntime.ensureDirectory(layout.home.appendingPathComponent(".macfleet"))
+    var installArguments: [String]?
+    var desktopOpen = false, busy = false, foreign = false, helperFails = false, current = false, installed = true, legacyLoaded = false, installFails = false
+    var jobs: [String: (String, Int)] = [:]
+    lazy var runtime = CodexSharedRuntime(layout: layout, execute: { [unowned self] file, args, _, _ in try self.execute(file, args) })
+    init(preview: Bool = false) throws {
+        let home = URL(fileURLWithPath: "/private/tmp/fleet-hook-\(UUID().uuidString)")
+        let resources = home.appendingPathComponent(preview ? "Fleet Preview.app/Contents/Resources/codex" : "package")
+        layout = RuntimeLayout(application: URL(fileURLWithPath: "/Applications/Fleet Agent Settings.app"), home: home, codexResources: resources)
         try PrivateRuntime.ensureDirectory(layout.state)
         try FileManager.default.createDirectory(at: resources, withIntermediateDirectories: true)
         let mac = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
-        for file in ["codex-keeper-launch.sh", "codex-bin-resolve.sh", "codex-shared-app-server.mjs", "codex-desktop-env.sh", "check-codex-idle.sh", "com.macfleet.codex-shared-app-server.plist", "com.macfleet.codex-desktop-env.plist"] {
-            try FileManager.default.copyItem(at: mac.appendingPathComponent(file), to: resources.appendingPathComponent(file))
-        }
-        if previewResources {
-            let installed = layout.backgroundApplication.appendingPathComponent("Contents/Resources/codex")
-            try FileManager.default.createDirectory(at: installed.deletingLastPathComponent(), withIntermediateDirectories: true)
-            try FileManager.default.copyItem(at: resources, to: installed)
-            let template = installed.appendingPathComponent("com.macfleet.codex-shared-app-server.plist")
-            let old = try String(contentsOf: template).replacingOccurrences(of: "__CODEX_KEEPER_NODE__", with: "__CODEX_KEEPER_LAUNCHER__")
-            try Data(old.utf8).write(to: template)
-        }
+        try FileManager.default.copyItem(at: mac.appendingPathComponent("com.macfleet.codex-desktop-env.plist"), to: resources.appendingPathComponent("com.macfleet.codex-desktop-env.plist"))
+        // Legacy definition is an external adapter boundary, never an executable fixture.
+        let old: [String: Any] = ["Label": "com.macfleet.codex-app-server", "ProgramArguments": ["/fixture/node", "/fixture/keeper"]]
+        try Data(PropertyListSerialization.data(fromPropertyList: old, format: .xml, options: 0)).write(to: resources.appendingPathComponent("com.macfleet.codex-shared-app-server.plist"))
     }
-    func definition() throws -> [String: Any] {
-        try PropertyListSerialization.propertyList(from: PrivateRuntime.read(definitionURL), format: nil) as! [String: Any]
-    }
-    func installLegacyDefinition() async throws {
-        try await runtime.start()
-        var legacy = try definition()
-        legacy["ProgramArguments"] = ["/bin/bash", resources.appendingPathComponent("codex-keeper-launch.sh").path]
-        try PrivateRuntime.write(PropertyListSerialization.data(fromPropertyList: legacy, format: .xml, options: 0), to: definitionURL)
-        events.removeAll()
+    func legacy() throws {
+        try PrivateRuntime.write(Data(contentsOf: layout.codexResources.appendingPathComponent("com.macfleet.codex-shared-app-server.plist")), to: legacyDefinition)
+        legacyLoaded = true
     }
     func remove() { try? FileManager.default.removeItem(at: root) }
-    private func execute(_ executable: URL, _ arguments: [String]) throws -> Data {
-        if executable.path == "/bin/bash", arguments.first == "-o" {
-            return environmentOutput(arguments.last == "gui/\(getuid())" ? aquaEnvironment : userEnvironment)
-        }
-        if executable.lastPathComponent == "launchctl" {
-            switch arguments[0] {
-            case "print":
-                if arguments.count == 2, arguments[1] == "gui/\(getuid())" {
-                    return environmentOutput(aquaEnvironment)
-                }
-                if arguments.count == 2, arguments[1] == "user/\(getuid())" {
-                    return environmentOutput(userEnvironment)
-                }
-                if let file = aquaJobs[arguments[1]] {
-                    let code = arguments[1].hasSuffix("com.macfleet.codex-desktop-env") ? helperExit : 0
-                    return Data("path = \(file)\nstate = not running\nlast exit code = \(code)\n".utf8)
-                }
-                guard arguments[1].hasSuffix("/com.macfleet.codex-app-server") else { throw FleetError.message("not loaded") }
-                guard loaded else { throw FleetError.message("not loaded") }
-                return Data("path = \(definitionURL.path)\nstate = \(stopped ? "not running" : "running")\n".utf8)
-            case "bootstrap":
-                let definition = try PropertyListSerialization.propertyList(from: PrivateRuntime.read(URL(fileURLWithPath: arguments[2])), format: nil) as! [String: Any]
-                if definition["Label"] as? String != "com.macfleet.codex-app-server" {
-                    let label = definition["Label"] as! String
-                    XCTAssertEqual(definition["LimitLoadToSessionType"] as? String, arguments[1].hasPrefix("gui/") ? "Aqua" : "Background")
-                    aquaJobs[arguments[1] + "/" + label] = arguments[2]
-                    let command = definition["ProgramArguments"] as! [String]
-                    events.append("aqua-bootstrap")
-                    if command[0] == "/bin/bash" {
-                        let clear = command[2] == "clear"
-                        events.append(clear ? "clear-env" : "desktop-env")
-                        aquaEnvironment["CODEX_APP_SERVER_USE_LOCAL_DAEMON"] = ""
-                        aquaEnvironment["CODEX_APP_SERVER_WS_URL"] = clear ? "" : command[3]
-                    } else {
-                        events.append("restore-env")
-                        if arguments[1] == "gui/\(getuid())" { aquaEnvironment[command[2]] = command[1] == "setenv" ? command[3] : "" }
-                        else { userEnvironment[command[2]] = command[1] == "setenv" ? command[3] : "" }
-                    }
-                } else {
-                    if failNextKeeperBootstrap {
-                        failNextKeeperBootstrap = false
-                        throw FleetError.message("bootstrap failed")
-                    }
-                    loaded = true; events.append("bootstrap")
-                }
-            case "bootout":
-                if aquaJobs.removeValue(forKey: arguments[1]) != nil { events.append("aqua-bootout") }
-                else { loaded = false; events.append("bootout") }
-            case "kickstart":
-                XCTAssertFalse(arguments.contains("-k"))
-                stopped = false; ready = true; events.append("kickstart")
-            case "getenv": return Data("previous-value\n".utf8)
-            case "setenv", "unsetenv": events.append("restore-env")
-            default: XCTFail("unexpected launchctl operation")
-            }
-            return Data()
-        }
-        if executable.lastPathComponent == "curl" {
-            guard ready else { throw FleetError.message("connection refused") }
-            events.append("ready"); return Data()
-        }
-        if executable.lastPathComponent == "lsof" {
-            return Data("codex 123 user TCP \(unsafe == "listener" ? "*" : "127.0.0.1"):47682 (LISTEN)\n".utf8)
-        }
-        if executable.lastPathComponent == "stat" { return Data("\(getuid()) \(unsafe == "proxy" ? "666" : "600") Socket\n".utf8) }
-        if arguments.contains("--keeper-node") {
-            guard codexInstalled else { throw FleetError.message("Codex unavailable") }
+    func job(_ file: String) throws -> [String: Any] {
+        try PropertyListSerialization.propertyList(from: PrivateRuntime.read(layout.state.appendingPathComponent(file)), format: nil) as! [String: Any]
+    }
+    func execute(_ file: URL, _ args: [String]) throws -> Data {
+        if args.contains("--keeper-node") {
+            if !installed { throw FleetError.message("Codex unavailable") }
             return Data("/fixture/signed-node\n".utf8)
         }
-        if arguments.contains(where: { $0.hasSuffix("codex-bin-resolve.sh") }) {
-            guard codexInstalled else { throw FleetError.message("Codex unavailable") }
-            return Data("/fixture/codex\n".utf8)
+        if args.contains(where: { $0.hasSuffix("codex-bin-resolve.sh") }) { return Data("/fixture/codex\n".utf8) }
+        if let index = args.firstIndex(where: { $0.hasSuffix("codex-desktop-install.mjs") }) {
+            let command = args[index + 1]
+            if command == "check" && desktopOpen && !current { throw FleetError.message("Desktop must close") }
+            if command == "check-removal" && desktopOpen { throw FleetError.message("Desktop must close") }
+            if command == "install", installFails { throw FleetError.message("installer failed before environment") }
+            if command == "install" { installArguments = Array(args[index...]); events.append("install"); return Data((current ? "current\n" : "staged\n").utf8) }
+            events.append(command); return Data()
         }
-        if arguments.suffix(2) == ["desktop", "status"] {
-            if !agentReady { throw FleetError.message("Agent not ready") }
-            return Data("{\"schema\":1,\"pid\":123,\"version\":\"1.0.0+2\",\"settings\":{\"schema\":1,\"origin\":\"\",\"auto_start\":true},\"disk_access\":{\"state\":\"unknown\",\"source\":\"background\",\"checked_at\":1,\"verified_targets\":0},\"runtime\":{\"phase\":\"unbound\"}}".utf8)
+        if args.contains(where: { $0.hasSuffix("check-codex-idle.sh") }) {
+            events.append("idle"); if busy { throw FleetError.message("active turn") }; return Data()
         }
-        if arguments.contains(where: { $0.hasSuffix("check-codex-idle.sh") }) {
-            events.append("idle")
-            if busy { throw FleetError.message("active_or_unknown") }
-            return Data("codex_turns_idle\n".utf8)
+        if file.lastPathComponent == "curl" { events.append("ready"); throw FleetError.message("Desktop is closed") }
+        if file.lastPathComponent == "launchctl" {
+            let target = "gui/\(getuid())/com.macfleet.codex-app-server"
+            if args[0] == "print" {
+                if args[1] == target {
+                    guard legacyLoaded else { throw FleetError.message("not loaded") }
+                    return Data("path = \(foreign ? "/other/install.plist" : legacyDefinition.path)\nstate = running\n".utf8)
+                }
+                if let (path, exit) = jobs[args[1]] { return Data("path = \(path)\nstate = not running\nlast exit code = \(exit)\n".utf8) }
+                throw FleetError.message("not loaded")
+            }
+            if args[0] == "bootout" {
+                if args[1] == target { legacyLoaded = false; events.append("legacy-bootout") }
+                else { jobs.removeValue(forKey: args[1]) }
+                return Data()
+            }
+            if args[0] == "bootstrap" {
+                let definition = try PropertyListSerialization.propertyList(from: PrivateRuntime.read(URL(fileURLWithPath: args[2])), format: nil) as! [String: Any]
+                let label = definition["Label"] as! String
+                if label == "com.macfleet.codex-app-server" { events.append("legacy-bootstrap"); legacyLoaded = true; return Data() }
+                let command = definition["ProgramArguments"] as! [String]
+                let mode = command.count > 2 ? command[2] : "unknown"
+                let scope = args[1].hasPrefix("gui/") ? "gui" : "user"
+                events.append(scope + "-" + mode)
+                jobs[args[1] + "/" + label] = (args[2], helperFails && mode == "shared" ? 1 : 0)
+                return Data()
+            }
         }
-        if arguments.contains(where: { $0.hasSuffix("codex-desktop-env.sh") }) {
-            events.append(arguments.last == "clear" ? "clear-env" : "desktop-env"); return Data()
-        }
-        XCTFail("unexpected command \(executable) \(arguments)")
-        return Data()
-    }
-    private func environmentOutput(_ values: [String: String]) -> Data {
-        Data(("environment = {\n" + values.filter { !$0.value.isEmpty }.map { " \($0.key) => \($0.value)\n" }.joined() + "}\n").utf8)
+        XCTFail("unexpected external command: \(file) \(args)"); return Data()
     }
 }

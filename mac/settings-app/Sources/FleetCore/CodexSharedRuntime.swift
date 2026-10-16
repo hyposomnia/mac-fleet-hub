@@ -1,339 +1,209 @@
 import Darwin
 import Foundation
 
-/// Native installation of the same keeper, launch definition and Desktop helper
-/// used by setup-mac.sh. This owns no Codex transport or recovery implementation.
+/// Installs the common Desktop CLI hook. Desktop owns the runtime lifecycle;
+/// starting or updating Fleet never creates an app-server process here.
 @MainActor
 public final class CodexSharedRuntime {
     private let layout: RuntimeLayout
     private let execute: (URL, [String], Data?, TimeInterval) async throws -> Data
-    private let readyAttempts: Int
-    private let endpoint = "ws://127.0.0.1:47682/rpc"
     private var domain: String { "gui/\(getuid())" }
-    private var target: String { domain + "/com.macfleet.codex-app-server" }
-    private var resources: URL { layout.codexResources }
-    private var definition: URL { layout.state.appendingPathComponent("codex-app-server.plist") }
-    private var snapshot: URL { layout.state.appendingPathComponent("codex-desktop-environment.json") }
-    private var desktopDefinition: URL { layout.state.appendingPathComponent("codex-desktop-env.plist") }
-    private var desktopTarget: String { domain + "/com.macfleet.codex-desktop-env" }
-    private var proxy: URL { layout.home.appendingPathComponent(".macfleet/codex-app-server.sock") }
-    private let environmentKeys = ["CODEX_APP_SERVER_WS_URL", "CODEX_APP_SERVER_USE_LOCAL_DAEMON"]
+    private var legacyTarget: String { domain + "/com.macfleet.codex-app-server" }
+    private var legacyDefinition: URL { layout.state.appendingPathComponent("codex-app-server.plist") }
+    private var legacySnapshot: URL { layout.state.appendingPathComponent("codex-desktop-environment.json") }
+    private var marker: URL { layout.state.appendingPathComponent("codex-hook-install.json") }
+    private var hook: URL { layout.home.appendingPathComponent(".local/lib/macfleet") }
+    private var config: URL { hook.appendingPathComponent("codex-desktop.json") }
 
     public init(layout: RuntimeLayout, execute: @escaping (URL, [String], Data?, TimeInterval) async throws -> Data = {
         try await CommandRunner.run(executable: $0, arguments: $1, input: $2, timeout: $3)
-    }, readyAttempts: Int = 30) {
+    }) {
         self.layout = layout
         self.execute = execute
-        self.readyAttempts = readyAttempts
     }
 
     public func start() async throws {
-        let owned = FileManager.default.fileExists(atPath: definition.path)
-        var migrateLegacyLauncher = false
-        if let loaded = try? await launchctl(["print", target]) {
-            if owned {
-                try validateOwnership(loaded)
-                _ = try readSnapshot()
-                let previous = try PropertyListSerialization.propertyList(from: PrivateRuntime.read(definition), format: nil) as? [String: Any]
-                migrateLegacyLauncher = (previous?["ProgramArguments"] as? [String])?.contains(where: { $0.hasSuffix("/codex-keeper-launch.sh") }) == true
-                let state = (String(data: loaded, encoding: .utf8) ?? "").split(separator: "\n")
-                    .map { $0.trimmingCharacters(in: .whitespaces) }
-                if !migrateLegacyLauncher && (state.contains("state = not running") || state.contains("state = exited")) {
-                    // No -k: a concurrently recovered keeper must never be killed.
-                    _ = try await launchctl(["kickstart", target])
-                }
-            }
-            if !migrateLegacyLauncher {
-                try await waitForReady()
-                // Keep shared intent during a listener failure. Clearing it would
-                // let Desktop create an independent writer on its next launch.
-                if owned { try await applyDesktopEnvironment() }
-                return
-            }
-        }
-        if let loaded = try? await launchctl(["print", desktopTarget]) {
-            try validateDesktopOwnership(loaded)
-        }
         let node: String
-        let codex: String
-        do {
-            node = try await shell("codex-bin-resolve.sh", ["--keeper-node"])
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-            codex = try await shell("codex-bin-resolve.sh")
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-        } catch {
-            // Codex is optional. Its absence must not disable enrollment/files/terminal.
-            FileHandle.standardError.write(Data("Codex shared keeper 不可用：\(error.localizedDescription)\n".utf8))
+        do { node = try await shell("codex-bin-resolve.sh", ["--keeper-node"]).trimmingCharacters(in: .whitespacesAndNewlines) }
+        catch {
+            FileHandle.standardError.write(Data("Codex Desktop hook 不可用：\(error.localizedDescription)\n".utf8))
             return
         }
-        guard [node, codex].allSatisfy({ $0.hasPrefix("/") && !$0.contains("\n") }) else { throw FleetError.message("Codex 可执行路径无效。") }
-        let data = try launchDefinition(node: node, codex: codex)
-        let previousDefinition = owned ? try PrivateRuntime.read(definition) : nil
-        let previousDesktopDefinition = migrateLegacyLauncher && FileManager.default.fileExists(atPath: desktopDefinition.path) ? try PrivateRuntime.read(desktopDefinition) : nil
-        let previousEnvironment = try await readEnvironment()
-        let hadSnapshot = FileManager.default.fileExists(atPath: snapshot.path)
-        if hadSnapshot { _ = try readSnapshot() }
-        else { try PrivateRuntime.write(JSONEncoder().encode(previousEnvironment), to: snapshot) }
-        // Only the installer retires an owned legacy launch definition, using the
-        // existing rollout guard. Shared thread writers never change hands here.
-        if migrateLegacyLauncher { _ = try await shell("check-codex-idle.sh") }
-        var started = false
-        var retiredLegacy = false
+        guard node.hasPrefix("/"), !node.contains("\n") else { throw FleetError.message("Codex Node 路径无效。") }
+        let oldDefinition = FileManager.default.fileExists(atPath: legacyDefinition.path) ? try PrivateRuntime.read(legacyDefinition) : nil
+        let loaded = try? await launchctl(["print", legacyTarget])
+        if let loaded {
+            guard oldDefinition != nil else { throw FleetError.message("Codex 运行时由其他安装管理，请先通过原安装器迁移。") }
+            try validateOwner(loaded, file: legacyDefinition)
+        }
+        let owned = try ownsHook()
+        let oldMarker = owned ? try PrivateRuntime.read(marker) : nil
+        var previousJobs: [URL: Data] = [:]
+        var previouslyLoaded = Set<String>()
+        for scope in ["gui", "user"] {
+            let file = jobFile(scope)
+            if FileManager.default.fileExists(atPath: file.path) { previousJobs[file] = try PrivateRuntime.read(file) }
+            if let existing = try? await launchctl(["print", jobTarget(scope)]) { try validateOwner(existing, file: file); previouslyLoaded.insert(scope) }
+        }
+        _ = try await installer(node, "check")
+        if loaded != nil || oldDefinition != nil {
+            _ = try await shell("check-codex-idle.sh")
+            // Even an identical hook cannot retire a legacy server under Desktop.
+            if FileManager.default.fileExists(atPath: config.path) { _ = try await installer(node, "check-removal") }
+        }
+        var retired = false, staged = false, environmentTouched = false
         do {
-            if migrateLegacyLauncher {
-                retiredLegacy = true
-                _ = try await launchctl(["bootout", target])
+            if loaded != nil {
+                _ = try await launchctl(["bootout", legacyTarget])
+                retired = true
             }
-            try PrivateRuntime.write(data, to: definition)
-            _ = try await launchctl(["bootstrap", domain, definition.path])
-            started = true
-            try await waitForReady()
-            try await applyDesktopEnvironment()
+            let result = try await installer(node, "install").trimmingCharacters(in: .whitespacesAndNewlines)
+            guard ["current", "staged"].contains(result) else { throw FleetError.message("Codex hook 安装器返回无效状态。") }
+            staged = result == "staged"
+            // A common hook owned by the shell installer is reused without adopting it.
+            if !staged && !owned && oldDefinition == nil { return }
+            environmentTouched = true
+            let prior = oldDefinition != nil && FileManager.default.fileExists(atPath: legacySnapshot.path) ? legacySnapshot : nil
+            for scope in ["user", "gui"] { try await environmentJob("shared", scope: scope, persistent: true, legacy: prior) }
+            try PrivateRuntime.write(JSONEncoder().encode(Ownership(schema: 1, directory: hook.path)), to: marker)
+            if let oldDefinition {
+                try PrivateRuntime.write(oldDefinition, to: layout.state.appendingPathComponent("codex-app-server.legacy-\(UUID().uuidString).plist"))
+                try FileManager.default.removeItem(at: legacyDefinition)
+            }
+            _ = try await installer(node, "commit")
         } catch {
             let failure = error
             do {
-                if !started, let loaded = try? await launchctl(["print", target]),
-                   String(data: loaded, encoding: .utf8)?.contains("path = " + definition.path) == true,
-                   try PrivateRuntime.read(definition) == data {
-                    // Account for a bootstrap that completed despite a command timeout.
-                    started = true
+                if environmentTouched {
+                    for scope in ["gui", "user"] { try await environmentJob("rollback", scope: scope, persistent: false) }
                 }
-                if started {
-                    // A Desktop may have attached while startup was being checked.
-                    _ = try await shell("check-codex-idle.sh")
+                if environmentTouched {
+                    for scope in ["gui", "user"] { try await removeJob(scope) }
                 }
-                try await removeDesktopHelper()
-                try await restoreEnvironment(previousEnvironment)
-                if started { _ = try await launchctl(["bootout", target]) }
-                if let previousDefinition { try PrivateRuntime.write(previousDefinition, to: definition) }
-                else { try removePrivateFile(definition) }
-                if retiredLegacy, (try? await launchctl(["print", target])) == nil {
-                    _ = try await launchctl(["bootstrap", domain, definition.path])
+                if staged { _ = try await installer(node, "rollback") }
+                if let oldMarker { try PrivateRuntime.write(oldMarker, to: marker) }
+                else if FileManager.default.fileExists(atPath: marker.path) { try FileManager.default.removeItem(at: marker) }
+                for (file, data) in previousJobs where environmentTouched {
+                    try PrivateRuntime.write(data, to: file)
+                    let scope = file == jobFile("gui") ? "gui" : "user"
+                    if previouslyLoaded.contains(scope) { _ = try await launchctl(["bootstrap", scope == "gui" ? domain : "user/\(getuid())", file.path]) }
                 }
-                if let previousDesktopDefinition {
-                    try PrivateRuntime.write(previousDesktopDefinition, to: desktopDefinition)
-                    _ = try await launchctl(["bootstrap", domain, desktopDefinition.path])
-                }
-                if !hadSnapshot { try removePrivateFile(snapshot) }
+                if let oldDefinition { try PrivateRuntime.write(oldDefinition, to: legacyDefinition) }
+                if retired { _ = try await launchctl(["bootstrap", domain, legacyDefinition.path]) }
             } catch {
-                throw FleetError.message("Codex shared 启动失败，回滚未完成，保留启动定义：\(failure.localizedDescription)；\(error.localizedDescription)")
+                throw FleetError.message("Codex hook 安装失败且回滚未完成：\(failure.localizedDescription)；\(error.localizedDescription)")
             }
             throw failure
         }
     }
 
     public func prepareForRemoval() async throws {
-        guard FileManager.default.fileExists(atPath: definition.path) else { return }
-        _ = try PrivateRuntime.read(definition)
-        _ = try readSnapshot()
-        if let loaded = try? await launchctl(["print", target]) {
-            try validateOwnership(loaded)
-            _ = try await shell("check-codex-idle.sh")
+        guard try ownsHook() else {
+            if let loaded = try? await launchctl(["print", legacyTarget]) {
+                try validateOwner(loaded, file: legacyDefinition)
+                let node = try await shell("codex-bin-resolve.sh", ["--keeper-node"]).trimmingCharacters(in: .whitespacesAndNewlines)
+                _ = try await installer(node, "check")
+                _ = try await shell("check-codex-idle.sh")
+            }
+            return
         }
-        if let loaded = try? await launchctl(["print", desktopTarget]) {
-            try validateDesktopOwnership(loaded)
+        let node = try await shell("codex-bin-resolve.sh", ["--keeper-node"]).trimmingCharacters(in: .whitespacesAndNewlines)
+        _ = try await installer(node, "check-removal")
+        for scope in ["gui", "user"] {
+            if let loaded = try? await launchctl(["print", jobTarget(scope)]) { try validateOwner(loaded, file: jobFile(scope)) }
         }
     }
 
     public func remove() async throws {
-        guard FileManager.default.fileExists(atPath: definition.path) else { return }
+        if try !ownsHook() {
+            guard FileManager.default.fileExists(atPath: legacyDefinition.path) else { return }
+            try await start()
+            guard try ownsHook() else { throw FleetError.message("无法恢复旧 Codex GUI 配置，保留安装以便重试。") }
+        }
         try await prepareForRemoval()
-        // Restore GUI intent before taking away the listener.
-        try await removeDesktopHelper()
-        try await restoreEnvironment(readSnapshot())
-        if let loaded = try? await launchctl(["print", target]) {
-            try validateOwnership(loaded)
+        let node = try await shell("codex-bin-resolve.sh", ["--keeper-node"]).trimmingCharacters(in: .whitespacesAndNewlines)
+        for scope in ["gui", "user"] {
+            try await environmentJob("clear", scope: scope, persistent: false)
+            try await removeJob(scope)
+        }
+        _ = try await installer(node, "remove")
+        try FileManager.default.removeItem(at: marker)
+    }
+
+    private struct Ownership: Codable { let schema: Int; let directory: String }
+    private func ownsHook() throws -> Bool {
+        guard FileManager.default.fileExists(atPath: marker.path) else { return false }
+        let value = try JSONDecoder().decode(Ownership.self, from: PrivateRuntime.read(marker))
+        guard value.schema == 1, value.directory == hook.path else { throw FleetError.message("Codex hook 所有权记录无效。") }
+        return true
+    }
+    private func installer(_ node: String, _ command: String) async throws -> String {
+        let home = try layout.savedEnvironment()["FLEET_CODEX_HOME"] ?? layout.home.appendingPathComponent(".codex").path
+        let arguments = [layout.codexResources.appendingPathComponent("codex-desktop-install.mjs").path, command, hook.path,
+                         "/Applications/ChatGPT.app", "ws://127.0.0.1:47682", layout.home.appendingPathComponent(".macfleet/codex-app-server.sock").path,
+                         home, layout.home.appendingPathComponent(".macfleet/codex-runtime").path]
+        let data = try await execute(URL(fileURLWithPath: node), arguments, nil, 35)
+        return String(data: data, encoding: .utf8) ?? ""
+    }
+    private func jobFile(_ scope: String) -> URL { layout.state.appendingPathComponent("codex-desktop-env\(scope == "gui" ? "" : "-user").plist") }
+    private func jobLabel(_ scope: String) -> String { "com.macfleet.codex-desktop-env\(scope == "gui" ? "" : "-user")" }
+    private func jobTarget(_ scope: String) -> String { (scope == "gui" ? domain : "user/\(getuid())") + "/" + jobLabel(scope) }
+    private func validateOwner(_ loaded: Data, file: URL) throws {
+        _ = try PrivateRuntime.read(file)
+        guard String(data: loaded, encoding: .utf8)?.contains("path = " + file.path + "\n") == true else {
+            throw FleetError.message("Codex 启动定义由其他安装管理，未修改或停止它。")
+        }
+    }
+    private func removeJob(_ scope: String) async throws {
+        let file = jobFile(scope)
+        if let loaded = try? await launchctl(["print", jobTarget(scope)]) {
+            try validateOwner(loaded, file: file)
+            _ = try await launchctl(["bootout", jobTarget(scope)])
+        }
+        if FileManager.default.fileExists(atPath: file.path) { _ = try PrivateRuntime.read(file); try FileManager.default.removeItem(at: file) }
+    }
+    private func environmentJob(_ mode: String, scope: String, persistent: Bool, legacy: URL? = nil) async throws {
+        let bootstrap = scope == "gui" ? domain : "user/\(getuid())"
+        let label = persistent ? jobLabel(scope) : "com.macfleet.codex-env-operation-" + UUID().uuidString
+        let file = persistent ? jobFile(scope) : layout.state.appendingPathComponent(label + ".plist")
+        let target = bootstrap + "/" + label
+        if persistent, let loaded = try? await launchctl(["print", target]) {
+            try validateOwner(loaded, file: file)
             _ = try await launchctl(["bootout", target])
         }
-        try removePrivateFile(definition)
-        try removePrivateFile(snapshot)
-    }
-
-    private func validateOwnership(_ loaded: Data) throws {
-        _ = try PrivateRuntime.read(definition)
-        guard String(data: loaded, encoding: .utf8)?.contains("path = " + definition.path) == true else {
-            throw FleetError.message("Codex shared 服务已由其他安装管理，未修改或停止它。")
-        }
-    }
-
-    private func launchDefinition(node: String, codex: String) throws -> Data {
-        let template = try Data(contentsOf: resources.appendingPathComponent("com.macfleet.codex-shared-app-server.plist"))
-        let replacements = [
-            "__CODEX_HOME__": try layout.savedEnvironment()["FLEET_CODEX_HOME"] ?? layout.home.appendingPathComponent(".codex").path,
-            "__CODEX_KEEPER_NODE__": node,
-            "__CODEX_KEEPER_SCRIPT__": resources.appendingPathComponent("codex-shared-app-server.mjs").path,
-            "__CODEX_BIN__": codex,
-            "__CODEX_APPSERVER_LISTEN__": "ws://127.0.0.1:47682",
-            "__CODEX_APPSERVER_SOCK__": proxy.path,
-            "__BREW_PREFIX__": "/opt/homebrew"
-        ]
-        func render(_ value: Any) throws -> Any {
-            if var string = value as? String {
-                for (key, replacement) in replacements { string = string.replacingOccurrences(of: key, with: replacement) }
-                guard !string.contains("__") else { throw FleetError.message("Codex 启动定义包含未解析参数。") }
-                return string
-            }
-            if let list = value as? [Any] { return try list.map(render) }
-            if let dictionary = value as? [String: Any] { return try dictionary.mapValues(render) }
-            return value
-        }
-        guard var result = try render(PropertyListSerialization.propertyList(from: template, format: nil)) as? [String: Any],
-              var environment = result["EnvironmentVariables"] as? [String: String],
-              result["Label"] as? String == "com.macfleet.codex-app-server" else {
-            throw FleetError.message("Codex shared 启动模板无效。")
-        }
-        environment["HOME"] = layout.home.path
-        result["EnvironmentVariables"] = environment
-        try PrivateRuntime.ensureDirectory(layout.state.appendingPathComponent("codex-logs"))
-        return try PropertyListSerialization.data(fromPropertyList: result, format: .xml, options: 0)
-    }
-
-    private func waitForReady() async throws {
-        for attempt in 0..<readyAttempts {
-            if (try? await execute(URL(fileURLWithPath: "/usr/bin/curl"), ["-fsS", "--max-time", "1", "http://127.0.0.1:47682/readyz"], nil, 2)) != nil {
-                let listener = try await execute(URL(fileURLWithPath: "/usr/sbin/lsof"), ["-nP", "-iTCP:47682", "-sTCP:LISTEN"], nil, 3)
-                let lines = (String(data: listener, encoding: .utf8) ?? "").split(separator: "\n").filter { $0.contains("(LISTEN)") }
-                let socket = try await execute(URL(fileURLWithPath: "/usr/bin/stat"), ["-f", "%u %Lp %HT", proxy.path], nil, 3)
-                guard !lines.isEmpty, lines.allSatisfy({ $0.contains("127.0.0.1:47682 (LISTEN)") }),
-                      String(data: socket, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) == "\(getuid()) 600 Socket" else {
-                    throw FleetError.message("Codex shared listener 或私有 proxy 不安全。")
-                }
-                let data = try? await execute(URL(fileURLWithPath: "/usr/bin/env"), ["HOME=" + layout.home.path, layout.agent.path, "desktop", "status"], nil, 3)
-                if let data, let status = try? JSONDecoder().decode(AgentStatus.self, from: data),
-                   status.schema == 1, status.settings.schema == 1, status.pid > 0, status.isReadyForManagement {
-                    return
-                }
-            }
-            if attempt + 1 < readyAttempts { try await Task.sleep(nanoseconds: 1_000_000_000) }
-        }
-        throw FleetError.message("Codex shared app-server 或 Fleet Agent 未通过就绪检查。")
-    }
-
-    private func applyDesktopEnvironment(mode: String = "shared") async throws {
-        // Sparkle may relaunch Hub in the user bootstrap domain. The original
-        // Aqua job guarantees that the helper changes the Desktop's GUI domain.
-        if let loaded = try? await launchctl(["print", desktopTarget]) {
-            try validateDesktopOwnership(loaded)
-            _ = try await launchctl(["bootout", desktopTarget])
-        }
-        try await runEnvironmentJob(arguments: ["/bin/bash", resources.appendingPathComponent("codex-desktop-env.sh").path, mode] + (mode == "shared" ? [endpoint] : []), persistent: true)
-        let actual = try await environment(in: domain)
-        guard actual["CODEX_APP_SERVER_WS_URL"] == (mode == "shared" ? endpoint : ""), actual["CODEX_APP_SERVER_USE_LOCAL_DAEMON"] == "" else {
-            throw FleetError.message("Codex Desktop Aqua 环境未通过验证。")
-        }
-    }
-    private struct DesktopEnvironment: Codable {
-        var user: [String: String]
-        var aqua: [String: String]
-    }
-    private func readEnvironment() async throws -> DesktopEnvironment {
-        try await DesktopEnvironment(user: environment(in: "user/\(getuid())"), aqua: environment(in: domain))
-    }
-    private func environment(in bootstrap: String) async throws -> [String: String] {
-        // A domain contains thousands of unrelated services. Keep the bounded
-        // command runner's output limited to the environment dictionary.
-        let data = try await execute(URL(fileURLWithPath: "/bin/bash"), ["-o", "pipefail", "-c",
-            "/bin/launchctl print \"$1\" | /usr/bin/sed -n '/^[[:space:]]*environment = {/,/^[[:space:]]*}/p'", "fleet-environment", bootstrap], nil, 8)
-        var values = Dictionary(uniqueKeysWithValues: environmentKeys.map { ($0, "") })
-        var inside = false
-        for line in (String(data: data, encoding: .utf8) ?? "").split(separator: "\n") {
-            let text = line.trimmingCharacters(in: .whitespaces)
-            if text == "environment = {" { inside = true; continue }
-            if inside && text == "}" { break }
-            if inside, let separator = text.range(of: " => ") {
-                let key = String(text[..<separator.lowerBound])
-                if environmentKeys.contains(key) { values[key] = String(text[separator.upperBound...]) }
-            }
-        }
-        return values
-    }
-    private func readSnapshot() throws -> DesktopEnvironment {
-        let data = try PrivateRuntime.read(snapshot)
-        let values: DesktopEnvironment
-        if let current = try? JSONDecoder().decode(DesktopEnvironment.self, from: data) { values = current }
-        else {
-            // Build 8 recorded the caller's environment before changing it.
-            let legacy = try JSONDecoder().decode([String: String].self, from: data)
-            values = DesktopEnvironment(user: legacy, aqua: legacy)
-        }
-        guard Set(values.user.keys) == Set(environmentKeys), Set(values.aqua.keys) == Set(environmentKeys) else {
-            throw FleetError.message("Codex Desktop 环境备份无效。")
-        }
-        return values
-    }
-    private func restoreEnvironment(_ values: DesktopEnvironment) async throws {
-        for key in environmentKeys {
-            let value = values.user[key] ?? ""
-            try await runEnvironmentJob(arguments: ["/bin/launchctl"] + (value.isEmpty ? ["unsetenv", key] : ["setenv", key, value]), persistent: false, bootstrap: "user/\(getuid())")
-            let aqua = values.aqua[key] ?? ""
-            try await runEnvironmentJob(arguments: ["/bin/launchctl"] + (aqua.isEmpty ? ["unsetenv", key] : ["setenv", key, aqua]), persistent: false)
-        }
-    }
-    private func validateDesktopOwnership(_ loaded: Data) throws {
-        _ = try PrivateRuntime.read(desktopDefinition)
-        guard String(data: loaded, encoding: .utf8)?.contains("path = " + desktopDefinition.path) == true else {
-            throw FleetError.message("Codex Desktop 环境已由其他安装管理，未修改它。")
-        }
-    }
-    private func removeDesktopHelper() async throws {
-        if let loaded = try? await launchctl(["print", desktopTarget]) {
-            try validateDesktopOwnership(loaded)
-            _ = try await launchctl(["bootout", desktopTarget])
-        }
-        if FileManager.default.fileExists(atPath: desktopDefinition.path) { try removePrivateFile(desktopDefinition) }
-    }
-    private func runEnvironmentJob(arguments: [String], persistent: Bool, bootstrap: String? = nil) async throws {
-        let bootstrap = bootstrap ?? domain
-        let label = persistent ? "com.macfleet.codex-desktop-env" : "com.macfleet.codex-env-restore-" + UUID().uuidString
-        let file = persistent ? desktopDefinition : layout.state.appendingPathComponent(label + ".plist")
-        let job = bootstrap + "/" + label
-        let template = try Data(contentsOf: resources.appendingPathComponent("com.macfleet.codex-desktop-env.plist"))
-        guard var definition = try PropertyListSerialization.propertyList(from: template, format: nil) as? [String: Any],
-              definition["LimitLoadToSessionType"] as? String == "Aqua" else {
-            throw FleetError.message("Codex Aqua 环境模板无效。")
-        }
+        let data = try Data(contentsOf: layout.codexResources.appendingPathComponent("com.macfleet.codex-desktop-env.plist"))
+        guard var definition = try PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any] else { throw FleetError.message("Codex GUI 模板无效。") }
         definition["Label"] = label
-        definition["ProgramArguments"] = arguments
-        if bootstrap != domain { definition["LimitLoadToSessionType"] = "Background" }
+        definition["LimitLoadToSessionType"] = scope == "gui" ? "Aqua" : "Background"
+        definition["ProgramArguments"] = ["/bin/bash", hook.appendingPathComponent("codex-desktop-env.sh").path, mode, config.path] + (legacy.map { [$0.path] } ?? [])
+        definition["EnvironmentVariables"] = ["HOME": layout.home.path]
+        try PrivateRuntime.ensureDirectory(layout.state.appendingPathComponent("codex-logs"))
         definition["StandardOutPath"] = layout.state.appendingPathComponent("codex-logs/codex-desktop-env.log").path
         definition["StandardErrorPath"] = layout.state.appendingPathComponent("codex-logs/codex-desktop-env.err").path
         try PrivateRuntime.write(PropertyListSerialization.data(fromPropertyList: definition, format: .xml, options: 0), to: file)
         do {
             _ = try await launchctl(["bootstrap", bootstrap, file.path])
-            let deadline = Date().addingTimeInterval(40)
+            let deadline = Date().addingTimeInterval(35)
             while Date() < deadline {
-                let status = try await launchctl(["print", job])
-                let lines = (String(data: status, encoding: .utf8) ?? "").split(separator: "\n").map { $0.trimmingCharacters(in: .whitespaces) }
+                let data = try await launchctl(["print", target])
+                let lines = (String(data: data, encoding: .utf8) ?? "").split(separator: "\n").map { $0.trimmingCharacters(in: .whitespaces) }
                 if lines.contains("state = not running") || lines.contains("state = exited") {
-                    guard lines.contains("last exit code = 0") else { throw FleetError.message("Codex Aqua 环境设置失败。") }
-                    if !persistent {
-                        _ = try await launchctl(["bootout", job])
-                        try removePrivateFile(file)
-                    }
+                    guard lines.contains("last exit code = 0") else { throw FleetError.message("Codex Desktop 环境设置失败。") }
+                    if !persistent { _ = try await launchctl(["bootout", target]); try FileManager.default.removeItem(at: file) }
                     return
                 }
                 try await Task.sleep(nanoseconds: 100_000_000)
             }
-            throw FleetError.message("Codex Aqua 环境设置超时。")
+            throw FleetError.message("Codex Desktop 环境设置超时。")
         } catch {
-            if let status = try? await launchctl(["print", job]), String(data: status, encoding: .utf8)?.contains("path = " + file.path) == true {
-                _ = try? await launchctl(["bootout", job])
-            }
-            if !persistent { try? removePrivateFile(file) }
+            if let loaded = try? await launchctl(["print", target]), String(data: loaded, encoding: .utf8)?.contains("path = " + file.path + "\n") == true { _ = try? await launchctl(["bootout", target]) }
+            if !persistent { try? FileManager.default.removeItem(at: file) }
             throw error
         }
     }
-    private func removePrivateFile(_ file: URL) throws {
-        _ = try PrivateRuntime.read(file)
-        try FileManager.default.removeItem(at: file)
-    }
-    private func shell(_ file: String, _ arguments: [String] = []) async throws -> String {
-        let migrated = try layout.savedEnvironment()
-        let assistant = ["FLEET_CODEX_HOME", "FLEET_CODEX_BIN"].compactMap { key in migrated[key].map { key + "=" + $0 } }
-        let output = try await execute(URL(fileURLWithPath: "/usr/bin/env"), ["HOME=" + layout.home.path] + assistant + ["/bin/bash", resources.appendingPathComponent(file).path] + arguments, nil, 35)
+    private func shell(_ name: String, _ arguments: [String] = []) async throws -> String {
+        let output = try await execute(URL(fileURLWithPath: "/usr/bin/env"), ["HOME=" + layout.home.path, "/bin/bash", layout.codexResources.appendingPathComponent(name).path] + arguments, nil, 35)
         return String(data: output, encoding: .utf8) ?? ""
     }
-    private func launchctl(_ arguments: [String]) async throws -> Data {
-        try await execute(URL(fileURLWithPath: "/bin/launchctl"), arguments, nil, 8)
-    }
+    private func launchctl(_ arguments: [String]) async throws -> Data { try await execute(URL(fileURLWithPath: "/bin/launchctl"), arguments, nil, 8) }
 }

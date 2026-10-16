@@ -423,6 +423,21 @@ final class NativeRuntimeTests: XCTestCase {
         catch {}
         XCTAssertFalse(fixture.events.contains("bootout"))
     }
+    func testCodexMigrationFailureRestoresThePreviousBackgroundPackageAndResources() async throws {
+        let f = try NativeRuntimeFixture(running: true)
+        defer { f.remove() }
+        f.requireCodexClose = true
+        let resource = f.layout.backgroundApplication.appendingPathComponent("Contents/Resources/codex/legacy-sentinel")
+        try FileManager.default.createDirectory(at: resource.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data("previous keeper bytes".utf8).write(to: resource)
+        do { try await f.management.synchronizeBackground(launch: true, replaceLegacy: true); XCTFail("committed a package before Codex migration passed") }
+        catch {}
+        XCTAssertTrue(f.events.contains("codex-check"))
+        XCTAssertEqual(try f.identity(f.layout.backgroundApplication), "1")
+        XCTAssertEqual(try String(contentsOf: resource), "previous keeper bytes")
+        XCTAssertEqual(f.version, "1.0.0+1")
+        XCTAssertTrue(f.running)
+    }
 }
 
 @MainActor
@@ -433,6 +448,7 @@ private final class NativeRuntimeFixture {
     var pid = 100
     var version: String
     var busy = false
+    var requireCodexClose = false
     var rejectNew = false
     var rejectBootout = false
     var incompleteBinding = false
@@ -499,6 +515,12 @@ private final class NativeRuntimeFixture {
     func remove() { try? FileManager.default.removeItem(at: root) }
 
     private func execute(_ executable: URL, _ arguments: [String]) throws -> Data {
+        if requireCodexClose {
+            if arguments.contains("--keeper-node") { return Data("/fixture/signed-node\n".utf8) }
+            if arguments.contains(where: { $0.hasSuffix("codex-desktop-install.mjs") }) { events.append("codex-check"); throw FleetError.message("Desktop must close") }
+            if executable.lastPathComponent == "launchctl", arguments[0] == "print",
+               arguments[1].contains("com.macfleet.codex-") { throw FleetError.message("not loaded") }
+        }
         if executable.lastPathComponent == "codesign" {
             if arguments.contains("-d") { return Data("TeamIdentifier=FAKETEAM01\n".utf8) }
             if let position = arguments.firstIndex(of: "-R") { requirements.append(arguments[position + 1]) }

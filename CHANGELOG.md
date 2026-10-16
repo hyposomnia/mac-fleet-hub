@@ -2,6 +2,10 @@
 
 ## 2026-10-16
 
+- Codex shared 运行时由 Desktop 经签名 Node CLI bridge 启动，保留内置浏览器所需进程祖先链；Desktop 与 Fleet 复用同一 listener 和物理 writer。增加系统锁并发启动、私有状态/代理校验、传输背压、大消息和崩溃回收；网络检查与预览进程保持官方 CLI 行为。
+- 原生客户端复用公共 hook 安装器，分别管理 GUI/user 域配置，后台包及其 Codex 脚本在同一事务内迁移和回滚；`doctor --fix` 保持 Desktop 对运行时的所有权。
+- shared 安装改用持久 CLI hook，保存并按所有权恢复 GUI 配置；迁移要求 Desktop 关闭和会话空闲，支持事务回滚，不自动结束 App。移除 agent 启动时注入旧 WebSocket GUI 设置的行为。Desktop 退出时报告不可用，不创建独立 writer。
+
 - Web v253 将会话／文件顶部选中 Tab 的底色加深为聊天气泡底色，选中状态更清晰。
 
 - Web v252 点击设置后默认进入“设备”；设备列表在 Mesh IP 后提供轻量复制图标，复制成功显示 `✓` 三秒后恢复。

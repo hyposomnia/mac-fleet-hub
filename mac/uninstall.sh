@@ -53,6 +53,33 @@ DOMAIN="gui/$(id -u)"
 
 bold "== mac-fleet-hub 卸载 =="
 
+HOOK_DIR="$HOME/.local/lib/macfleet"
+HOOK_CONFIG="$HOOK_DIR/codex-desktop.json"
+LA="$HOME/Library/LaunchAgents"
+if [[ -f "$HOOK_CONFIG" ]]; then
+  source "$HOOK_DIR/codex-bin-resolve.sh"
+  node_bin="$(fleet_resolve_keeper_node)" || exit 1
+  "$node_bin" "$HOOK_DIR/codex-desktop-install.mjs" check-removal "$HOOK_DIR" || exit 1
+  echo "恢复 Fleet 管理的 Codex GUI 环境，然后移除 CLI hook。"
+  "$HOOK_DIR/codex-desktop-env.sh" clear "$HOOK_CONFIG" || exit 1
+  gui_domain="gui/$(id -u)"
+  env_plist="$LA/com.macfleet.codex-desktop-env.plist"
+  if launchctl print "$gui_domain" >/dev/null 2>&1 && [[ -f "$env_plist" ]]; then
+    launchctl bootout "$gui_domain/com.macfleet.codex-desktop-env" >/dev/null 2>&1 || true
+    /usr/bin/plutil -replace ProgramArguments.1 -string clear "$env_plist" || exit 1
+    launchctl bootstrap "$gui_domain" "$env_plist" || exit 1
+    cleared=0
+    for _ in {1..100}; do
+      if launchctl print "$gui_domain/com.macfleet.codex-desktop-env" | grep -q 'last exit code = 0'; then cleared=1; break; fi
+      sleep 0.1
+    done
+    [[ "$cleared" == "1" ]] || { echo "GUI 环境恢复未完成，保留 hook 以便重试。" >&2; exit 1; }
+    launchctl bootout "$gui_domain/com.macfleet.codex-desktop-env" || exit 1
+  fi
+  "$node_bin" "$HOOK_DIR/codex-desktop-install.mjs" remove "$HOOK_DIR" || exit 1
+  HOOK_ENV_RESTORED=1
+fi
+
 # ---------------- 1. 停止并卸载 launchd 服务 ----------------
 LABELS=(com.macfleet.ttyd com.macfleet.filebrowser com.macfleet.fleet-agent com.macfleet.codex-desktop-env com.macfleet.codex-app-server)
 if [[ -f "$MANIFEST" ]]; then
@@ -83,6 +110,8 @@ done
 
 # ---------------- 2. 还原 GUI 域环境变量（R1：最容易漏的一步） ----------------
 bold "== 还原 GUI 域环境变量 =="
+ENV_EXPECT_ABSENT=()
+if [[ "${HOOK_ENV_RESTORED:-0}" != "1" ]]; then
 GUI_VARS=(CODEX_APP_SERVER_WS_URL CODEX_APP_SERVER_USE_LOCAL_DAEMON)
 if [[ -f "$MANIFEST" ]]; then
   info "安装清单：${MANIFEST}（按快照还原）"
@@ -114,6 +143,8 @@ for var in "${GUI_VARS[@]}"; do
     fi
   fi
 done
+
+fi
 
 # ---------------- 3. 删除文件与目录（按清单，幂等） ----------------
 bold "== 清理文件 =="

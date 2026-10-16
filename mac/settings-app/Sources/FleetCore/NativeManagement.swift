@@ -237,6 +237,9 @@ public final class NativeManagement: LocalManagement {
                     _ = try await self.launchctl(["bootstrap", self.domain, self.layout.runtimePlist.path])
                     try await self.waitForRuntime(expected: expected, replacingPID: previousStatus?.pid)
                 }
+                // Keep the package swap transactional with Codex migration: on
+                // failure the previous bundle's keeper/helper resources return too.
+                try await CodexSharedRuntime(layout: self.layout, execute: self.execute).start()
             }, quiesce: {
                 if startedNew, (try? await self.launchctl(["print", self.target])) != nil {
                     try await self.prepareForStop()

@@ -15,7 +15,7 @@ ditto "$INSTALLED/Contents/Frameworks/Sparkle.framework" "$APP/Contents/Framewor
 for file in AppIcon.icns BrandMark.png; do
   install -m 0644 "$INSTALLED/Contents/Resources/$file" "$APP/Contents/Resources/$file"
 done
-for file in codex-bin-resolve.sh codex-shared-app-server.mjs codex-desktop-env.sh check-codex-idle.sh com.macfleet.codex-shared-app-server.plist com.macfleet.codex-desktop-env.plist; do
+for file in codex-bin-resolve.sh codex-desktop-install.mjs codex-desktop-launch.sh codex-desktop-bridge.mjs codex-runtime-guard.mjs codex-desktop-env.mjs codex-desktop-env.sh check-codex-idle.sh com.macfleet.codex-desktop-env.plist; do
   install -m 0644 "$ROOT/mac/$file" "$APP/Contents/Resources/codex/$file"
 done
 cat > "$APP/Contents/Info.plist" <<'PLIST'

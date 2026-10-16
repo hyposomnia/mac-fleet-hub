@@ -207,7 +207,7 @@ func (b *codexChatBackend) resetRPCIf(failed codexRPCConn) {
 func (b *codexChatBackend) scheduleSelfRestart(reason error) error {
 	// A missing chat dependency must not repeatedly tear down native mesh,
 	// terminal, files and local management. Later requests reconnect through ensure.
-	if !desktopMayConfigureEnvironment() {
+	if os.Getenv("FLEET_DESKTOP_MANAGED") == "1" {
 		b.restartOnce.Do(func() { log.Printf("Codex unavailable; native device services remain running: %v", reason) })
 		return errAppServerUnavailable
 	}

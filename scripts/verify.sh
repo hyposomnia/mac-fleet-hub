@@ -46,6 +46,9 @@ step "Shell 工具测试：tests/tailscale-utils_test.sh"
 bash "$ROOT/tests/tailscale-utils_test.sh"
 echo "tailscale-utils tests passed"
 
+step "Desktop-owned Codex runtime 行为测试：node --test"
+node --test "$ROOT/tests/codex-desktop-bridge.test.mjs" "$ROOT/tests/codex-desktop-env.test.mjs" "$ROOT/tests/codex-desktop-install.test.mjs"
+
 step "Mac shared 安装测试：tests/setup-mac-shared_test.sh"
 bash "$ROOT/tests/setup-mac-shared_test.sh"
 
@@ -54,9 +57,6 @@ bash "$ROOT/tests/client-authorization_test.sh"
 
 step "Codex 路径解析回归（R2）：tests/codex-bin-resolve_test.sh"
 bash "$ROOT/tests/codex-bin-resolve_test.sh"
-
-step "旧版 app-server 监督包装回滚兼容：tests/codex-keeper-launch_test.sh"
-bash "$ROOT/tests/codex-keeper-launch_test.sh"
 
 step "卸载还原 GUI 域环境变量回归（R1/R3）：tests/uninstall-restore_test.sh"
 bash "$ROOT/tests/uninstall-restore_test.sh"
