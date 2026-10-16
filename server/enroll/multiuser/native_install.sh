@@ -25,7 +25,7 @@ umask 077
 read_value() { /usr/bin/plutil -extract "$1" raw -o - "$2"; }
 download() {
   local status
-  status="$(/usr/bin/curl --fail --silent --show-error --proto '=https' --tlsv1.2 --connect-timeout 15 --max-time "$4" --max-filesize "$3" --output "$2" --write-out '%{http_code}' "$1")" || fail '下载失败，请检查网络后重试。'
+  status="$(/usr/bin/curl --fail --progress-bar --show-error --proto '=https' --tlsv1.2 --connect-timeout 15 --max-time "$4" --max-filesize "$3" --output "$2" --write-out '%{http_code}' "$1")" || fail '下载失败，请检查网络后重试。'
   [[ "$status" == 200 ]] || fail '下载地址发生跳转或暂不可用，请从本服务的设置页重新获取安装命令。'
 }
 printf '正在获取 Fleet Agent Settings 发行信息…\n'
