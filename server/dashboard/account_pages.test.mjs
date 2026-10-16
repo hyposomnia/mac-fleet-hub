@@ -20,10 +20,10 @@ class Element {
 }
 function text(node) { return typeof node === 'string' ? node : (node?.textContent || '') + (node?.children || []).map(text).join(' '); }
 function all(node, predicate) { return [node, ...(node.children || []).flatMap((child) => typeof child === 'string' ? [] : all(child, predicate))].filter(predicate); }
-function harness({ page = 'auth', path = '/auth', search = '', role = 'user', respond, confirmed = true, origin = 'https://fleet.test', released = true, transformRelease = value => value, embedded = false, devices = [], appearances = {}, withNav = true } = {}) {
+function harness({ page = 'auth', path = '/auth', search = '', role = 'user', respond, confirmed = true, origin = 'https://fleet.test', released = true, transformRelease = value => value, embedded = false, devices = [], appearances = {}, withNav = true, timers = { setTimeout, clearTimeout } } = {}) {
   assert.ok(source, 'shared account page implementation is missing');
   const clipboard = [];
-  const sandbox = { URL, URLSearchParams, AbortController, setTimeout, clearTimeout, performance,
+  const sandbox = { URL, URLSearchParams, AbortController, setTimeout: timers.setTimeout, clearTimeout: timers.clearTimeout, performance,
     navigator: { clipboard: { writeText: async value => { clipboard.push(value); } } },
     fetch: async () => ({ ok: true, json: async () => ({ ok: true }) }) };
   vm.runInNewContext(source, sandbox);
@@ -515,6 +515,34 @@ test('device page shows the ordered device manager before installation instructi
   assert.match(text(rows[0]), /Studio.*100\.64\.0\.22.*在线/);
   assert.match(text(rows[1]), /Laptop.*100\.64\.0\.11.*离线/);
   assert.ok(rows.every(row => row.draggable === true));
+});
+
+test('device Mesh IP copy uses the exact address and restores its small icon after three seconds', async () => {
+  let nextTimer = 0;
+  const pendingTimers = new Map();
+  const current = harness({
+    page: 'add-device',
+    devices: [{ id: 'm2', name: 'Studio', ip: '100.64.0.22', online: true }],
+    timers: {
+      setTimeout: (callback, delay) => { const id = ++nextTimer; pendingTimers.set(id, { callback, delay }); return id; },
+      clearTimeout: id => pendingTimers.delete(id),
+    },
+  });
+  await current.start();
+  await Promise.resolve();
+  const copy = current.find(node => node.className === 'account-device-ip-copy');
+  assert.ok(copy);
+  assert.equal(copy.attributes['aria-label'], '复制 Studio 的 Mesh IP');
+  await copy.onclick();
+  assert.deepEqual(current.clipboard, ['100.64.0.22']);
+  assert.equal(copy.textContent, '✓');
+  assert.equal(copy.className, 'account-device-ip-copy copied');
+  const reset = [...pendingTimers.values()].find(timer => timer.delay === 3000);
+  assert.ok(reset, 'copy feedback must remain visible for three seconds');
+  reset.callback();
+  assert.equal(copy.textContent, '');
+  assert.equal(copy.className, 'account-device-ip-copy');
+  assert.equal(copy.attributes['aria-label'], '复制 Studio 的 Mesh IP');
 });
 
 test('device editor saves the existing name and appearance contracts', async () => {

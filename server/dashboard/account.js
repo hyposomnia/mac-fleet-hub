@@ -297,9 +297,41 @@
         const iconSlot = node('span', '', { className: 'account-device-icon' });
         const name = node('strong', device.name || device.id, { className: 'account-device-name' });
         const state = node('span', device.status === 'unavailable' ? '正在重新连接' : device.online ? '在线' : '离线', { className: `account-device-state ${device.online ? 'online' : ''}` });
-        const ip = node('span', device.ip || '—', { className: 'account-device-ip' });
+        const address = String(device.ip || '').trim();
+        const ip = node('span', address || '—', { className: 'account-device-ip' });
+        const ipGroup = node('span', '', { className: 'account-device-ip-group' });
+        ipGroup.append(ip);
+        if (address) {
+          const copyIP = node('button', '', { type: 'button', className: 'account-device-ip-copy' });
+          let resetCopyTimer = null;
+          const restoreCopyIcon = () => {
+            copyIP.textContent = '';
+            copyIP.className = 'account-device-ip-copy';
+            copyIP.title = '复制 Mesh IP';
+            copyIP.setAttribute('aria-label', `复制 ${device.name || device.id} 的 Mesh IP`);
+          };
+          restoreCopyIcon();
+          copyIP.onclick = async () => {
+            try {
+              if (!root.navigator?.clipboard?.writeText) throw new Error('浏览器无法访问剪贴板');
+              await root.navigator.clipboard.writeText(address);
+              if (resetCopyTimer) root.clearTimeout(resetCopyTimer);
+              copyIP.textContent = '✓';
+              copyIP.className = 'account-device-ip-copy copied';
+              copyIP.title = '已复制';
+              copyIP.setAttribute('aria-label', `${address} 已复制`);
+              resetCopyTimer = root.setTimeout(() => {
+                resetCopyTimer = null;
+                restoreCopyIcon();
+              }, 3000);
+            } catch (error) {
+              status.textContent = `复制 Mesh IP 失败：${error.message}`;
+            }
+          };
+          ipGroup.append(copyIP);
+        }
         const details = node('div', '', { className: 'account-device-details' });
-        details.append(name, node('span', ' · ', { className: 'account-device-separator' }), ip, node('span', ' · ', { className: 'account-device-separator' }), state);
+        details.append(name, node('span', ' · ', { className: 'account-device-separator' }), ipGroup, node('span', ' · ', { className: 'account-device-separator' }), state);
         const identity = node('div', '', { className: 'account-device-identity' });
         identity.append(iconSlot, details);
         const latency = node('button', '—', { type: 'button', className: 'account-device-latency', title: '重新探测延迟' });

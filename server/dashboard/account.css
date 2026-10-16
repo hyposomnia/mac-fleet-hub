@@ -81,7 +81,15 @@ details.account-section.account-disclosure { padding: 0; }
 .account-device-icon .device-icon { width: 26px; height: 26px; }
 .account-device-details { min-width: 0; display: flex; align-items: baseline; gap: 6px; overflow: hidden; white-space: nowrap; }
 .account-device-name { flex: 0 1 auto; overflow: hidden; text-overflow: ellipsis; font-size: var(--t-body); }
+.account-device-ip-group { display: inline-flex; align-items: center; gap: 2px; flex: none; }
 .account-device-ip { color: var(--text-1); font-family: var(--mono); font-size: var(--t-caption); }
+.account-device-ip-copy { position: relative; width: 18px; height: 18px; flex: none; padding: 0; border: 0; background: transparent; color: var(--text-2); font: 600 12px/1 var(--sans); cursor: pointer; }
+.account-device-ip-copy::before, .account-device-ip-copy::after { content: ''; position: absolute; width: 6px; height: 7px; border: 1px solid currentColor; border-radius: 1px; }
+.account-device-ip-copy::before { left: 4px; top: 4px; }
+.account-device-ip-copy::after { left: 7px; top: 7px; background: var(--surface); }
+.account-device-ip-copy:hover { color: var(--text); }
+.account-device-ip-copy.copied { display: inline-grid; place-items: center; color: var(--online); }
+.account-device-ip-copy.copied::before, .account-device-ip-copy.copied::after { display: none; }
 .account-device-state { color: var(--text-2); font-size: var(--t-caption); }
 .account-device-state.online { color: var(--online); }
 .account-device-separator { color: var(--text-2); }

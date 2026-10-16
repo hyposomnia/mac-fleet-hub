@@ -861,7 +861,7 @@ async function refreshDeviceAppearance() {
   } catch (_) {} // 离线保留缓存，下一次刷新重试；保存失败由保存按钮明确报告。
 }
 function openSettings() {
-  return openUnifiedSettings('sessions');
+  return openUnifiedSettings('add-device');
 }
 function prepareSessionSettings() {
   const s = state.settings || SETTINGS_DEFAULT;
@@ -8337,7 +8337,7 @@ function init() {
   $$('#user-btn, #m-menu-btn, .mobile-menu-trigger').forEach((button) => {
     button.setAttribute('aria-haspopup', 'dialog');
     button.setAttribute('aria-controls', 'fleet-settings-modal');
-    button.onclick = () => openUnifiedSettings('account', button);
+    button.onclick = () => openUnifiedSettings('add-device', button);
   });
   wireAppearanceSettings();
   $('#st-save').onclick = saveSettings;

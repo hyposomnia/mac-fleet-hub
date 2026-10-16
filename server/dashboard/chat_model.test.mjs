@@ -745,7 +745,7 @@ test('session toolbar exposes archive and recent filters while settings open dir
   assert.match(header, /id="sessions-collapse"[\s\S]*id="session-archive-toggle"[\s\S]*id="session-view-toggle"[\s\S]*id="session-search"[\s\S]*id="new-session-mobile"/);
   assert.doesNotMatch(header, /id="new-session"/);
   assert.doesNotMatch(indexHTML, /id="usermenu"|id="m-menu"|data-act="archive"/);
-  assert.match(appSrc, /button.onclick = \(\) => openUnifiedSettings\('account', button\)/);
+  assert.match(appSrc, /button.onclick = \(\) => openUnifiedSettings\('add-device', button\)/);
   assert.match(appSrc, /\$\('#session-archive-toggle'\).onclick = toggleArchivedSessions/);
   assert.match(indexHTML, /id="empty-chat-form"/);
   assert.match(indexHTML, /id="empty-chat-project"[\s\S]*无项目/);
