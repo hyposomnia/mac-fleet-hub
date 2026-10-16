@@ -1,5 +1,5 @@
 // PWA 外壳缓存。终端、API 与用户文件必须实时，明确不进入 Cache Storage。
-const CACHE = 'fleet-shell-v259';
+const CACHE = 'fleet-shell-v260';
 const FILE_TYPE_ICONS = [
   'audio', 'c', 'console', 'cpp', 'csharp', 'css', 'dart', 'database', 'docker',
   'document', 'exe', 'font', 'git', 'go', 'html', 'image', 'java', 'javascript',
@@ -14,13 +14,13 @@ const CODEMIRROR_ASSETS = [
   'javascript', 'xml', 'jsx', 'css', 'go', 'python', 'ruby', 'shell', 'yaml', 'toml', 'properties',
 ].map((name, index) => index < 2 ? name : `/vendor/codemirror/mode/${name}/${name}.js?v=5.65.20`);
 const SHELL = [
-  '/', '/index.html', '/automation-guide.html', '/automation-guide.js?v=250', '/automation-records.html', '/automation-records.js?v=250', '/record_pager.js?v=250', '/theme.js?v=250', '/device_appearance.js?v=250', '/style.css?v=259', '/account.css?v=252', '/auth-client.js?v=259',
+  '/', '/index.html', '/automation-guide.html', '/automation-guide.js?v=250', '/automation-records.html', '/automation-records.js?v=250', '/record_pager.js?v=250', '/theme.js?v=250', '/device_appearance.js?v=250', '/style.css?v=260', '/account.css?v=252', '/auth-client.js?v=260',
   '/vendor/purify.min.js?v=3.2.6', '/vendor/marked.min.js?v=15.0.12',
   ...CODEMIRROR_ASSETS,
   "/fleet_core.js?v=250", "/workspace.js?v=250", "/native_bridge.js?v=250", "/native.css?v=250", "/titanium.css?v=250", "/icons/logo.svg?v=250",
-  '/annotation_model.js?v=259', '/annotation_ui.js?v=259', '/annotations.css?v=259', '/markdown.js?v=259', '/preview.js?v=259', '/chat_model.js?v=259',
+  '/annotation_model.js?v=260', '/annotation_ui.js?v=260', '/annotations.css?v=260', '/markdown.js?v=260', '/preview.js?v=260', '/chat_model.js?v=260',
   '/account.js?v=252', '/settings_dialog.js?v=250', '/auth_effects.js?v=250',
-  '/upload_model.js?v=259', '/sidebar_layout.js?v=250', '/workspace_tabs.js?v=259', '/compact_composer.js?v=259', '/app.js?v=259',
+  '/upload_model.js?v=260', '/sidebar_layout.js?v=250', '/workspace_tabs.js?v=260', '/compact_composer.js?v=260', '/app.js?v=260',
   '/manifest.webmanifest', '/icons/icon.svg?v=250', '/icons/favicon.svg?v=250', '/icons/icon-180.png?v=250', '/icons/icon-192.png?v=250',
   '/icons/icon-512.png?v=250', '/icons/icon-maskable-512.png?v=250',
   ...FILE_TYPE_ICONS,
