@@ -1451,7 +1451,7 @@ test('browser queue projection is replaced from the server without legacy persis
   assert.doesNotMatch(appSrc, /macfleet:codex-followups/);
   assert.doesNotMatch(appSrc, /migrateLocalChatFollowups|persistChatFollowups|loadChatFollowups/);
   assert.match(appSrc, /chat\.followups = visibleQueue/);
-  assert.match(appSrc, /applyChatControlSnapshot\(chat, result, requestSeq\)/);
+  assert.match(appSrc, /acceptChatControlSnapshot\(chat, result, requestSeq\)/);
   assert.doesNotMatch(appSrc, /acknowledgeChatFollowups/);
 });
 
@@ -4642,4 +4642,73 @@ test('DSH question submissions preserve multiple choices and custom text separat
   appSandbox.CSS = { escape: (value) => value };
   const result = userInputResponse(form, { questions: [{ id: 'multi', dshQuestion: true }, { id: 'text', dshQuestion: true }] });
   assert.deepEqual(JSON.parse(JSON.stringify(result)), { answers: { multi: { answers: ['A', 'B', '自定义'], custom: '自定义' }, text: { answers: ['自由文本'] } } });
+});
+
+function delayedResumeFixture() {
+  const elements = new Map();
+  const context = {
+    document: { ...appSandbox.document, querySelector(selector) {
+      if (!elements.has(selector)) elements.set(selector, { ...testElement('div'), value: '', classList: { add() {}, remove() {}, toggle() {} } });
+      return elements.get(selector);
+    } },
+    window: {}, FleetChatModel: sandbox.globalThis.FleetChatModel,
+    FleetUploadModel: uploadSandbox.globalThis.FleetUploadModel, Date: FixedAppDate,
+  };
+  vm.createContext(context);
+  vm.runInContext(appSrc, context);
+  vm.runInContext(`
+    for (const name of ['markSessionRead','closeChatPane','stopWatch','hideBanner','closeMenus',
+      'ensureChatSubagentState','evictChatCache','showChatPane','resizeChatInput',
+      'renderChatAttachments','renderChatFollowups','startServerChatQueueSync','closeChatSkillMenu',
+      'setChatApprovalEnabled','closeChatApproval','closeChatOptions','renderChat','updateChatComposerState',
+      'renderChatOptions','configureChatOptions','applyChatMetadataDefaults','startChatSubagentSync',
+      'syncSessionRuntimeIndicators','renderChatOwnershipHead']) globalThis[name] = () => {};
+    canSelfDrawChat = () => true;
+    loadChatSkills = async () => {};
+    startChatEvents = chat => { chat.eventsStarted = true; };
+    state.assistant = 'codex'; state.macId = 'm1';
+    globalThis.controlFixture = {serverEpoch:'epoch-a', snapshotVersion:2, accessMode:'read_write',
+      approvalMode:'on-request', turnPhase:'running', activeTurnId:'new-turn', items:[]};
+    const delayed = new Promise(resolve => { globalThis.resolveDelayedResume = resolve; });
+    api = async (mac, endpoint) => {
+      if (endpoint.startsWith('chat/queue?')) return {...controlFixture};
+      if (endpoint === 'chat/resume') return delayed;
+      throw new Error('unexpected endpoint ' + endpoint);
+    };
+    globalThis.resumeFixture = {open:openChatSession, state};
+  `, context);
+  return { ...context.resumeFixture, resolve: context.resolveDelayedResume, control: context.controlFixture };
+}
+
+test('a late valid resume finishes history and starts events after newer polling control arrived', async () => {
+  const h = delayedResumeFixture();
+  const opening = h.open({macId:'m1',sessionId:'resume-race',title:'Resume race'});
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(h.state.chat.controlVersion, 2);
+  assert.equal(h.state.chat.historyReady, false);
+  h.resolve({control:{...h.control,snapshotVersion:1,turnPhase:'idle'}, history:{events:[
+    {type:'user_done',itemId:'reply',data:{text:'The answer arrived'}},
+  ]}});
+  await opening;
+  assert.equal(h.state.chat.historyReady, true);
+  assert.equal(h.state.chat.eventsStarted, true);
+  assert.equal(h.state.chat.model.error, null);
+  assert.equal(h.state.chat.model.items.reply.text, 'The answer arrived');
+  assert.equal(h.state.chat.controlVersion, 2);
+  assert.equal(h.state.chat.turnPhase, 'running');
+  assert.equal(h.state.chat.activeTurnId, 'new-turn');
+});
+
+test('resume still rejects malformed control snapshots after a valid polling response', async () => {
+  for (const invalid of [{serverEpoch:''}, {snapshotVersion:0}, {turnPhase:'invalid'}, {items:[{id:'q'}]}]) {
+    const h = delayedResumeFixture();
+    const opening = h.open({macId:'m1',sessionId:'invalid-resume',title:'Invalid resume'});
+    await new Promise(resolve => setImmediate(resolve));
+    h.resolve({control:{...h.control,...invalid},history:{events:[]}});
+    await opening;
+    assert.equal(h.state.chat.historyReady, false);
+    assert.equal(h.state.chat.eventsStarted, undefined);
+    assert.match(h.state.chat.model.error, /无效的会话控制状态/);
+    assert.equal(h.state.chat.controlVersion, 2);
+  }
 });
