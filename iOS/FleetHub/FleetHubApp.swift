@@ -8,7 +8,10 @@ struct FleetHubApp: App {
     var body: some Scene {
         WindowGroup {
             let style = FleetStyle(tokens: store.appearanceTokens)
-            FleetWorkspace(store: store)
+            Group {
+                if store.gateway == nil { GatewaySetup(store: store) }
+                else { FleetWorkspace(store: store) }
+            }
                 .environment(\.fleetStyle, style)
                 .tint(style.color("accent"))
                 .foregroundStyle(style.color("text"))

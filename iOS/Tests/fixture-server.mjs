@@ -17,6 +17,7 @@ let accessKeys;
 let nextKey;
 let fileEntries;
 let subagentsEnabled = false;
+let duoUAT = { enabled: false, stage: 'idle' };
 function reset() {
   sessions = ['codex', 'claude', 'dsh'].map((assistant) => ({ sessionId: `${assistant}-session`, assistant,
     title: `${assistant} fixture`, cwd: '/Users/fixture/project', live: true, mtime: Date.now(),
@@ -49,6 +50,20 @@ const server = http.createServer(async (request, response) => {
     response.end(JSON.stringify(data));
   }
   try {
+    if (url.pathname === '/__duo') {
+      if (request.method === 'POST') {
+        let payload = '';
+        for await (const chunk of request) payload += chunk;
+        const update = JSON.parse(payload);
+        duoUAT = { ...duoUAT, ...update };
+        console.log(`Duo UAT: ${duoUAT.stage}`);
+      }
+      json({ ...duoUAT,
+        rootLoads: requests.filter(entry => entry.path === '/' || entry.path === '/index.html').length,
+        chatResumes: requests.filter(entry => entry.path.endsWith('/api/chat/resume')).length,
+        messagesSent: requests.filter(entry => entry.path.endsWith('/api/chat/send')).length,
+      }); return;
+    }
     if (url.pathname === '/__requests') { json(requests); return; }
     if (url.pathname === '/__reset') { reset(); json({ ok: true }); return; }
     if (url.pathname === '/__dsh') { dshEnabled = true; json({ ok: true }); return; }

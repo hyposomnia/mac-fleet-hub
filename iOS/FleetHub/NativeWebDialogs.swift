@@ -96,11 +96,12 @@ private struct NativeDialogField: View {
     }
     var body: some View {
         VStack(alignment: .leading, spacing: 7) {
-            Text(item.label).font(.system(size: 13)).foregroundStyle(style.color("text-1"))
+            NativeFieldLabel(title: item.label, focused: focused) { focused = false }
             Group {
                 if item.kind == "secure" { SecureField(item.label, text: input) }
                 else { TextField(item.label, text: input).keyboardType(item.kind == "number" ? .numberPad : .default) }
             }.focused($focused).textInputAutocapitalization(.never).autocorrectionDisabled()
+                .submitLabel(.done).onSubmit { focused = false }
                 .font(.system(size: 16)).padding(.horizontal, 12).frame(minHeight: 44)
                 .background(style.color("surface-2"), in: RoundedRectangle(cornerRadius: 12))
         }

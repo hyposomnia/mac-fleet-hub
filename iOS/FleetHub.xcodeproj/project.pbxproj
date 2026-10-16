@@ -18,6 +18,7 @@
 		51D2FBA359A3D0E1B67D34C8 /* NativeSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = F8D418655B572D5D31185CF8 /* NativeSettings.swift */; };
 		77DF0F9D0038448D46476E5D /* FleetService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 03F1013C0FE7F62D78F49662 /* FleetService.swift */; };
 		7E4CAE750F213C594D664602 /* FleetStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = C88DD2D20B7023401439699C /* FleetStore.swift */; };
+		864B5D3B47E92E361E50310E /* FleetHubDuoUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FC48FAA85F369A2025365554 /* FleetHubDuoUITests.swift */; };
 		A05C8E1902B8B662508B4EEB /* FleetWorkspace.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6811782891FCA4B518C6C090 /* FleetWorkspace.swift */; };
 		ACB8840830ADEA2A94B816BF /* NativeEditors.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6FC06000CA4567DA3E75EEF0 /* NativeEditors.swift */; };
 		C0FC50CFB369C6EDFEDD4C13 /* FleetHubUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49B145BF4474DB32DD1BAD00 /* FleetHubUITests.swift */; };
@@ -73,6 +74,7 @@
 		DD147FB1EBEA245F185AEBB8 /* native_workspace.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = native_workspace.js; sourceTree = "<group>"; };
 		F8D418655B572D5D31185CF8 /* NativeSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeSettings.swift; sourceTree = "<group>"; };
 		FB550FA84538C3D708D2C7C9 /* FleetHub.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = FleetHub.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		FC48FAA85F369A2025365554 /* FleetHubDuoUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FleetHubDuoUITests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXGroup section */
@@ -144,6 +146,7 @@
 		D11EBCED8399634075576F4F /* UI */ = {
 			isa = PBXGroup;
 			children = (
+				FC48FAA85F369A2025365554 /* FleetHubDuoUITests.swift */,
 				49B145BF4474DB32DD1BAD00 /* FleetHubUITests.swift */,
 			);
 			name = UI;
@@ -271,6 +274,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				864B5D3B47E92E361E50310E /* FleetHubDuoUITests.swift in Sources */,
 				C0FC50CFB369C6EDFEDD4C13 /* FleetHubUITests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;

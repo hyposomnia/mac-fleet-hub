@@ -198,6 +198,176 @@ final class FleetHubUITests: XCTestCase {
     }
     private var app: XCUIApplication!
 
+    func testSoftwareKeyboardGatewayAddressAndDone() {
+        app.terminate()
+        app.launchArguments = ["-fleet-test-gateway", "not-a-valid-origin", "-fleet-test-reset"]
+        app.launch()
+        let address = app.textFields["gateway-address"]
+        XCTAssertTrue(address.waitForExistence(timeout: 10))
+        let ready = expectation(for: NSPredicate(format: "hittable == true"), evaluatedWith: address)
+        wait(for: [ready], timeout: 10)
+        address.tap()
+        assertSoftwareKeyboard(for: address)
+        address.typeText("invalid-address\n")
+        XCTAssertTrue(app.staticTexts["请输入 HTTPS 网关根地址，不包含账号、查询参数或子路径。"].waitForExistence(timeout: 5))
+        address.tap()
+        assertSoftwareKeyboard(for: address)
+        app.buttons["完成输入"].firstMatch.tap()
+        waitForKeyboardDismissal()
+        XCTAssertEqual(address.value as? String, "invalid-address")
+        attachScreenshot("software-keyboard-gateway-validation")
+    }
+
+    func testSoftwareKeyboardSearchRenameAndChat() throws {
+        let session = app.buttons["session-codex-session"]
+        XCTAssertTrue(session.waitForExistence(timeout: 20))
+        let search = app.textFields["session-search"]
+        search.tap()
+        assertSoftwareKeyboard(for: search)
+        app.keyboards.keys["f"].tap()
+        XCTAssertEqual(search.value as? String, "f")
+        app.keyboards.keys["delete"].tap()
+        search.typeText("fixture\n")
+        waitForKeyboardDismissal()
+        XCTAssertEqual(search.value as? String, "fixture")
+        session.press(forDuration: 0.7)
+        app.buttons["重命名"].firstMatch.tap()
+        let rename = nativeElement("native-session-rename")
+        let name = rename.textFields["会话名称"]
+        XCTAssertTrue(name.waitForExistence(timeout: 5))
+        name.tap()
+        assertSoftwareKeyboard(for: name)
+        name.typeText(" keyboard")
+        attachScreenshot("software-keyboard-native-rename")
+        rename.buttons["取消"].tap()
+        let afterRename = XCTAttachment(string: app.debugDescription)
+        afterRename.name = "keyboard-after-cancelling-rename"
+        afterRename.lifetime = .keepAlways
+        add(afterRename)
+        waitForKeyboardDismissal()
+        XCTAssertFalse(rename.exists)
+        session.tap()
+        let input = app.webViews.textViews.firstMatch
+        XCTAssertTrue(input.waitForExistence(timeout: 15))
+        input.tap()
+        assertSoftwareKeyboard(for: input)
+        input.typeText("Software keyboard draft")
+        XCTAssertEqual(input.value as? String, "Software keyboard draft")
+        attachScreenshot("software-keyboard-chat")
+        if app.buttons["toggle-sessions"].exists {
+            app.buttons["toggle-sessions"].tap()
+            waitForKeyboardDismissal()
+            session.tap()
+            XCTAssertEqual(input.value as? String, "Software keyboard draft")
+        }
+    }
+
+    func testSoftwareKeyboardDeviceNameAndURL() throws {
+        XCTAssertTrue(app.buttons["session-codex-session"].waitForExistence(timeout: 20))
+        if app.windows.firstMatch.frame.width <= 860 { app.buttons["toggle-devices"].tap() }
+        app.buttons["Fixture Mac 设备设置"].firstMatch.tap()
+        let editor = nativeElement("native-device-editor")
+        let name = editor.textFields.matching(identifier: "设备名称（留空恢复默认）").firstMatch
+        XCTAssertTrue(name.waitForExistence(timeout: 10))
+        name.tap()
+        assertSoftwareKeyboard(for: name)
+        name.typeText(" keyboard")
+        attachScreenshot("software-keyboard-device-name")
+        editor.buttons["完成输入"].firstMatch.tap()
+        waitForKeyboardDismissal()
+        let proxy = editor.textFields.matching(identifier: "HTTP 代理").firstMatch
+        let content = editor.scrollViews.firstMatch
+        for _ in 0..<5 {
+            if proxy.exists && proxy.isHittable { break }
+            content.swipeUp()
+        }
+        XCTAssertTrue(proxy.waitForExistence(timeout: 5))
+        proxy.tap()
+        assertSoftwareKeyboard(for: proxy)
+        proxy.typeText("http://127.0.0.1:9999")
+        attachScreenshot("software-keyboard-native-url")
+        editor.buttons["取消"].firstMatch.tap()
+        waitForKeyboardDismissal()
+    }
+
+    func testSoftwareKeyboardNumericAndSecureFields() throws {
+        openSettings(page: "automation")
+        app.buttons["新建密钥"].tap()
+        let panel = nativeElement("native-settings-panel")
+        let rpm = panel.textFields.matching(identifier: "RPM").firstMatch
+        reveal(rpm)
+        rpm.tap()
+        assertSoftwareKeyboard(for: rpm, numeric: true)
+        rpm.typeText("2")
+        attachScreenshot("software-keyboard-number-pad")
+        panel.buttons["完成输入"].firstMatch.tap()
+        waitForKeyboardDismissal()
+        reveal(panel.buttons["取消"])
+        panel.buttons["取消"].tap()
+        app.buttons["native-settings-account"].tap()
+        app.buttons["更改密码"].tap()
+        let password = panel.secureTextFields["当前密码"]
+        reveal(password)
+        password.tap()
+        assertSoftwareKeyboard(for: password)
+        password.typeText("synthetic-only")
+        attachScreenshot("software-keyboard-secure-field")
+        panel.buttons["完成输入"].firstMatch.tap()
+        waitForKeyboardDismissal()
+        panel.buttons["取消"].firstMatch.tap()
+        app.buttons["关闭设置"].tap()
+        XCTAssertFalse(try fixtureRequests().contains { ($0["path"] as? String)?.contains("/password") == true })
+    }
+
+    func testSoftwareKeyboardFileNameAndDone() throws {
+        XCTAssertTrue(app.buttons["session-codex-session"].waitForExistence(timeout: 20))
+        app.buttons["mode-files"].tap()
+        let create = webElement("新建文件夹")
+        XCTAssertTrue(create.waitForExistence(timeout: 15))
+        create.tap()
+        let dialog = nativeElement("native-web-dialog-file-name-modal")
+        let name = dialog.textFields["名称"]
+        XCTAssertTrue(name.waitForExistence(timeout: 5))
+        name.tap()
+        assertSoftwareKeyboard(for: name)
+        name.typeText("Keyboard fixture folder")
+        attachScreenshot("software-keyboard-file-name")
+        dialog.buttons["完成输入"].firstMatch.tap()
+        waitForKeyboardDismissal()
+        XCTAssertEqual(name.value as? String, "Keyboard fixture folder")
+        dialog.buttons["创建"].tap()
+        let dismissed = expectation(for: NSPredicate(format: "exists == false"), evaluatedWith: dialog)
+        wait(for: [dismissed], timeout: 10)
+        let request = try XCTUnwrap(try fixtureRequests().last { $0["path"] as? String == "/m1/api/file/mkdir" })
+        XCTAssertEqual((request["body"] as? [String: Any])?["name"] as? String, "Keyboard fixture folder")
+    }
+
+    private func assertSoftwareKeyboard(for field: XCUIElement, numeric: Bool = false) {
+        let keyboard = app.keyboards.firstMatch
+        let visible = expectation(for: NSPredicate { _, _ in
+            keyboard.exists && keyboard.keys.count >= (numeric ? 10 : 20) &&
+                keyboard.frame.intersection(self.app.windows.firstMatch.frame).height > 150
+        }, evaluatedWith: keyboard)
+        wait(for: [visible], timeout: 10)
+        print("Software keyboard: window=\(app.windows.firstMatch.frame) field=\(field.frame) keyboard=\(keyboard.frame) keys=\(keyboard.keys.count)")
+        if !field.isHittable {
+            let hierarchy = XCTAttachment(string: app.debugDescription)
+            hierarchy.name = "keyboard-field-not-hittable"
+            hierarchy.lifetime = .keepAlways
+            add(hierarchy)
+        }
+        XCTAssertTrue(field.isHittable)
+        XCTAssertLessThanOrEqual(field.frame.maxY, keyboard.frame.minY + 1)
+    }
+
+    private func waitForKeyboardDismissal() {
+        let keyboard = app.keyboards.firstMatch
+        let dismissed = expectation(for: NSPredicate { _, _ in
+            !keyboard.exists || keyboard.keys.count == 0
+        }, evaluatedWith: keyboard)
+        wait(for: [dismissed], timeout: 10)
+    }
+
     func testMobileComposerFocusExpandsAndRetainsDraft() {
         let session = app.buttons["session-codex-session"]
         XCTAssertTrue(session.waitForExistence(timeout: 20))
@@ -360,7 +530,7 @@ final class FleetHubUITests: XCTestCase {
     }
 
     func testExpandedPanelsCollapseIndependently() throws {
-        try XCTSkipIf(!UIDeviceIsPad, "宽屏交互在宽屏模拟器单独验证")
+        try XCTSkipIf(!isExpandedWindow, "宽屏交互在展开窗口单独验证")
         XCUIDevice.shared.orientation = .landscapeLeft
         let landscape = expectation(for: NSPredicate { _, _ in
             self.app.windows.firstMatch.frame.width > self.app.windows.firstMatch.frame.height
@@ -386,7 +556,7 @@ final class FleetHubUITests: XCTestCase {
         XCTAssertFalse(app.buttons["session-codex-session"].isHittable)
         app.buttons["sessions-launcher"].tap()
         XCTAssertTrue(app.buttons["session-codex-session"].isHittable)
-        app.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.4)).tap()
+        app.otherElements["sessions-backdrop"].coordinate(withNormalizedOffset: CGVector(dx: 0.95, dy: 0.5)).tap()
         XCTAssertFalse(app.buttons["session-codex-session"].isHittable)
         app.buttons["expand-devices"].tap()
         attachScreenshot("wide-device-expanded")
@@ -407,7 +577,7 @@ final class FleetHubUITests: XCTestCase {
     }
 
     func testMobileNavigationAndListGeometryMatchH5() throws {
-        try XCTSkipIf(UIDeviceIsPad, "手机布局在 iPhone 模拟器验证")
+        try XCTSkipIf(isExpandedWindow, "单栏布局在窄窗口验证")
         let session = app.buttons["session-codex-session"]
         XCTAssertTrue(session.waitForExistence(timeout: 20))
         XCTAssertFalse(app.buttons["toggle-sessions"].exists)
@@ -489,16 +659,15 @@ final class FleetHubUITests: XCTestCase {
         session.press(forDuration: 0.7)
         XCTAssertFalse(app.buttons["用 ttyd 打开"].exists)
         app.buttons["重命名"].tap()
-        let name = app.alerts.textFields.firstMatch
+        let editor = nativeElement("native-session-rename")
+        let name = editor.textFields["会话名称"]
+        XCTAssertTrue(name.waitForExistence(timeout: 5))
         name.tap()
         name.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: 30) + "Renamed fixture")
         name.typeText("\n")
-        if app.alerts["重命名会话"].exists {
-            let keyboardDismissed = expectation(for: NSPredicate(format: "exists == false"), evaluatedWith: app.keyboards.firstMatch)
-            wait(for: [keyboardDismissed], timeout: 5)
-            app.alerts.buttons["保存"].tap()
-        }
-        let renamed = expectation(for: NSPredicate(format: "exists == false"), evaluatedWith: app.alerts["重命名会话"])
+        waitForKeyboardDismissal()
+        editor.buttons["保存"].tap()
+        let renamed = expectation(for: NSPredicate(format: "exists == false"), evaluatedWith: editor)
         wait(for: [renamed], timeout: 5)
         let title = expectation(for: NSPredicate(format: "label == 'Renamed fixture'"), evaluatedWith: session)
         wait(for: [title], timeout: 10)
@@ -875,15 +1044,16 @@ final class FleetHubUITests: XCTestCase {
 
     func testExpandedNativeSettingsAndDeviceDrawerGeometry() throws {
         XCUIDevice.shared.orientation = .landscapeLeft
-        guard app.frame.width > 860 else { throw XCTSkip("仅验证展开宽度的原生抽屉") }
+        guard isExpandedWindow else { throw XCTSkip("仅验证展开宽度的原生抽屉") }
         XCTAssertTrue(app.buttons["workspace-menu"].firstMatch.waitForExistence(timeout: 20))
         app.buttons["workspace-menu"].firstMatch.tap()
         let panel = nativeElement("native-settings-panel")
         XCTAssertTrue(panel.waitForExistence(timeout: 10))
         let drawer = nativeElement("device-drawer")
-        XCTAssertEqual(drawer.frame.minX, app.frame.minX, accuracy: 1)
-        XCTAssertEqual(drawer.frame.width, app.frame.width, accuracy: 1)
-        XCTAssertEqual(drawer.frame.maxY, app.frame.maxY, accuracy: 1)
+        let window = app.windows.firstMatch.frame
+        XCTAssertEqual(drawer.frame.minX, window.minX, accuracy: 1)
+        XCTAssertEqual(drawer.frame.width, window.width, accuracy: 1)
+        XCTAssertEqual(drawer.frame.maxY, window.maxY, accuracy: 1)
         let devices = app.buttons["native-settings-add-device"]
         let appearance = app.buttons["native-settings-appearance"]
         XCTAssertEqual(devices.frame.minX, appearance.frame.minX, accuracy: 1)
@@ -893,8 +1063,8 @@ final class FleetHubUITests: XCTestCase {
         attachScreenshot("expanded-native-settings-drawer")
         panel.buttons["编辑"].firstMatch.tap()
         XCTAssertTrue(nativeElement("native-device-editor").waitForExistence(timeout: 10))
-        XCTAssertEqual(drawer.frame.width, app.frame.width, accuracy: 1)
-        XCTAssertEqual(drawer.frame.maxY, app.frame.maxY, accuracy: 1)
+        XCTAssertEqual(drawer.frame.width, window.width, accuracy: 1)
+        XCTAssertEqual(drawer.frame.maxY, window.maxY, accuracy: 1)
         attachScreenshot("expanded-native-device-editor")
         nativeElement("native-device-editor").buttons.matching(identifier: "xmark").firstMatch.tap()
         XCUIDevice.shared.orientation = .portrait
@@ -947,12 +1117,13 @@ final class FleetHubUITests: XCTestCase {
 
     private func scrollNativeContent(_ content: XCUIElement, upwards: Bool) {
         let keyboard = app.keyboards.firstMatch
-        let bottom = keyboard.exists ? min(content.frame.maxY, keyboard.frame.minY - 8) : content.frame.maxY
+        let visibleBottom = min(content.frame.maxY, app.windows.firstMatch.frame.maxY - 48)
+        let bottom = keyboard.exists ? min(visibleBottom, keyboard.frame.minY - 8) : visibleBottom
         let top = content.frame.minY + 12
         XCTAssertGreaterThan(bottom - top, 40)
-        let origin = app.coordinate(withNormalizedOffset: CGVector(dx: 0, dy: 0))
-        let upper = origin.withOffset(CGVector(dx: content.frame.midX, dy: top + 12))
-        let lower = origin.withOffset(CGVector(dx: content.frame.midX, dy: bottom - 12))
+        let origin = content.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0))
+        let upper = origin.withOffset(CGVector(dx: 0, dy: top + 12 - content.frame.minY))
+        let lower = origin.withOffset(CGVector(dx: 0, dy: bottom - 12 - content.frame.minY))
         (upwards ? lower : upper).press(forDuration: 0.05, thenDragTo: upwards ? upper : lower)
     }
 
@@ -990,7 +1161,7 @@ final class FleetHubUITests: XCTestCase {
         return try XCTUnwrap(result)
     }
 
-    private var UIDeviceIsPad: Bool { app.windows.firstMatch.frame.width >= 700 }
+    private var isExpandedWindow: Bool { app.windows.firstMatch.frame.width > 860 }
 
     private func attachScreenshot(_ name: String) {
         let attachment = XCTAttachment(screenshot: XCUIScreen.main.screenshot())

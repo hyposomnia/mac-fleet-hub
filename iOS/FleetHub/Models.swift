@@ -28,7 +28,7 @@ struct FleetDevice: Codable, Identifiable {
     }
 }
 
-struct FleetSession: Codable, Identifiable {
+struct FleetSession: Codable, Identifiable, Equatable {
     let sessionId: String
     let macId: String
     let assistant: FleetAssistant

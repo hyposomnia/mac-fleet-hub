@@ -43,6 +43,7 @@ struct FleetWorkspace: View {
                         }
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity).clipped()
+                    .allowsHitTesting(false)
                     .accessibilityHidden(showSessions && layout == .compact)
                     .overlay(alignment: .top) {
                         if store.ready && layout == .compact && store.showingDetail && !store.isFiles {
@@ -94,7 +95,7 @@ struct FleetWorkspace: View {
             .accessibilityHidden(store.deviceSheet || store.nativeSheet != nil || store.webDialog != nil)
             .overlay {
                 if let sheet = store.nativeSheet {
-                    FullWidthBottomDrawer(isPresented: Binding(get: { store.nativeSheet != nil }, set: { if !$0 && !store.drawerLocked && !store.drawerBusy { store.nativeSheet = nil } }), safeAreaInsets: geometry.safeAreaInsets, initialFraction: 0.92, keyboardVisible: store.keyboardVisible, keyboardTop: store.keyboardTop) {
+                    FullWidthBottomDrawer(isPresented: Binding(get: { store.nativeSheet != nil }, set: { if !$0 && !store.drawerLocked && !store.drawerBusy { store.nativeSheet = nil } }), safeAreaInsets: geometry.safeAreaInsets, initialFraction: sheet.initialFraction, keyboardVisible: store.keyboardVisible, keyboardTop: store.keyboardTop) {
                         nativePanel(sheet, expanded: layout != .compact).id(sheet.id)
                     }.transition(.move(edge: .bottom).combined(with: .opacity))
                 } else if let dialog = store.webDialog {
@@ -108,7 +109,6 @@ struct FleetWorkspace: View {
                     .transition(.opacity)
                 }
             }
-            .overlay { if store.gateway == nil { GatewaySetup(store: store) } }
             .animation(reduceMotion ? nil : .easeInOut(duration: 0.2), value: store.deviceSheet)
             .animation(reduceMotion ? nil : .easeInOut(duration: 0.22), value: store.nativeSheet?.id)
             .animation(reduceMotion ? nil : .easeInOut(duration: 0.22), value: store.webDialog?.id)
@@ -152,6 +152,7 @@ struct FleetWorkspace: View {
         case .settings: NativeSettingsPanel(store: store, expanded: expanded)
         case .device(let identifier): NativeDeviceEditor(store: store, identifier: identifier)
         case .gateway: GatewaySetup(store: store)
+        case .rename(let session): NativeSessionRenameEditor(store: store, session: session)
         case .newSessionDevice:
             VStack(spacing: 0) {
                 NativeDrawerHeader(title: "选择设备") { store.nativeSheet = nil }
@@ -257,7 +258,10 @@ struct FullWidthBottomDrawer<Content: View>: View {
                             else { isPresented = false }
                         }
                     })
-                    content().frame(width: geometry.size.width, height: max(0, height - 24 - (keyboardVisible ? 0 : safeAreaInsets.bottom)))
+                    content()
+                        .frame(width: max(0, geometry.size.width - safeAreaInsets.leading - safeAreaInsets.trailing),
+                               height: max(0, height - 24 - (keyboardVisible ? 0 : safeAreaInsets.bottom)))
+                        .padding(.leading, safeAreaInsets.leading).padding(.trailing, safeAreaInsets.trailing)
                 }
                 .padding(.bottom, keyboardVisible ? 0 : safeAreaInsets.bottom)
                 .frame(width: geometry.size.width, height: height)
@@ -281,29 +285,41 @@ struct GatewaySetup: View {
     @ObservedObject var store: FleetStore
     @State private var address = ""
     @State private var invalid = false
+    @FocusState private var addressFocused: Bool
 
     var body: some View {
         NavigationStack {
             Form {
                 Section("连接 AI 工作区") {
+                    NativeFieldLabel(title: "服务地址", focused: addressFocused) { addressFocused = false }
                     TextField("https://fleet.example.com", text: $address)
+                        .focused($addressFocused).submitLabel(.go).onSubmit(connect)
                         .keyboardType(.URL).textInputAutocapitalization(.never).autocorrectionDisabled()
                         .accessibilityIdentifier("gateway-address")
                     Text("登录后访问电脑上的 AI 会话、终端和文件。手机无需安装电脑端 Agent。")
                         .font(.footnote).foregroundStyle(.secondary)
-                    Button("连接") {
-                        invalid = !store.connect(address)
-                    if !invalid { store.settingsSheet = false; store.nativeSheet = nil }
-                    }
+                    Button("连接", action: connect)
                     .accessibilityIdentifier("connect-gateway")
                     if invalid { Text("请输入 HTTPS 网关根地址，不包含账号、查询参数或子路径。") .foregroundStyle(.red) }
                 }
             }
             .navigationTitle("Fleet Hub")
+            .scrollDismissesKeyboard(.interactively)
             .toolbar {
-                if store.gateway != nil { Button("取消") { store.settingsSheet = false; store.nativeSheet = nil } }
+                ToolbarItem(placement: .cancellationAction) {
+                    if store.gateway != nil { Button("取消") { addressFocused = false; store.settingsSheet = false; store.nativeSheet = nil } }
+                }
             }
             .onAppear { address = store.gateway?.absoluteString ?? "" }
+        }
+    }
+
+    private func connect() {
+        invalid = !store.connect(address)
+        if !invalid {
+            addressFocused = false
+            store.settingsSheet = false
+            store.nativeSheet = nil
         }
     }
 }

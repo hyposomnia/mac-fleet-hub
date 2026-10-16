@@ -69,13 +69,19 @@ enum FleetServiceError: LocalizedError {
 }
 
 enum NativeSheet: Identifiable, Equatable {
-    case settings, device(String), newSessionDevice, gateway
+    case settings, device(String), newSessionDevice, gateway, rename(FleetSession)
     var id: String {
         switch self {
         case .settings: return "settings"
         case .device(let identifier): return "device-\(identifier)"
         case .newSessionDevice: return "new-session-device"
         case .gateway: return "gateway"
+        case .rename(let session): return "rename-\(session.id)"
         }
+    }
+
+    var initialFraction: CGFloat {
+        if case .rename = self { return 0.5 }
+        return 0.92
     }
 }

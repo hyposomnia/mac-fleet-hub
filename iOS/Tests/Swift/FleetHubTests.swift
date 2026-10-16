@@ -68,6 +68,16 @@ final class FleetHubTests: XCTestCase {
         XCTAssertEqual(TitaniumStyle.metric("collapsedDeviceWidth"), 72)
     }
 
+    func testDuoUsesAvailableWindowWidthInsteadOfDeviceName() {
+        for width in [382.0, 466, 585, 669] {
+            XCTAssertEqual(FleetLayout.resolve(width: width), .compact)
+        }
+        for width in [867.0, 951] {
+            XCTAssertEqual(FleetLayout.resolve(width: width), .compactDesktop)
+        }
+        XCTAssertGreaterThanOrEqual(867 - FleetLayout.compactDesktop.deviceWidth - FleetLayout.compactDesktop.sessionWidth, 320)
+    }
+
     func testGatewayValidationAndNATPorts() {
         XCTAssertEqual(GatewayAddress.parse("https://fleet.example.com:20443")?.absoluteString, "https://fleet.example.com:20443/")
         for value in ["http://fleet.test", "https://user:password@fleet.test", "https://fleet.test/path", "https://fleet.test/?token=secret", "https://fleet.test/#secret"] {
@@ -259,5 +269,22 @@ final class FleetHubTests: XCTestCase {
         XCTAssertNil(store.nativeSheet)
         XCTAssertNil(store.webDialog)
         XCTAssertFalse(store.drawerLocked)
+    }
+
+    @MainActor
+    func testRenameDrawerCapturesItsTargetAndClearsOnIdentityChange() {
+        let store = FleetStore()
+        store.receive(["type": "snapshot", "payload": payload(ready: true)])
+        let session = FleetSession(sessionId: "rename-fixture", macId: "m1", assistant: .codex,
+                                   title: "Original", cwd: "/fixture", project: "fixture", projectKey: "fixture",
+                                   mtime: 1, pinned: false, unread: false, running: false, waiting: false, actions: ["rename"])
+        store.nativeSheet = .rename(session)
+        XCTAssertEqual(store.nativeSheet?.id, "rename-m1/codex/rename-fixture")
+        XCTAssertEqual(store.nativeSheet?.initialFraction, 0.5)
+        XCTAssertEqual(NativeSheet.settings.initialFraction, 0.92)
+        var next = payload(ready: true)
+        next["identity"] = "another-user"
+        store.receive(["type": "snapshot", "payload": next])
+        XCTAssertNil(store.nativeSheet)
     }
 }
