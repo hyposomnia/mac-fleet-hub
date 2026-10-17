@@ -25,7 +25,9 @@ final class FleetStore: ObservableObject {
     @Published var keyboardVisible = false
     @Published var keyboardTop: CGFloat?
     @Published var webDialog: NativeWebDialog?
+    @Published var authentication: NativeAuthentication?
     private var detailBeforeOverlay: Bool?
+    private let standby = StandbyBridge()
     let dataStore = WKWebsiteDataStore.default()
     var webView: WKWebView?
     private var requestID = 0
@@ -87,7 +89,9 @@ final class FleetStore: ObservableObject {
     }
 
     func connect(_ address: String) -> Bool {
-        guard let url = GatewayAddress.parse(address) else { return false }
+        guard let url = GatewayAddress.parseInput(address) else { return false }
+        authentication?.invalidate()
+        authentication = nil
         gateway = url
         UserDefaults.standard.set(url.absoluteString, forKey: "fleet.gateway")
         reset()
@@ -96,6 +100,7 @@ final class FleetStore: ObservableObject {
     }
 
     func reset() {
+        standby.reset()
         snapshot = nil
         appearanceTokens = [:]
         error = nil
@@ -148,6 +153,7 @@ final class FleetStore: ObservableObject {
                 detailBeforeOverlay = nil
             }
             snapshot = value
+            standby.refresh(store: self)
             if value.assistant == .claude { send("assistant", values: ["assistant": "codex"]) }
             if appearanceTokens.isEmpty {
                 webView?.evaluateJavaScript("window.FleetNativeAppearance?.publish(); void 0;")
@@ -261,6 +267,23 @@ final class FleetStore: ObservableObject {
         }
     }
 
+    // Alert input and its submit must run in order against the same live dialog.
+    func submitDialog(_ dialog: NativeWebDialog, action: String, fields: [String: String] = [:], value: String? = nil, closeAfter: Bool = false) {
+        guard let webView, ready, webDialog?.id == dialog.id else { return }
+        Task {
+            do {
+                _ = try await webView.callAsyncJavaScript("""
+                    for (const [id, value] of Object.entries(fields)) {
+                      FleetNativeDialogs?.act(dialog, id, value);
+                    }
+                    FleetNativeDialogs?.act(dialog, action, value);
+                    if (finish) FleetNativeDialogs?.act(dialog, '__finish');
+                    """, arguments: ["dialog": dialog.id, "action": action, "fields": fields, "finish": closeAfter,
+                                      "value": value as Any? ?? NSNull()], in: nil, contentWorld: .page)
+            } catch { self.error = error.localizedDescription }
+        }
+    }
+
     func backToList() {
         webView?.endEditing(true)
         showingDetail = false
@@ -288,6 +311,7 @@ final class FleetStore: ObservableObject {
 
     func foreground() {
         guard ready else { return }
+        standby.refresh(store: self)
         webView?.evaluateJavaScript("window.FleetNative?.refresh(); void 0")
     }
 

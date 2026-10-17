@@ -140,7 +140,7 @@ func TestDSHMapSessionEvent(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			events := dshMapSessionEvent("session-x", dshEvent(t, tc.eventType, tc.data))
+			events := dshMapSessionEvent("dsh", "session-x", dshEvent(t, tc.eventType, tc.data))
 			ev := onlyEvent(t, events)
 			if ev.Type != tc.wantType {
 				t.Fatalf("type = %q, want %q", ev.Type, tc.wantType)
@@ -167,15 +167,15 @@ func TestDSHMapSessionEvent(t *testing.T) {
 // assistant/message 收口时必须复用流式增量的同一个 itemId，否则 dashboard 会
 // 先显示流式气泡、再显示一个独立气泡，同一段话出现两遍。
 func TestDSHAssistantMessageReusesDeltaItemID(t *testing.T) {
-	streamed := onlyEvent(t, dshMapSessionEvent("session-x",
+	streamed := onlyEvent(t, dshMapSessionEvent("dsh", "session-x",
 		dshEvent(t, "assistant/chunk", dshFixtureTextDelta)))
-	final := onlyEvent(t, dshMapSessionEvent("session-x",
+	final := onlyEvent(t, dshMapSessionEvent("dsh", "session-x",
 		dshEvent(t, "assistant/message", dshFixtureAssistantMessage)))
 
 	// fixture 的 text-delta 在 block 1，但 assistant/message 的 text 在 content[0]，
 	// 因此这两条本来就不该合并 —— 这里要断言的是"同名块才合并"这条规则本身：
 	// 用同一个 index 构造两条事件，itemId 必须一致。
-	block0Delta := onlyEvent(t, dshMapSessionEvent("session-x",
+	block0Delta := onlyEvent(t, dshMapSessionEvent("dsh", "session-x",
 		dshEvent(t, "assistant/chunk", dshFixtureReasoning)))
 	if block0Delta.ItemID != final.ItemID {
 		t.Fatalf("block 0 的流式 itemId=%q 与收口 itemId=%q 不一致，会出现重复气泡",
@@ -191,7 +191,7 @@ func TestDSHAssistantMessageReusesDeltaItemID(t *testing.T) {
 
 // tool-call 块不该在 assistant_done 里重复出现（它由 tool/call 事件负责）。
 func TestDSHAssistantMessageSkipsToolCallBlocks(t *testing.T) {
-	events := dshMapSessionEvent("session-x", dshEvent(t, "assistant/message", dshFixtureAssistantMessage))
+	events := dshMapSessionEvent("dsh", "session-x", dshEvent(t, "assistant/message", dshFixtureAssistantMessage))
 	if len(events) != 1 {
 		t.Fatalf("期望只产出 text 块的 1 个事件，得到 %d 个", len(events))
 	}
@@ -210,7 +210,7 @@ func TestDSHMapSessionEventSkipsUnmapped(t *testing.T) {
 		{"未知类型", "brand/new-event", `{}`},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := dshMapSessionEvent("session-x", dshEvent(t, tc.eventType, tc.data)); len(got) != 0 {
+			if got := dshMapSessionEvent("dsh", "session-x", dshEvent(t, tc.eventType, tc.data)); len(got) != 0 {
 				t.Fatalf("期望空集，得到 %+v", got)
 			}
 		})
@@ -224,7 +224,7 @@ func TestDSHExpandChunkRow(t *testing.T) {
 	row.Data.Texts = []string{"I", "'ll", " start"}
 	row.Data.DT = []int64{10, 5}
 
-	events := dshExpandChunkRow("session-x", row)
+	events := dshExpandChunkRow("dsh", "session-x", row)
 	if len(events) != 3 {
 		t.Fatalf("期望 3 个增量，得到 %d", len(events))
 	}
@@ -253,7 +253,7 @@ func TestDSHExpandChunkRowRejectsMalformedDT(t *testing.T) {
 	row := dshPackedChunkRow{Type: "chunkrow/text-chunks", Seq: 1, Time: 1}
 	row.Data.Texts = []string{"a", "b", "c"}
 	row.Data.DT = []int64{1, 2, 3} // 应为 2 个
-	if got := dshExpandChunkRow("session-x", row); got != nil {
+	if got := dshExpandChunkRow("dsh", "session-x", row); got != nil {
 		t.Fatalf("畸形行必须整行丢弃，得到 %+v", got)
 	}
 }
@@ -262,7 +262,7 @@ func TestDSHExpandChunkRowSkipsToolCallChunks(t *testing.T) {
 	row := dshPackedChunkRow{Type: "chunkrow/tool-call-chunks", Seq: 1, Time: 1}
 	row.Data.Args = []string{`{"a"`, `:1}`}
 	row.Data.DT = []int64{3}
-	if got := dshExpandChunkRow("session-x", row); got != nil {
+	if got := dshExpandChunkRow("dsh", "session-x", row); got != nil {
 		t.Fatalf("工具入参增量 v1 不渲染，得到 %+v", got)
 	}
 }
@@ -270,22 +270,22 @@ func TestDSHExpandChunkRowSkipsToolCallChunks(t *testing.T) {
 func TestDSHMapRecord(t *testing.T) {
 	eventRec := dshHistoryRecord{Type: "event",
 		Event: json.RawMessage(`{"type":"turn/start","seq":4,"time":1,"data":{"turn":1}}`)}
-	if got := dshMapRecord("s", eventRec); len(got) != 1 || got[0].Type != "turn_started" {
+	if got := dshMapRecord("dsh", "s", eventRec); len(got) != 1 || got[0].Type != "turn_started" {
 		t.Fatalf("event 记录映射错误: %+v", got)
 	}
 
 	chunksRec := dshHistoryRecord{Type: "chunks", Event: json.RawMessage(
 		`{"type":"chunkrow/reasoning-chunks","seq":7,"time":1,"data":{"turn":2,"step":3,"index":0,"dt":[1],"texts":["a","b"]}}`)}
-	got := dshMapRecord("s", chunksRec)
+	got := dshMapRecord("dsh", "s", chunksRec)
 	if len(got) != 2 || got[0].Type != "reasoning_delta" || got[0].TurnID != "turn-2" {
 		t.Fatalf("chunks 记录映射错误: %+v", got)
 	}
 
 	// 未知记录类型与坏 JSON 都必须安全返回空。
-	if got := dshMapRecord("s", dshHistoryRecord{Type: "mystery", Event: json.RawMessage(`{}`)}); got != nil {
+	if got := dshMapRecord("dsh", "s", dshHistoryRecord{Type: "mystery", Event: json.RawMessage(`{}`)}); got != nil {
 		t.Fatalf("未知记录类型应返回空: %+v", got)
 	}
-	if got := dshMapRecord("s", dshHistoryRecord{Type: "event", Event: json.RawMessage(`not json`)}); got != nil {
+	if got := dshMapRecord("dsh", "s", dshHistoryRecord{Type: "event", Event: json.RawMessage(`not json`)}); got != nil {
 		t.Fatalf("坏 JSON 应返回空: %+v", got)
 	}
 }
@@ -298,7 +298,7 @@ func TestDSHAssistantMessageCarriesUsageAndTime(t *testing.T) {
 		`"message":{"role":"assistant","content":[{"type":"text","text":"done"}]}}`
 	ev := dshSessionEvent{Type: "assistant/message", Seq: 9, Time: 1789555417608, Data: json.RawMessage(data)}
 
-	out := onlyEvent(t, dshMapSessionEvent("s", ev))
+	out := onlyEvent(t, dshMapSessionEvent("dsh", "s", ev))
 	if out.Type != "assistant_done" {
 		t.Fatalf("type = %q", out.Type)
 	}

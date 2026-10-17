@@ -44,7 +44,7 @@ var messageRecordFields = []messageRecordField{
 	{Name: "status", Label: "消息状态", Type: "enum", Options: []string{messageQueued, messageRunning, messageCompleted, messageFailed}, read: func(j *messageJob) string { return j.Status }},
 	{Name: "device_id", Label: "设备 ID", Type: "string", read: func(j *messageJob) string { return j.DeviceID }},
 	{Name: "device_name", Label: "设备名称", Type: "string", read: func(j *messageJob) string { return j.DeviceName }},
-	{Name: "ai_client", Label: "AI 客户端", Type: "enum", Options: []string{"codex", "deepseek"}, read: func(j *messageJob) string { return j.AIClient }},
+	{Name: "ai_client", Label: "AI 客户端", Type: "enum", Options: []string{"codex", "deepseek", "deepseek-cli"}, read: func(j *messageJob) string { return j.AIClient }},
 	{Name: "project", Label: "项目路径", Type: "string", read: func(j *messageJob) string { return j.ProjectPath }},
 	{Name: "project_name", Label: "项目名称", Type: "string", read: func(j *messageJob) string { return j.ProjectName }},
 	{Name: "session_id", Label: "会话 ID", Type: "string", read: func(j *messageJob) string { return j.SessionID }},

@@ -10,11 +10,19 @@ struct FleetService {
         guard let web = store.webView, store.ready, let identity = store.snapshot?.identity,
               Self.allowed(path, method: method) else { throw FleetServiceError.invalidRequest }
         let result = try await web.callAsyncJavaScript("""
-            if (String(window.FleetAuth?.user?.id || '') !== identity) throw new Error('登录已变化，请重新打开设置');
-            return await FleetAuth.json(path, {method, cache: 'no-store', ...(body ? {body} : {})}) || {};
+            try {
+              if (String(window.FleetAuth?.user?.id || '') !== identity) throw new Error('登录已变化，请重新打开设置');
+              const value = await FleetAuth.json(path, {method, cache: 'no-store', ...(body ? {body} : {})}) || {};
+              return {ok: true, value};
+            } catch (error) {
+              return {ok: false, message: String(error?.message || '请求失败，请重试。')};
+            }
             """, arguments: ["identity": identity, "path": path, "method": method, "body": (body as Any?) ?? NSNull()], in: nil, contentWorld: .page)
         guard store.ready, store.snapshot?.identity == identity else { throw FleetServiceError.identityChanged }
-        return result as? [String: Any] ?? [:]
+        guard let response = result as? [String: Any], response["ok"] as? Bool == true else {
+            throw FleetRequestError(message: (result as? [String: Any])?["message"] as? String ?? "请求失败，请重试。")
+        }
+        return response["value"] as? [String: Any] ?? [:]
     }
 
     func shared(_ action: String, values: [String: Any] = [:]) async throws -> Any? {
@@ -23,7 +31,7 @@ struct FleetService {
             if (String(window.FleetAuth?.user?.id || '') !== identity) throw new Error('登录已变化，请重新打开设置');
             switch (action) {
               case 'refresh':
-                await refreshSettings(); await refreshDeviceAppearance(); await FleetTheme.refreshPalette();
+                await refreshSettings(); await refreshNodes(); await refreshDeviceAppearance(); await FleetTheme.refreshPalette();
                 FleetNativeAppearance?.publish(); FleetWorkspace.publish(); return null;
               case 'palette': return {palette: FleetTheme.getPalette(), defaults: FleetTheme.paletteDefaults};
               case 'save-palette': await FleetTheme.savePalette(values.palette); FleetNativeAppearance?.publish(); return null;
@@ -45,6 +53,7 @@ struct FleetService {
               let components = URLComponents(string: path), components.scheme == nil, components.host == nil,
               components.fragment == nil, components.path.hasPrefix("/"), !path.contains(".."), !path.contains("%") else { return false }
         let route = components.path
+        if route == "/api/standby/token" { return method == "POST" }
         if ["/api/settings", "/api/devices", "/api/names"].contains(route) { return method != "DELETE" }
         if route == "/enroll/client-release.json" { return method == "GET" }
         if route.range(of: "^/api/automation/access-keys(?:/[A-Za-z0-9_-]+)?$", options: .regularExpression) != nil { return true }
@@ -61,6 +70,11 @@ struct FleetService {
     }
 }
 
+private struct FleetRequestError: LocalizedError {
+    let message: String
+    var errorDescription: String? { message }
+}
+
 enum FleetServiceError: LocalizedError {
     case invalidRequest, identityChanged
     var errorDescription: String? {
@@ -69,19 +83,14 @@ enum FleetServiceError: LocalizedError {
 }
 
 enum NativeSheet: Identifiable, Equatable {
-    case settings, device(String), newSessionDevice, gateway, rename(FleetSession)
+    case settings, device(String), newSessionDevice, gateway
     var id: String {
         switch self {
         case .settings: return "settings"
         case .device(let identifier): return "device-\(identifier)"
         case .newSessionDevice: return "new-session-device"
         case .gateway: return "gateway"
-        case .rename(let session): return "rename-\(session.id)"
         }
     }
 
-    var initialFraction: CGFloat {
-        if case .rename = self { return 0.5 }
-        return 0.92
-    }
 }

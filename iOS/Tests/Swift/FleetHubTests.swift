@@ -1,8 +1,39 @@
 import XCTest
 import JavaScriptCore
+import SwiftUI
 @testable import FleetHub
 
 final class FleetHubTests: XCTestCase {
+    @MainActor
+    func testDeviceIconTextRejectsInvalidEditsAndPastesBeforeChangingValue() {
+        var value = "Ab1"
+        let input = NativeDeviceIconTextField(text: Binding(get: { value }, set: { value = $0 }))
+        let coordinator = input.makeCoordinator()
+        let field = UITextField()
+        field.text = value
+        func replace(_ range: NSRange, with text: String) -> Bool {
+            guard coordinator.textField(field, shouldChangeCharactersIn: range, replacementString: text),
+                  let swiftRange = Range(range, in: field.text ?? "") else { return false }
+            field.text = (field.text ?? "").replacingCharacters(in: swiftRange, with: text)
+            coordinator.changed(field)
+            return true
+        }
+        XCTAssertTrue(replace(NSRange(location: 3, length: 0), with: "2"))
+        XCTAssertEqual(value, "Ab12")
+        XCTAssertFalse(replace(NSRange(location: 4, length: 0), with: "3"))
+        for invalid in ["中", "é", "Ａ", "🙂", "_", "-", " ", "\n", "A1中", "ABCDE"] {
+            XCTAssertFalse(replace(NSRange(location: 0, length: 4), with: invalid), invalid)
+            XCTAssertEqual(value, "Ab12")
+            XCTAssertEqual(field.text, "Ab12")
+        }
+        XCTAssertTrue(replace(NSRange(location: 1, length: 2), with: "z9"))
+        XCTAssertEqual(value, "Az92")
+        XCTAssertTrue(replace(NSRange(location: 0, length: 4), with: ""))
+        XCTAssertEqual(value, "")
+        XCTAssertTrue(replace(NSRange(location: 0, length: 0), with: "aZ09"))
+        XCTAssertEqual(value, "aZ09")
+    }
+
     @MainActor
     func testAppearanceValidatesTokensAndClearsAtAuthenticationLoss() {
         let store = FleetStore()
@@ -95,6 +126,17 @@ final class FleetHubTests: XCTestCase {
         XCTAssertTrue(GatewayAddress.sameOrigin(URL(string: "https://fleet.test:443")!, URL(string: "https://fleet.test")!))
     }
 
+    func testGatewayInputAddsHTTPSAndKeepsOriginValidation() {
+        for address in ["fleet.example.com", " fleet.example.com\n", "https://fleet.example.com", "//fleet.example.com"] {
+            XCTAssertEqual(GatewayAddress.parseInput(address)?.absoluteString, "https://fleet.example.com/")
+        }
+        XCTAssertEqual(GatewayAddress.parseInput("fleet.example.com:20443")?.absoluteString, "https://fleet.example.com:20443/")
+        for address in ["", " \n", "http://fleet.example.com", "ftp://fleet.example.com", "user:password@fleet.example.com",
+                        "fleet.example.com/path", "fleet.example.com/?token=secret", "fleet.example.com/#secret"] {
+            XCTAssertNil(GatewayAddress.parseInput(address), address)
+        }
+    }
+
     @MainActor
     func testAuthenticationLossClearsNativePrivateState() throws {
         let store = FleetStore()
@@ -160,13 +202,13 @@ final class FleetHubTests: XCTestCase {
     func testWebProjectionRetainsEmptyProjectsAndCapabilities() {
         let store = FleetStore()
         var value = payload(ready: true)
-        value["assistants"] = ["codex", "claude", "dsh"]
+        value["assistants"] = ["codex", "claude", "dsh", "deepseek"]
         value["projects"] = [["id": "cwd:/empty", "title": "Empty", "cwd": "/empty", "macId": "m1",
                               "projectless": false, "sessionIDs": [], "collapsed": true]]
         value["view"] = "recent"
         value["mode"] = "files"
         store.receive(["type": "snapshot", "payload": value])
-        XCTAssertEqual(store.assistants, [.codex, .dsh])
+        XCTAssertEqual(store.assistants, [.codex, .dsh, .deepseek])
         XCTAssertEqual(store.projects.count, 1)
         XCTAssertTrue(store.projects[0].sessionIDs.isEmpty)
         XCTAssertTrue(store.projects[0].collapsed)
@@ -215,6 +257,9 @@ final class FleetHubTests: XCTestCase {
         XCTAssertFalse(AccessKey(["key": secret, "recoverable": false]).recoverable)
         XCTAssertEqual(AccessKey([:]).masked, "••••••")
         XCTAssertEqual(AccessKey.mask("short-fixture"), "••••••")
+        XCTAssertNotEqual(AccessKey.dateLabel("2026-10-17T01:20:06.227973411Z"), "暂无")
+        XCTAssertNotEqual(AccessKey.dateLabel("2026-10-15T01:00:00Z"), "暂无")
+        XCTAssertEqual(AccessKey.dateLabel("—"), "暂无")
     }
 
     func testNativeDialogDecodesControlStatesAndDynamicFileMenu() throws {
@@ -272,19 +317,32 @@ final class FleetHubTests: XCTestCase {
     }
 
     @MainActor
-    func testRenameDrawerCapturesItsTargetAndClearsOnIdentityChange() {
+    func testSystemSheetClearsOnIdentityChange() {
         let store = FleetStore()
         store.receive(["type": "snapshot", "payload": payload(ready: true)])
-        let session = FleetSession(sessionId: "rename-fixture", macId: "m1", assistant: .codex,
-                                   title: "Original", cwd: "/fixture", project: "fixture", projectKey: "fixture",
-                                   mtime: 1, pinned: false, unread: false, running: false, waiting: false, actions: ["rename"])
-        store.nativeSheet = .rename(session)
-        XCTAssertEqual(store.nativeSheet?.id, "rename-m1/codex/rename-fixture")
-        XCTAssertEqual(store.nativeSheet?.initialFraction, 0.5)
-        XCTAssertEqual(NativeSheet.settings.initialFraction, 0.92)
+        store.nativeSheet = .device("m1")
         var next = payload(ready: true)
         next["identity"] = "another-user"
         store.receive(["type": "snapshot", "payload": next])
         XCTAssertNil(store.nativeSheet)
+    }
+
+    func testLoginDeviceLabelsHideRawUserAgent() {
+        XCTAssertEqual(LoginDeviceLabel.name(["agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 18_7 like Mac OS X) AppleWebKit/605.1.15 Mobile/15E148"]), "iPhone · Fleet AI")
+        XCTAssertEqual(LoginDeviceLabel.name(["agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X) Chrome/140.0.0 Safari/537.36 Edg/140.0.0"]), "Mac · Edge")
+        XCTAssertEqual(LoginDeviceLabel.name(["agent": "Mozilla/5.0 (Linux; Android 15) Chrome/140.0.0"]), "Android · Chrome")
+    }
+
+    func testProxyDefaultsPreserveConfiguredAddresses() {
+        XCTAssertEqual(NativeDeviceEditor.proxyDefault(nil), "http://127.0.0.1:7897")
+        XCTAssertEqual(NativeDeviceEditor.proxyDefault("  "), "http://127.0.0.1:7897")
+        XCTAssertEqual(NativeDeviceEditor.proxyDefault("http://proxy.example:8080"), "http://proxy.example:8080")
+    }
+
+    func testDialogPresentationUsesMenusAndSystemAlerts() throws {
+        for (id, expected) in [("file-name-modal", NativeWebDialog.Presentation.alert), ("file-path-modal", .alert), ("confirm-file-delete", .alert), ("native-file-menu-1", .menu), ("file-settings-menu", .menu), ("chat-options-popover", .alert)] {
+            let data = try JSONSerialization.data(withJSONObject: ["id": id, "title": "fixture", "items": [], "footer": []])
+            XCTAssertEqual(try JSONDecoder().decode(NativeWebDialog.self, from: data).presentation, expected)
+        }
     }
 }

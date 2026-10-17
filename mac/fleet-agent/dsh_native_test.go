@@ -23,12 +23,12 @@ func TestDSHNativeProxyRewritesRootUIAndKeepsCredentialsServerSide(t *testing.T)
 	}))
 	defer upstream.Close()
 
-	proxy := httptest.NewServer(newDSHNativeProxy("7", func(context.Context) (dshNativeTarget, error) {
+	proxy := httptest.NewServer(newDSHNativeProxy("7", "dsh", func(context.Context) (dshNativeTarget, error) {
 		return dshNativeTarget{BaseURL: upstream.URL, Cookie: "dsh-auth-upstream=server-secret"}, nil
 	}, nil))
 	defer proxy.Close()
 
-	req, _ := http.NewRequest(http.MethodGet, proxy.URL+dshNativeInternalPrefix, nil)
+	req, _ := http.NewRequest(http.MethodGet, proxy.URL+"/api/dsh-native/", nil)
 	req.Header.Set("Cookie", "authelia_session=browser-cookie")
 	req.Header.Set("Origin", "https://fleet.example.com")
 	resp, err := http.DefaultClient.Do(req)
@@ -87,13 +87,13 @@ func TestDSHNativeProxyRewritesManifestAndPassesAPIRoutes(t *testing.T) {
 	}))
 	defer upstream.Close()
 
-	h := newDSHNativeProxy("2", func(context.Context) (dshNativeTarget, error) {
+	h := newDSHNativeProxy("2", "dsh", func(context.Context) (dshNativeTarget, error) {
 		return dshNativeTarget{BaseURL: upstream.URL, Cookie: "dsh-auth=x"}, nil
 	}, nil)
 	proxy := httptest.NewServer(h)
 	defer proxy.Close()
 
-	resp, err := http.Get(proxy.URL + dshNativeInternalPrefix + "manifest.webmanifest")
+	resp, err := http.Get(proxy.URL + "/api/dsh-native/" + "manifest.webmanifest")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -105,7 +105,7 @@ func TestDSHNativeProxyRewritesManifestAndPassesAPIRoutes(t *testing.T) {
 		}
 	}
 
-	resp, err = http.Get(proxy.URL + dshNativeInternalPrefix + "api/session/list?limit=2")
+	resp, err = http.Get(proxy.URL + "/api/dsh-native/" + "api/session/list?limit=2")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -134,12 +134,12 @@ func TestDSHNativeProxyCarriesWebSocketAtSubpath(t *testing.T) {
 	}))
 	defer upstream.Close()
 
-	proxy := httptest.NewServer(newDSHNativeProxy("3", func(context.Context) (dshNativeTarget, error) {
+	proxy := httptest.NewServer(newDSHNativeProxy("3", "dsh", func(context.Context) (dshNativeTarget, error) {
 		return dshNativeTarget{BaseURL: upstream.URL, Cookie: "dsh-auth=ws-secret"}, nil
 	}, nil))
 	defer proxy.Close()
 
-	wsURL := "ws" + strings.TrimPrefix(proxy.URL, "http") + dshNativeInternalPrefix + "api/remote.mux"
+	wsURL := "ws" + strings.TrimPrefix(proxy.URL, "http") + "/api/dsh-native/" + "api/remote.mux"
 	header := http.Header{"Origin": []string{"https://fleet.example.com"}}
 	conn, resp, err := websocket.DefaultDialer.Dial(wsURL, header)
 	if err != nil {
@@ -159,7 +159,7 @@ func TestDSHNativeProxyCarriesWebSocketAtSubpath(t *testing.T) {
 }
 
 func TestDSHNativeProxyUnavailableAndRejectsWrongInternalPath(t *testing.T) {
-	h := newDSHNativeProxy("1", func(context.Context) (dshNativeTarget, error) {
+	h := newDSHNativeProxy("1", "dsh", func(context.Context) (dshNativeTarget, error) {
 		return dshNativeTarget{}, errors.New("desktop stopped")
 	}, nil)
 
@@ -167,7 +167,7 @@ func TestDSHNativeProxyUnavailableAndRejectsWrongInternalPath(t *testing.T) {
 		path string
 		want int
 	}{
-		{path: dshNativeInternalPrefix, want: http.StatusServiceUnavailable},
+		{path: "/api/dsh-native/", want: http.StatusServiceUnavailable},
 		{path: "/api/info", want: http.StatusNotFound},
 	} {
 		w := httptest.NewRecorder()

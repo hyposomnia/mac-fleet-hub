@@ -12,13 +12,18 @@ let names;
 let dshEnabled = false;
 let palette = null;
 let deviceAppearance = {};
+let deviceOrder = [];
 let settings;
 let accessKeys;
 let nextKey;
+let failSettingsOnce = false;
 let fileEntries;
 let subagentsEnabled = false;
 let duoUAT = { enabled: false, stage: 'idle' };
+let authFlow = null;
 function reset() {
+  authFlow = null;
+  failSettingsOnce = false;
   sessions = ['codex', 'claude', 'dsh'].map((assistant) => ({ sessionId: `${assistant}-session`, assistant,
     title: `${assistant} fixture`, cwd: '/Users/fixture/project', live: true, mtime: Date.now(),
     projectName: 'Fixture project', archived: false, pinned: false }));
@@ -27,6 +32,7 @@ function reset() {
   dshEnabled = false;
   subagentsEnabled = false;
   palette = null;
+  deviceOrder = [];
   deviceAppearance = { m1: { icon: 'text', text: 'AI', color: 'teal' } };
   settings = { chatCacheMaxSessions: 6, autoCloseMinutes: 30, desktopMaxWindows: 8, mobileMaxWindows: 4 };
   nextKey = 1;
@@ -64,8 +70,10 @@ const server = http.createServer(async (request, response) => {
         messagesSent: requests.filter(entry => entry.path.endsWith('/api/chat/send')).length,
       }); return;
     }
+    if (url.pathname === '/__fail-settings-once') { failSettingsOnce = true; json({ ok: true }); return; }
     if (url.pathname === '/__requests') { json(requests); return; }
     if (url.pathname === '/__reset') { reset(); json({ ok: true }); return; }
+    if (url.pathname === '/__auth') { authFlow = { state: 'anonymous', setup: false }; json({ ok: true }); return; }
     if (url.pathname === '/__dsh') { dshEnabled = true; json({ ok: true }); return; }
     if (url.pathname === '/__subagents') { subagentsEnabled = true; json({ ok: true }); return; }
     if (url.pathname === '/__appearance') {
@@ -79,9 +87,32 @@ const server = http.createServer(async (request, response) => {
     for await (const chunk of request) body += chunk;
     const value = body ? JSON.parse(body) : null;
     requests.push({ path: url.pathname, query: url.search, method: request.method, body: value });
+    if (authFlow) {
+      const setup = { state: 'setup', totp: { secret: 'JBSWY3DPEHPK3PXP', uri: 'otpauth://totp/Fleet:fixture@example.test?secret=JBSWY3DPEHPK3PXP&issuer=Fleet' } };
+      if (url.pathname === '/' && authFlow.state !== 'full') { response.writeHead(303, { Location: '/auth' }); response.end(); return; }
+      if (url.pathname === '/api/auth/state') {
+        json(authFlow.state === 'setup' ? setup : { state: authFlow.state }, authFlow.state === 'anonymous' ? 401 : 200); return;
+      }
+      if (url.pathname === '/api/auth/me' && authFlow.state !== 'full') { json({ error: '请重新登录' }, 401); return; }
+      if (['/api/auth/login', '/api/auth/register', '/api/auth/recover'].includes(url.pathname)) {
+        if (request.method !== 'POST' || request.headers.origin !== url.origin) { json({ error: 'invalid_origin' }, 403); return; }
+        if (!value?.email || !value?.password) { json({ error: '请输入邮箱和密码' }, 400); return; }
+        authFlow.setup = url.pathname !== '/api/auth/login';
+        authFlow.state = authFlow.setup ? 'setup' : 'challenge';
+        response.setHeader('Set-Cookie', 'fixture_session=pending; HttpOnly; SameSite=Lax; Path=/');
+        json(authFlow.setup ? setup : { state: 'challenge' }); return;
+      }
+      if (url.pathname === '/api/auth/verify') {
+        if (request.method !== 'POST' || request.headers.origin !== url.origin || !request.headers.cookie?.includes('fixture_session=pending')) { json({ error: '验证已失效' }, 401); return; }
+        if (value?.code !== '123456') { json({ error: '验证码错误或已使用' }, 401); return; }
+        authFlow.state = 'full';
+        response.setHeader('Set-Cookie', 'fixture_session=full; HttpOnly; SameSite=Lax; Path=/');
+        json({ user: { id: 'fixture-user', email: 'fixture@example.test' }, recovery_codes: authFlow.setup ? ['fixture-recovery-one', 'fixture-recovery-two'] : [] }); return;
+      }
+    }
     if (url.pathname === '/api/auth/me') { json({ user: { id: 'fixture-user', email: 'fixture@example.test', role: 'user' }, csrf_token: 'fixture-csrf' }); return; }
     if (url.pathname === '/api/auth/logout') { json({ ok: true }); return; }
-    if (url.pathname === '/api/auth/sessions') { json({ sessions: [{ id: 'fixture-login', current: true }] }); return; }
+    if (url.pathname === '/api/auth/sessions') { json({ sessions: [{ id: 'fixture-login', current: true, agent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_7 like Mac OS X) AppleWebKit/605.1.15 Mobile/15E148', last_seen: 1792137600, ip: '192.0.2.1', expires_at: 1794729600 }, { id: 'fixture-other', current: false, agent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Chrome/140.0.0.0 Safari/537.36', last_seen: 1792108800 }] }); return; }
     if (url.pathname === '/api/auth/logout-others') { json({ ok: true }); return; }
     if (url.pathname === '/enroll/client-release.json') {
       json({ version: '0.0.0-fixture', installation_protocol: 1,
@@ -124,25 +155,30 @@ const server = http.createServer(async (request, response) => {
       json({ error: 'method_not_allowed' }, 405); return;
     }
     if (url.pathname === '/api/devices') {
-      json({ devices: [{ id: 'm1', name: names.m1, online: true }, { id: 'm2', name: names.m2, online: false }] }); return;
+      const devices = [{ id: 'm1', name: names.m1, online: true, ip: '100.64.0.10' }, { id: 'm2', name: names.m2, online: false, ip: '100.64.0.11' }];
+      json({ devices: devices.sort((a, b) => (deviceOrder.indexOf(a.id) + 1 || 999) - (deviceOrder.indexOf(b.id) + 1 || 999)) }); return;
     }
     if (url.pathname === '/api/nodes.json') { json([{ givenName: 'mac1', online: true }, { givenName: 'mac2', online: false }]); return; }
     if (url.pathname === '/api/names') {
       if (request.method === 'POST') {
-        names[value.id] = value.name;
+        names[value.id] = value.name.trim() || `Mac ${value.id.slice(1)}`;
       }
       json(names); return;
     }
     if (url.pathname === '/api/settings') {
+      if (request.method === 'POST' && failSettingsOnce) {
+        failSettingsOnce = false; json({ error: 'fixture_save_failed', message: '合成设置保存失败' }, 503); return;
+      }
       if (['POST', 'PUT', 'PATCH'].includes(request.method)) {
         const update = value;
+        if (Array.isArray(update.order)) deviceOrder = update.order;
         if (update.palette) palette = update.palette;
         if (update.id && update.appearance) deviceAppearance[update.id] = update.appearance;
         for (const key of Object.keys(settings)) {
           if (Object.hasOwn(update, key)) settings[key] = update[key];
         }
       }
-      json({ ...settings, palette, deviceAppearance }); return;
+      json({ ...settings, palette, deviceAppearance, deviceOrder }); return;
     }
     if (url.pathname.startsWith('/m1/api/')) {
       const endpoint = url.pathname.slice('/m1/api/'.length);
@@ -164,6 +200,18 @@ const server = http.createServer(async (request, response) => {
         if (action.action === 'archive' || action.action === 'unarchive') value.archived = action.action === 'archive';
         if (action.action === 'delete') sessions = sessions.filter((item) => item !== value);
         json({ ok: true }); return;
+      }
+      if (endpoint === 'sessions/read') {
+        const input = JSON.parse(body);
+        const session = sessions.find(item => item.sessionId === input.sessionId && item.assistant === input.assistant);
+        if (!session) { json({ message: '会话不存在' }, 404); return; }
+        if (!session.markedUnread || input.unread || (input.explicit && input.expectedVersion === session.readStateVersion)) {
+          session.markedUnread = input.unread === true;
+          if (!input.unread) session.readAt = Math.max(session.readAt || 0, input.activityAt || 0);
+          session.readStateVersion = (session.readStateVersion || 0) + 1;
+        }
+        json({ markedUnread: session.markedUnread, readAt: session.readAt || 0,
+          readStateVersion: session.readStateVersion, nativeSynced: input.assistant === 'codex' }); return;
       }
       if (endpoint === 'projects') { json({ projects: [{ cwd: '/Users/fixture/project', name: 'Fixture project' }, { cwd: '/Users/fixture/empty', name: 'Empty project' }] }); return; }
       if (endpoint === 'file/list') { json({ path: '/Users/fixture/project', entries: fileEntries, breadcrumbs: [] }); return; }
@@ -224,6 +272,7 @@ const server = http.createServer(async (request, response) => {
       return;
     }
     const pathname = ['/', '/view'].includes(url.pathname) ? 'index.html'
+      : url.pathname.startsWith('/auth/') ? 'auth.html'
       : ['/auth', '/account', '/admin'].includes(url.pathname) ? url.pathname.slice(1) + '.html'
       : decodeURIComponent(url.pathname).slice(1);
     const filename = path.resolve(dashboard, pathname);

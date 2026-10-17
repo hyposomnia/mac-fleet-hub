@@ -11,8 +11,9 @@ import (
 // `assistant != "codex"` 再返回"不支持"。有了第二个自绘 assistant 之后，
 // 分流必须在唯一的装配点发生，否则每个后端都要重复一遍不属于它的路由知识。
 type routingChatBackend struct {
-	codex *codexChatBackend
-	dsh   *dshChatBackend // nil = 该机器未启用 DSH
+	codex    *codexChatBackend
+	dsh      *dshChatBackend // DSH Desktop（assistant=dsh）
+	deepseek *dshChatBackend // dsh CLI / web harness（assistant=deepseek）
 }
 
 // pick 返回某个 assistant 的后端；未启用的 assistant 落到不可用后端，
@@ -22,6 +23,11 @@ func (r *routingChatBackend) pick(assistant string) chatBackend {
 	case "dsh":
 		if r.dsh != nil {
 			return r.dsh
+		}
+		return unavailableChatBackend{}
+	case "deepseek":
+		if r.deepseek != nil {
+			return r.deepseek
 		}
 		return unavailableChatBackend{}
 	default:
@@ -126,10 +132,26 @@ func (r *routingChatBackend) Subagents(ctx context.Context, assistant, sessionID
 	return r.codex.Subagents(ctx, assistant, sessionID)
 }
 
-// dshBackend 暴露 DSH 后端（可能为 nil）。
+// dshBackend 暴露 DSH Desktop 后端（可能为 nil）。
 func (r *routingChatBackend) dshBackend() *dshChatBackend {
+	return r.dshBackendFor("dsh")
+}
+
+// deepseekBackend 暴露 dsh CLI / web harness 后端（可能为 nil）。
+func (r *routingChatBackend) deepseekBackend() *dshChatBackend {
+	return r.dshBackendFor("deepseek")
+}
+
+// dshBackendFor 按 assistant 取 DSH 家族后端。
+func (r *routingChatBackend) dshBackendFor(assistant string) *dshChatBackend {
 	if r == nil {
 		return nil
 	}
-	return r.dsh
+	switch normAssistant(assistant) {
+	case "dsh":
+		return r.dsh
+	case "deepseek":
+		return r.deepseek
+	}
+	return nil
 }

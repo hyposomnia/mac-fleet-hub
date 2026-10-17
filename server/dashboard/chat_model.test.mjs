@@ -550,14 +550,19 @@ test('background ttyd frames cannot steal focus from dashboard controls', () => 
   assert.match(source, /return originalFocus\(\.\.\.args\)/);
 });
 
-test('ChatGPT is the first and default session assistant', () => {
-  const tabs = [...indexHTML.matchAll(/<button data-assistant="([^"]+)" role="tab" aria-selected="([^"]+)">/g)]
-    .map((match) => ({ assistant: match[1], selected: match[2] }));
-  assert.deepEqual(tabs, [
-    { assistant: 'codex', selected: 'true' },
-    { assistant: 'codex', selected: 'true' },
-  ]);
-  assert.match(appSrc, /assistant:\s*'codex',\s*\/\/ codex \| dsh/);
+test('assistant navigation is a dropdown with ChatGPT first', () => {
+  const selects = [...indexHTML.matchAll(/<select[^>]*data-assistant-select[^>]*>([\s\S]*?)<\/select>/g)];
+  assert.equal(selects.length, 2, '桌面与移动各一个助手下拉框');
+  for (const [, body] of selects) {
+    const options = [...body.matchAll(/<option value="([^"]+)"([^>]*)>([^<]+)<\/option>/g)]
+      .map((match) => ({ value: match[1], hidden: /\bhidden\b/.test(match[2]), label: match[3] }));
+    assert.deepEqual(options.map((option) => option.value), ['codex', 'dsh', 'deepseek', 'claude']);
+    assert.equal(options[0].label, 'ChatGPT');
+    assert.equal(options[1].label, 'DSH Desktop');
+    assert.equal(options[2].label, 'DeepSeek');
+    assert.ok(options.slice(1).every((option) => option.hidden), 'DSH 家族与 Claude 默认隐藏，由能力探测放出');
+  }
+  assert.match(appSrc, /assistant:\s*'codex',\s*\/\/ codex \| dsh \| deepseek/);
 });
 
 test('DeepSeek native UI uses the official whale button and opens a host-scoped path', () => {
@@ -565,49 +570,41 @@ test('DeepSeek native UI uses the official whale button and opens a host-scoped 
   assert.equal(buttons.length, 2, 'desktop and mobile each expose the native DSH entrance');
   for (const button of buttons) {
     assert.match(button, /disabled/);
-    assert.match(button, /aria-label="打开 DeepSeek Harness"/);
+    assert.match(button, /\bhidden\b/);
+    assert.match(button, /aria-label="打开原生界面"/);
   }
   assert.match(indexHTML, /<symbol id="deepseek-whale-mark"[^>]*>[\s\S]*?<path d="M22\.9168 1\.43018/);
   assert.equal((indexHTML.match(/<use href="#deepseek-whale-mark"/g) || []).length, 2);
   assert.match(styleCSS, /\.dsh-native-open\s*\{[^}]*color:\s*#111827;/s);
   assert.match(styleCSS, /\.dsh-native-open:disabled\s*\{[^}]*color:\s*var\(--text-3\);/s);
-  assert.match(styleCSS, /\.assistant-tab:has\(\[aria-selected="true"\]\) \.dsh-native-open\s*\{\s*color:\s*var\(--accent-text\);/s);
   assert.match(appSrc, /function dshNativeTargetMac\(\)/);
-  assert.match(appSrc, /window\.open\(`\$\{apiBase\(macId\)\}\/dsh\/`, '_blank', 'noopener,noreferrer'\)/);
-  assert.match(appSrc, /dsh\.nativeUI !== true/);
+  assert.match(appSrc, /window\.open\(`\$\{apiBase\(macId\)\}\/\$\{assistant\}\/`, '_blank', 'noopener,noreferrer'\)/);
+  assert.match(appSrc, /info\.nativeUI !== true/);
 });
 
-// 鲸鱼从操作区挪进 DeepSeek tab：wrapper 是「一个 tab」的视觉外壳，里面 label 与鲸鱼
-// 各自是独立按钮（点文字切助手、点鲸鱼开原生 UI），既不出现 button 套 button，也不丢键盘可达。
-test('DeepSeek whale sits inside the assistant tab instead of the header actions', () => {
-  const tabs = [...indexHTML.matchAll(/<div class="assistant-tab"[^>]*>[\s\S]*?<\/div>/g)].map((match) => match[0]);
-  assert.equal(tabs.length, 2, '桌面 seg 与移动 seg 各一个 DeepSeek tab 外壳');
-  for (const tab of tabs) {
-    assert.match(tab, /data-assistant-entry="dsh"/);
-    assert.match(tab, /role="presentation"/);
-    assert.match(tab, /\bhidden\b/, 'tab 外壳默认隐藏，由 syncAssistantTabs 放出来');
-    const label = tab.indexOf('class="assistant-tab-label"');
-    const whale = tab.indexOf('data-dsh-native-open');
-    assert.ok(label >= 0 && whale > label, 'tab 里先 label 后鲸鱼，两个都是独立 button');
-    assert.match(tab, /<button class="assistant-tab-label"[^>]*data-assistant="dsh"[^>]*role="tab"/);
-    assert.match(tab, /<button class="dsh-native-open"[^>]*data-dsh-native-open/);
-    assert.doesNotMatch(tab, /<button[^>]*>\s*<button/);
+// 下拉框取代原来的助手 tab：DeepSeek 家族会继续增加（Desktop / CLI），
+// tab 在窄屏与 4+ 个助手时放不下；鲸鱼入口跟随当前选中的助手，不再嵌在 tab 内。
+test('the whale follows the assistant dropdown instead of living inside a tab', () => {
+  const pickers = [...indexHTML.matchAll(/<div class="seg (?:assistant-seg|mobile-assistant-seg)">[\s\S]*?<\/div>/g)].map((match) => match[0]);
+  assert.equal(pickers.length, 2, '桌面 seg 与移动 seg 各一个选择器');
+  for (const picker of pickers) {
+    assert.match(picker, /<select[^>]*data-assistant-select/);
+    assert.match(picker, /<button class="dsh-native-open"[^>]*data-dsh-native-open/);
+    assert.doesNotMatch(picker, /assistant-tab-label/);
   }
-  // 操作区不再有独立鲸鱼按钮
   assert.doesNotMatch(indexHTML, /class="iconbtn dsh-native-open/);
-  assert.match(appSrc, /\$\$\('\[data-assistant-entry="dsh"\]'\)\.forEach\(\(entry\) => \{ entry\.hidden = !available; \}\)/);
-  // wrapper 自带 inline-flex，必须显式关掉 [hidden]，否则藏不住
-  assert.match(styleCSS, /\.seg \.assistant-tab\[hidden\]\s*\{\s*display:\s*none;\s*\}/);
-  assert.match(styleCSS, /\.seg \.assistant-tab:has\(\[aria-selected="true"\]\)\s*\{\s*background:\s*transparent;[^}]*color:\s*var\(--accent-text\);[^}]*box-shadow:\s*none;/s);
-  assert.match(styleCSS, /\.assistant-seg, \.mobile-assistant-seg\)[^}]*button\[role="tab"\]\[aria-selected="true"\][^{]*\{[^}]*color:\s*var\(--accent-text\);[^}]*box-shadow:\s*none;/s);
-  assert.match(styleCSS, /\.seg \.assistant-tab \.dsh-native-open\s*\{[^}]*flex:\s*none;/s);
-  assert.match(styleCSS, /\.seg \.assistant-tab \.dsh-whale\s*\{\s*width:\s*18px;\s*\}/);
+  assert.match(appSrc, /function syncAssistantPicker\(\)/);
+  assert.match(appSrc, /\$\$\('\[data-assistant-select\]'\)\.forEach\(\(select\) => \{/);
+  assert.match(appSrc, /option\.hidden = !available;/);
+  assert.match(appSrc, /button\.hidden = status\.hidden;/);
+  assert.match(styleCSS, /\.seg \.dsh-native-open\[hidden\]\s*\{\s*display:\s*none;\s*\}/);
+  assert.match(styleCSS, /\.assistant-select\s*\{[^}]*appearance:\s*none;/s);
 });
 
 // 回归背景（2026-09-22 真机）：mac3 的 mesh 到网关断了，`/m3/api/info` 要等满 nginx 的
-// 60s 连接超时；能力探测没有超时，于是 DSH tab 在页面加载后 60s 内一直是初始隐藏态，
+// 60s 连接超时；能力探测没有超时，于是 DSH 入口在页面加载后 60s 内一直是初始隐藏态，
 // 用户看到的就是「DeepSeek 没了」。探测必须自带超时，单台不可达不能拖住整体显隐。
-test('assistant capability probe is bounded so one unreachable Mac cannot hide the DeepSeek tab', () => {
+test('assistant capability probe is bounded so one unreachable Mac cannot hide the DeepSeek entry', () => {
   assert.match(appSrc, /const CHAT_INFO_PROBE_TIMEOUT_MS = 5000;/);
   assert.match(appSrc, /async function probeAssistantInfo\(macId, timeoutMs = CHAT_INFO_PROBE_TIMEOUT_MS\)/);
   assert.match(appSrc, /const controller = new AbortController\(\);/);
@@ -616,13 +613,13 @@ test('assistant capability probe is bounded so one unreachable Mac cannot hide t
   assert.match(appSrc, /finally \{\s*clearTimeout\(timer\);/);
   assert.match(appSrc, /probed\[m\.id\] = await probeAssistantInfo\(m\.id\);/);
   // 只有整份探测都结束才整体替换能力表，失败设备仍按「没有能力」处理（策略不变）
-  assert.match(appSrc, /state\.assistantInfo = probed;\s*\n\s*syncAssistantTabs\(\);/);
+  assert.match(appSrc, /state\.assistantInfo = probed;\s*\n\s*syncAssistantPicker\(\);/);
 });
 
 test('DeepSeek native UI stays disabled until one online host reports a live native UI', () => {
   const result = vm.runInContext(`(() => {
     const saved = {
-      macs: [...MACS], mode: state.mode, sessionMacId: state.sessionMacId,
+      assistant: state.assistant, macs: [...MACS], mode: state.mode, sessionMacId: state.sessionMacId,
       nodes: state.nodes, assistantInfo: state.assistantInfo,
     };
     const previousWindow = globalThis.window;
@@ -630,6 +627,7 @@ test('DeepSeek native UI stays disabled until one online host reports a live nat
       MACS.splice(0, MACS.length, { id: 'm2' });
       state.mode = 'sessions';
       state.nodes = { m2: true };
+      state.assistant = 'dsh';
       state.assistantInfo = {};
       state.sessionMacId = 'all';
       const allDevices = dshNativeButtonState();
@@ -647,24 +645,29 @@ test('DeepSeek native UI stays disabled until one online host reports a live nat
       let opened = null;
       globalThis.window = { open: (...args) => { opened = args; } };
       openDshNativeUI();
-      return { allDevices, probing, oldAgent, stopped, ready, opened };
+      // DeepSeek CLI harness：同一个按钮，按选中的 assistant 换目标路径。
+      state.assistant = 'deepseek';
+      state.assistantInfo = { m2: { deepseek: { enabled: true, installed: true, nativeUI: true, hostRunning: true, degraded: false } } };
+      const deepseekReady = dshNativeButtonState();
+      openDshNativeUI();
+      return { allDevices, probing, oldAgent, stopped, ready, deepseekReady, opened };
     } finally {
       MACS.splice(0, MACS.length, ...saved.macs);
-      state.mode = saved.mode;
-      state.sessionMacId = saved.sessionMacId;
-      state.nodes = saved.nodes;
-      state.assistantInfo = saved.assistantInfo;
+      Object.assign(state, { assistant: saved.assistant, mode: saved.mode, sessionMacId: saved.sessionMacId, nodes: saved.nodes, assistantInfo: saved.assistantInfo });
       if (previousWindow === undefined) delete globalThis.window;
       else globalThis.window = previousWindow;
     }
   })()`, appSandbox);
   const value = JSON.parse(JSON.stringify(result));
   assert.equal(value.allDevices.enabled, false);
+  assert.equal(value.allDevices.hidden, false);
   assert.equal(value.probing.enabled, false);
   assert.equal(value.oldAgent.enabled, false);
   assert.equal(value.stopped.enabled, false);
   assert.equal(value.ready.enabled, true);
-  assert.deepEqual(value.opened, ['/m2/dsh/', '_blank', 'noopener,noreferrer']);
+  assert.equal(value.deepseekReady.enabled, true);
+  assert.equal(value.deepseekReady.assistant, 'deepseek');
+  assert.deepEqual(value.opened, ['/m2/deepseek/', '_blank', 'noopener,noreferrer']);
 });
 
 test('Sub Agent strip sits above the composer and supports detail and list drawers', () => {
@@ -1227,6 +1230,66 @@ test('a newer background reply becomes unread until that session is selected', (
   }
 });
 
+test('manual unread uses gateway state for both assistants and survives stale reads and client reload', async () => {
+  vm.runInContext(`globalThis.__unreadSaved = {api, syncSessionRuntimeIndicators, renderSessionResults,
+    sessionReadStates:state.sessionReadStates, sessionReadAt:state.sessionReadAt,
+    sessionResults:state.sessionResults, selectedSid:state.selectedSid, selectedSessionMacId:state.selectedSessionMacId,
+    selectedSessionAssistant:state.selectedSessionAssistant};
+    globalThis.__unreadCalls = [];
+    syncSessionRuntimeIndicators = () => {}; renderSessionResults = () => {};
+    api = async (macId, path, options) => {
+      const body = JSON.parse(options.body); __unreadCalls.push({macId, path, body});
+      return {readAt: ${fixedAppNowMs}, markedUnread: !!body.unread, readStateVersion: body.unread ? 2 : 3};
+    };`, appSandbox);
+  try {
+    for (const assistant of ['codex', 'dsh']) {
+      appState.sessionReadStates = new Map(); appState.sessionReadAt = new Map();
+      const session = {assistant, macId: 'm1', sessionId: 'manual-' + assistant,
+        mtime: fixedAppNowMs, desktopUnread: false, readAt: fixedAppNowMs, readStateVersion: 1};
+      appState.sessionResults = [session]; appState.selectedSid = session.sessionId;
+      appState.selectedSessionMacId = 'm1'; appState.selectedSessionAssistant = assistant;
+      appSandbox.__manualSession = session;
+      await vm.runInContext("mutateSession(__manualSession, 'mark-unread', '', {throwOnError:true})", appSandbox);
+      assert.equal(appSandbox.__unreadCalls.at(-1).path, 'sessions/read');
+      assert.equal(appSandbox.__unreadCalls.at(-1).body.assistant, assistant);
+      assert.equal(appSandbox.__unreadCalls.at(-1).body.unread, true);
+      assert.equal(sessionStatus(session).className, 'unread', 'selected/previously read sessions must retain a manual mark');
+      vm.runInContext('receiveSessionReadState(__manualSession, {readAt:__manualSession.mtime,markedUnread:false,readStateVersion:1})', appSandbox);
+      assert.equal(sessionStatus(session).className, 'unread', 'late read response cannot clear the mark');
+      const calls = appSandbox.__unreadCalls.length;
+      await vm.runInContext('markSessionRead(__manualSession)', appSandbox);
+      assert.equal(appSandbox.__unreadCalls.length, calls, 'background auto-read must not clear manual unread');
+      appState.sessionReadStates = new Map(); appState.sessionReadAt = new Map();
+      assert.equal(sessionStatus({...session}).className, 'unread', 'a new client needs no local read cache');
+      await vm.runInContext('markSessionRead(__manualSession, {explicit:true})', appSandbox);
+      assert.equal(appSandbox.__unreadCalls.at(-1).body.expectedVersion, 2);
+      assert.equal(appSandbox.__unreadCalls.at(-1).body.explicit, true);
+      assert.equal(session.markedUnread, false);
+      assert.equal(sessionStatus(session).className, 'read');
+    }
+  } finally {
+    vm.runInContext(`({api,syncSessionRuntimeIndicators,renderSessionResults}=__unreadSaved);
+      Object.assign(state, {sessionReadStates:__unreadSaved.sessionReadStates, sessionReadAt:__unreadSaved.sessionReadAt,
+      sessionResults:__unreadSaved.sessionResults, selectedSid:__unreadSaved.selectedSid,
+      selectedSessionMacId:__unreadSaved.selectedSessionMacId, selectedSessionAssistant:__unreadSaved.selectedSessionAssistant});`, appSandbox);
+  }
+});
+
+test('mark unread failures do not invent a local-only mark', async () => {
+  vm.runInContext(`globalThis.__failedUnreadSaved = {api, sessionReadStates:state.sessionReadStates};
+    state.sessionReadStates = new Map(); api = async () => { throw new Error('gateway unavailable'); };
+    globalThis.__failedUnreadSession = {assistant:'dsh',macId:'m1',sessionId:'failed-unread'};`, appSandbox);
+  try {
+    await assert.rejects(vm.runInContext("mutateSession(__failedUnreadSession,'mark-unread','',{throwOnError:true})", appSandbox), /gateway unavailable/);
+    assert.equal(appSandbox.__failedUnreadSession.markedUnread, undefined);
+    assert.equal(appState.sessionReadStates.size, 0);
+    vm.runInContext('api = async () => ({readAt:100})', appSandbox);
+    await assert.rejects(vm.runInContext("mutateSession(__failedUnreadSession,'mark-unread','',{throwOnError:true})", appSandbox), /更新网关/);
+  } finally {
+    vm.runInContext('api = __failedUnreadSaved.api; state.sessionReadStates = __failedUnreadSaved.sessionReadStates;', appSandbox);
+  }
+});
+
 test('a selected session remains unread while its file tab covers the conversation', () => {
   const oldQuery = appSandbox.document.querySelector;
   const saved = {sessionReadAt: appState.sessionReadAt, selectedSid: appState.selectedSid,
@@ -1660,6 +1723,22 @@ test('file browser sorts folders and files by modified time or byte size without
   assert.deepEqual(entries.map((entry) => entry.name), ['small.txt', 'Archive', 'big.zip', 'Current']);
   assert.match(indexHTML, /data-file-sort="modifiedAt"/);
   assert.match(indexHTML, /data-file-sort="size"/);
+});
+
+test('file menu sorts names and independent creation/modification times in both directions', () => {
+  const entries = [
+    { name: 'file10.txt', kind: 'file', createdAt: 100, modifiedAt: 300 },
+    { name: 'file2.txt', kind: 'file', createdAt: 300, modifiedAt: 200 },
+    { name: 'file1.txt', kind: 'file', createdAt: 200, modifiedAt: 100 },
+    { name: 'unknown.txt', kind: 'file' },
+  ];
+  const names = (key, direction) => [...sortFileEntries(entries, key, direction)].map(entry => entry.name);
+  assert.deepEqual(names('name', 'asc'), ['file1.txt', 'file2.txt', 'file10.txt', 'unknown.txt']);
+  assert.deepEqual(names('name', 'desc'), ['unknown.txt', 'file10.txt', 'file2.txt', 'file1.txt']);
+  assert.deepEqual(names('createdAt', 'asc'), ['file10.txt', 'file1.txt', 'file2.txt', 'unknown.txt']);
+  assert.deepEqual(names('createdAt', 'desc'), ['file2.txt', 'file1.txt', 'file10.txt', 'unknown.txt']);
+  assert.deepEqual(names('modifiedAt', 'asc'), ['file1.txt', 'file2.txt', 'file10.txt', 'unknown.txt']);
+  assert.deepEqual(names('modifiedAt', 'desc'), ['file10.txt', 'file2.txt', 'file1.txt', 'unknown.txt']);
 });
 
 test('file browser supports persistent icon, list, and column views', () => {
@@ -4303,20 +4382,20 @@ test('session archive stays in the shared menu and has a desktop shortcut when s
     appState.scope = 'active';
     let menu = nodesWithClass(sessionRow(session), 'ses-menu')[0];
     assert.ok(menu, 'DeepSeek row must have the shared … menu');
-    assert.deepEqual(menu.children.map(nodeText), ['置顶', '重命名', '归档', '删除']);
+    assert.deepEqual(menu.children.map(nodeText), ['标为未读', '置顶', '重命名', '归档', '删除']);
     const row = sessionRow(session);
     const controls = nodesWithClass(row, 'ses-actions')[0];
     assert.equal(controls.children[0].attributes['aria-label'], '归档会话');
     assert.equal(controls.children[1].className, 'ses-menu-wrap');
     appState.scope = 'all';
     menu = nodesWithClass(sessionRow(session), 'ses-menu')[0];
-    assert.deepEqual(menu.children.map(nodeText), ['置顶', '重命名', '删除']);
+    assert.deepEqual(menu.children.map(nodeText), ['标为未读', '置顶', '重命名', '删除']);
     const codexMenu = nodesWithClass(sessionRow({...session, assistant: 'codex'}), 'ses-menu')[0];
-    assert.deepEqual(codexMenu.children.map(nodeText), ['置顶', '重命名', '移回当前', '删除']);
+    assert.deepEqual(codexMenu.children.map(nodeText), ['标为未读', '置顶', '重命名', '移回当前', '删除']);
     assert.equal(nodesWithClass(sessionRow(session), 'ses-archive-trigger').length, 0, 'DeepSeek does not support unarchive');
     assert.equal(nodesWithClass(sessionRow({...session, assistant: 'codex'}), 'ses-archive-trigger')[0].attributes['aria-label'], '移回当前会话');
     appState.assistantInfo = {m1: {dsh: {enabled: true, degraded: false}}};
-    assert.equal(nodesWithClass(sessionRow(session), 'ses-menu').length, 0, 'old agent must not expose unsupported actions');
+    assert.deepEqual(nodesWithClass(sessionRow(session), 'ses-menu')[0].children.map(nodeText), ['标为未读'], 'gateway unread state also works with older DeepSeek agents');
   } finally { appState.assistantInfo = previousInfo; appState.scope = previousScope; }
 });
 
@@ -4382,11 +4461,11 @@ test('session deletion keeps cached chat on failure and disposes it only on succ
 
 test('DeepSeek capability discovery refreshes existing rows only when capabilities change', async () => {
   const previous = {assistant:appState.assistant, info:appState.assistantInfo, nodes:appState.nodes};
-  vm.runInContext('globalThis.__capOriginals = {api, syncAssistantTabs, renderSessionResults, macs:[...MACS]};', appSandbox);
+  vm.runInContext('globalThis.__capOriginals = {api, syncAssistantPicker, renderSessionResults, macs:[...MACS]};', appSandbox);
   appSandbox.__capRenders = 0;
   vm.runInContext(`MACS.splice(0, MACS.length, {id:'m1'});
     api = async () => ({dsh:{enabled:true,degraded:false,sessionActions:['pin','rename','archive','delete']}});
-    syncAssistantTabs = () => {}; renderSessionResults = () => { __capRenders++; };`, appSandbox);
+    syncAssistantPicker = () => {}; renderSessionResults = () => { __capRenders++; };`, appSandbox);
   try {
     appState.assistant = 'dsh'; appState.nodes = {m1:true}; appState.assistantInfo = {};
     await vm.runInContext('refreshAssistantCapabilities()', appSandbox);
@@ -4394,7 +4473,7 @@ test('DeepSeek capability discovery refreshes existing rows only when capabiliti
     await vm.runInContext('refreshAssistantCapabilities()', appSandbox);
     assert.equal(appSandbox.__capRenders, 1, 'unchanged info must not dismiss an open menu');
   } finally {
-    vm.runInContext('({api, syncAssistantTabs, renderSessionResults} = __capOriginals); MACS.splice(0, MACS.length, ...__capOriginals.macs);', appSandbox);
+    vm.runInContext('({api, syncAssistantPicker, renderSessionResults} = __capOriginals); MACS.splice(0, MACS.length, ...__capOriginals.macs);', appSandbox);
     Object.assign(appState, {assistant:previous.assistant, assistantInfo:previous.info, nodes:previous.nodes});
   }
 });
@@ -4871,7 +4950,7 @@ test('DSH permission menu enables advertised options and disables old agents', (
     vm.runInContext('setChatApprovalEnabled(__permissionMenuChat, true)', appSandbox);
     assert.equal(trigger.disabled, false);
     assert.equal(label.textContent, '工作区内修改');
-    assert.equal(nodeText(popover).includes('DeepSeek'), true);
+    assert.equal(nodeText(popover).includes('DSH Desktop'), true);
     assert.equal(nodeText(popover).includes('完全访问权限'), false);
     chat.approvalOptions = [];
     vm.runInContext('setChatApprovalEnabled(__permissionMenuChat, true)', appSandbox);

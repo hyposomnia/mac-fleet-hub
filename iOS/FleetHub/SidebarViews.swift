@@ -107,63 +107,70 @@ struct DevicePanel: View {
 }
 
 struct DevicePicker: View {
+    @State private var editor: NativeSheet?
     @Environment(\.fleetStyle) private var style
     @ObservedObject var store: FleetStore
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            HStack {
-                Text(store.isFiles ? "选择文件设备" : "选择会话设备").font(TitaniumStyle.font("title", weight: .semibold))
-                Spacer()
-                Button { store.deviceSheet = false } label: { Image(systemName: "xmark") }
-                    .buttonStyle(TitaniumIconButtonStyle()).accessibilityLabel("完成")
-            }
-            Text(store.isFiles ? "选择设备浏览文件" : "可汇总全部在线设备的未归档会话")
-                .font(TitaniumStyle.font("secondary")).foregroundStyle(style.color("text-2"))
-            ScrollView {
-                LazyVStack(spacing: 4) {
+        NavigationStack {
+            List {
+                Section {
                     if !store.isFiles { row(nil) }
                     ForEach(store.devices) { row($0) }
                 }
             }
-        }.padding(18).background(style.color("bg"))
+                .nativeSettingsForm()
+                .accessibilityIdentifier("native-device-picker-list")
+                .navigationTitle(store.isFiles ? "选择文件设备" : "选择会话设备")
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar { ToolbarItem(placement: .confirmationAction) { Button("完成") { store.deviceSheet = false } } }
+        }
+        .sheet(item: $editor) { sheet in
+            if case .device(let id) = sheet {
+                NativeDeviceEditor(store: store, identifier: id).nativeSheetSurface(locked: store.drawerBusy)
+            }
+        }
     }
 
     private func row(_ device: FleetDevice?) -> some View {
         let identifier = device?.id ?? "all"
         let name = device?.name ?? "全部设备"
         let selected = store.snapshot?.deviceScope == identifier
-        return HStack(spacing: 4) {
+        return HStack(spacing: 0) {
             Button { store.selectDevice(identifier) } label: {
-                HStack(spacing: 14) {
+                HStack(spacing: 12) {
                     if let device {
-                        FleetDeviceIcon(device: device, size: 28).frame(width: 32)
+                        FleetDeviceIcon(device: device, size: 24).frame(width: 28)
                     } else {
-                        Image(systemName: "square.grid.2x2").font(.system(size: 24))
-                            .foregroundStyle(style.color("accent-text")).frame(width: 32)
+                        Image(systemName: "square.grid.2x2").font(.system(size: 22))
+                            .foregroundStyle(style.color("accent-text")).frame(width: 28)
                     }
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(name).font(TitaniumStyle.font("body", weight: .semibold)).lineLimit(1)
-                        Text(device.map { "\($0.count ?? 0) 个近期会话" } ?? "\(store.devices.filter(\.online).count)/\(store.devices.count) 台设备在线")
-                            .font(TitaniumStyle.font("caption")).foregroundStyle(style.color("text-2"))
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(name).font(.body.weight(.medium)).lineLimit(1)
+                        if !store.isFiles {
+                            Text(device.map { "\($0.count ?? 0) 个近期会话" } ?? "\(store.devices.filter(\.online).count)/\(store.devices.count) 台设备在线")
+                                .font(.subheadline).foregroundStyle(.secondary)
+                        }
                     }
-                    Spacer(minLength: 0)
-                    if selected { Image(systemName: "checkmark") }
-                    else if let device {
-                        Text(device.online ? "在线" : "离线").font(TitaniumStyle.font("caption"))
-                    }
-                }.frame(maxWidth: .infinity, minHeight: 62).contentShape(Rectangle())
+                    Spacer(minLength: 8)
+                    Image(systemName: "checkmark").font(.body.weight(.semibold))
+                        .foregroundStyle(style.color("accent-text"))
+                        .opacity(selected ? 1 : 0).accessibilityHidden(true)
+                        .frame(width: 20)
+                }.frame(maxWidth: .infinity, minHeight: 48).contentShape(Rectangle())
             }.buttonStyle(.plain).accessibilityLabel(name).accessibilityIdentifier("device-\(identifier)")
+                .accessibilityAddTraits(selected ? .isSelected : [])
             if let device {
+                DeviceStatusTag(online: device.online)
+                    .accessibilityIdentifier("device-status-\(identifier)")
+                    .padding(.leading, 8)
                 Button {
-                    store.deviceSheet = false
-                    store.showOverlay("host", device: device.id)
-                } label: { Image(systemName: "info.circle") }
-                .buttonStyle(TitaniumIconButtonStyle()).accessibilityLabel("\(device.name) 设备设置")
+                    editor = .device(device.id)
+                } label: { Image(systemName: "info.circle").font(.body).frame(width: 44, height: 44) }
+                .buttonStyle(.borderless).tint(.secondary).accessibilityLabel("\(device.name) 设备设置")
             }
         }
-        .padding(.horizontal, 10).foregroundStyle(style.color("text"))
-        .background(selected ? style.selection : .clear, in: RoundedRectangle(cornerRadius: TitaniumStyle.radius("control")))
+        .foregroundStyle(style.color("text"))
         .disabled(store.busy)
     }
 }
@@ -239,6 +246,41 @@ struct FleetSettingsMenu: View {
     }
 }
 
+// Match the dashboard's archive lid and clock fill without a selected tile.
+private struct SessionFilterIcon: View {
+    @Environment(\.fleetStyle) private var style
+    var archive: Bool
+    var selected: Bool
+
+    var body: some View {
+        Canvas { context, size in
+            context.scaleBy(x: size.width / 24, y: size.height / 24)
+            let ink = style.color(selected ? "accent-text" : "text-1")
+            let stroke = StrokeStyle(lineWidth: 1.7, lineCap: .round, lineJoin: .round)
+            if archive {
+                let lid = Path(roundedRect: CGRect(x: 3, y: 4, width: 18, height: 4), cornerRadius: 1)
+                if selected { context.fill(lid, with: .color(ink)) }
+                context.stroke(lid, with: .color(ink), style: stroke)
+                var box = Path()
+                box.move(to: CGPoint(x: 5, y: 8)); box.addLine(to: CGPoint(x: 5, y: 19))
+                box.addQuadCurve(to: CGPoint(x: 7, y: 21), control: CGPoint(x: 5, y: 21))
+                box.addLine(to: CGPoint(x: 17, y: 21))
+                box.addQuadCurve(to: CGPoint(x: 19, y: 19), control: CGPoint(x: 19, y: 21))
+                box.addLine(to: CGPoint(x: 19, y: 8))
+                box.move(to: CGPoint(x: 10, y: 12)); box.addLine(to: CGPoint(x: 14, y: 12))
+                context.stroke(box, with: .color(ink), style: stroke)
+            } else {
+                let face = Path(ellipseIn: CGRect(x: 3, y: 3, width: 18, height: 18))
+                if selected { context.fill(face, with: .color(ink)) }
+                context.stroke(face, with: .color(ink), style: stroke)
+                var hands = Path()
+                hands.move(to: CGPoint(x: 12, y: 7)); hands.addLine(to: CGPoint(x: 12, y: 12)); hands.addLine(to: CGPoint(x: 15, y: 14))
+                context.stroke(hands, with: .color(selected ? style.color("bg") : ink), style: stroke)
+            }
+        }.frame(width: 22, height: 22).accessibilityHidden(true)
+    }
+}
+
 struct SessionPanel: View {
     @Environment(\.fleetStyle) private var style
     @ObservedObject var store: FleetStore
@@ -246,6 +288,8 @@ struct SessionPanel: View {
     let pinned: Bool
     let togglePin: () -> Void
     @State private var deleteTarget: FleetSession?
+    @State private var renameTarget: FleetSession?
+    @State private var renameText = ""
     @FocusState private var searchFocused: Bool
 
     private var recent: Bool { store.snapshot?.view == "recent" }
@@ -267,16 +311,18 @@ struct SessionPanel: View {
                 }
             }
             HStack(spacing: 7) {
-                Button { store.send("archive") } label: { Image(systemName: "archivebox") }
-                    .buttonStyle(TitaniumIconButtonStyle(size: compact ? 44 : 36, foreground: store.snapshot?.archived == true ? "accent-text" : "text-1", background: store.snapshot?.archived == true ? style.selection : .clear, radius: compact ? "control" : "compact"))
+                Button { store.send("archive") } label: { SessionFilterIcon(archive: true, selected: store.snapshot?.archived == true) }
+                    .buttonStyle(TitaniumIconButtonStyle(size: compact ? 44 : 36, foreground: store.snapshot?.archived == true ? "accent-text" : "text-1"))
                     .accessibilityLabel(store.snapshot?.archived == true ? "显示当前会话" : "显示已归档会话")
                     .accessibilityIdentifier("session-archive-toggle")
+                    .accessibilityValue(store.snapshot?.archived == true ? "已选中" : "未选中")
                     .disabled(store.busy)
                 Button { store.send("view", values: ["view": recent ? "project" : "recent"]) } label: {
-                    Image(systemName: recent ? "folder" : "clock")
+                    SessionFilterIcon(archive: false, selected: recent)
                 }
-                .buttonStyle(TitaniumIconButtonStyle(size: compact ? 44 : 36, foreground: recent ? "accent-text" : "text-1", background: recent ? style.selection : .clear, radius: compact ? "control" : "compact")).accessibilityLabel(recent ? "按项目分组" : "按最近更新排序")
+                .buttonStyle(TitaniumIconButtonStyle(size: compact ? 44 : 36, foreground: recent ? "accent-text" : "text-1")).accessibilityLabel(recent ? "按项目分组" : "按最近更新排序")
                 .accessibilityIdentifier("session-view-toggle")
+                .accessibilityValue(recent ? "已选中" : "未选中")
                 .disabled(store.busy)
                 HStack(spacing: 7) {
                     Image(systemName: "magnifyingglass").font(.system(size: 15)).foregroundStyle(style.color("text-2"))
@@ -290,20 +336,16 @@ struct SessionPanel: View {
                     }
                 }
                 .padding(.horizontal, 9).frame(height: compact ? 44 : 36)
-                .background(style.color("surface-2"), in: RoundedRectangle(cornerRadius: TitaniumStyle.radius(compact ? "control" : "compact")))
                 Button(action: newSession) { Image(systemName: "plus") }
-                    .buttonStyle(TitaniumIconButtonStyle(size: compact ? 44 : 36, foreground: "accent-contrast", background: style.color("accent"), radius: compact ? "control" : "compact")).accessibilityLabel("新建无项目会话")
+                    .buttonStyle(TitaniumIconButtonStyle(size: compact ? 44 : 36, foreground: "text", radius: compact ? "control" : "compact")).accessibilityLabel("新建无项目会话")
                     .accessibilityIdentifier("new-session").disabled(!store.canCreateSession || store.busy)
             }
             }.padding(.horizontal, compact ? 14 : 10).padding(.top, compact ? 10 : 14).padding(.bottom, 10)
-            if store.snapshot?.assistant == .dsh {
-                if store.snapshot?.degraded == true {
-                    Text("DSH Desktop 未运行，当前仅显示磁盘会话（只读）").font(.footnote).padding(8)
-                }
+            if let current = store.snapshot?.assistant, current.hasNativeUI, store.snapshot?.degraded == true {
+                Text("\(current.title) 未运行，当前仅显示磁盘会话（只读）").font(.footnote).padding(8)
             }
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: compact ? 5 : 8) {
-                if store.snapshot?.loading == true && store.sessions.isEmpty { ProgressView("正在读取会话…") }
                 if recent {
                     ForEach(ordered) { sessionRow($0) }
                 } else {
@@ -340,13 +382,29 @@ struct SessionPanel: View {
                 }
                 }.padding(compact ? 8 : 10)
             }
+            .overlay {
+                if store.snapshot?.loading == true && store.sessions.isEmpty {
+                    ProgressView().tint(style.color("accent"))
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .accessibilityLabel("正在加载会话").accessibilityIdentifier("session-loading")
+                }
+            }
             .refreshable { store.send("refresh") }
         }
         .onChange(of: store.search) { _, _ in store.searchChanged() }
         .onChange(of: store.openedSequence) { _, _ in searchFocused = false }
+        .onChange(of: store.snapshot?.identity) { _, _ in renameTarget = nil; deleteTarget = nil; renameText = "" }
         .onDisappear { searchFocused = false }
         .background(style.color("bg")).accessibilityElement(children: .contain)
         .accessibilityIdentifier("session-panel")
+        .alert("重命名会话", isPresented: Binding(get: { renameTarget != nil }, set: { if !$0 { renameTarget = nil } })) {
+            TextField("会话名称", text: $renameText)
+            Button("取消", role: .cancel) { renameTarget = nil }
+            Button("保存") {
+                if let session = renameTarget { store.action("rename", session: session, value: renameText.trimmingCharacters(in: .whitespacesAndNewlines)) }
+                renameTarget = nil
+            }.disabled(renameText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || store.busy)
+        }
         .alert("永久删除会话？", isPresented: Binding(get: { deleteTarget != nil }, set: { if !$0 { deleteTarget = nil } }), presenting: deleteTarget) { session in
             Button("取消", role: .cancel) { deleteTarget = nil }
             Button("删除", role: .destructive) {
@@ -362,35 +420,48 @@ struct SessionPanel: View {
         return store.snapshot?.archived == true ? "没有已归档会话" : "没有未归档会话"
     }
 
+    // 助手下拉框：DSH 家族会继续增加（DSH Desktop / DeepSeek），横排 tab 放不下。
     private var assistantPicker: some View {
-        HStack(spacing: 4) {
-            ForEach(store.assistants) { assistant in
-                HStack(spacing: 0) {
+        HStack(spacing: 6) {
+            Menu {
+                ForEach(store.assistants) { assistant in
                     Button {
                         store.showingDetail = false
                         store.search = ""
                         store.send("assistant", values: ["assistant": assistant.rawValue])
                     } label: {
-                        Text(assistant.title).font(TitaniumStyle.font("body", weight: .medium))
-                            .frame(maxWidth: .infinity, minHeight: compact ? 44 : 31)
-                    }
-                    .buttonStyle(.plain).accessibilityAddTraits(store.snapshot?.assistant == assistant ? .isSelected : [])
-                    if assistant == .dsh {
-                        Button { if let path = store.snapshot?.dshNativeURL { store.openExternal(path) } } label: {
-                            Image("DeepSeek").resizable().renderingMode(.template).scaledToFit().frame(width: 22, height: 18)
+                        if store.snapshot?.assistant == assistant {
+                            Label(assistant.title, systemImage: "checkmark")
+                        } else {
+                            Text(assistant.title)
                         }
-                            .buttonStyle(TitaniumIconButtonStyle(size: compact ? 44 : 26))
-                            .accessibilityLabel("打开 DeepSeek Harness")
-                            .disabled(store.snapshot?.dshNativeURL == nil || store.busy)
-                            .help(store.snapshot?.dshNativeHint ?? "")
                     }
                 }
-                .background(store.snapshot?.assistant == assistant ? style.color("surface-1") : .clear,
-                            in: RoundedRectangle(cornerRadius: TitaniumStyle.radius(compact ? "control" : "compact")))
+            } label: {
+                HStack(spacing: 4) {
+                    Text((store.snapshot?.assistant ?? .codex).title)
+                        .font(TitaniumStyle.font("body", weight: .medium))
+                        .lineLimit(1)
+                    Image(systemName: "chevron.down")
+                        .font(.system(size: 10, weight: .semibold))
+                }
+                .frame(maxWidth: .infinity, minHeight: compact ? 44 : 31, alignment: .leading)
+                .foregroundStyle(style.color("text-1"))
+            }
+            // 读屏与 UI 测试都以当前助手名为准（"切换助手"会丢掉当前选中值）。
+            .accessibilityLabel((store.snapshot?.assistant ?? .codex).title)
+            .accessibilityIdentifier("assistant-picker")
+            if let current = store.snapshot?.assistant, current.hasNativeUI {
+                Button { if let path = store.snapshot?.dshNativeURL { store.openExternal(path) } } label: {
+                    Image("DeepSeek").resizable().renderingMode(.template).scaledToFit().frame(width: 22, height: 18)
+                }
+                .buttonStyle(TitaniumIconButtonStyle(size: compact ? 44 : 26))
+                .accessibilityLabel("打开 \(current.title) 原生界面")
+                .disabled(store.snapshot?.dshNativeURL == nil || store.busy)
+                .help(store.snapshot?.dshNativeHint ?? "")
             }
         }
-        .padding(4).foregroundStyle(style.color("text"))
-        .background(style.color("surface-2"), in: RoundedRectangle(cornerRadius: TitaniumStyle.radius(compact ? "card" : "control")))
+        .foregroundStyle(style.color("text-1"))
     }
 
     private func newSession() {
@@ -425,7 +496,7 @@ struct SessionPanel: View {
     }
 
     private func sessionRow(_ session: FleetSession) -> some View {
-        return VStack(alignment: .leading, spacing: compact ? 1 : 2) {
+        return VStack(alignment: .leading, spacing: 3) {
             HStack(spacing: 2) {
             Button { store.open(session) } label: {
                 HStack(spacing: 9) {
@@ -434,7 +505,7 @@ struct SessionPanel: View {
                     Spacer(minLength: 0)
                     if session.pinned { Image(systemName: "pin.fill").font(.caption) }
                 }
-                .frame(maxWidth: .infinity, minHeight: compact ? 44 : 25).contentShape(Rectangle())
+                .frame(maxWidth: .infinity, minHeight: 25).contentShape(Rectangle())
             }.buttonStyle(.plain).accessibilityIdentifier("session-\(session.sessionId)")
                 .accessibilityValue(session.status ?? "已读")
             if session.running {
@@ -446,21 +517,28 @@ struct SessionPanel: View {
             }
             }
             if store.snapshot?.deviceScope == "all" || recent {
-                HStack(spacing: 5) {
+                HStack(spacing: 8) {
                     if store.snapshot?.deviceScope == "all" {
-                        if let device = store.devices.first(where: { $0.id == session.macId }) {
-                            FleetDeviceIcon(device: device, size: compact ? 12 : 11, monochrome: true)
+                        HStack(spacing: 5) {
+                            Image("SessionDevice").resizable().scaledToFit()
+                                .frame(width: compact ? 12 : 11, height: compact ? 12 : 11).accessibilityHidden(true)
+                            Text(store.devices.first(where: { $0.id == session.macId })?.name ?? session.macId)
                         }
-                        Text(store.devices.first(where: { $0.id == session.macId })?.name ?? session.macId)
                     }
-                    if recent { Text(session.project) }
+                    if recent && !session.project.isEmpty {
+                        HStack(spacing: 5) {
+                            Image("SessionProject").resizable().scaledToFit()
+                                .frame(width: compact ? 12 : 11, height: compact ? 12 : 11).accessibilityHidden(true)
+                            Text(session.project)
+                        }
+                    }
                 }
                 .font(TitaniumStyle.font(compact ? "secondary" : "caption"))
                 .foregroundStyle(style.color("text-2")).lineLimit(1)
                 .frame(height: compact ? 17 : 16, alignment: .leading)
             }
         }
-        .padding(.vertical, compact ? 2 : 4).padding(.leading, compact ? 8 : 11).padding(.trailing, compact ? 8 : 7)
+        .frame(minHeight: 44).padding(.vertical, 3).padding(.leading, compact ? 8 : 11).padding(.trailing, compact ? 8 : 7)
         .foregroundStyle(style.color("text"))
         .background(store.snapshot?.selectedID == session.id ? style.selection : .clear,
                     in: RoundedRectangle(cornerRadius: TitaniumStyle.radius("control")))
@@ -469,8 +547,11 @@ struct SessionPanel: View {
     }
 
     @ViewBuilder private func sessionActions(_ session: FleetSession) -> some View {
-        Button("打开会话") { store.open(session) }
+        Button("打开会话", systemImage: "bubble.left") { store.open(session) }
         let actions = session.actions ?? []
+        if actions.contains("mark-unread") {
+            Button("标为未读", systemImage: "envelope.badge") { store.action("mark-unread", session: session) }
+        }
         let archive = store.snapshot?.archived == true ? "unarchive" : "archive"
         if actions.contains(archive) {
             Button(archive == "archive" ? "归档会话" : "移回当前会话", systemImage: archive == "archive" ? "archivebox" : "tray.and.arrow.up") {
@@ -478,8 +559,8 @@ struct SessionPanel: View {
             }
         }
         let pin = session.pinned ? "unpin" : "pin"
-        if actions.contains(pin) { Button(session.pinned ? "取消置顶" : "置顶") { store.action(pin, session: session) } }
-        if actions.contains("rename") { Button("重命名") { searchFocused = false; store.nativeSheet = .rename(session) } }
-        if actions.contains("delete") { Button("删除", role: .destructive) { deleteTarget = session } }
+        if actions.contains(pin) { Button(session.pinned ? "取消置顶" : "置顶", systemImage: session.pinned ? "pin.slash" : "pin") { store.action(pin, session: session) } }
+        if actions.contains("rename") { Button("重命名", systemImage: "pencil") { searchFocused = false; renameText = session.title; renameTarget = session } }
+        if actions.contains("delete") { Button("删除", systemImage: "trash", role: .destructive) { deleteTarget = session } }
     }
 }

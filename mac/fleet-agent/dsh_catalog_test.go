@@ -248,7 +248,7 @@ func TestDSHSessionMenuLive(t *testing.T) {
 	previousCfg := cfg
 	cfg.ChatQueueFile = filepath.Join(t.TempDir(), "chat-queue.json")
 	t.Cleanup(func() { cfg = previousCfg })
-	b := newDSHChatBackend(realCfg.DSHHome, realCfg.DSHLog, realCfg.DSHEndpoint)
+	b := newDSHChatBackend(dshHarnessSpec{home: realCfg.DSHHome, logPath: realCfg.DSHLog, endpointOverride: realCfg.DSHEndpoint})
 	defer b.Close()
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()

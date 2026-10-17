@@ -31,7 +31,7 @@ type dshInteraction struct {
 	Submitted bool
 }
 
-func (r dshInteraction) event(id string) ChatEvent {
+func (r dshInteraction) event(assistant, id string) ChatEvent {
 	method := "item/commandExecution/requestApproval"
 	body := map[string]any{"requestId": id, "raw": r.Payload, "allowedDecisions": []string{"allow_once", "decline"}}
 	if r.Kind == "user-questions/request" {
@@ -53,7 +53,7 @@ func (r dshInteraction) event(id string) ChatEvent {
 		body["message"] = message
 	}
 	body["requestMethod"] = method
-	return newChatEvent("interaction_request", "dsh", r.SessionID, "", id, body)
+	return newChatEvent("interaction_request", assistant, r.SessionID, "", id, body)
 }
 
 func (b *dshChatBackend) rememberInteraction(kind, id, sessionID string, payload json.RawMessage) {
@@ -73,7 +73,7 @@ func (b *dshChatBackend) rememberInteraction(kind, id, sessionID string, payload
 	b.eventMu.Lock()
 	b.interactions[id] = r
 	b.eventMu.Unlock()
-	b.publish(sessionID, r.event(id))
+	b.publish(sessionID, r.event(b.assistant(), id))
 }
 
 func (b *dshChatBackend) resolveInteraction(id string, response any) {
@@ -82,7 +82,7 @@ func (b *dshChatBackend) resolveInteraction(id string, response any) {
 	delete(b.interactions, id)
 	b.eventMu.Unlock()
 	if ok {
-		b.publish(r.SessionID, newChatEvent("interaction_resolved", "dsh", r.SessionID, "", id, map[string]any{"requestId": id, "response": response}))
+		b.publish(r.SessionID, newChatEvent("interaction_resolved", b.assistant(), r.SessionID, "", id, map[string]any{"requestId": id, "response": response}))
 	}
 }
 
@@ -117,7 +117,7 @@ func (b *dshChatBackend) pendingInteractions(sessionID string) []ChatEvent {
 	out := []ChatEvent{}
 	for id, r := range b.interactions {
 		if r.SessionID == sessionID && !r.Submitted {
-			out = append(out, r.event(id))
+			out = append(out, r.event(b.assistant(), id))
 		}
 	}
 	return out
@@ -184,12 +184,12 @@ func (b *dshChatBackend) syncQuestionListing(raw json.RawMessage) {
 			}
 			r := dshInteraction{SessionID: item.SessionID, Kind: "user-questions/request", Questions: q.Questions, CallID: q.CallID}
 			b.interactions[id] = r
-			events = append(events, r.event(id))
+			events = append(events, r.event(b.assistant(), id))
 		}
 		for id, r := range b.interactions {
 			if r.SessionID == item.SessionID && r.CallID != "" && !active[id] {
 				delete(b.interactions, id)
-				events = append(events, newChatEvent("interaction_resolved", "dsh", item.SessionID, "", id, map[string]any{"requestId": id}))
+				events = append(events, newChatEvent("interaction_resolved", b.assistant(), item.SessionID, "", id, map[string]any{"requestId": id}))
 			}
 		}
 	}
@@ -284,7 +284,7 @@ func (b *dshChatBackend) respondInteraction(ctx context.Context, client *dshClie
 				b.interactions[id] = current
 			}
 			b.eventMu.Unlock()
-			b.publish(sessionID, newChatEvent("interaction_resolved", "dsh", sessionID, "", id, map[string]any{"requestId": id, "response": json.RawMessage(response)}))
+			b.publish(sessionID, newChatEvent("interaction_resolved", b.assistant(), sessionID, "", id, map[string]any{"requestId": id, "response": json.RawMessage(response)}))
 			return nil
 		}
 		outcome = map[string]any{"kind": "result", "value": map[string]any{"answers": answers}}

@@ -2,6 +2,12 @@
 
 ## 2026-10-17
 
+- **DeepSeek Harness 拆成两个独立入口**：`dsh` = DSH Desktop（端点来自 Desktop 的 harness.log），新增 `deepseek` = `dsh` CLI / web harness（状态在 `~/.dsh`，没有固定日志）。两者各有会话目录、原生 UI 路径（`/mN/dsh/` 与 `/mN/deepseek/`）与能力块；同一台 Mac 可以只开其中一个，也可以同时运行、互不串台。消息 API 新增 `ai_client=deepseek-cli`，旧的 `deepseek` 仍指向 DSH Desktop（不破坏已有自动化）。
+- 修复 **secret 自签 cookie 一直 401**：host 端用 base64url 解码后的 32 字节做 HMAC key、且签名覆盖 body 的 base64url 字符串，而 agent 用文件里的原文字符串当 key、对原始 JSON 字节签名。修正后 Desktop 与 CLI 两条路径都能在拿不到每进程 token 时（日志轮转 / CLI 无日志）用 `.credentials.yaml` 建立会话；同一 host 的 `/` 从 401 变 200。
+- CLI harness 的端点发现改为 **扫描 loopback 监听端口 + 用该 home 的凭据认领**（`/manifest.webmanifest` + 签名 cookie 的 `/`），不再要求用户把 `dsh web` 的 stdout 落盘；`FLEET_DEEPSEEK_ENDPOINT` 可显式钉住端口。实测同机 Desktop(43129) 与 CLI(8081) 同时运行：`dsh` 后端列出 11 个 Desktop 会话、`deepseek` 后端列出 3 个 CLI 会话，CLI 凭据无法认领 Desktop host。
+- 会话列表的助手切换从 **横排 tab 改成下拉框**（Web / H5 / iOS 同步）：DSH 家族会继续增加，tab 放不下；原生 UI 的鲸鱼按钮跟随当前选中的助手，不再嵌在 tab 内。
+- 新增 `FLEET_DEEPSEEK_ENABLED` / `FLEET_DEEPSEEK_HOME`（默认 `1` / `~/.dsh`）与 `FLEET_DEEPSEEK_LOG` / `FLEET_DEEPSEEK_ENDPOINT` 覆盖项；安装器按与 DSH 相同的 sticky 规则重渲染 plist，不会把已关掉的机器重新打开。
+
 - Web v273 区分会话读取失败与真实空列表；连接失败显示无底色的原因、解决办法及重试入口，保留其他设备的正常会话，分页失败停止自动重试。
 
 - SaaS Web v271 为会话和文件中的 HTTP(S) 链接保留来源设备，通过该设备的 DNS、VPN 和路由访问本机或内网服务；支持静态资源、表单、接口、WebSocket 和 SSE。网页使用与账号隔离、随登录和设备授权撤销的预览通道，旧客户端提示升级；新代理需要正式签名客户端。

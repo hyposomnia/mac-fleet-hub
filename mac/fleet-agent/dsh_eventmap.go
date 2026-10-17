@@ -184,20 +184,20 @@ func dshBlockItemID(turn, step, index int64) string {
 }
 
 // dshMapRecord 把一条 history 记录投影成 0..n 个 ChatEvent。
-func dshMapRecord(sessionID string, rec dshHistoryRecord) []ChatEvent {
+func dshMapRecord(assistant, sessionID string, rec dshHistoryRecord) []ChatEvent {
 	switch rec.Type {
 	case "event":
 		var ev dshSessionEvent
 		if json.Unmarshal(rec.Event, &ev) != nil {
 			return nil
 		}
-		return dshMapSessionEvent(sessionID, ev)
+		return dshMapSessionEvent(assistant, sessionID, ev)
 	case "chunks":
 		var row dshPackedChunkRow
 		if json.Unmarshal(rec.Event, &row) != nil {
 			return nil
 		}
-		return dshExpandChunkRow(sessionID, row)
+		return dshExpandChunkRow(assistant, sessionID, row)
 	default:
 		return nil
 	}
@@ -207,7 +207,7 @@ func dshMapRecord(sessionID string, rec dshHistoryRecord) []ChatEvent {
 //
 // 只处理 text/reasoning 两类：tool-call-chunks 是工具**入参**的增量，渲染成工具输出
 // 是误导性的，而收口的 tool/call 事件本来就带完整参数。
-func dshExpandChunkRow(sessionID string, row dshPackedChunkRow) []ChatEvent {
+func dshExpandChunkRow(assistant, sessionID string, row dshPackedChunkRow) []ChatEvent {
 	kind := strings.TrimPrefix(row.Type, "chunkrow/")
 	payload := row.Data.Texts
 	if len(payload) == 0 {
@@ -238,21 +238,21 @@ func dshExpandChunkRow(sessionID string, row dshPackedChunkRow) []ChatEvent {
 		if text == "" {
 			continue
 		}
-		events = append(events, newChatEvent(eventType, "dsh", sessionID, turnID, itemID,
+		events = append(events, newChatEvent(eventType, assistant, sessionID, turnID, itemID,
 			map[string]any{"delta": text}))
 	}
 	return events
 }
 
 // dshMapSessionEvent 把单个会话事件投影成 0..n 个 ChatEvent。
-func dshMapSessionEvent(sessionID string, ev dshSessionEvent) []ChatEvent {
+func dshMapSessionEvent(assistant, sessionID string, ev dshSessionEvent) []ChatEvent {
 	switch ev.Type {
 	case "turn/start":
 		var data struct {
 			Turn int64 `json:"turn"`
 		}
 		_ = json.Unmarshal(ev.Data, &data)
-		return []ChatEvent{newChatEvent("turn_started", "dsh", sessionID, dshTurnID(data.Turn), "",
+		return []ChatEvent{newChatEvent("turn_started", assistant, sessionID, dshTurnID(data.Turn), "",
 			map[string]any{"turnId": dshTurnID(data.Turn)})}
 
 	case "turn/end":
@@ -267,7 +267,7 @@ func dshMapSessionEvent(sessionID string, ev dshSessionEvent) []ChatEvent {
 		if ev.Time > 0 {
 			body["completedAtMs"] = ev.Time
 		}
-		return []ChatEvent{newChatEvent("turn_done", "dsh", sessionID, dshTurnID(data.Turn), "", body)}
+		return []ChatEvent{newChatEvent("turn_done", assistant, sessionID, dshTurnID(data.Turn), "", body)}
 
 	case "assistant/chunk":
 		var data struct {
@@ -285,13 +285,13 @@ func dshMapSessionEvent(sessionID string, ev dshSessionEvent) []ChatEvent {
 			if data.Chunk.Text == "" {
 				return nil
 			}
-			return []ChatEvent{newChatEvent("assistant_delta", "dsh", sessionID, turnID, itemID,
+			return []ChatEvent{newChatEvent("assistant_delta", assistant, sessionID, turnID, itemID,
 				map[string]any{"delta": data.Chunk.Text})}
 		case "reasoning-delta":
 			if data.Chunk.Text == "" {
 				return nil
 			}
-			return []ChatEvent{newChatEvent("reasoning_delta", "dsh", sessionID, turnID, itemID,
+			return []ChatEvent{newChatEvent("reasoning_delta", assistant, sessionID, turnID, itemID,
 				map[string]any{"delta": data.Chunk.Text})}
 		case "usage":
 			if data.Chunk.Usage == nil {
@@ -300,7 +300,7 @@ func dshMapSessionEvent(sessionID string, ev dshSessionEvent) []ChatEvent {
 			u := data.Chunk.Usage
 			body := dshNormalizedUsage(u)
 			body["turnId"] = turnID
-			return []ChatEvent{newChatEvent("turn_usage", "dsh", sessionID, turnID, "", body)}
+			return []ChatEvent{newChatEvent("turn_usage", assistant, sessionID, turnID, "", body)}
 		default:
 			// block-start / block-end / tool-call-delta / finish 都不单独成项：
 			// 前两者是块的边界，tool-call-delta 是入参增量（收口由 tool/call 负责），
@@ -340,7 +340,7 @@ func dshMapSessionEvent(sessionID string, ev dshSessionEvent) []ChatEvent {
 			if data.Usage != nil {
 				body["usage"] = dshNormalizedUsage(data.Usage)
 			}
-			out = append(out, newChatEvent("assistant_done", "dsh", sessionID, turnID,
+			out = append(out, newChatEvent("assistant_done", assistant, sessionID, turnID,
 				dshBlockItemID(data.Turn, data.Step, int64(i)), body))
 		}
 		return out
@@ -356,7 +356,7 @@ func dshMapSessionEvent(sessionID string, ev dshSessionEvent) []ChatEvent {
 		if json.Unmarshal(ev.Data, &data) != nil || data.CallID == "" {
 			return nil
 		}
-		return []ChatEvent{newChatEvent("tool_update", "dsh", sessionID, dshTurnID(data.Turn), data.CallID,
+		return []ChatEvent{newChatEvent("tool_update", assistant, sessionID, dshTurnID(data.Turn), data.CallID,
 			map[string]any{
 				"kind":    "tool",
 				"title":   data.Name,
@@ -395,7 +395,7 @@ func dshMapSessionEvent(sessionID string, ev dshSessionEvent) []ChatEvent {
 		if callID == "" {
 			return nil
 		}
-		return []ChatEvent{newChatEvent("tool_update", "dsh", sessionID, dshTurnID(data.Turn), callID,
+		return []ChatEvent{newChatEvent("tool_update", assistant, sessionID, dshTurnID(data.Turn), callID,
 			map[string]any{"status": "completed", "output": text.String()})}
 
 	case "agent/inbox/spliced":
@@ -429,7 +429,7 @@ func dshMapSessionEvent(sessionID string, ev dshSessionEvent) []ChatEvent {
 			}
 			// clientId 用 host 回显的 rpcId：它是我们发 prompt 时带的 requestId，
 			// 浏览器据此把乐观气泡替换成权威正文（等价于 Codex 的 clientUserMessageId）。
-			out = append(out, newChatEvent("user_done", "dsh", sessionID, "", msg.ID, map[string]any{
+			out = append(out, newChatEvent("user_done", assistant, sessionID, "", msg.ID, map[string]any{
 				"clientId": msg.Source.RPCID,
 				"text":     text.String(),
 			}))

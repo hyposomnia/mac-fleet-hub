@@ -17,10 +17,10 @@
   <!-- theme.js 在样式加载前同步应用已保存的外观，默认浅色。 -->
 
   <link rel="stylesheet" href="vendor/codemirror/lib/codemirror.css?v=5.65.20" />
-  <link rel="stylesheet" href="style.css?v=273" />
-  <link rel="stylesheet" href="annotations.css?v=273" />
+  <link rel="stylesheet" href="style.css?v=274" />
+  <link rel="stylesheet" href="annotations.css?v=274" />
   <link rel="stylesheet" href="mobile_composer.css?v=1" />
-  <link rel="stylesheet" href="account.css?v=273" />
+  <link rel="stylesheet" href="account.css?v=274" />
 </head>
 <body>
   <div id="auth-status" role="status"><span id="auth-status-message">正在验证登录…</span><a href="">重新加载</a></div>
@@ -117,29 +117,33 @@
             <button data-mode="sessions" role="tab" aria-selected="true">会话</button>
             <button data-mode="files" role="tab" aria-selected="false">文件</button>
           </div>
-          <div class="seg assistant-seg" role="tablist">
-            <button data-assistant="codex" role="tab" aria-selected="true">ChatGPT</button>
-            <!-- DeepSeek 默认隐藏：只有该 Mac 的 /api/info 报了 dsh 能力才由 syncAssistantTabs 放出来 -->
-            <!-- 官方鲸鱼入口嵌在 DeepSeek tab 内：点鲸鱼在新页面打开原生 UI，点文字切助手。
-                 wrapper 只做「一个 tab」的视觉外壳（role=presentation），里面两个各自独立的
-                 button——既避开 button 套 button 的非法结构，也保住鲸鱼的键盘可达。 -->
-            <div class="assistant-tab" data-assistant-entry="dsh" role="presentation" hidden>
-              <button class="assistant-tab-label" data-assistant="dsh" role="tab" aria-selected="false">DeepSeek</button>
-              <button class="dsh-native-open" type="button" data-dsh-native-open title="仅选择单个设备时可用" aria-label="打开 DeepSeek Harness" disabled><svg class="dsh-whale" viewBox="0 0 23.16 17.04" aria-hidden="true"><use href="#deepseek-whale-mark" /></svg></button>
-            </div>
+          <!-- 助手选择用下拉框：DeepSeek 家族会继续增加（DSH Desktop / DeepSeek CLI），
+               tab 在窄屏与 4+ 个助手时放不下。不可用的选项由 syncAssistantPicker 隐藏。 -->
+          <div class="seg assistant-seg">
+            <select class="assistant-select" data-assistant-select aria-label="切换助手">
+              <option value="codex">ChatGPT</option>
+              <option value="dsh" hidden>DSH Desktop</option>
+              <option value="deepseek" hidden>DeepSeek</option>
+              <option value="claude" hidden>Claude</option>
+            </select>
+            <svg class="assistant-chevron ic" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
+            <!-- 鲸鱼入口跟随当前助手：只有选中的是 DSH 家族且原生 UI 在跑时才可用。 -->
+            <button class="dsh-native-open" type="button" data-dsh-native-open title="当前助手暂无原生界面" aria-label="打开原生界面" disabled hidden><svg class="dsh-whale" viewBox="0 0 23.16 17.04" aria-hidden="true"><use href="#deepseek-whale-mark" /></svg></button>
           </div>
           <span data-device-scope-slot="sessions"></span>
           <div class="sc-head-actions">
             <button class="iconbtn bare mobile-menu-trigger" title="设置" aria-label="设置" aria-haspopup="dialog"><svg class="ic" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.87l.04.04-2.87 2.87-.04-.04A1.7 1.7 0 0 0 15 19.4a1.7 1.7 0 0 0-1 1.55V21h-4v-.05A1.7 1.7 0 0 0 9 19.4a1.7 1.7 0 0 0-1.87.34l-.04.04-2.87-2.87.04-.04A1.7 1.7 0 0 0 4.6 15a1.7 1.7 0 0 0-1.55-1H3v-4h.05A1.7 1.7 0 0 0 4.6 9a1.7 1.7 0 0 0-.34-1.87l-.04-.04 2.87-2.87.04.04A1.7 1.7 0 0 0 9 4.6a1.7 1.7 0 0 0 1-1.55V3h4v.05A1.7 1.7 0 0 0 15 4.6a1.7 1.7 0 0 0 1.87-.34l.04-.04 2.87 2.87-.04.04A1.7 1.7 0 0 0 19.4 9a1.7 1.7 0 0 0 1.55 1H21v4h-.05a1.7 1.7 0 0 0-1.55 1Z"/></svg></button>
           </div>
         </div>
-        <div class="seg mobile-assistant-seg" role="tablist">
-          <button data-assistant="codex" role="tab" aria-selected="true">ChatGPT</button>
-          <!-- 与桌面 seg 同步显隐，见 syncAssistantTabs -->
-          <div class="assistant-tab" data-assistant-entry="dsh" role="presentation" hidden>
-            <button class="assistant-tab-label" data-assistant="dsh" role="tab" aria-selected="false">DeepSeek</button>
-            <button class="dsh-native-open" type="button" data-dsh-native-open title="仅选择单个设备时可用" aria-label="打开 DeepSeek Harness" disabled><svg class="dsh-whale" viewBox="0 0 23.16 17.04" aria-hidden="true"><use href="#deepseek-whale-mark" /></svg></button>
-          </div>
+        <div class="seg mobile-assistant-seg">
+          <select class="assistant-select" data-assistant-select aria-label="切换助手">
+            <option value="codex">ChatGPT</option>
+            <option value="dsh" hidden>DSH Desktop</option>
+            <option value="deepseek" hidden>DeepSeek</option>
+            <option value="claude" hidden>Claude</option>
+          </select>
+          <svg class="assistant-chevron ic" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
+          <button class="dsh-native-open" type="button" data-dsh-native-open title="当前助手暂无原生界面" aria-label="打开原生界面" disabled hidden><svg class="dsh-whale" viewBox="0 0 23.16 17.04" aria-hidden="true"><use href="#deepseek-whale-mark" /></svg></button>
         </div>
       </header>
       <div id="session-groups" class="sc-body"></div>
@@ -178,11 +182,10 @@
                 <div class="file-actions">
                   <button id="file-upload" class="iconbtn" title="上传文件" aria-label="上传文件"><svg class="ic" viewBox="0 0 24 24"><path d="M12 16V4m0 0 5 5m-5-5L7 9M5 20h14"/></svg></button>
                   <button id="file-new-folder" class="iconbtn" title="新建文件夹" aria-label="新建文件夹"><svg class="ic" viewBox="0 0 24 24"><path d="M3 6.5A2.5 2.5 0 0 1 5.5 4H9l2 2h7.5A2.5 2.5 0 0 1 21 8.5v8A2.5 2.5 0 0 1 18.5 19h-13A2.5 2.5 0 0 1 3 16.5v-10Z"/><path d="M12 10v5m-2.5-2.5h5"/></svg></button>
-                  <button id="file-settings" class="iconbtn file-settings-trigger" title="文件设置" aria-label="文件设置" aria-haspopup="dialog" aria-controls="file-settings-menu" aria-expanded="false"><svg class="ic" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.87l.04.04-2.87 2.87-.04-.04A1.7 1.7 0 0 0 15 19.4a1.7 1.7 0 0 0-1 1.55V21h-4v-.05A1.7 1.7 0 0 0 9 19.4a1.7 1.7 0 0 0-1.87.34l-.04.04-2.87-2.87.04-.04A1.7 1.7 0 0 0 4.6 15a1.7 1.7 0 0 0-1.55-1H3v-4h.05A1.7 1.7 0 0 0 4.6 9a1.7 1.7 0 0 0-.34-1.87l-.04-.04 2.87-2.87.04.04A1.7 1.7 0 0 0 9 4.6a1.7 1.7 0 0 0 1-1.55V3h4v.05A1.7 1.7 0 0 0 15 4.6a1.7 1.7 0 0 0 1.87-.34l.04-.04 2.87 2.87-.04.04A1.7 1.7 0 0 0 19.4 9a1.7 1.7 0 0 0 1.55 1H21v4h-.05a1.7 1.7 0 0 0-1.55 1Z"/></svg></button>
+                  <button id="file-settings" class="iconbtn file-settings-trigger" title="文件菜单" aria-label="文件菜单" aria-haspopup="dialog" aria-controls="file-settings-menu" aria-expanded="false"><svg class="ic" viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h16"/></svg></button>
                 </div>
               </div>
               <div id="file-upload-queue-mobile" class="file-upload-queue file-upload-queue-inline" aria-label="上传队列" hidden></div>
-              <form id="file-path-form" class="file-path-form"><input id="file-path-input" class="input mono" aria-label="前往文件夹的绝对路径" placeholder="输入路径，例如 /Volumes" autocomplete="off" /><button type="submit" class="btn sm">前往</button></form>
               <nav id="file-breadcrumbs" class="file-breadcrumbs" aria-label="路径"></nav>
             </header>
             <div class="file-table-head" role="row">
@@ -220,25 +223,24 @@
           </aside>
         </div>
         <input id="file-upload-input" type="file" multiple hidden>
-        <div id="file-settings-menu" class="file-settings-menu" role="dialog" aria-label="文件设置" hidden>
-          <div class="file-setting-view">
-            <span>查看方式</span>
-            <div id="file-view-switch" class="file-view-switch" role="group" aria-label="查看方式">
-              <button type="button" data-file-view="icons" title="图标视图" aria-label="图标视图" aria-pressed="false">
-                <svg class="ic" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
-              </button>
-              <button type="button" data-file-view="list" title="列表视图" aria-label="列表视图" aria-pressed="true">
-                <svg class="ic" viewBox="0 0 24 24"><line x1="9" y1="6" x2="21" y2="6"/><line x1="9" y1="12" x2="21" y2="12"/><line x1="9" y1="18" x2="21" y2="18"/><circle cx="4.5" cy="6" r="1"/><circle cx="4.5" cy="12" r="1"/><circle cx="4.5" cy="18" r="1"/></svg>
-              </button>
-              <button type="button" data-file-view="columns" title="分栏视图" aria-label="分栏视图" aria-pressed="false">
-                <svg class="ic" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="1.5"/><line x1="9" y1="4" x2="9" y2="20"/><line x1="15" y1="4" x2="15" y2="20"/></svg>
-              </button>
-            </div>
+        <div id="file-settings-menu" class="file-settings-menu" role="dialog" aria-label="文件菜单" hidden>
+          <div id="file-view-switch" class="file-menu-group file-view-switch" role="group" aria-label="查看方式" data-native-menu-group="查看方式">
+            <button type="button" data-file-view="icons" title="图标视图" aria-label="图标视图" aria-pressed="false"><span>图标视图</span><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg></button>
+            <button type="button" data-file-view="list" title="列表视图" aria-label="列表视图" aria-pressed="true"><span>列表视图</span><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6h12M9 12h12M9 18h12M3 6h1M3 12h1M3 18h1"/></svg></button>
+            <button type="button" data-file-view="columns" title="分栏视图" aria-label="分栏视图" aria-pressed="false"><span>分栏视图</span><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="1.5"/><path d="M9 4v16M15 4v16"/></svg></button>
           </div>
-          <label class="file-setting-option" for="file-show-hidden">
-            <span>显示隐藏文件</span>
-            <input id="file-show-hidden" type="checkbox" role="switch">
-          </label>
+          <div class="file-menu-group" role="group" aria-label="排序方式" data-native-menu-group="排序方式">
+            <button type="button" data-file-sort-choice="name" data-file-sort-direction="asc" aria-pressed="true" aria-label="文件名升序"><span>文件名升序</span><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20V4m-5 5 5-5 5 5"/></svg></button>
+            <button type="button" data-file-sort-choice="name" data-file-sort-direction="desc" aria-pressed="false" aria-label="文件名降序"><span>文件名降序</span><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v16m-5-5 5 5 5-5"/></svg></button>
+            <button type="button" data-file-sort-choice="createdAt" data-file-sort-direction="asc" aria-pressed="false" aria-label="创建时间升序"><span>创建时间升序</span><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20V4m-5 5 5-5 5 5"/></svg></button>
+            <button type="button" data-file-sort-choice="createdAt" data-file-sort-direction="desc" aria-pressed="false" aria-label="创建时间降序"><span>创建时间降序</span><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v16m-5-5 5 5 5-5"/></svg></button>
+            <button type="button" data-file-sort-choice="modifiedAt" data-file-sort-direction="asc" aria-pressed="false" aria-label="修改时间升序"><span>修改时间升序</span><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20V4m-5 5 5-5 5 5"/></svg></button>
+            <button type="button" data-file-sort-choice="modifiedAt" data-file-sort-direction="desc" aria-pressed="false" aria-label="修改时间降序"><span>修改时间降序</span><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v16m-5-5 5 5 5-5"/></svg></button>
+          </div>
+          <div class="file-menu-group" data-native-menu-group="选项">
+            <label class="file-setting-option" for="file-show-hidden"><span>显示隐藏文件</span><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/></svg><input id="file-show-hidden" type="checkbox" aria-label="显示隐藏文件"></label>
+            <button id="file-go-to" type="button"><span>前往文件夹…</span><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 7h7l2 2h9v11H3zM12 16h6m-2-2 2 2-2 2"/></svg></button>
+          </div>
         </div>
       </section>
       <header class="win-head">
@@ -542,7 +544,7 @@
               </div>
               <div class="automation-binding-grid">
                 <label>设备<select id="automation-key-device" class="input"><option value="">全部设备</option></select></label>
-                <label>AI 客户端<select id="automation-key-client" class="input" disabled><option value="">全部客户端</option><option value="codex">ChatGPT (Codex)</option><option value="deepseek">DeepSeek</option></select></label>
+                <label>AI 客户端<select id="automation-key-client" class="input" disabled><option value="">全部客户端</option><option value="codex">ChatGPT (Codex)</option><option value="deepseek">DeepSeek</option><option value="deepseek-cli">DeepSeek CLI</option></select></label>
                 <label>项目绝对路径<select id="automation-key-project" class="input" disabled><option value="">全部项目</option><option value="__custom__">手动输入项目路径…</option></select><input id="automation-key-project-custom" class="input" placeholder="项目绝对路径" aria-label="手动输入项目绝对路径" hidden disabled /></label>
                 <label>会话 ID<select id="automation-key-session" class="input" disabled><option value="">全部会话</option></select></label>
               </div>
@@ -578,6 +580,16 @@
           <p id="new-project-device" class="hint"></p>
           <div id="new-project-options" class="new-project-options"></div>
         </div>
+      </div>
+    </div>
+
+    <div id="file-path-modal" class="overlay file-path-modal" aria-label="前往文件夹" hidden>
+      <div class="modal" role="dialog" aria-modal="true" aria-labelledby="file-path-title">
+        <div class="modal-head"><span id="file-path-title">前往文件夹</span></div>
+        <form id="file-path-form">
+          <div class="modal-body"><input id="file-path-input" class="input mono" aria-label="文件夹路径" placeholder="输入绝对路径，例如 /Volumes" autocomplete="off" autocapitalize="off" spellcheck="false" maxlength="16384" required /><p id="file-path-error" class="file-path-error" role="alert" hidden>请输入绝对路径，例如 /Volumes</p></div>
+          <div class="modal-foot"><button type="button" class="btn sm" data-close="file-path-modal">取消</button><button type="submit" class="btn sm primary">前往</button></div>
+        </form>
       </div>
     </div>
 
@@ -651,22 +663,22 @@
   <script src="vendor/codemirror/mode/yaml/yaml.js?v=5.65.20"></script>
   <script src="vendor/codemirror/mode/toml/toml.js?v=5.65.20"></script>
   <script src="vendor/codemirror/mode/properties/properties.js?v=5.65.20"></script>
-  <script src="auth-client.js?v=273"></script>
+  <script src="auth-client.js?v=274"></script>
   <script src="account.js?v=252"></script>
   <script src="settings_dialog.js?v=250"></script>
-  <script src="annotation_model.js?v=273"></script>
-  <script src="annotation_ui.js?v=273"></script>
-  <script src="markdown.js?v=273"></script>
-  <script src="preview.js?v=273"></script>
-  <script src="chat_model.js?v=273"></script>
-  <script src="upload_model.js?v=273"></script>
+  <script src="annotation_model.js?v=274"></script>
+  <script src="annotation_ui.js?v=274"></script>
+  <script src="markdown.js?v=274"></script>
+  <script src="preview.js?v=274"></script>
+  <script src="chat_model.js?v=274"></script>
+  <script src="upload_model.js?v=274"></script>
   <script src="device_appearance.js?v=250"></script>
   <script src="sidebar_layout.js?v=250"></script>
-  <script src="workspace_tabs.js?v=273"></script>
-  <script src="compact_composer.js?v=273"></script>
+  <script src="workspace_tabs.js?v=274"></script>
+  <script src="compact_composer.js?v=274"></script>
   <script src="mobile_composer.js?v=1"></script>
   <script src="fleet_core.js?v=250"></script>
-  <script src="app.js?v=273"></script>
+  <script src="app.js?v=274"></script>
   <script src="workspace.js?v=250"></script>
   <script src="native_bridge.js?v=250"></script>
 </body>

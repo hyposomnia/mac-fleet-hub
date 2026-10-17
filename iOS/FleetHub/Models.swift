@@ -1,16 +1,20 @@
 import Foundation
 
 enum FleetAssistant: String, CaseIterable, Identifiable, Codable {
-    case codex, claude, dsh
+    case codex, claude, dsh, deepseek
 
     var id: String { rawValue }
     var title: String {
         switch self {
         case .codex: return "ChatGPT"
         case .claude: return "Claude"
-        case .dsh: return "DeepSeek"
+        case .dsh: return "DSH Desktop"
+        case .deepseek: return "DeepSeek"
         }
     }
+
+    /// DSH 家族（Desktop 与 CLI / web harness）共用 chat 协议，但会话与原生 UI 各自独立。
+    var hasNativeUI: Bool { self == .dsh || self == .deepseek }
 }
 
 struct FleetDevice: Codable, Identifiable {
@@ -107,6 +111,14 @@ enum FleetLayout: Equatable {
 }
 
 enum GatewayAddress {
+    static func parseInput(_ value: String) -> URL? {
+        let address = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !address.isEmpty else { return nil }
+        let normalized = address.contains("://") ? address :
+            address.hasPrefix("//") ? "https:" + address : "https://" + address
+        return parse(normalized)
+    }
+
     static func parse(_ value: String, allowLocalHTTP: Bool = false) -> URL? {
         guard var components = URLComponents(string: value.trimmingCharacters(in: .whitespacesAndNewlines)),
               let host = components.host, !host.isEmpty,

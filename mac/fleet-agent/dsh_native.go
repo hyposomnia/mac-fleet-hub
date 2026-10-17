@@ -13,8 +13,6 @@ import (
 	"strings"
 )
 
-const dshNativeInternalPrefix = "/api/dsh-native/"
-
 // dshNativeTarget is intentionally server-side only. The browser is authenticated by
 // Fleet/Authelia; the DSH host cookie never leaves fleet-agent.
 type dshNativeTarget struct {
@@ -25,12 +23,13 @@ type dshNativeTarget struct {
 type dshNativeResolver func(context.Context) (dshNativeTarget, error)
 
 type dshNativeProxy struct {
-	webPrefix string
-	resolve   dshNativeResolver
-	onFailure func(error)
+	internalPrefix string
+	webPrefix      string
+	resolve        dshNativeResolver
+	onFailure      func(error)
 }
 
-func newDSHNativeProxy(macIndex string, resolve dshNativeResolver, onFailure func(error)) http.Handler {
+func newDSHNativeProxy(macIndex, assistant string, resolve dshNativeResolver, onFailure func(error)) http.Handler {
 	validIndex := true
 	if macIndex == "" {
 		validIndex = false
@@ -47,14 +46,15 @@ func newDSHNativeProxy(macIndex string, resolve dshNativeResolver, onFailure fun
 		}
 	}
 	return &dshNativeProxy{
-		webPrefix: "/m" + macIndex + "/dsh",
-		resolve:   resolve,
-		onFailure: onFailure,
+		internalPrefix: "/api/" + assistant + "-native/",
+		webPrefix:      "/m" + macIndex + "/" + assistant,
+		resolve:        resolve,
+		onFailure:      onFailure,
 	}
 }
 
 func (p *dshNativeProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	if !strings.HasPrefix(r.URL.Path, dshNativeInternalPrefix) {
+	if !strings.HasPrefix(r.URL.Path, p.internalPrefix) {
 		http.NotFound(w, r)
 		return
 	}
@@ -76,7 +76,7 @@ func (p *dshNativeProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	request := r.Clone(r.Context())
 	request.URL = cloneURL(r.URL)
-	request.URL.Path = "/" + strings.TrimPrefix(r.URL.Path, dshNativeInternalPrefix)
+	request.URL.Path = "/" + strings.TrimPrefix(r.URL.Path, p.internalPrefix)
 	request.URL.RawPath = ""
 
 	proxy := httputil.NewSingleHostReverseProxy(upstream)
@@ -244,11 +244,34 @@ func resolveDSHNativeTarget(ctx context.Context) (dshNativeTarget, error) {
 	return dshNativeTarget{BaseURL: client.baseURL, Cookie: client.cookie}, nil
 }
 
-func markDSHNativeProxyFailure(err error) {
+func resolveDeepSeekNativeTarget(ctx context.Context) (dshNativeTarget, error) {
 	router, _ := agentChatBackend.(*routingChatBackend)
-	if backend := router.dshBackend(); backend != nil {
+	backend := router.deepseekBackend()
+	if backend == nil {
+		return dshNativeTarget{}, errDSHHostUnavailable
+	}
+	client, err := backend.ensure(ctx)
+	if err != nil {
+		return dshNativeTarget{}, err
+	}
+	return dshNativeTarget{BaseURL: client.baseURL, Cookie: client.cookie}, nil
+}
+
+func markDSHNativeProxyFailure(err error) {
+	if backend := dshNativeBackendFor("dsh"); backend != nil {
 		backend.invalidateWithError(fmt.Errorf("%w: 原生 UI 代理失败: %v", errDSHHostUnavailable, err))
 	}
+}
+
+func markDeepSeekNativeProxyFailure(err error) {
+	if backend := dshNativeBackendFor("deepseek"); backend != nil {
+		backend.invalidateWithError(fmt.Errorf("%w: 原生 UI 代理失败: %v", errDSHHostUnavailable, err))
+	}
+}
+
+func dshNativeBackendFor(assistant string) *dshChatBackend {
+	router, _ := agentChatBackend.(*routingChatBackend)
+	return router.dshBackendFor(assistant)
 }
 
 func (b *dshChatBackend) invalidateWithError(err error) {

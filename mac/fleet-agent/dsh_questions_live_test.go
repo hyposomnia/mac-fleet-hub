@@ -18,7 +18,7 @@ func TestLiveDSHQuestionRoundTrip(t *testing.T) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 150*time.Second)
 	defer cancel()
-	b := newDSHChatBackend(defaultDSHHome(), defaultDSHLog(), os.Getenv("FLEET_DSH_ENDPOINT"))
+	b := newDSHChatBackend(dshHarnessSpec{home: defaultDSHHome(), logPath: defaultDSHLog(), endpointOverride: os.Getenv("FLEET_DSH_ENDPOINT")})
 	defer b.Close()
 	client, err := b.ensure(ctx)
 	if err != nil {

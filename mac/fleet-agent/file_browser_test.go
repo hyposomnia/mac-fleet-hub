@@ -11,7 +11,42 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+	"time"
 )
+
+func TestFileListCreationTimeDoesNotFollowModificationTime(t *testing.T) {
+	if runtime.GOOS != "darwin" {
+		t.Skip("birth time is supplied by macOS")
+	}
+	root := t.TempDir()
+	path := filepath.Join(root, "created.txt")
+	if err := os.WriteFile(path, []byte("created"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	created := fileCreatedAt(info)
+	modified := time.Now().Add(24 * time.Hour)
+	if err := os.Chtimes(path, modified, modified); err != nil {
+		t.Fatal(err)
+	}
+	usePreviewRoot(t, root)
+	rr := httptest.NewRecorder()
+	handleFileList(rr, httptest.NewRequest(http.MethodGet, "/api/file/list", nil))
+	var result fileBrowserListResponse
+	if err := json.Unmarshal(rr.Body.Bytes(), &result); err != nil {
+		t.Fatal(err)
+	}
+	if rr.Code != http.StatusOK || len(result.Entries) != 1 {
+		t.Fatalf("list failed: %d %s", rr.Code, rr.Body.String())
+	}
+	entry := result.Entries[0]
+	if created <= 0 || entry.CreatedAt != created || entry.ModifiedAt != modified.UnixMilli() {
+		t.Fatalf("creation and modification dates must stay independent: %+v, created=%d", entry, created)
+	}
+}
 
 func fileJSONRequest(t *testing.T, method, path string, body interface{}) *http.Request {
 	t.Helper()

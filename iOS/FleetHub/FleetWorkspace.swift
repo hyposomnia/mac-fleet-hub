@@ -6,26 +6,55 @@ struct FleetWorkspace: View {
     @AppStorage("fleet.devices.visible") private var devicesVisible = true
     @AppStorage("fleet.sessions.visible") private var sessionsPinned = true
     @State private var sessionsOpen = false
+    @State private var backProgress: CGFloat = 0
+    @State private var backDragging = false
+    @State private var backSettling = false
+    @State private var backGestureRejected = false
+    @State private var backTransitionID = UUID()
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    private var backTransitionActive: Bool { backDragging || backSettling }
 
     var body: some View {
         GeometryReader { geometry in
             let layout = FleetLayout.resolve(width: geometry.size.width)
             let railWidth = store.ready && layout != .compact ? (devicesVisible ? layout.deviceWidth : Double(TitaniumStyle.metric("collapsedDeviceWidth"))) : 0
             let showSessions = store.ready && !store.isFiles &&
-                (layout == .compact ? !store.showingDetail : sessionsPinned)
-            let showToolbar = store.gateway != nil && (!store.ready || (layout == .compact && (!store.showingDetail || store.isFiles)))
+                (layout == .compact ? (!store.showingDetail || backTransitionActive) : sessionsPinned)
+            let showToolbar = store.authentication == nil && store.gateway != nil && (!store.ready || (layout == .compact && (!store.showingDetail || store.isFiles)))
             let webOverlay = store.nativeSheet == nil && store.webDialog == nil && (store.webOverlayVisible || store.snapshot?.overlay != nil)
+            let compactDetail = layout == .compact && store.showingDetail && !store.isFiles
+            let canSwipeBack = compactDetail && store.ready && store.authentication == nil && !webOverlay &&
+                store.nativeSheet == nil && store.webDialog == nil && !store.deviceSheet && store.auxiliaryPage == nil
+            let detailOffset = compactDetail && !webOverlay ? geometry.size.width * backProgress : 0
             ZStack {
                 FleetWebView(store: store, layout: layout, sessionsPinned: sessionsPinned)
+                    .allowsHitTesting(store.authentication == nil && !backTransitionActive &&
+                        !(showSessions && layout == .compact && !store.showingDetail && !webOverlay))
                     .padding(.leading, webOverlay ? 0 : railWidth + (showSessions && layout != .compact ? layout.sessionWidth : 0))
                     .padding(.top, webOverlay ? 0 : showToolbar ? 58 : 0)
-                    .opacity(showSessions && layout == .compact && !webOverlay ? 0 : 1)
-                    .accessibilityHidden(showSessions && layout == .compact && !webOverlay)
+                    .opacity(store.authentication != nil || (showSessions && layout == .compact && !store.showingDetail && !webOverlay) ? 0 : 1)
+                    .accessibilityHidden(store.authentication != nil || (showSessions && layout == .compact && !store.showingDetail && !webOverlay))
                     .ignoresSafeArea(.container, edges: webOverlay ? .all : .bottom)
-                    .zIndex(webOverlay ? 2 : 0)
+                    .background(webOverlay ? .clear : style.color("bg"))
+                    .shadow(color: .black.opacity(backTransitionActive ? 0.16 : 0), radius: 14, x: -5, y: 0)
+                    .overlay(alignment: .top) {
+                        if store.ready && compactDetail && !webOverlay && store.authentication == nil {
+                            HStack {
+                                Button { settleBackTransition(complete: true) } label: { Image(systemName: "arrow.left") }
+                                    .accessibilityLabel("返回会话列表").accessibilityIdentifier("toggle-sessions")
+                                    .disabled(backSettling)
+                                Spacer(minLength: 0)
+                            }
+                            .buttonStyle(TitaniumIconButtonStyle()).padding(.horizontal, 14).frame(height: 44)
+                            .accessibilityElement(children: .contain)
+                            .accessibilityValue(store.snapshot?.theme ?? "light").accessibilityIdentifier("workspace-title")
+                        }
+                    }
+                    .offset(x: detailOffset)
+                    .zIndex(webOverlay ? 3 : compactDetail ? 1 : 0)
             VStack(spacing: 0) {
-                if showToolbar { toolbar(layout) }
+                if showToolbar || (compactDetail && backTransitionActive) { toolbar(layout) }
                 HStack(spacing: 0) {
                     if railWidth > 0 {
                         DevicePanel(store: store, collapsed: !devicesVisible, collapse: { devicesVisible.toggle() })
@@ -45,18 +74,6 @@ struct FleetWorkspace: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity).clipped()
                     .allowsHitTesting(false)
                     .accessibilityHidden(showSessions && layout == .compact)
-                    .overlay(alignment: .top) {
-                        if store.ready && layout == .compact && store.showingDetail && !store.isFiles {
-                            HStack {
-                                Button { store.backToList() } label: { Image(systemName: "arrow.left") }
-                                    .accessibilityLabel("返回会话列表").accessibilityIdentifier("toggle-sessions")
-                                Spacer(minLength: 0)
-                            }
-                            .buttonStyle(TitaniumIconButtonStyle()).padding(.horizontal, 14).frame(height: 44)
-                            .accessibilityElement(children: .contain)
-                            .accessibilityValue(store.snapshot?.theme ?? "light").accessibilityIdentifier("workspace-title")
-                        }
-                    }
                     .overlay(alignment: .topLeading) {
                         if store.ready && layout != .compact && !store.isFiles && !sessionsPinned {
                             Button { sessionsOpen.toggle() } label: { Image(systemName: "list.bullet") }
@@ -81,43 +98,65 @@ struct FleetWorkspace: View {
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
-            .blur(radius: webOverlay ? 3 : 0)
-            .allowsHitTesting(!webOverlay)
-            .accessibilityHidden(webOverlay)
-            }
-            .simultaneousGesture(DragGesture(minimumDistance: 24).onEnded { value in
-                if !webOverlay && layout == .compact && store.showingDetail && !store.isFiles &&
-                    value.startLocation.x < 28 && value.translation.width > 90 && abs(value.translation.height) < 60 {
-                    store.backToList()
+            .background(layout == .compact && showSessions ? style.color("bg") : .clear)
+            .overlay {
+                if compactDetail && backTransitionActive {
+                    Color.black.opacity(0.08 * (1 - backProgress)).allowsHitTesting(false)
                 }
-            })
+            }
+            .offset(x: compactDetail && backTransitionActive ? -geometry.size.width * 0.25 * (1 - backProgress) : 0)
+            .blur(radius: webOverlay ? 3 : 0)
+            .allowsHitTesting(!webOverlay && store.authentication == nil && !backTransitionActive)
+            .accessibilityHidden(webOverlay || store.authentication != nil || compactDetail)
+            if let authentication = store.authentication {
+                NativeAuthenticationView(store: store, model: authentication).id(authentication.id)
+                    .zIndex(4)
+            }
+            }
+            .simultaneousGesture(DragGesture(minimumDistance: 12)
+                .onChanged { value in
+                    guard canSwipeBack, !backSettling, !backGestureRejected else { return }
+                    if !backDragging {
+                        guard value.startLocation.x < 28, value.translation.width > abs(value.translation.height) else {
+                            backGestureRejected = true
+                            return
+                        }
+                        backDragging = true
+                        store.webView?.endEditing(true)
+                    }
+                    backProgress = min(1, max(0, value.translation.width / max(geometry.size.width, 1)))
+                }
+                .onEnded { value in
+                    backGestureRejected = false
+                    guard backDragging else { return }
+                    let width = max(geometry.size.width, 1)
+                    let complete = canSwipeBack && (value.translation.width > width * 0.35 ||
+                        (value.translation.width > 36 && value.predictedEndTranslation.width > width * 0.55))
+                    settleBackTransition(complete: complete)
+                })
             .background(style.color("bg"))
             .accessibilityHidden(store.deviceSheet || store.nativeSheet != nil || store.webDialog != nil)
-            .overlay {
-                if let sheet = store.nativeSheet {
-                    FullWidthBottomDrawer(isPresented: Binding(get: { store.nativeSheet != nil }, set: { if !$0 && !store.drawerLocked && !store.drawerBusy { store.nativeSheet = nil } }), safeAreaInsets: geometry.safeAreaInsets, initialFraction: sheet.initialFraction, keyboardVisible: store.keyboardVisible, keyboardTop: store.keyboardTop) {
-                        nativePanel(sheet, expanded: layout != .compact).id(sheet.id)
-                    }.transition(.move(edge: .bottom).combined(with: .opacity))
-                } else if let dialog = store.webDialog {
-                    FullWidthBottomDrawer(isPresented: Binding(get: { store.webDialog != nil }, set: { if !$0 { store.dialogAction("__close") } }), safeAreaInsets: geometry.safeAreaInsets, initialFraction: 0.75, keyboardVisible: store.keyboardVisible, keyboardTop: store.keyboardTop) {
-                        NativeWebDialogPanel(store: store, dialog: dialog)
-                    }.transition(.move(edge: .bottom).combined(with: .opacity))
-                } else if store.deviceSheet {
-                    FullWidthBottomDrawer(isPresented: $store.deviceSheet, safeAreaInsets: geometry.safeAreaInsets, keyboardVisible: store.keyboardVisible, keyboardTop: store.keyboardTop) {
-                        DevicePicker(store: store)
-                    }
-                    .transition(.opacity)
-                }
+            .sheet(item: $store.nativeSheet) { sheet in
+                nativePanel(sheet, expanded: layout != .compact)
+                    .nativeSheetSurface(locked: store.drawerLocked || store.drawerBusy)
             }
-            .animation(reduceMotion ? nil : .easeInOut(duration: 0.2), value: store.deviceSheet)
-            .animation(reduceMotion ? nil : .easeInOut(duration: 0.22), value: store.nativeSheet?.id)
-            .animation(reduceMotion ? nil : .easeInOut(duration: 0.22), value: store.webDialog?.id)
+            .sheet(isPresented: $store.deviceSheet) {
+                DevicePicker(store: store)
+                    .nativeSheetSurface(detents: [.medium, .large])
+            }
+            .sheet(item: webSheetBinding, onDismiss: closeWebSheet) { dialog in
+                NativeWebDialogPanel(store: store, dialog: dialog)
+                    .nativeSheetSurface()
+            }
+            .background(NativeWebPresentation(store: store))
+            .background(NativeWebAlertPresenter(store: store))
             .animation(reduceMotion ? nil : .easeInOut(duration: 0.2), value: devicesVisible)
             .animation(reduceMotion ? nil : .easeInOut(duration: 0.2), value: sessionsPinned)
-            .onChange(of: store.openedSequence) { _, _ in sessionsOpen = false }
-            .onChange(of: layout == .compact) { _, _ in sessionsOpen = false }
-            .onChange(of: store.isFiles) { _, _ in sessionsOpen = false }
-            .onChange(of: store.ready) { _, ready in if !ready { sessionsOpen = false } }
+            .onChange(of: store.openedSequence) { _, _ in sessionsOpen = false; resetBackTransition() }
+            .onChange(of: layout == .compact) { _, _ in sessionsOpen = false; resetBackTransition() }
+            .onChange(of: store.isFiles) { _, _ in sessionsOpen = false; resetBackTransition() }
+            .onChange(of: store.ready) { _, ready in if !ready { sessionsOpen = false; resetBackTransition() } }
+            .onChange(of: canSwipeBack) { _, allowed in if !allowed { resetBackTransition() } }
             .onChange(of: store.nativeSheet?.id) { _, identifier in if identifier != nil { store.webView?.window?.endEditing(true) } }
             .onChange(of: store.webDialog?.id) { _, identifier in if identifier != nil { store.webView?.window?.endEditing(true) } }
             .onChange(of: store.deviceSheet) { _, visible in if visible { store.webView?.window?.endEditing(true) } }
@@ -135,11 +174,44 @@ struct FleetWorkspace: View {
                    onDismiss: { store.discardExport() }) { file in
                 ShareFileView(url: file.url)
             }
-            .alert("操作提示", isPresented: Binding(get: { store.error != nil }, set: { if !$0 { store.error = nil } })) {
-                Button("关闭", role: .cancel) { store.error = nil }
-                Button("重新加载") { store.webView?.reload() }
-            } message: { Text(store.error ?? "") }
+
         }
+    }
+
+    private func settleBackTransition(complete: Bool) {
+        guard !backSettling else { return }
+        backDragging = false
+        backSettling = true
+        let identifier = backTransitionID
+        let animation: Animation? = reduceMotion ? nil : .interactiveSpring(response: 0.3, dampingFraction: 1)
+        withAnimation(animation, completionCriteria: .removed) {
+            backProgress = complete ? 1 : 0
+        } completion: {
+            guard backTransitionID == identifier else { return }
+            // Keep the chat runtime visible until the native slide finishes.
+            var transaction = Transaction()
+            transaction.disablesAnimations = true
+            withTransaction(transaction) {
+                if complete { store.backToList() }
+                resetBackTransition()
+            }
+        }
+    }
+
+    private func resetBackTransition() {
+        backTransitionID = UUID()
+        backProgress = 0
+        backDragging = false
+        backSettling = false
+        backGestureRejected = false
+    }
+
+    private var webSheetBinding: Binding<NativeWebDialog?> {
+        Binding(get: { store.webDialog?.presentation == .sheet ? store.webDialog : nil },
+                set: { if $0 == nil, store.webDialog?.presentation == .sheet { store.dialogAction("__close") } })
+    }
+    private func closeWebSheet() {
+        if store.webDialog?.presentation == .sheet { store.dialogAction("__close") }
     }
 
     private var exportBinding: Binding<SharedFile?> {
@@ -152,24 +224,19 @@ struct FleetWorkspace: View {
         case .settings: NativeSettingsPanel(store: store, expanded: expanded)
         case .device(let identifier): NativeDeviceEditor(store: store, identifier: identifier)
         case .gateway: GatewaySetup(store: store)
-        case .rename(let session): NativeSessionRenameEditor(store: store, session: session)
-        case .newSessionDevice:
-            VStack(spacing: 0) {
-                NativeDrawerHeader(title: "选择设备") { store.nativeSheet = nil }
-                ScrollView {
-                    VStack(spacing: 8) {
-                        ForEach(store.devices) { device in
-                            Button {
-                                store.nativeSheet = nil
-                                store.newSession(device: device.id)
-                            } label: {
-                                HStack { FleetDeviceIcon(device: device); Text(device.name); Spacer(); Text(device.online ? "在线" : "离线").font(.caption) }
-                                    .padding(16).frame(minHeight: 52)
-                                    .background(style.color("surface-1"), in: RoundedRectangle(cornerRadius: 12))
-                            }.buttonStyle(.plain).disabled(!device.online || store.busy)
-                        }
-                    }.padding(16)
+                case .newSessionDevice:
+            NavigationStack {
+                List(store.devices) { device in
+                    Button {
+                        store.nativeSheet = nil
+                        store.newSession(device: device.id)
+                    } label: {
+                        HStack(spacing: 12) { FleetDeviceIcon(device: device); Text(device.name); Spacer(); Text(device.online ? "在线" : "离线").font(.caption).foregroundStyle(.secondary) }
+                            .frame(minHeight: 44)
+                    }.disabled(!device.online || store.busy)
                 }
+                .navigationTitle("选择设备").navigationBarTitleDisplayMode(.inline)
+                .toolbar { ToolbarItem(placement: .cancellationAction) { Button("取消") { store.nativeSheet = nil } } }
             }
         }
     }
@@ -206,7 +273,6 @@ struct FleetWorkspace: View {
                 Text("FLEET HUB").font(.system(size: 13, weight: .semibold, design: .monospaced)).tracking(0.8)
             }
             Spacer(minLength: 0)
-            if store.busy { ProgressView().controlSize(.small) }
             if store.ready { FleetSettingsMenu(store: store) }
             else {
                 Button { store.nativeSheet = .gateway } label: { Image(systemName: "network") }.accessibilityLabel("网关设置")
@@ -219,64 +285,25 @@ struct FleetWorkspace: View {
     }
 }
 
-struct FullWidthBottomDrawer<Content: View>: View {
+// System presentations own the dimming, safe areas, keyboard avoidance and sheet stacking.
+struct NativeSheetSurface: ViewModifier {
     @Environment(\.fleetStyle) private var style
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @Binding var isPresented: Bool
-    var safeAreaInsets: EdgeInsets
-    var initialFraction: CGFloat = 0.55
-    var keyboardVisible = false
-    var keyboardTop: CGFloat?
-    @State private var expanded = false
-    @ViewBuilder var content: () -> Content
+    var detents: Set<PresentationDetent> = [.large]
+    var locked = false
+    func body(content: Content) -> some View {
+        content.environment(\.colorScheme, style.colorScheme ?? .light)
+            .preferredColorScheme(style.followsSystem ? nil : style.colorScheme)
+            .presentationDetents(detents)
+            .presentationDragIndicator(.visible)
+            .presentationBackground(NativeSettingsLayout.background)
+            .interactiveDismissDisabled(locked)
+            .tint(style.color("accent-text"))
+    }
+}
 
-    var body: some View {
-        GeometryReader { geometry in
-            let overlap = keyboardTop.map { max(0, geometry.frame(in: .global).maxY - $0) } ?? 0
-            let usableHeight = max(0, geometry.size.height - overlap)
-            let availableHeight = max(0, usableHeight - safeAreaInsets.top)
-            let height = min(availableHeight, max(320, usableHeight * (expanded ? 1 : initialFraction)))
-            ZStack(alignment: .bottom) {
-                Button { isPresented = false } label: {
-                    Color.black.opacity(0.2).contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("关闭抽屉").accessibilityIdentifier("device-drawer-backdrop")
-                VStack(spacing: 0) {
-                    Button { expanded.toggle() } label: {
-                        Capsule().fill(style.color("text-2").opacity(0.35))
-                            .frame(width: 42, height: 4)
-                            .frame(maxWidth: .infinity).frame(height: 24).contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel(expanded ? "收起抽屉" : "展开抽屉")
-                    .accessibilityIdentifier("device-drawer-handle")
-                    .gesture(DragGesture(minimumDistance: 12).onEnded { value in
-                        if value.translation.height < -40 { expanded = true }
-                        else if value.translation.height > 60 {
-                            if expanded { expanded = false }
-                            else { isPresented = false }
-                        }
-                    })
-                    content()
-                        .frame(width: max(0, geometry.size.width - safeAreaInsets.leading - safeAreaInsets.trailing),
-                               height: max(0, height - 24 - (keyboardVisible ? 0 : safeAreaInsets.bottom)))
-                        .padding(.leading, safeAreaInsets.leading).padding(.trailing, safeAreaInsets.trailing)
-                }
-                .padding(.bottom, keyboardVisible ? 0 : safeAreaInsets.bottom)
-                .frame(width: geometry.size.width, height: height)
-                .background(style.color("bg"))
-                .clipShape(UnevenRoundedRectangle(topLeadingRadius: 20, topTrailingRadius: 20))
-                .accessibilityElement(children: .contain)
-                .accessibilityAddTraits(.isModal)
-                .accessibilityIdentifier("device-drawer")
-            }
-            .frame(width: geometry.size.width, height: usableHeight, alignment: .bottom)
-            .animation(reduceMotion ? nil : .easeInOut(duration: 0.2), value: expanded)
-        }
-        .ignoresSafeArea()
-        .onKeyPress(.escape) { isPresented = false; return .handled }
-        .accessibilityAction(.escape) { isPresented = false }
+extension View {
+    func nativeSheetSurface(detents: Set<PresentationDetent> = [.large], locked: Bool = false) -> some View {
+        modifier(NativeSheetSurface(detents: detents, locked: locked))
     }
 }
 
@@ -292,13 +319,15 @@ struct GatewaySetup: View {
             Form {
                 Section("连接 AI 工作区") {
                     NativeFieldLabel(title: "服务地址", focused: addressFocused) { addressFocused = false }
-                    TextField("https://fleet.example.com", text: $address)
+                    TextField("服务地址", text: $address, prompt: Text("https://fleet.example.com").foregroundStyle(.secondary))
+                        .foregroundStyle(style.color("text"))
                         .focused($addressFocused).submitLabel(.go).onSubmit(connect)
                         .keyboardType(.URL).textInputAutocapitalization(.never).autocorrectionDisabled()
                         .accessibilityIdentifier("gateway-address")
-                    Text("登录后访问电脑上的 AI 会话、终端和文件。手机无需安装电脑端 Agent。")
-                        .font(.footnote).foregroundStyle(.secondary)
-                    Button("连接", action: connect)
+                    Button(action: connect) {
+                        Text("连接").frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(NativePrimaryButtonStyle())
                     .accessibilityIdentifier("connect-gateway")
                     if invalid { Text("请输入 HTTPS 网关根地址，不包含账号、查询参数或子路径。") .foregroundStyle(.red) }
                 }

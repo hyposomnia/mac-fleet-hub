@@ -3,7 +3,7 @@
   if (root !== root.top || root.__fleetNativeVersion !== 1 || !root.webkit?.messageHandlers?.fleet ||
       !['/', '/index.html'].includes(location.pathname) || root.FleetNativeDialogs) return;
   const post = value => root.webkit.messageHandlers.fleet.postMessage(value);
-  const ids = ['device-modal', 'new-project-modal', 'file-name-modal', 'confirm-file-delete', 'confirm-kill',
+  const ids = ['device-modal', 'new-project-modal', 'file-name-modal', 'file-path-modal', 'confirm-file-delete', 'confirm-kill',
     'chat-approval-popover', 'chat-options-popover', 'file-settings-menu', 'chat-subagent-drawer'];
   const nodes = new Map();
   let names = new WeakMap();
@@ -55,6 +55,10 @@
         const tag = element.tagName.toLowerCase();
         if (element.parentElement?.closest('button,a[href]')) continue;
         const item = { id: key(element), label: label(element), disabled: !!element.disabled || element.getAttribute('aria-disabled') === 'true', selected: element.getAttribute('aria-pressed') === 'true' || element.getAttribute('aria-selected') === 'true' || element.getAttribute('aria-checked') === 'true' || (element.classList.contains('device-option-main') && element.parentElement?.getAttribute('aria-current') === 'true'), destructive: element.classList.contains('danger') };
+        const view = element.getAttribute('data-file-view');
+        if (view) item.icon = ({ icons: 'FileIcons', list: 'FileList', columns: 'FileColumns' })[view];
+        const group = element.closest('[data-native-menu-group]')?.getAttribute('data-native-menu-group');
+        if (group) item.group = group;
         if (['input', 'textarea', 'select'].includes(tag)) {
           item.label = fieldLabel(element); item.value = element.type === 'password' ? '' : element.value;
           item.placeholder = element.placeholder || '';
@@ -72,6 +76,13 @@
       const title = active.getAttribute('aria-label') || (heading ? label(heading).replace(/关闭$/, '').trim() : '') ||
         ({'chat-approval-popover':'会话权限','chat-options-popover':'模型与推理','file-settings-menu':'文件设置','chat-subagent-drawer':'Sub Agent'})[active.id] || (active.classList.contains('file-row-menu') ? '文件操作' : '选择');
       payload = { id: active.id, title, items, footer };
+      if (active.id === 'file-settings-menu' || active.classList.contains('file-row-menu')) {
+        const trigger = active.id === 'file-settings-menu' ? document.getElementById('file-settings') : active.parentElement?.querySelector('.file-row-menu-trigger');
+        const rect = trigger?.getBoundingClientRect?.();
+        if (rect && [rect.x, rect.y, rect.width, rect.height].every(Number.isFinite)) {
+          payload.anchor = { x: rect.x, y: rect.y, width: rect.width, height: rect.height };
+        }
+      }
     }
     const signature = JSON.stringify(payload);
     if (signature !== previous) { previous = signature; post({ type: 'native-dialog', payload }); }
@@ -92,6 +103,12 @@
   root.FleetNativeDialogs = Object.freeze({
     act(dialog, id, value) {
       const snapshot = root.FleetWorkspace?.snapshot();
+      // Menu actions may open another dialog. Finish only the original menu,
+      // before its MutationObserver publishes the replacement dialog.
+      if (id === '__finish') {
+        if (snapshot?.ready && (snapshot.identity || '') === currentIdentity && current?.id === dialog && !current.closest('[hidden]')) close();
+        return;
+      }
       if (!snapshot?.ready || (snapshot.identity || '') !== currentIdentity || !current || current.id !== dialog || current.closest('[hidden]')) throw new Error('弹层已变化，请重试');
       if (id === '__close') { close(); return; }
       const element = nodes.get(id);

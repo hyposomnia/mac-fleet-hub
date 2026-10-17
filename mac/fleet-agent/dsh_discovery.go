@@ -12,8 +12,10 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -99,8 +101,8 @@ func dshCookieName(authority string) string {
 
 // dshCookieBody 是 cookie 里承载的明文 JSON。
 //
-// 字段顺序即 JSON 序列化顺序，且 HMAC 覆盖的就是这段明文的 base64url 字节，
-// 所以顺序不能随意调整（改了签名对不上）。
+// 字段顺序即 JSON 序列化顺序，且 HMAC 覆盖的是这段明文 base64url 之后的字符串
+// （不是原始 JSON 字节），所以顺序不能随意调整（改了签名对不上）。
 type dshCookieBody struct {
 	Version   int    `json:"version"`
 	Authority string `json:"authority"`
@@ -108,20 +110,42 @@ type dshCookieBody struct {
 	ExpiresAt int64  `json:"expiresAt"`
 }
 
+// decodeDSHSecret 解码 .credentials.yaml 里 base64url 形式的签名密钥。
+//
+// host 端 storedSecret() 把 payload.secret 做 base64url 解码并要求恰好 32 字节，
+// 再用解码后的字节做 HMAC key。直接把文件里的字符串当 key 会静默 401，
+// 而且 401 只会表现为"cookie 无效"，排障时很难联想到编码层。
+func decodeDSHSecret(secret string) ([]byte, error) {
+	if secret == "" {
+		return nil, errors.New("DSH cookie secret 为空")
+	}
+	key, err := base64.RawURLEncoding.DecodeString(secret)
+	if err != nil || len(key) != 32 {
+		return nil, errors.New("DSH cookie secret 不是 32 字节 base64url")
+	}
+	return key, nil
+}
+
 // signDSHCookie 用 .credentials.yaml 里的 secret 自签一个浏览器会话 cookie，
 // 返回可直接放进请求头 Cookie 的 "name=value"。
+//
+// 与 host 端 dsh-client-connection 的 encodeCookie 逐字节对齐：
+//   - HMAC key 是 secret 的 base64url 解码结果（32 字节），不是文件里的文本；
+//   - HMAC 覆盖 body 的 base64url 字符串，不是原始 JSON；
+//   - cookie 值形如 v1.<body-b64url>.<sig-b64url>。
 func signDSHCookie(secret, authority string, now time.Time, ttl time.Duration) (string, error) {
-	if secret == "" {
-		return "", errors.New("DSH cookie secret 为空")
-	}
 	if authority == "" {
 		return "", errors.New("DSH cookie authority 为空")
 	}
 	if ttl <= 0 || ttl > dshCookieMaxAge {
 		return "", fmt.Errorf("DSH cookie 有效期 %s 超出 (0, %s] 区间", ttl, dshCookieMaxAge)
 	}
+	key, err := decodeDSHSecret(secret)
+	if err != nil {
+		return "", err
+	}
 	issuedAt := now.UnixMilli()
-	body, err := json.Marshal(dshCookieBody{
+	plain, err := json.Marshal(dshCookieBody{
 		Version:   1,
 		Authority: authority,
 		IssuedAt:  issuedAt,
@@ -130,9 +154,10 @@ func signDSHCookie(secret, authority string, now time.Time, ttl time.Duration) (
 	if err != nil {
 		return "", fmt.Errorf("序列化 DSH cookie: %w", err)
 	}
-	mac := hmac.New(sha256.New, []byte(secret))
-	mac.Write(body)
-	return dshCookieName(authority) + "=v1." + dshBase64URL(body) + "." + dshBase64URL(mac.Sum(nil)), nil
+	body := dshBase64URL(plain)
+	mac := hmac.New(sha256.New, key)
+	mac.Write([]byte(body))
+	return dshCookieName(authority) + "=v1." + body + "." + dshBase64URL(mac.Sum(nil)), nil
 }
 
 // dshCookieSecret 读取 $DSH_HOME/.credentials.yaml 里的浏览器会话签名密钥。
@@ -311,7 +336,7 @@ func defaultDSHHome() string {
 
 // defaultDSHLog 是 Desktop 写 harness stdout/stderr 的日志路径。
 //
-// 端点与每进程 token 都只在这里出现，所以它是端点发现的唯一来源。
+// 端点与每进程 token 都只在这里出现，所以它是 Desktop 端点发现的来源。
 func defaultDSHLog() string {
 	home, err := os.UserHomeDir()
 	if err != nil {
@@ -320,28 +345,57 @@ func defaultDSHLog() string {
 	return filepath.Join(home, "Library", "Logs", "DSH Desktop", "harness.log")
 }
 
-// connectDSH 按「日志取端点 → token 换 cookie → secret 自签 cookie」建立客户端。
+// defaultDeepSeekHome 是 `dsh` CLI / web harness 的默认主目录（~/.dsh）。
 //
-// endpointOverride 非空时跳过日志发现（形如 "127.0.0.1:43129"），供显式配置与排障使用。
+// 与 Desktop 的 harness 主目录是两个独立根：各自有 .credentials.yaml 与 sessions/。
+// 这也是 cookie 归属的判据——用某个 home 的 secret 签出来的 cookie 只对同 home
+// 的 host 有效，因此扫端口时可以据此认领 endpoint。
+func defaultDeepSeekHome() string {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return ""
+	}
+	return filepath.Join(home, ".dsh")
+}
+
+// deepSeekInstalled 报告本机是否存在 `dsh` CLI 的 harness 主目录。
+//
+// 与 Desktop 不同，CLI 没有 App bundle 可查；主目录（或其中的凭据文件）存在
+// 就说明这台机器用 CLI 跑过 harness。只看安装不看运行，两者分开上报。
+func deepSeekInstalled(home string) bool {
+	if home == "" {
+		return false
+	}
+	if st, err := os.Stat(home); err == nil && st.IsDir() {
+		return true
+	}
+	return false
+}
+
+// dshHarnessSpec 描述一个 DSH 家族 harness 的接入参数。
+//
+// Desktop 与 CLI 的差异集中在“端点从哪来”和“home 在哪”，协议与凭据模型完全一致；
+// 因此两个 assistant 共用同一套客户端实现，只在装配时传不同 spec。
+type dshHarnessSpec struct {
+	// assistant 是该 harness 在 Fleet 里的 assistant 标识（dsh / deepseek）。
+	assistant string
+	home      string
+	logPath   string
+	// endpointOverride 形如 127.0.0.1:43129，显式指定后跳过自动发现。
+	endpointOverride string
+	// autoDiscover 在没有日志时扫描 loopback 监听端口，用 home 的 secret 认领 host。
+	// Desktop 有固定日志，CLI 只在终端打印 URL，因此只有 CLI 需要它。
+	autoDiscover bool
+}
+
+// connectDSH 按「显式 endpoint → 日志端点 → 监听端口发现 → token/secret 认证」建立客户端。
+//
+// endpointOverride 非空时跳过自动发现，供显式配置与排障使用。
 // 两条凭据路径都失败才返回错误；错误里带上两条路径各自的原因，否则排障时只能看到一半。
-func connectDSH(ctx context.Context, home, logPath, endpointOverride string) (*dshClient, dshEndpoint, dshAuthMode, error) {
-	var endpoint dshEndpoint
-	if endpointOverride != "" {
-		host, portText, ok := strings.Cut(endpointOverride, ":")
-		if !ok || host == "" {
-			return nil, dshEndpoint{}, dshAuthNone, fmt.Errorf("DSH endpoint 配置不合法: %q", endpointOverride)
-		}
-		port, err := strconv.Atoi(portText)
-		if err != nil || port <= 0 || port > 65535 {
-			return nil, dshEndpoint{}, dshAuthNone, fmt.Errorf("DSH endpoint 端口不合法: %q", endpointOverride)
-		}
-		endpoint = dshEndpoint{Port: port}
-	} else {
-		fromLog, err := dshEndpointFromLog(logPath)
-		if err != nil {
-			return nil, dshEndpoint{}, dshAuthNone, fmt.Errorf("%w: %v", errDSHHostUnavailable, err)
-		}
-		endpoint = fromLog
+func connectDSH(ctx context.Context, spec dshHarnessSpec) (*dshClient, dshEndpoint, dshAuthMode, error) {
+	endpoint, err := discoverDSHEndpoint(ctx, spec)
+	if err != nil {
+		return nil, dshEndpoint{}, dshAuthNone, err
 	}
 
 	baseURL := fmt.Sprintf("http://%s", dshAuthority(endpoint.Port))
@@ -353,7 +407,7 @@ func connectDSH(ctx context.Context, home, logPath, endpointOverride string) (*d
 			return newDSHClient(baseURL, cookie), endpoint, dshAuthToken, nil
 		}
 		// token 路径失败（多半是日志被轮转或 token 已随进程换代）时退回自签。
-		if secret, secretErr := dshCookieSecret(home); secretErr == nil {
+		if secret, secretErr := dshCookieSecret(spec.home); secretErr == nil {
 			if cookie, signErr := signDSHCookie(secret, authority, time.Now(), dshCookieMaxAge); signErr == nil {
 				return newDSHClient(baseURL, cookie), endpoint, dshAuthSecret, nil
 			}
@@ -361,13 +415,176 @@ func connectDSH(ctx context.Context, home, logPath, endpointOverride string) (*d
 		return nil, endpoint, dshAuthNone, fmt.Errorf("token 与 secret 两条凭据路径都失败: %v", err)
 	}
 
-	secret, err := dshCookieSecret(home)
+	secret, err := dshCookieSecret(spec.home)
 	if err != nil {
-		return nil, endpoint, dshAuthNone, fmt.Errorf("%w: 日志里没有 token，且 %v", errDSHAuthFailed, err)
+		return nil, endpoint, dshAuthNone, fmt.Errorf("%w: 没有启动 token，且 %v", errDSHAuthFailed, err)
 	}
 	cookie, err := signDSHCookie(secret, authority, time.Now(), dshCookieMaxAge)
 	if err != nil {
 		return nil, endpoint, dshAuthNone, err
 	}
 	return newDSHClient(baseURL, cookie), endpoint, dshAuthSecret, nil
+}
+
+// discoverDSHEndpoint 按 spec 决定端点来源。
+func discoverDSHEndpoint(ctx context.Context, spec dshHarnessSpec) (dshEndpoint, error) {
+	if spec.endpointOverride != "" {
+		host, portText, ok := strings.Cut(spec.endpointOverride, ":")
+		if !ok || host == "" {
+			return dshEndpoint{}, fmt.Errorf("DSH endpoint 配置不合法: %q", spec.endpointOverride)
+		}
+		port, err := strconv.Atoi(portText)
+		if err != nil || port <= 0 || port > 65535 {
+			return dshEndpoint{}, fmt.Errorf("DSH endpoint 端口不合法: %q", spec.endpointOverride)
+		}
+		return dshEndpoint{Port: port}, nil
+	}
+
+	if spec.logPath != "" {
+		if fromLog, err := dshEndpointFromLog(spec.logPath); err == nil {
+			return fromLog, nil
+		} else if !spec.autoDiscover {
+			return dshEndpoint{}, fmt.Errorf("%w: %v", errDSHHostUnavailable, err)
+		}
+	}
+
+	if spec.autoDiscover {
+		fromListeners, err := discoverDSHListeners(ctx, spec.home)
+		if err != nil {
+			return dshEndpoint{}, err
+		}
+		return fromListeners, nil
+	}
+
+	return dshEndpoint{}, fmt.Errorf("%w: 没有可用的端点来源", errDSHHostUnavailable)
+}
+
+// dshLoopbackPorts 返回本机所有 loopback TCP 监听端口，供测试替换。
+var dshLoopbackPorts = listDSHLoopbackPorts
+
+// listDSHLoopbackPorts 用 lsof 枚举 loopback 监听端口。
+//
+// CLI 的 `dsh --profile web` 只把带 token 的 URL 打到 stdout，没有 Desktop 那样的
+// 日志文件；能稳定拿到的只有“它正在某个 loopback 端口上监听”。端口可能是 OS 分配的
+// 临时端口，所以不能写死 43129。
+func listDSHLoopbackPorts() ([]int, error) {
+	// launchd 给的 PATH 通常含 /usr/sbin，但排障时可能在最小 PATH 下运行；
+	// 逐个尝试常见位置，避免"明明装了 host 却总报扫描失败"。
+	var out []byte
+	var err error
+	for _, bin := range []string{"lsof", "/usr/sbin/lsof", "/usr/bin/lsof"} {
+		out, err = exec.Command(bin, "-nP", "-iTCP", "-sTCP:LISTEN", "-Fn").Output()
+		if err == nil {
+			break
+		}
+	}
+	if err != nil {
+		return nil, err
+	}
+	seen := map[int]bool{}
+	for _, line := range strings.Split(string(out), "\n") {
+		if !strings.HasPrefix(line, "n") {
+			continue
+		}
+		addr := strings.TrimPrefix(line, "n")
+		host, portText, ok := strings.Cut(addr, ":")
+		if !ok {
+			continue
+		}
+		switch host {
+		case "127.0.0.1", "[::1]", "0.0.0.0", "*":
+		default:
+			continue
+		}
+		port, err := strconv.Atoi(portText)
+		if err != nil || port <= 0 || port > 65535 {
+			continue
+		}
+		seen[port] = true
+	}
+	ports := make([]int, 0, len(seen))
+	for port := range seen {
+		ports = append(ports, port)
+	}
+	sort.Ints(ports)
+	return ports, nil
+}
+
+// probeDSHHome 判断某个 loopback 端口是否是 home 对应的 DSH host。
+//
+// 两步都要成立：/manifest.webmanifest 是 DSH Web UI 的特征端点（其它本地服务极少
+// 同时返回 manifest+json），而 / 用 home 的 secret 自签 cookie 后返回 200 才证明
+// 这个 host 属于该 home——不同 home 的 host 会用各自的 secret 验签，必然 401。
+func probeDSHHome(ctx context.Context, home string, port int) bool {
+	secret, err := dshCookieSecret(home)
+	if err != nil {
+		return false
+	}
+	cookie, err := signDSHCookie(secret, dshAuthority(port), time.Now(), dshCookieMaxAge)
+	if err != nil {
+		return false
+	}
+	probeCtx, cancel := context.WithTimeout(ctx, 1200*time.Millisecond)
+	defer cancel()
+	client := &http.Client{Timeout: 1200 * time.Millisecond}
+
+	manifest, err := http.NewRequestWithContext(probeCtx, http.MethodGet, fmt.Sprintf("http://%s/manifest.webmanifest", dshAuthority(port)), nil)
+	if err != nil {
+		return false
+	}
+	resp, err := client.Do(manifest)
+	if err != nil {
+		return false
+	}
+	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 4096))
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK || !strings.Contains(resp.Header.Get("Content-Type"), "manifest") {
+		return false
+	}
+
+	root, err := http.NewRequestWithContext(probeCtx, http.MethodGet, fmt.Sprintf("http://%s/", dshAuthority(port)), nil)
+	if err != nil {
+		return false
+	}
+	root.Header.Set("Cookie", cookie)
+	resp, err = client.Do(root)
+	if err != nil {
+		return false
+	}
+	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 4096))
+	resp.Body.Close()
+	return resp.StatusCode == http.StatusOK
+}
+
+// discoverDSHListeners 扫描 loopback 监听端口，返回 home 认领到的 host。
+//
+// 多个端口并发探测，取端口号最小的匹配项，保证同一台机器重复调用结果稳定。
+func discoverDSHListeners(ctx context.Context, home string) (dshEndpoint, error) {
+	ports, err := dshLoopbackPorts()
+	if err != nil {
+		return dshEndpoint{}, fmt.Errorf("%w: 扫描本机监听端口失败: %v", errDSHHostUnavailable, err)
+	}
+	matched := make([]int, 0, 1)
+	results := make(chan int, len(ports))
+	probeCtx, cancel := context.WithTimeout(ctx, 4*time.Second)
+	defer cancel()
+	for _, port := range ports {
+		go func(port int) {
+			if probeDSHHome(probeCtx, home, port) {
+				results <- port
+				return
+			}
+			results <- 0
+		}(port)
+	}
+	for range ports {
+		if port := <-results; port > 0 {
+			matched = append(matched, port)
+		}
+	}
+	if len(matched) == 0 {
+		return dshEndpoint{}, fmt.Errorf("%w: 没有用 %s 的凭据认领到 DSH host", errDSHHostUnavailable, home)
+	}
+	sort.Ints(matched)
+	return dshEndpoint{Port: matched[0]}, nil
 }

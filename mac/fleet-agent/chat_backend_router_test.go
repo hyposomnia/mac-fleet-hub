@@ -43,3 +43,32 @@ func TestRoutingBackendWithoutCodexReturnsUnavailable(t *testing.T) {
 		t.Fatalf("ThreadCwd err = %v, want errAppServerUnavailable", err)
 	}
 }
+
+// 两个 DSH harness 必须是两个独立后端：同一个 router 里按 assistant 分流，
+// 且未装配的那一个返回 nil（入口据此隐藏），不能把 Desktop 后端顶给 DeepSeek。
+func TestRoutingKeepsTwoDSHHarnessesApart(t *testing.T) {
+	desktop := newDSHChatBackend(dshHarnessSpec{assistant: "dsh"})
+	deepseek := newDSHChatBackend(dshHarnessSpec{assistant: "deepseek"})
+	router := &routingChatBackend{codex: newCodexChatBackend(connectCodexAppServer), dsh: desktop, deepseek: deepseek}
+
+	if router.dshBackend() != desktop {
+		t.Fatal("dshBackend 必须是 Desktop 后端")
+	}
+	if router.deepseekBackend() != deepseek {
+		t.Fatal("deepseekBackend 必须是 CLI 后端")
+	}
+	if router.pick("dsh") != chatBackend(desktop) {
+		t.Fatal("pick(dsh) 必须分到 Desktop 后端")
+	}
+	if router.pick("deepseek") != chatBackend(deepseek) {
+		t.Fatal("pick(deepseek) 必须分到 CLI 后端")
+	}
+
+	onlyDesktop := &routingChatBackend{dsh: desktop}
+	if onlyDesktop.dshBackendFor("deepseek") != nil {
+		t.Fatal("未装配 deepseek 时不得回退到 Desktop 后端")
+	}
+	if _, ok := onlyDesktop.pick("deepseek").(unavailableChatBackend); !ok {
+		t.Fatalf("未装配 deepseek 时必须落到 unavailableChatBackend，got %T", onlyDesktop.pick("deepseek"))
+	}
+}

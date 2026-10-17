@@ -5,6 +5,20 @@ struct NativeWebDialog: Decodable, Identifiable {
     let title: String
     let items: [NativeDialogItem]
     let footer: [NativeDialogItem]
+    var anchor: NativeDialogAnchor?
+    enum Presentation { case sheet, menu, alert }
+    var presentation: Presentation {
+        if id == "file-settings-menu" || id.hasPrefix("native-file-menu-") { return .menu }
+        if ["file-name-modal", "file-path-modal", "confirm-file-delete", "confirm-kill", "chat-approval-popover", "chat-options-popover"].contains(id) { return .alert }
+        return .sheet
+    }
+}
+
+struct NativeDialogAnchor: Decodable {
+    let x: Double
+    let y: Double
+    let width: Double
+    let height: Double
 }
 
 struct NativeDialogItem: Decodable, Identifiable {
@@ -17,6 +31,8 @@ struct NativeDialogItem: Decodable, Identifiable {
     var selected: Bool?
     var destructive: Bool?
     var options: [NativeDialogOption]?
+    var icon: String?
+    var group: String?
 }
 
 struct NativeDialogOption: Decodable, Identifiable {
@@ -31,18 +47,24 @@ struct NativeWebDialogPanel: View {
     @ObservedObject var store: FleetStore
     let dialog: NativeWebDialog
     var body: some View {
-        VStack(spacing: 0) {
-            NativeDrawerHeader(title: dialog.title) { store.dialogAction("__close") }
-            ScrollView {
-                VStack(alignment: .leading, spacing: 14) {
-                    ForEach(dialog.items) { item in NativeDialogControl(store: store, item: item) }
-                }.padding(18).frame(maxWidth: 800).frame(maxWidth: .infinity)
-            }.scrollDismissesKeyboard(.interactively).accessibilityIdentifier("native-dialog-content")
-            if !dialog.footer.isEmpty {
-                HStack(spacing: 14) {
-                    Spacer()
-                    ForEach(dialog.footer) { item in NativeDialogControl(store: store, item: item) }
-                }.padding(16).background(style.color("bg"))
+        NavigationStack {
+            Form {
+                ForEach(dialog.items.filter { $0.kind != "heading" || $0.label != dialog.title }) { item in
+                    NativeDialogControl(store: store, item: item)
+                }
+            }
+            .scrollDismissesKeyboard(.interactively).accessibilityIdentifier("native-dialog-content")
+            .navigationTitle(dialog.title).navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("关闭") { store.dialogAction("__close") }.accessibilityLabel("关闭\(dialog.title)")
+                }
+                ToolbarItemGroup(placement: .confirmationAction) {
+                    ForEach(dialog.footer) { item in
+                        Button(item.label, role: item.destructive == true ? .destructive : nil) { store.dialogAction(item.id) }
+                            .disabled(item.disabled == true)
+                    }
+                }
             }
         }.foregroundStyle(style.color("text")).accessibilityElement(children: .contain)
             .accessibilityIdentifier("native-web-dialog-\(dialog.id)")

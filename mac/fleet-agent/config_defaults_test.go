@@ -77,3 +77,32 @@ func TestLoadConfigEnablesDSHByDefault(t *testing.T) {
 		t.Fatal("显式设 0 时应关闭")
 	}
 }
+
+// dsh CLI / web harness 与 Desktop 是两个独立根：默认开启，home 指 ~/.dsh，
+// 且不继承 Desktop 的日志路径（CLI 只在终端打印 URL，端点靠端口发现）。
+func TestLoadConfigDefaultsForDeepSeekHarness(t *testing.T) {
+	t.Setenv("HOME", "/Users/tester")
+	t.Setenv("FLEET_DEEPSEEK_ENABLED", "")
+	t.Setenv("FLEET_DEEPSEEK_HOME", "")
+	t.Setenv("FLEET_DEEPSEEK_LOG", "")
+	t.Setenv("FLEET_DEEPSEEK_ENDPOINT", "")
+
+	config := loadConfig()
+	if !config.DeepSeekEnabled {
+		t.Fatal("DeepSeek harness 默认应为开启（显式设 0 才退出）")
+	}
+	if want := "/Users/tester/.dsh"; config.DeepSeekHome != want {
+		t.Fatalf("DeepSeekHome got %q want %q", config.DeepSeekHome, want)
+	}
+	if config.DeepSeekLog != "" {
+		t.Fatalf("DeepSeekLog 默认应为空（不做日志发现），got %q", config.DeepSeekLog)
+	}
+	if config.DeepSeekEndpoint != "" {
+		t.Fatalf("DeepSeekEndpoint 默认应为空，got %q", config.DeepSeekEndpoint)
+	}
+
+	t.Setenv("FLEET_DEEPSEEK_ENABLED", "0")
+	if loadConfig().DeepSeekEnabled {
+		t.Fatal("显式设 0 时应关闭")
+	}
+}

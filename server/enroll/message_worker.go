@@ -612,8 +612,11 @@ func fallbackString(value, fallback string) string {
 }
 
 func displayAIClient(client string) string {
-	if client == "deepseek" {
+	switch client {
+	case "deepseek":
 		return "DeepSeek"
+	case "deepseek-cli":
+		return "DeepSeek CLI"
 	}
 	return "Codex"
 }

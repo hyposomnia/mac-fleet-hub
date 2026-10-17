@@ -33,13 +33,13 @@ function extractFunction(name) {
   assert.fail(`函数 ${name} 的大括号没有闭合`);
 }
 
-const gateSource = ['assistantCapabilities', 'dshReady', 'dshEnabled']
+const gateSource = ['assistantCapabilities', 'dshInfo', 'dshReady', 'dshEnabled', 'isDshAssistant']
   .map(extractFunction)
   .join('\n');
 
 // state 是 app.js 的模块级对象；用最小桩替换掉浏览器环境。
 globalThis.state = { assistant: 'codex', assistantInfo: {}, macId: 'm1' };
-const gate = new Function(`${gateSource}; return { assistantCapabilities, dshReady, dshEnabled };`)();
+const gate = new Function(`const DSH_ASSISTANTS = ['dsh', 'deepseek'];\n${gateSource}; return { assistantCapabilities, dshReady, dshEnabled };`)();
 
 // 真实 payload：旧 agent（没有 dsh 块）取自线上 /api/info 的实际返回。
 const OLD_AGENT = {
@@ -48,13 +48,16 @@ const OLD_AGENT = {
 const DSH_OFF = { dsh: { enabled: false, degraded: true, hostRunning: false, installed: true } };
 const DSH_DEGRADED = { dsh: { enabled: true, degraded: true, hostRunning: false, installed: true } };
 const DSH_READY = { dsh: { enabled: true, degraded: false, hostRunning: true, installed: true } };
+// DeepSeek CLI / web harness 的能力块是另一个 key，与 Desktop 完全独立。
+const DEEPSEEK_READY = { deepseek: { enabled: true, degraded: false, hostRunning: true, installed: true } };
+const DEEPSEEK_OFF = { deepseek: { enabled: false, degraded: true, hostRunning: false, installed: true } };
 
 function evaluate(assistant, info) {
   globalThis.state.assistant = assistant;
   globalThis.state.assistantInfo = info ? { m1: info } : {};
   return {
     selfDraw: gate.assistantCapabilities(assistant, 'm1').selfDraw,
-    tabVisible: gate.dshEnabled('m1'),
+    tabVisible: gate.dshEnabled('m1', assistant),
   };
 }
 
@@ -82,6 +85,25 @@ test('启用且就绪时：入口可见且允许自绘', () => {
   assert.equal(r.selfDraw, true);
 });
 
+test('两个 DSH 家族助手能力互不串台', () => {
+  // Desktop 就绪、CLI 未启用：只有 dsh 可选。
+  assert.equal(evaluate('dsh', DSH_READY).selfDraw, true);
+  assert.equal(evaluate('dsh', DSH_READY).tabVisible, true);
+  assert.equal(evaluate('deepseek', DSH_READY).selfDraw, false);
+  assert.equal(evaluate('deepseek', DSH_READY).tabVisible, false);
+
+  // 反过来：CLI 就绪、Desktop 未启用。
+  assert.equal(evaluate('deepseek', DEEPSEEK_READY).selfDraw, true);
+  assert.equal(evaluate('deepseek', DEEPSEEK_READY).tabVisible, true);
+  assert.equal(evaluate('dsh', DEEPSEEK_READY).selfDraw, false);
+
+  // 两个都在也一样各走各的 key。
+  const both = { ...DSH_READY, ...DEEPSEEK_READY };
+  assert.equal(evaluate('dsh', both).selfDraw, true);
+  assert.equal(evaluate('deepseek', both).selfDraw, true);
+  assert.equal(evaluate('deepseek', DEEPSEEK_OFF).selfDraw, false);
+});
+
 test('codex 与 claude 的能力判定不受 dsh 能力块影响', () => {
   const codex = evaluate('codex', DSH_READY);
   assert.equal(codex.selfDraw, true);
@@ -93,7 +115,7 @@ test('codex 与 claude 的能力判定不受 dsh 能力块影响', () => {
   // tabVisible 看的是"这台 Mac 上 dsh 是否可用"，与当前选中谁无关。
   const unknown = evaluate('gemini', DSH_READY);
   assert.equal(unknown.selfDraw, false, '未知 assistant 不该获得任何能力');
-  assert.equal(unknown.tabVisible, true, 'tab 显隐只看该 Mac 的 dsh 可用性，不看当前选中谁');
+  assert.equal(gate.dshEnabled('m1', 'dsh'), true, '入口显隐只看该 Mac 的 dsh 可用性，不看当前选中谁');
 });
 
 
@@ -114,12 +136,14 @@ test('自绘对话的"连接中"文案随 assistant 走', () => {
   const api = new Function(`${consts}\n${fns}\nreturn { assistantConnectingText, assistantLabel };`)();
 
   assert.match(api.assistantConnectingText('codex'), /ChatGPT/);
-  assert.equal(api.assistantConnectingText('dsh'), '正在连接 DeepSeek Harness…');
+  assert.equal(api.assistantConnectingText('dsh'), '正在连接 DSH Desktop…');
+  assert.equal(api.assistantConnectingText('deepseek'), '正在连接 DeepSeek Harness…');
   // DSH 连的是 Desktop 已启动的 harness host，不是 app-server —— 术语不能串。
   assert.ok(!api.assistantConnectingText('dsh').includes('Codex'));
   assert.equal(api.assistantConnectingText('claude'), api.assistantConnectingText('codex'));
 
-  assert.equal(api.assistantLabel('dsh'), 'DeepSeek');
+  assert.equal(api.assistantLabel('dsh'), 'DSH Desktop');
+  assert.equal(api.assistantLabel('deepseek'), 'DeepSeek');
   assert.equal(api.assistantLabel('codex'), 'ChatGPT');
 });
 
@@ -148,7 +172,7 @@ test('retired preferences cannot enable Claude or ttyd', () => {
   globalThis.state.selfDraw = false; // 旧浏览器仍可能带着已关闭的自绘偏好。
   assert.equal(api.normalizeAssistant('claude'), 'codex');
   assert.equal(api.canSelfDrawChat('codex', 'm1'), true);
-  for (const assistant of ['codex', 'claude', 'dsh']) {
+  for (const assistant of ['codex', 'claude', 'dsh', 'deepseek']) {
     assert.equal(gate.assistantCapabilities(assistant, 'm1').terminal, false);
   }
   delete globalThis.state.selfDraw;

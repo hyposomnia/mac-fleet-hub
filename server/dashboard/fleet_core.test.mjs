@@ -73,6 +73,7 @@ function workspaceHarness() {
     sessionProjectInfo: core.projectInfo,
     sessionStatus: (_, running) => ({ label: running ? '进行中' : '已读', className: running ? 'running' : 'read' }),
     sessionMenuActions: (session) => session.assistant === 'codex' ? ['pin', 'unpin', 'rename', 'archive', 'unarchive', 'delete'] : [],
+    DSH_ASSISTANTS: ['dsh', 'deepseek'],
     dshNativeButtonState: () => ({}), dshEnabled: () => false, dshDegraded: () => false,
     macName: (id) => id, sessionIsUnread: () => false, isSessionRunning: () => false, sessionHasMore: () => false,
     setInterval: () => 1, clearInterval() {}, poolFind: () => null, poolShow: () => calls.push('poolShow'),

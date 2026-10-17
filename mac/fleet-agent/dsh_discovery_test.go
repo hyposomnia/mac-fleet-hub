@@ -5,8 +5,11 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
+	"strconv"
+	"strings"
 	"testing"
 	"time"
 )
@@ -120,12 +123,14 @@ func TestDSHCookieName(t *testing.T) {
 }
 
 func TestSignDSHCookie(t *testing.T) {
+	// host 端的密钥是 payload.secret 做 base64url 解码后的 32 字节，
+	// 测试值就是 32 字节 "0123456789abcdef0123456789abcdef" 的 base64url。
 	const (
-		secret    = "test-secret-do-not-use"
+		secret    = "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY"
 		authority = "127.0.0.1:43129"
 		want      = "dsh-auth-HI6DuTLbaVd4how-w57FxST3l-HEDuPslIWbs23FcR0=" +
 			"v1.eyJ2ZXJzaW9uIjoxLCJhdXRob3JpdHkiOiIxMjcuMC4wLjE6NDMxMjkiLCJpc3N1ZWRBdCI6MTcwMDAwMDAwMDAwMCwiZXhwaXJlc0F0IjoxNzAwMDg2NDAwMDAwfQ" +
-			".NBp35Zh7gW49rL0y-LIrp01lEiA8aEri8FkwhlxvKFA"
+			".aW_5VblJqENiKYyOAiGp9pNB8BxTqgiU6zKWvbuq7kQ"
 	)
 	now := time.UnixMilli(1700000000000)
 
@@ -133,8 +138,8 @@ func TestSignDSHCookie(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	// 期望值由独立实现（node crypto）算出：body 明文的字段顺序也必须一致，
-	// 因为 HMAC 覆盖的是那段 base64url 里的原始字节。
+	// 期望值由独立实现（node crypto）算出，并与真实 host 的 encodeCookie 对齐：
+	// HMAC key 是解码后的 32 字节，HMAC 覆盖 body 的 base64url 字符串。
 	if got != want {
 		t.Fatalf("cookie = %q\nwant     %q", got, want)
 	}
@@ -143,20 +148,22 @@ func TestSignDSHCookie(t *testing.T) {
 func TestSignDSHCookieRejectsBadTTL(t *testing.T) {
 	now := time.UnixMilli(1700000000000)
 
-	if _, err := signDSHCookie("s", "127.0.0.1:43129", now, dshCookieMaxAge+time.Second); err == nil {
+	const secret = "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY"
+
+	if _, err := signDSHCookie(secret, "127.0.0.1:43129", now, dshCookieMaxAge+time.Second); err == nil {
 		t.Fatal("ttl beyond the host-side 30d bound must be rejected")
 	}
-	if _, err := signDSHCookie("s", "127.0.0.1:43129", now, 0); err == nil {
+	if _, err := signDSHCookie(secret, "127.0.0.1:43129", now, 0); err == nil {
 		t.Fatal("zero ttl must be rejected")
 	}
-	if _, err := signDSHCookie("s", "127.0.0.1:43129", now, -time.Hour); err == nil {
+	if _, err := signDSHCookie(secret, "127.0.0.1:43129", now, -time.Hour); err == nil {
 		t.Fatal("negative ttl must be rejected")
 	}
 	if _, err := signDSHCookie("", "127.0.0.1:43129", now, time.Hour); err == nil {
 		t.Fatal("empty secret must be rejected")
 	}
 	// 恰好 30 天是允许的（host 端只校验上界）。
-	if _, err := signDSHCookie("s", "127.0.0.1:43129", now, dshCookieMaxAge); err != nil {
+	if _, err := signDSHCookie(secret, "127.0.0.1:43129", now, dshCookieMaxAge); err != nil {
 		t.Fatalf("exactly max age should be allowed, got %v", err)
 	}
 }
@@ -276,5 +283,135 @@ func TestDSHCookieSecretFromHome(t *testing.T) {
 	}
 	if got != "home-secret" {
 		t.Fatalf("secret = %q, want home-secret", got)
+	}
+}
+
+// 测试用 32 字节密钥（base64url）：与 host 端要求一致，不能是任意字符串。
+const dshTestSecret = "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY"
+
+func writeDSHCredentials(t *testing.T, home, secret string) {
+	t.Helper()
+	data := "version: 1\nrecords:\n  client-connection/browser-session:\n" +
+		"    kind: grant\n    payload:\n      version: 1\n      secret: " + secret + "\n"
+	if err := os.WriteFile(filepath.Join(home, ".credentials.yaml"), []byte(data), 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func listenerPort(t *testing.T, rawURL string) int {
+	t.Helper()
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	port, err := strconv.Atoi(u.Port())
+	if err != nil {
+		t.Fatal(err)
+	}
+	return port
+}
+
+// 端口发现必须用 home 的凭据认领 host：两个 host 都挂着 manifest，
+// 只有用对应 secret 签出 cookie 才能拿到 200 的那个才是本 home 的。
+func TestDiscoverDSHListenersClaimsMatchingHome(t *testing.T) {
+	home := t.TempDir()
+	writeDSHCredentials(t, home, dshTestSecret)
+
+	mine := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/manifest.webmanifest":
+			w.Header().Set("Content-Type", "application/manifest+json")
+			_, _ = w.Write([]byte(`{"name":"DeepSeek Harness"}`))
+		case "/":
+			if strings.HasPrefix(r.Header.Get("Cookie"), "dsh-auth-") {
+				w.Header().Set("Content-Type", "text/html; charset=utf-8")
+				_, _ = w.Write([]byte("<html></html>"))
+				return
+			}
+			w.WriteHeader(http.StatusUnauthorized)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer mine.Close()
+
+	other := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/manifest.webmanifest":
+			w.Header().Set("Content-Type", "application/manifest+json")
+			w.WriteHeader(http.StatusOK)
+		default:
+			// 别的 home 的 host 会用别的 secret 验签，cookie 不匹配就是 401。
+			w.WriteHeader(http.StatusUnauthorized)
+		}
+	}))
+	defer other.Close()
+
+	prev := dshLoopbackPorts
+	dshLoopbackPorts = func() ([]int, error) {
+		return []int{listenerPort(t, other.URL), listenerPort(t, mine.URL)}, nil
+	}
+	t.Cleanup(func() { dshLoopbackPorts = prev })
+
+	got, err := discoverDSHListeners(context.Background(), home)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got.Port != listenerPort(t, mine.URL) {
+		t.Fatalf("endpoint port = %d, want %d", got.Port, listenerPort(t, mine.URL))
+	}
+
+	// 没有凭据的 home 不能认领任何 host（否则等于无鉴权）。
+	emptyHome := t.TempDir()
+	if _, err := discoverDSHListeners(context.Background(), emptyHome); err == nil {
+		t.Fatal("home without credentials must not claim a host")
+	}
+
+	// 完全不匹配时给出可读错误。
+	dshLoopbackPorts = func() ([]int, error) { return []int{listenerPort(t, other.URL)}, nil }
+	if _, err := discoverDSHListeners(context.Background(), home); err == nil {
+		t.Fatal("no matching listener should error")
+	}
+}
+
+// 端点优先级：显式覆盖 > 日志 > 端口发现。
+func TestDiscoverDSHEndpointPrecedence(t *testing.T) {
+	dir := t.TempDir()
+	logPath := filepath.Join(dir, "harness.log")
+	if err := os.WriteFile(logPath, []byte("dsh web: http://127.0.0.1:43129/?token=log-token\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	prev := dshLoopbackPorts
+	dshLoopbackPorts = func() ([]int, error) {
+		t.Fatal("已有日志时不应扫描端口")
+		return nil, nil
+	}
+	t.Cleanup(func() { dshLoopbackPorts = prev })
+
+	got, err := discoverDSHEndpoint(context.Background(), dshHarnessSpec{
+		assistant: "deepseek", home: dir, logPath: logPath, autoDiscover: true,
+	})
+	if err != nil || got.Port != 43129 || got.Token != "log-token" {
+		t.Fatalf("log endpoint = %+v, err = %v", got, err)
+	}
+
+	got, err = discoverDSHEndpoint(context.Background(), dshHarnessSpec{
+		assistant: "deepseek", endpointOverride: "127.0.0.1:9999", autoDiscover: true,
+	})
+	if err != nil || got.Port != 9999 {
+		t.Fatalf("override endpoint = %+v, err = %v", got, err)
+	}
+}
+
+func TestDeepSeekInstalled(t *testing.T) {
+	home := t.TempDir()
+	if !deepSeekInstalled(home) {
+		t.Fatal("existing directory should count as installed")
+	}
+	if deepSeekInstalled(filepath.Join(home, "missing")) {
+		t.Fatal("missing directory must not count as installed")
+	}
+	if deepSeekInstalled("") {
+		t.Fatal("empty home must not count as installed")
 	}
 }

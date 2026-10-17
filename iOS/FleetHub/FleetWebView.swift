@@ -47,7 +47,9 @@ struct FleetWebView: UIViewRepresentable {
     }
 
     func updateUIView(_ view: WKWebView, context: Context) {
-        let hidden = store.nativeSheet != nil || store.webDialog != nil || store.deviceSheet
+        let hidden = store.authentication != nil || store.nativeSheet != nil || store.webDialog != nil || store.deviceSheet
+        view.isHidden = store.authentication != nil
+        view.isUserInteractionEnabled = store.authentication == nil
         let modal = store.nativeSheet == nil && store.webDialog == nil && (store.webOverlayVisible || store.snapshot?.overlay != nil)
         if view.accessibilityElementsHidden != hidden { view.accessibilityElementsHidden = hidden }
         if view.accessibilityViewIsModal != modal { view.accessibilityViewIsModal = modal }
@@ -118,7 +120,7 @@ struct FleetWebView: UIViewRepresentable {
 final class WebCoordinator: WebInteractionCoordinator, WKScriptMessageHandler {
     var appliedLayoutScript = ""
     func userContentController(_ controller: WKUserContentController, didReceive message: WKScriptMessage) {
-        guard message.frameInfo.isMainFrame, let url = message.frameInfo.request.url,
+        guard store?.authentication == nil, message.frameInfo.isMainFrame, let url = message.frameInfo.request.url,
               let gateway = store?.gateway, GatewayAddress.sameOrigin(url, gateway),
               url.path == "/" || url.path == "/index.html" else { return }
         store?.receive(message.body)
@@ -131,6 +133,12 @@ final class WebCoordinator: WebInteractionCoordinator, WKScriptMessageHandler {
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
         store?.loading = false
+        if let url = webView.url, let store, let gateway = store.gateway,
+           GatewayAddress.sameOrigin(url, gateway), NativeAuthentication.isAuthRoute(url) {
+            store.beginAuthentication()
+            if let model = store.authentication { Task { await model.resume() } }
+            return
+        }
         guard let url = webView.url, url.path == "/" || url.path == "/index.html" else { return }
         webView.evaluateJavaScript("typeof window.FleetNative === 'object'") { [weak self] value, _ in
             if value as? Bool != true { self?.store?.error = "请先部署此分支的 dashboard，网关尚未提供 App 接入组件。" }
@@ -154,12 +162,28 @@ final class WebCoordinator: WebInteractionCoordinator, WKScriptMessageHandler {
     }
 
     func webView(_ webView: WKWebView, decidePolicyFor action: WKNavigationAction,
+                 preferences: WKWebpagePreferences,
+                 decisionHandler: @escaping (WKNavigationActionPolicy, WKWebpagePreferences) -> Void) {
+        // Auth is rendered by SwiftUI. Disable the page's forms, redirects and focus handlers;
+        // WebKit's isolated native transport still uses its existing HttpOnly cookie jar.
+        if let url = action.request.url, let gateway = store?.gateway, GatewayAddress.sameOrigin(url, gateway) {
+            preferences.allowsContentJavaScript = !NativeAuthentication.isAuthRoute(url)
+        }
+        self.webView(webView, decidePolicyFor: action) { decisionHandler($0, preferences) }
+    }
+
+    func webView(_ webView: WKWebView, decidePolicyFor action: WKNavigationAction,
                  decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
         guard let url = action.request.url else { decisionHandler(.cancel); return }
         if action.targetFrame?.isMainFrame == false { decisionHandler(.allow); return }
         if url.absoluteString == "about:blank" { decisionHandler(.allow); return }
         guard let gateway = store?.gateway else { decisionHandler(.cancel); return }
         if GatewayAddress.sameOrigin(url, gateway) {
+            if NativeAuthentication.isAuthRoute(url) { store?.beginAuthentication() }
+            else if store?.authentication?.stage == .codes {
+                decisionHandler(.cancel)
+                return
+            }
             if action.shouldPerformDownload { decisionHandler(.download); return }
             if action.targetFrame == nil || (action.navigationType == .linkActivated && url.path == "/view") {
                 store?.auxiliaryPage = WebPage(url: url)

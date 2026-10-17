@@ -1,55 +1,13 @@
 import SwiftUI
 
-struct NativeSessionRenameEditor: View {
-    @ObservedObject var store: FleetStore
-    let session: FleetSession
-    @State private var name: String
-
-    init(store: FleetStore, session: FleetSession) {
-        self.store = store
-        self.session = session
-        _name = State(initialValue: session.title)
-    }
-
-    var body: some View {
-        VStack(spacing: 0) {
-            NativeDrawerHeader(title: "重命名会话", close: close)
-            ScrollView {
-                NativeCard(title: "") {
-                    NativeField(title: "会话名称", value: $name)
-                }.padding(16).frame(maxWidth: 800).frame(maxWidth: .infinity)
-            }.scrollDismissesKeyboard(.interactively)
-            HStack {
-                Button("取消", action: close)
-                Spacer()
-                Button("保存") {
-                    guard canSave else { return }
-                    store.action("rename", session: session, value: name)
-                    close()
-                }.buttonStyle(NativePrimaryButtonStyle())
-                    .disabled(!canSave)
-            }.padding(16)
-        }.accessibilityElement(children: .contain).accessibilityIdentifier("native-session-rename")
-            .onDisappear { store.webView?.window?.endEditing(true) }
-    }
-
-    private var canSave: Bool {
-        store.ready && !store.busy && !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
-            store.sessions.contains(where: { $0.id == session.id && $0.actions?.contains("rename") == true })
-    }
-
-    private func close() {
-        store.webView?.window?.endEditing(true)
-        store.nativeSheet = nil
-    }
-}
-
 struct NativeDeviceEditor: View {
     @Environment(\.fleetStyle) private var style
+    @Environment(\.dismiss) private var dismiss
     @ObservedObject var store: FleetStore
     let identifier: String
     @State private var name = ""
     @State private var originalName = ""
+    @State private var defaultName = ""
     @State private var icon = "monitor"
     @State private var letters = ""
     @State private var color = "steel"
@@ -66,76 +24,98 @@ struct NativeDeviceEditor: View {
     private let colors = ["steel", "teal", "green", "amber", "coral", "violet", "rose", "slate"]
     private var device: FleetDevice? { store.devices.first { $0.id == identifier } }
     var body: some View {
-        VStack(spacing: 0) {
-            NativeDrawerHeader(title: device?.name ?? "设备设置", locked: saving) { store.nativeSheet = nil }
-            ScrollView {
-                VStack(spacing: 16) {
-                    if loading { ProgressView("正在读取设备…") }
-                    if let error { Text(error).foregroundStyle(style.color("danger")) }
-                    NativeCard(title: "设备信息") {
-                        NativeField(title: "设备名称（留空恢复默认）", value: $name)
-                        Text("状态：\(device?.online == true ? "在线" : "离线")　Mesh IP：\(meshIP)")
-                            .font(.caption).foregroundStyle(style.color("text-2"))
-                    }
-                    NativeCard(title: "设备外观") {
-                        LazyVGrid(columns: [GridItem(.adaptive(minimum: 78))], spacing: 8) {
-                            ForEach(icons, id: \.0) { value, title, symbol in
-                                Button { icon = value } label: {
-                                    VStack(spacing: 8) { Image(systemName: symbol).font(.system(size: 22)); Text(title).font(.caption) }
-                                        .frame(maxWidth: .infinity, minHeight: 74)
-                                        .foregroundStyle(icon == value ? style.color("accent-text") : style.color("text-1"))
-                                        .background(icon == value ? style.selection : .clear, in: RoundedRectangle(cornerRadius: 12))
-                                }.buttonStyle(.plain).accessibilityAddTraits(icon == value ? .isSelected : [])
-                            }
+        NavigationStack {
+            Form {
+                Section {
+                    TextField("设备名称", text: $name, prompt: Text(defaultName))
+                        .textInputAutocapitalization(.never).autocorrectionDisabled()
+                        .accessibilityIdentifier("设备名称")
+                } header: { NativeSettingsSectionHeader(title: "设备信息") }
+                NativeSettingsSection(title: "设备外观") {
+                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 70))], spacing: 8) {
+                        ForEach(icons, id: \.0) { value, title, symbol in
+                            Button { icon = value } label: {
+                                VStack(spacing: 8) { FleetDeviceGlyph(icon: value, symbol: symbol).frame(width: 24, height: 24); Text(title).font(.caption) }
+                                    .frame(maxWidth: .infinity, minHeight: 70)
+                                    .foregroundStyle(icon == value ? style.color("accent-text") : style.color("text-1"))
+                                    .background(icon == value ? style.selection : .clear, in: RoundedRectangle(cornerRadius: 12))
+                            }.buttonStyle(.plain).accessibilityLabel(title).accessibilityAddTraits(icon == value ? .isSelected : [])
                         }
-                        if icon == "text" {
-                            NativeField(title: "文字图标", value: $letters)
-                            Text("1–4 个英文字母或数字，保留大小写。").font(.caption).foregroundStyle(style.color("text-2"))
-                        }
-                        LazyVGrid(columns: [GridItem(.adaptive(minimum: 44))], spacing: 8) {
-                            ForEach(colors, id: \.self) { value in
-                                Button { color = value } label: {
-                                    Circle().fill(TitaniumStyle.deviceColor(value)).frame(width: 30, height: 30)
-                                        .overlay { if color == value { Image(systemName: "checkmark").foregroundStyle(.white) } }
-                                        .frame(width: 44, height: 44)
-                                }.buttonStyle(.plain).accessibilityLabel(value).accessibilityAddTraits(color == value ? .isSelected : [])
-                            }
-                        }
-                        Button("恢复默认外观") { icon = "monitor"; letters = ""; color = "steel" }
                     }
-                    NativeCard(title: "代理（仅对新开或重开的会话生效）") {
-                        if proxyLoaded {
-                            Toggle("启用代理", isOn: $proxyEnabled)
-                            NativeField(title: "HTTP 代理", value: $http, keyboard: .URL)
-                            NativeField(title: "HTTPS 代理", value: $https, keyboard: .URL)
-                        } else { Text("设备暂时无法连接；仍可修改名称和外观，代理设置不会被覆盖。").font(.caption) }
+                    if icon == "text" {
+                        NativeDeviceIconTextField(text: $letters).frame(minHeight: NativeSettingsLayout.rowHeight)
                     }
-                }.padding(16).frame(maxWidth: 800).frame(maxWidth: .infinity)
-            }.scrollDismissesKeyboard(.interactively)
-            HStack {
-                Button("取消") { store.nativeSheet = nil }.disabled(saving)
-                Spacer()
-                Button(saving ? "保存中…" : "保存", action: save).buttonStyle(NativePrimaryButtonStyle())
-                    .disabled(saving || loading || (icon == "text" && letters.range(of: "^[A-Za-z0-9]{1,4}$", options: .regularExpression) == nil))
-            }.padding(16).background(style.color("bg"))
-        }.font(.system(size: 15)).foregroundStyle(style.color("text"))
-            .accessibilityElement(children: .contain)
-            .accessibilityIdentifier("native-device-editor").task { await load() }
+                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 44))], spacing: 8) {
+                        ForEach(colors, id: \.self) { value in
+                            Button { color = value } label: {
+                                Circle().fill(TitaniumStyle.deviceColor(value)).frame(width: 28, height: 28)
+                                    .overlay { if color == value { Image(systemName: "checkmark").foregroundStyle(.white) } }
+                                    .frame(width: 44, height: 44)
+                            }.buttonStyle(.plain).accessibilityLabel(value).accessibilityAddTraits(color == value ? .isSelected : [])
+                        }
+                    }
+                    Button("恢复默认外观") { icon = "monitor"; letters = ""; color = "steel" }
+                }
+                Section {
+                    if proxyLoaded {
+                        Toggle("启用代理", isOn: $proxyEnabled)
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text("HTTP 代理").font(.caption).foregroundStyle(.secondary)
+                            TextField("HTTP 代理", text: $http).keyboardType(.URL).textInputAutocapitalization(.never).autocorrectionDisabled()
+                        }
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text("HTTPS 代理").font(.caption).foregroundStyle(.secondary)
+                            TextField("HTTPS 代理", text: $https).keyboardType(.URL).textInputAutocapitalization(.never).autocorrectionDisabled()
+                        }
+                    } else if !loading {
+                        Text("设备暂时无法连接；仍可修改名称和外观，代理设置不会被覆盖。").font(.caption)
+                    }
+                } header: { NativeSettingsSectionHeader(title: "代理") } footer: { Text("仅对新开或重新打开的会话生效。") }
+                if let error { Section { Text(error).foregroundStyle(.red) } }
+            }
+            .nativeSettingsForm().accessibilityIdentifier("native-editor-content")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .principal) {
+                    VStack(spacing: 2) {
+                        HStack(spacing: 6) {
+                            Text(device?.name ?? "设备设置").font(.headline).lineLimit(1)
+                            DeviceStatusTag(online: device?.online == true)
+                        }
+                        Text(meshIP).font(.caption).foregroundStyle(.secondary).textSelection(.enabled)
+                    }.accessibilityElement(children: .contain).accessibilityIdentifier("device-title")
+                }
+                ToolbarItem(placement: .cancellationAction) { Button("取消") { dismiss() }.disabled(saving) }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("保存", action: save).disabled(saving || loading || (icon == "text" && letters.range(of: "^[A-Za-z0-9]{1,4}$", options: .regularExpression) == nil))
+                }
+            }
+            .overlay { if loading { ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity) } }
+        }.accessibilityElement(children: .contain).accessibilityIdentifier("native-device-editor")
+            .interactiveDismissDisabled(saving).task { await load() }
     }
     private func load() async {
         defer { loading = false }
         name = device?.name ?? ""; originalName = name
+        defaultName = "Mac " + identifier.dropFirst()
         icon = device?.icon ?? "monitor"; letters = device?.text ?? ""; color = device?.color ?? "steel"
         if let roster = try? await FleetService(store: store).request("/api/devices"), let devices = roster["devices"] as? [[String: Any]] {
-            meshIP = devices.first(where: { $0["id"] as? String == identifier })?["ip"] as? String ?? "—"
+            let current = devices.first(where: { $0["id"] as? String == identifier })
+            meshIP = current?["ip"] as? String ?? "—"
+            if let index = current?["index"] as? Int { defaultName = "Mac \(index)" }
         }
         do {
             let info = try await FleetService(store: store).request("/\(identifier)/api/info")
+            if meshIP == "—" { meshIP = info["meshIP"] as? String ?? "—" }
             let proxy = info["proxy"] as? [String: Any] ?? [:]
             proxyEnabled = proxy["enabled"] as? Bool ?? false
-            http = proxy["http"] as? String ?? ""; https = proxy["https"] as? String ?? ""
+            http = Self.proxyDefault(proxy["http"] as? String); https = Self.proxyDefault(proxy["https"] as? String)
             originalProxy = proxySignature; proxyLoaded = true
         } catch { proxyLoaded = false }
+    }
+    static func proxyDefault(_ value: String?) -> String {
+        guard let value, !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return "http://127.0.0.1:7897" }
+        return value
     }
     private var proxySignature: String { "\(proxyEnabled)|\(http)|\(https)" }
     private func save() {
@@ -150,9 +130,70 @@ struct NativeDeviceEditor: View {
                     _ = try await service.request("/\(identifier)/api/proxy", method: "POST", body: ["enabled": proxyEnabled, "http": http, "https": https])
                 }
                 _ = try await service.shared("refresh")
-                store.nativeSheet = nil; store.foreground()
+                dismiss(); store.foreground()
             } catch { self.error = "部分设置可能已保存，请核对后重试：" + error.localizedDescription }
         }
+    }
+}
+
+struct NativeAccessKeyDetail: View {
+    @Environment(\.dismiss) private var dismiss
+    @ObservedObject var store: FleetStore
+    @ObservedObject var model: NativeSettingsModel
+    let original: AccessKey
+    let edit: (AccessKey) -> Void
+    @State private var projectName = ""
+    @State private var sessionName = ""
+    private var key: AccessKey { model.keys.first { $0.id == original.id } ?? original }
+    var body: some View {
+        Form {
+            Section {
+                LabeledContent("名称", value: key.name)
+                LabeledContent("RPM", value: String(key.rpm))
+                LabeledContent("创建时间", value: AccessKey.dateLabel(key.created))
+                LabeledContent("最近使用", value: AccessKey.dateLabel(key.used))
+            } header: { NativeSettingsSectionHeader(title: "密钥信息") }
+            Section {
+                Button {
+                    FleetService.copy(key.secret, sensitive: true)
+                    model.status = "密钥已复制（两分钟后从剪贴板清除）"
+                } label: { Label("复制密钥", systemImage: "doc.on.doc") }
+                Button {
+                    model.perform {
+                        let result = try await model.service.shared("access-key-request", values: ["key": ["key": key.secret, "name": key.name, "binding": key.binding]])
+                        if let value = result as? String { FleetService.copy(value, sensitive: true); model.status = "请求示例已复制" }
+                    }
+                } label: { Label("复制请求示例", systemImage: "doc.text") }
+            } footer: {
+                if !key.recoverable { Text("旧版密钥不可恢复") }
+            }.disabled(!key.recoverable || model.saving)
+            Section {
+                LabeledContent("设备", value: key.binding["device_id"].map { id in store.devices.first { $0.id == id }?.name ?? id } ?? "全部设备")
+                LabeledContent("AI 客户端", value: key.binding["ai_client"].map { $0 == "codex" ? "ChatGPT" : $0 == "deepseek-cli" ? "DeepSeek CLI" : "DeepSeek" } ?? "全部客户端")
+                LabeledContent("项目", value: key.binding["project_path"].map { projectName.isEmpty ? URL(fileURLWithPath: $0).lastPathComponent : projectName } ?? "全部项目")
+                LabeledContent("会话", value: key.binding["session_id"].map { sessionName.isEmpty ? $0 : sessionName } ?? "全部会话")
+            } header: { NativeSettingsSectionHeader(title: "访问范围") } footer: {
+                Text("未限定范围的密钥可向你的全部设备会话发送消息，请妥善保管。")
+            }
+            if !model.status.isEmpty { Section { Text(model.status).foregroundStyle(.secondary) } }
+            if let error = model.error { Section { Text(error).foregroundStyle(.red) } }
+        }
+        .nativeSettingsForm()
+        .accessibilityIdentifier("native-key-detail")
+        .navigationTitle("密钥详情").navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .primaryAction) { Button("编辑") { edit(key) }.disabled(model.saving) }
+        }
+        .task(id: key.binding) {
+            projectName = ""; sessionName = ""
+            guard let device = key.binding["device_id"], let client = key.binding["ai_client"] else { return }
+            let binding = key.binding
+            if let catalog = try? await model.service.shared("binding-sessions", values: ["device": device, "client": client]) as? [[String: Any]], !Task.isCancelled {
+                projectName = catalog.first { ($0["projectCwd"] as? String ?? $0["cwd"] as? String) == binding["project_path"] }?["projectName"] as? String ?? ""
+                sessionName = catalog.first { $0["sessionId"] as? String == binding["session_id"] }?["title"] as? String ?? ""
+            }
+        }
+        .onChange(of: model.keys.map(\.id)) { _, ids in if !ids.contains(original.id) { dismiss() } }
     }
 }
 
@@ -168,46 +209,58 @@ struct NativeAccessKeyEditor: View {
     @State private var project = ""
     @State private var session = ""
     @State private var projects: [String] = []
+    @State private var projectNames: [String: String] = [:]
     @State private var sessions: [[String: String]] = []
     @State private var deleting = false
     @State private var initialized = false
+    @State private var loadingOptions = false
+    @State private var optionsError: String?
     var body: some View {
-        NativeCard(title: key == nil ? "新建密钥" : "编辑密钥") {
+        NavigationStack {
+        Form {
             NativeField(title: "名称（绑定到会话后即为别名）", value: $name)
             NativeField(title: "RPM", value: $rpm, keyboard: .numberPad)
-            Picker("设备", selection: $device) {
+            Picker("设备", selection: Binding(get: { device }, set: { device = $0; client = ""; project = ""; session = "" })) {
                 Text("全部设备").tag("")
                 ForEach(store.devices) { Text($0.name).tag($0.id) }
             }.pickerStyle(.menu)
-            Picker("AI 客户端", selection: $client) {
-                Text("全部客户端").tag(""); Text("ChatGPT").tag("codex"); Text("DeepSeek").tag("deepseek")
+            Picker("AI 客户端", selection: Binding(get: { client }, set: { client = $0; project = ""; session = "" })) {
+                Text("全部客户端").tag(""); Text("ChatGPT").tag("codex"); Text("DeepSeek").tag("deepseek"); Text("DeepSeek CLI").tag("deepseek-cli")
             }.pickerStyle(.menu).disabled(device.isEmpty)
-            if !projects.isEmpty {
-                Menu("选择项目") {
-                    Button("全部项目") { project = ""; session = "" }
-                    ForEach(projects, id: \.self) { path in Button(path) { project = path; session = "" } }
-                }.disabled(client.isEmpty || device.isEmpty)
+            Picker("选择项目", selection: Binding(get: { project }, set: { project = $0; session = "" })) {
+                Text("全部项目").tag("")
+                ForEach(projects, id: \.self) { path in
+                    Text(projectNames[path] ?? URL(fileURLWithPath: path).lastPathComponent).tag(path)
+                }
+                if !project.isEmpty && !projects.contains(project) { Text(URL(fileURLWithPath: project).lastPathComponent + "（当前绑定）").tag(project) }
+            }.pickerStyle(.menu).accessibilityIdentifier("key-project-picker").disabled(device.isEmpty || client.isEmpty || loadingOptions)
+            Picker("选择会话", selection: $session) {
+                Text("全部会话").tag("")
+                ForEach(sessions.filter { $0["cwd"] == project && !($0["sessionId"] ?? "").isEmpty }, id: \.self) { item in
+                    Text((item["title"] ?? "").isEmpty ? "未命名会话" : item["title"]!).tag(item["sessionId"]!)
+                }
+                if !session.isEmpty && !sessions.contains(where: { $0["sessionId"] == session }) { Text("当前绑定会话（暂不可用）").tag(session) }
+            }.pickerStyle(.menu).accessibilityIdentifier("key-session-picker").disabled(project.isEmpty || loadingOptions)
+            if loadingOptions { ProgressView("正在加载项目与会话…") }
+            if let optionsError {
+                Text(optionsError).foregroundStyle(.red)
+                Button("重新加载选项") { Task { await loadOptions() } }
+            } else if !device.isEmpty && !client.isEmpty && !loadingOptions && projects.isEmpty {
+                Text("暂无可选项目与会话").foregroundStyle(.secondary)
             }
-            NativeField(title: "项目绝对路径（留空为全部）", value: $project).disabled(device.isEmpty || client.isEmpty)
-            if !sessions.isEmpty {
-                Menu("选择会话") {
-                    Button("全部会话") { session = "" }
-                    ForEach(Array(sessions.enumerated()), id: \.offset) { _, value in
-                        if project.isEmpty || value["cwd"] == project {
-                            Button(value["title"] ?? value["sessionId"] ?? "会话") { session = value["sessionId"] ?? "" }
-                        }
-                    }
-                }.disabled(project.isEmpty)
-            }
-            NativeField(title: "会话 ID（留空为全部）", value: $session).disabled(project.isEmpty || device.isEmpty || client.isEmpty)
-            HStack {
-                if key != nil { Button("删除", role: .destructive) { deleting = true } }
-                Spacer()
-                Button("取消", action: done).disabled(model.saving)
-                Button("保存", action: save).buttonStyle(NativePrimaryButtonStyle())
+            if key != nil { Button("删除", role: .destructive) { deleting = true }.foregroundStyle(.red) }
+            if let error = model.error { Text(error).foregroundStyle(.red) }
+        }
+        .nativeSettingsForm().accessibilityIdentifier("native-editor-content")
+        .navigationTitle(key == nil ? "新建密钥" : "编辑密钥").navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .cancellationAction) { Button("取消", action: done).disabled(model.saving) }
+            ToolbarItem(placement: .confirmationAction) {
+                Button("保存", action: save)
                     .disabled(model.saving || name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !(1...10000).contains(Int(rpm) ?? 0) || (!project.isEmpty && !project.hasPrefix("/")) || (!session.isEmpty && project.isEmpty))
             }
         }
+        }.accessibilityIdentifier("native-key-editor")
         .task {
             guard !initialized else { return }; initialized = true
             name = key?.name ?? ""; rpm = String(key?.rpm ?? 10)
@@ -215,9 +268,6 @@ struct NativeAccessKeyEditor: View {
             project = key?.binding["project_path"] ?? ""; session = key?.binding["session_id"] ?? ""
         }
         .task(id: device + ":" + client) { await loadOptions() }
-        .onChange(of: device) { old, _ in if initialized && !old.isEmpty { client = ""; project = ""; session = "" } }
-        .onChange(of: client) { old, _ in if initialized && !old.isEmpty { project = ""; session = "" } }
-        .onChange(of: project) { old, _ in if initialized && !old.isEmpty { session = "" } }
         .alert("删除此密钥？", isPresented: $deleting) {
             Button("取消", role: .cancel) {}
             Button("删除", role: .destructive) {
@@ -226,18 +276,35 @@ struct NativeAccessKeyEditor: View {
             }
         } message: { Text("删除后无法再发起新请求；已接收的任务仍会执行。") }
     }
+    private var assistantForClient: String {
+        switch client {
+        case "deepseek": return "dsh"
+        case "deepseek-cli": return "deepseek"
+        default: return "codex"
+        }
+    }
+
     private func loadOptions() async {
-        projects = []; sessions = []
+        projects = []; projectNames = [:]; sessions = []; optionsError = nil; loadingOptions = false
         guard !device.isEmpty, !client.isEmpty else { return }
+        loadingOptions = true
         let selected = device + ":" + client
+        defer { if selected == device + ":" + client { loadingOptions = false } }
         do {
             let catalog = try await model.service.shared("binding-sessions", values: ["device": device, "client": client]) as? [[String: Any]] ?? []
-            guard selected == device + ":" + client else { return }
+            let projectCatalog = try await model.service.request("/" + device + "/api/projects?assistant=" + assistantForClient)["projects"] as? [[String: Any]] ?? []
+            guard !Task.isCancelled, selected == device + ":" + client else { return }
             sessions = catalog.map { value in
-                ["title": value["title"] as? String ?? "", "sessionId": value["sessionId"] as? String ?? "", "cwd": value["projectCwd"] as? String ?? value["cwd"] as? String ?? ""]
+                ["projectName": value["projectName"] as? String ?? "", "title": value["title"] as? String ?? "", "sessionId": value["sessionId"] as? String ?? "", "cwd": value["projectCwd"] as? String ?? value["cwd"] as? String ?? ""]
             }
-            projects = Array(Set(sessions.compactMap { $0["cwd"] }.filter { $0.hasPrefix("/") })).sorted()
-        } catch { model.error = "候选加载失败，可手动填写绝对路径及会话 ID：" + error.localizedDescription }
+            for item in sessions {
+                if let path = item["cwd"], path.hasPrefix("/") { projectNames[path] = item["projectName"].flatMap { $0.isEmpty ? nil : $0 } ?? URL(fileURLWithPath: path).lastPathComponent }
+            }
+            for item in projectCatalog {
+                if let path = item["cwd"] as? String, path.hasPrefix("/") { projectNames[path] = item["name"] as? String ?? URL(fileURLWithPath: path).lastPathComponent }
+            }
+            projects = projectNames.keys.sorted()
+        } catch { if !Task.isCancelled && selected == device + ":" + client { optionsError = "候选加载失败：" + error.localizedDescription } }
     }
     private func save() {
         var binding: [String: String] = [:]

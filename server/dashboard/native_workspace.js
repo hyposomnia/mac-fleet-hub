@@ -6,6 +6,10 @@
   const post = value => root.webkit.messageHandlers.fleet.postMessage(value);
   const style = document.createElement('style');
   style.textContent = `
+    html[data-native="ios"] .file-status { display: none !important; }
+    @media (max-width: 700px) {
+      html[data-native="ios"] .file-list-columns .file-column { flex-basis: calc(100% - 64px); border-right: 1px solid var(--border); }
+    }
     html[data-native-overlay="true"], html[data-native-overlay="true"] body,
     html[data-native-overlay="true"] #app { background: transparent !important; }
     html[data-native-overlay="true"] #app > :not(.overlay):not(#toast-wrap) { visibility: hidden !important; }

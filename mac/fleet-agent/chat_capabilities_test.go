@@ -57,3 +57,39 @@ func TestChatCapabilities(t *testing.T) {
 		})
 	}
 }
+
+// dsh CLI / web harness（assistant=deepseek）与 Desktop 能力对齐，但开关独立：
+// 一台机器可以只开其中一个。
+func TestChatCapabilitiesDeepSeekHarness(t *testing.T) {
+	dshAll := assistantCapabilities{SelfDraw: true, Queue: true}
+	prev := cfg.DeepSeekEnabled
+	t.Cleanup(func() { cfg.DeepSeekEnabled = prev })
+
+	cfg.DeepSeekEnabled = true
+	if got := chatCapabilities("deepseek"); got != dshAll {
+		t.Fatalf("启用时 chatCapabilities(deepseek) = %+v, want %+v", got, dshAll)
+	}
+	if got := chatCapabilities("DeepSeek"); got != dshAll {
+		t.Fatalf("大小写不敏感失败: %+v", got)
+	}
+	if chatCapabilities("deepseek").ApprovalModes {
+		t.Fatal("DeepSeek harness 消息不得自动重放权限预设")
+	}
+
+	cfg.DeepSeekEnabled = false
+	if got := chatCapabilities("deepseek"); got != (assistantCapabilities{}) {
+		t.Fatalf("未启用时 chatCapabilities(deepseek) = %+v, want 空能力", got)
+	}
+}
+
+func TestNormAssistantKeepsTwoDSHHarnessesApart(t *testing.T) {
+	if got := normAssistant("deepseek"); got != "deepseek" {
+		t.Fatalf("normAssistant(deepseek) = %q", got)
+	}
+	if got := normAssistant(" DSH "); got != "dsh" {
+		t.Fatalf("normAssistant(DSH) = %q", got)
+	}
+	if !isDSHHarness("dsh") || !isDSHHarness("deepseek") || isDSHHarness("codex") || isDSHHarness("claude") {
+		t.Fatal("isDSHHarness 只应认 dsh / deepseek")
+	}
+}

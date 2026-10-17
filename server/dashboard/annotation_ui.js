@@ -239,7 +239,7 @@
     function capture(doc, frameInfo) {
       if (activePointers.size || editing || panel) return;
       const chat = getChat();
-      if (!chat || !['codex', 'dsh'].includes(chat.assistant)) return;
+      if (!chat || !['codex', 'dsh', 'deepseek'].includes(chat.assistant)) return;
       if (
         frameInfo &&
         (frameInfo.key !== keyFor(chat) || frameInfo.frame.hidden || !frameInfo.frame.isConnected)

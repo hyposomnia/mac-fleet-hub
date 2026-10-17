@@ -143,7 +143,7 @@ const state = {
   sessionMacId: 'all', // 会话列表设备范围：all | mN；终端 / 自绘会话仍使用具体 macId
   fileMacId: null,     // 文件始终绑定一台具体设备
   mode: 'sessions',      // sessions | files
-  assistant: 'codex',    // codex | dsh
+  assistant: 'codex',    // codex | dsh | deepseek
   scope: 'active',       // active | all
   sessionView: 'project', // project | recent
   termSid: null,         // 当前终端 tmux 会话名（watch / reload 用）
@@ -174,6 +174,7 @@ const state = {
   sessionResults: [],
   sessionProjects: [],
   sessionReadAt: new Map(),
+  sessionReadStates: new Map(), // authoritative gateway snapshots; memory cache only
   sessionCursors: {},    // macId -> Codex nextCursor
   sessionErrors: {},
   sessionsLoadingMore: false,
@@ -195,7 +196,7 @@ const state = {
   fileSearch: '',
   fileShowHidden: false,
   fileView: 'list',     // icons | list | columns
-  fileSortKey: 'name',  // name | modifiedAt | size
+  fileSortKey: 'name',  // name | createdAt | modifiedAt | size
   fileSortDirection: 'asc', // asc | desc
   fileColumns: [],
   fileSelectedPath: '',
@@ -247,15 +248,20 @@ function sessionProjectInfo(session) { return FleetCore.projectInfo(session); }
 function groupSessionsByProject(sessions, projects = [], search = '') { return FleetCore.groupSessions(sessions, projects, search); }
 function macName(id) { return macNames[id] || ('Mac ' + id.slice(1)); }
 // 助手白名单：localStorage/会话快照回读时用它校验，非法值（旧数据、手改）一律回退 codex。
-const ASSISTANTS = ['codex', 'dsh', ...(globalThis.__fleetNativeVersion === 1 ? ['claude'] : [])];
+const ASSISTANTS = ['codex', 'dsh', 'deepseek', ...(globalThis.__fleetNativeVersion === 1 ? ['claude'] : [])];
 function normalizeAssistant(a) { return ASSISTANTS.includes(a) ? a : 'codex'; }
-const ASSISTANT_LABELS = { codex: 'ChatGPT', dsh: 'DeepSeek', claude: 'Claude' };
+const ASSISTANT_LABELS = { codex: 'ChatGPT', dsh: 'DSH Desktop', deepseek: 'DeepSeek', claude: 'Claude' };
+// DSH 家族：Desktop（dsh）与 CLI / web harness（deepseek）共用 chat 协议，
+// 但会话目录、端点与凭据完全独立，能力块也各占一个 key。
+const DSH_ASSISTANTS = ['dsh', 'deepseek'];
+function isDshAssistant(a = state.assistant) { return DSH_ASSISTANTS.includes(a); }
 function assistantLabel(a = state.assistant) { return ASSISTANT_LABELS[normalizeAssistant(a)]; }
-// 自绘对话的"连接中"文案。Codex 连的是 app-server，DSH 连的是 Desktop 已启动的
-// harness host——术语不同，不能共用一句，否则 DeepSeek tab 上会写"正在连接 ChatGPT…"。
+// 自绘对话的"连接中"文案。Codex 连的是 app-server，DSH 连的是 harness host——
+// 术语不同，不能共用一句，否则 DeepSeek 上会写"正在连接 ChatGPT…"。
 function assistantConnectingText(a = state.assistant) {
   const assistant = normalizeAssistant(a);
-  if (assistant === 'dsh') return '正在连接 DeepSeek Harness…';
+  if (assistant === 'dsh') return '正在连接 DSH Desktop…';
+  if (assistant === 'deepseek') return '正在连接 DeepSeek Harness…';
   return '正在连接 ChatGPT…';
 }
 // nginx 或 agent 直接返回的 413 响应体是 HTML，解析不出 message，用它兜底。
@@ -289,7 +295,7 @@ function normalizeFileView(view) {
 }
 
 function normalizeFileSortKey(key) {
-  return ['name', 'modifiedAt', 'size'].includes(key) ? key : 'name';
+  return ['name', 'createdAt', 'modifiedAt', 'size'].includes(key) ? key : 'name';
 }
 
 function normalizeFileSortDirection(direction) {
@@ -346,20 +352,27 @@ function initSessionListPreferences() {
 // 拿不到 info（旧 agent / 离线）按不可用处理，不露出半成品入口。macId 省略时取当前设备。
 function assistantCapabilities(assistant = state.assistant, macId = '') {
   if (assistant === 'codex') return { selfDraw: true, sessionCursor: true, terminal: false, approvalModes: true };
-  if (assistant !== 'dsh') return { selfDraw: false, sessionCursor: false, terminal: false, approvalModes: false };
-  return { selfDraw: dshReady(macId || state.macId), sessionCursor: true, terminal: false, approvalModes: false };
+  if (!isDshAssistant(assistant)) return { selfDraw: false, sessionCursor: false, terminal: false, approvalModes: false };
+  return { selfDraw: dshReady(macId || state.macId, assistant), sessionCursor: true, terminal: false, approvalModes: false };
 }
 
-// 该 Mac 的 DSH 是否可用：agent 报了能力块、enabled 且未降级。旧 agent 不返回 dsh 块 → false。
-function dshReady(macId) {
-  const dsh = state.assistantInfo[macId]?.dsh;
-  return !!(dsh && dsh.enabled && !dsh.degraded);
+// 读某个 DSH assistant 的能力块（dsh=Desktop，deepseek=CLI/web）。
+function dshInfo(macId, assistant) {
+  return state.assistantInfo[macId]?.[assistant];
 }
 
-// dsh 入口本身（含降级只读态）：只要 agent 报了 enabled 就保留 tab，降级时列表顶部出横幅。
-function dshEnabled(macId) {
-  const dsh = state.assistantInfo[macId]?.dsh;
-  return !!(dsh && dsh.enabled);
+// 该 Mac 的 DSH 是否可用：agent 报了能力块、enabled 且未降级。旧 agent 不返回该块 → false。
+function dshReady(macId, assistant = state.assistant) {
+  const info = dshInfo(macId, assistant);
+  return !!(info && info.enabled && !info.degraded);
+}
+
+// 入口本身（含降级只读态）：enabled 且（装了或正在跑）才保留入口。
+// 只看 enabled 会让两台 harness 都没装的机器也冒出两个空入口；装了但没跑
+// 仍保留（降级横幅说明原因），这样启动 host 后不用重新选助手。
+function dshEnabled(macId, assistant = state.assistant) {
+  const info = dshInfo(macId, assistant);
+  return !!(info && info.enabled && (info.installed || info.hostRunning));
 }
 
 // 原生 DSH Web UI 必须绑定一台明确的 Mac；“全部设备”没有唯一的代理目标。
@@ -368,32 +381,42 @@ function dshNativeTargetMac() {
   return /^m\d+$/.test(macId || '') && MACS.some((m) => m.id === macId) ? macId : '';
 }
 
+// 当前助手是否有原生 Web UI（只有 DSH 家族有）。
+function dshNativeAssistant() {
+  return isDshAssistant() ? state.assistant : '';
+}
+
 function dshNativeButtonState() {
+  const assistant = dshNativeAssistant();
+  const label = ASSISTANT_LABELS[assistant] || '';
+  if (!assistant) return { macId: '', assistant: '', enabled: false, hidden: true, title: '' };
   const macId = dshNativeTargetMac();
-  if (!macId) return { macId: '', enabled: false, title: '仅选择单个设备时可用' };
-  if (!state.nodes[macId]) return { macId, enabled: false, title: `${macName(macId)} 当前离线` };
-  const dsh = state.assistantInfo[macId]?.dsh;
-  if (!dsh) return { macId, enabled: false, title: '正在检查 DeepSeek Harness' };
-  if (dsh.nativeUI !== true) return { macId, enabled: false, title: '请先更新这台 Mac 的 Fleet Agent' };
-  if (!dsh.enabled) return { macId, enabled: false, title: '这台 Mac 未启用 DeepSeek Harness' };
-  if (!dsh.installed) return { macId, enabled: false, title: '这台 Mac 未安装 DSH Desktop' };
-  if (!dsh.hostRunning || dsh.degraded) return { macId, enabled: false, title: '请先在这台 Mac 上启动 DSH Desktop' };
-  return { macId, enabled: true, title: `在新页面打开 ${macName(macId)} 的 DeepSeek Harness` };
+  if (!macId) return { macId, assistant, enabled: false, hidden: false, title: '仅选择单个设备时可用' };
+  if (!state.nodes[macId]) return { macId, assistant, enabled: false, hidden: false, title: `${macName(macId)} 当前离线` };
+  const info = dshInfo(macId, assistant);
+  if (!info) return { macId, assistant, enabled: false, hidden: false, title: `正在检查 ${label}` };
+  if (info.nativeUI !== true) return { macId, assistant, enabled: false, hidden: false, title: '请先更新这台 Mac 的 Fleet Agent' };
+  if (!info.enabled) return { macId, assistant, enabled: false, hidden: false, title: `这台 Mac 未启用 ${label}` };
+  if (!info.installed) return { macId, assistant, enabled: false, hidden: false, title: `这台 Mac 未安装 ${label}` };
+  if (!info.hostRunning || info.degraded) return { macId, assistant, enabled: false, hidden: false, title: `请先在这台 Mac 上启动 ${label}` };
+  return { macId, assistant, enabled: true, hidden: false, title: `在新页面打开 ${macName(macId)} 的 ${label}` };
 }
 
 function syncDshNativeButtons() {
   const status = dshNativeButtonState();
   $$('[data-dsh-native-open]').forEach((button) => {
+    button.hidden = status.hidden;
     button.disabled = !status.enabled;
     button.title = status.title;
     button.setAttribute('aria-disabled', String(!status.enabled));
+    if (status.assistant) button.setAttribute('aria-label', `打开 ${ASSISTANT_LABELS[status.assistant]}`);
   });
 }
 
 function openDshNativeUI() {
-  const { macId, enabled } = dshNativeButtonState();
-  if (!enabled) return;
-  window.open(`${apiBase(macId)}/dsh/`, '_blank', 'noopener,noreferrer');
+  const { macId, assistant, enabled } = dshNativeButtonState();
+  if (!enabled || !assistant) return;
+  window.open(`${apiBase(macId)}/${assistant}/`, '_blank', 'noopener,noreferrer');
 }
 
 // 聊天入口只看会话模式与助手能力，旧自绘开关不再参与。
@@ -727,23 +750,41 @@ async function refreshAssistantCapabilities() {
     try { probed[m.id] = await probeAssistantInfo(m.id); } catch (_) {}
   }));
   const dshChanged = Object.keys({ ...state.assistantInfo, ...probed }).some((id) =>
-    JSON.stringify(state.assistantInfo[id]?.dsh) !== JSON.stringify(probed[id]?.dsh));
+    DSH_ASSISTANTS.some((assistant) =>
+      JSON.stringify(state.assistantInfo[id]?.[assistant]) !== JSON.stringify(probed[id]?.[assistant])));
   state.assistantInfo = probed;
-  syncAssistantTabs();
+  syncAssistantPicker();
   // 列表可能先于 info 返回；能力变化后重建行的菜单与点击回调，普通轮询不打断菜单。
-  if (state.mode === 'sessions' && state.assistant === 'dsh' && dshChanged) {
+  if (state.mode === 'sessions' && isDshAssistant() && dshChanged) {
     renderSessionResults({ preserveScroll: true });
   }
 }
 
-// DeepSeek 入口使用已知能力；尚无能力信息的新设备不展示，短暂离线保持入口。
-// 鲸鱼嵌在 tab 内，所以显隐落在 tab 外壳（data-assistant-entry）上，一次带掉文字与鲸鱼。
-function syncAssistantTabs() {
-  const available = Object.keys(state.assistantInfo).some(dshEnabled);
-  $$('[data-assistant-entry="dsh"]').forEach((entry) => { entry.hidden = !available; });
+// 某个助手是否该出现在下拉框里：codex 永远有；claude 只在原生壳里；
+// DSH 家族要任一在线设备的 /api/info 报了 enabled。
+function assistantAvailable(assistant) {
+  if (assistant === 'codex') return true;
+  if (assistant === 'claude') return globalThis.__fleetNativeVersion === 1;
+  return Object.keys(state.assistantInfo).some((id) => dshEnabled(id, assistant));
+}
+
+// 助手下拉框：显隐选项、同步选中值，并在当前助手不可用时退回 codex。
+// 尚无能力信息的新设备不展示 DSH 选项；短暂离线保持入口。
+function syncAssistantPicker() {
+  $$('[data-assistant-select]').forEach((select) => {
+    for (const option of select.options) {
+      const available = assistantAvailable(option.value);
+      option.hidden = !available;
+      option.disabled = !available;
+    }
+    if (select.value !== state.assistant) select.value = state.assistant;
+  });
   syncDshNativeButtons();
-  // 选中的 dsh 已经不可用（agent 没开 / 换了旧 agent）：退回 codex，不停在一个空列表上
-  if (!available && state.assistant === 'dsh') { setAssistant('codex'); return; }
+  // 选中的 DSH 已经不可用（agent 没开 / 换了旧 agent）：退回 codex，不停在一个空列表上。
+  // 但要等真的探测到过至少一台 Mac 再判：冷启动/WebView 重载时 capability 表还是空的，
+  // 这时把用户刚选的助手打回 codex，会表现为"点了没反应"。
+  const probed = Object.keys(state.assistantInfo || {}).length > 0;
+  if (probed && !assistantAvailable(state.assistant)) { setAssistant('codex'); return; }
   syncDshBanner();
 }
 
@@ -1013,7 +1054,17 @@ function renderAccessKeys() {
   }
 }
 function accessKeyClientName(client) {
-  return client === 'codex' ? 'ChatGPT' : client === 'deepseek' ? 'DeepSeek' : '全部客户端';
+  if (client === 'codex') return 'ChatGPT';
+  if (client === 'deepseek') return 'DeepSeek';
+  if (client === 'deepseek-cli') return 'DeepSeek CLI';
+  return '全部客户端';
+}
+// 外部消息 API 的 ai_client → agent assistant。deepseek 保持拆分前的语义（DSH Desktop），
+// deepseek-cli 是本次新增的 dsh CLI / web harness 入口。
+function accessKeyAssistant(client) {
+  if (client === 'deepseek') return 'dsh';
+  if (client === 'deepseek-cli') return 'deepseek';
+  return 'codex';
 }
 function accessKeyCatalogKey(binding) {
   return `${binding?.device_id || ''}\n${binding?.ai_client || ''}`;
@@ -1091,7 +1142,7 @@ async function loadAccessKeyBindingSessions() {
 }
 async function fetchAccessKeyBindingSessions(device, client) {
   const sessions = [];
-  const assistant = client === 'deepseek' ? 'dsh' : 'codex';
+  const assistant = accessKeyAssistant(client);
   let cursor = '';
   for (let page = 0; page < 100; page++) {
     const query = new URLSearchParams({ assistant, limit: '100' });
@@ -1399,7 +1450,7 @@ function setAssistant(assistant) {
   state.sessionResults = [];
   state.sessionCursors = {};
   closeChatPane();
-  $$('[data-assistant]').forEach((b) => b.setAttribute('aria-selected', String(b.dataset.assistant === state.assistant)));
+  $$('[data-assistant-select]').forEach((select) => { select.value = state.assistant; });
   updateSessionFilterUI();
   persistUIState();
   loadSessions({ clear: true });
@@ -1477,17 +1528,44 @@ function persistSessionReadState() {
 function observeSessionActivity(sessions) {
   let changed = false;
   for (const session of sessions || []) {
+    mergeSessionReadState(session);
     const key = sessionKey(session);
     const activity = sessionActivityAt(session);
-    if (!key || activity <= 0 || state.sessionReadAt.has(key) || session.desktopUnread === true) continue;
+    if (!key || activity <= 0 || state.sessionReadAt.has(key) || session.desktopUnread === true || session.markedUnread) continue;
     state.sessionReadAt.set(key, activity);
     changed = true;
   }
   if (changed) persistSessionReadState();
 }
 
-function markSessionRead(session) {
+function mergeSessionReadState(session, value = session) {
+  const key = sessionKey(session);
+  const cached = state.sessionReadStates.get(key);
+  if (Number(value.readStateVersion) > 0 && (!cached || value.readStateVersion >= cached.readStateVersion)) {
+    state.sessionReadStates.set(key, { readAt: Number(value.readAt) || 0,
+      markedUnread: value.markedUnread === true, readStateVersion: Number(value.readStateVersion) });
+  }
+  const current = state.sessionReadStates.get(key);
+  if (current) Object.assign(session, current);
+  return session;
+}
+
+function receiveSessionReadState(session, result) {
+  mergeSessionReadState(session, result);
+  for (const item of state.sessionResults) {
+    if (sessionKey(item) === sessionKey(session)) mergeSessionReadState(item, result);
+  }
+  syncSessionRuntimeIndicators();
+  globalThis.FleetWorkspace?.publish();
+}
+
+function markSessionRead(session, { explicit = false } = {}) {
   if (!session?.sessionId) return;
+  const listed = state.sessionResults.find(item => sessionKey(item) === sessionKey(session));
+  mergeSessionReadState(session, listed || session);
+  // A manual mark survives polling and output in an already-open conversation.
+  // Only opening it again is an explicit read of that mark.
+  if (session.markedUnread && !explicit) return;
   const key = sessionKey(session);
   const next = sessionActivityAt(session);
   if (next > (state.sessionReadAt.get(key) || 0)) {
@@ -1496,19 +1574,25 @@ function markSessionRead(session) {
   }
   const chat = state.chatCache.get(chatCacheKey(session.macId, session.sessionId, session.assistant));
   if (chat) chat.unread = false;
-  // The agent owns the shared cursor; another browser will receive it on the next list refresh.
+  // The gateway owns the shared cursor; another client receives it on list refresh.
   // Do not send a wall-clock timestamp: it would mark replies arriving shortly afterward as read.
-  if (next > 0 && session.macId) {
-    api(session.macId, 'sessions/read', {
+  if ((next > 0 || explicit) && session.macId) {
+    const identityCache = state.sessionReadStates;
+    return api(session.macId, 'sessions/read', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ assistant: session.assistant || state.assistant,
-        sessionId: session.sessionId, activityAt: next }),
+        sessionId: session.sessionId, activityAt: next, explicit,
+        expectedVersion: Number(session.readStateVersion) || 0 }),
+    }).then(result => {
+      if (state.sessionReadStates === identityCache) receiveSessionReadState(session, result);
     }).catch(() => {});
   }
 }
 
 function sessionIsUnread(session) {
   if (!session?.sessionId) return false;
+  mergeSessionReadState(session);
+  if (session.markedUnread) return true;
   if (session.sessionId === state.selectedSid && session.macId === state.selectedSessionMacId &&
       (session.assistant || state.assistant) === (state.selectedSessionAssistant || state.assistant) &&
       $('#win')?.dataset.workspacePreview !== 'true') return false;
@@ -1670,12 +1754,12 @@ function syncSessionConnectionNotes() {
   }
 }
 
-// 当前 DSH 是否降级（能力块在，但 Desktop 没跑 / 报了 degraded）：列表只剩磁盘会话。
+// 当前 DSH 家族助手是否降级（能力块在，但 host 没跑）：会话列表只剩磁盘只读态。
 function dshDegraded() {
-  if (state.assistant !== 'dsh') return false;
+  if (!isDshAssistant()) return false;
   return sessionTargetMacs().some((macId) => {
-    const dsh = state.assistantInfo[macId]?.dsh;
-    return !!(dsh && dsh.enabled && (dsh.degraded === true || dsh.hostRunning === false));
+    const info = dshInfo(macId, state.assistant);
+    return !!(info && info.enabled && (info.degraded === true || info.hostRunning === false));
   });
 }
 
@@ -1688,7 +1772,7 @@ function syncDshBanner() {
   wrap.prepend(h('div', {
     class: 'session-partial-note',
     dataset: { dshDegraded: '1' },
-    text: 'DSH Desktop 未运行，当前仅显示磁盘会话（只读）',
+    text: `${ASSISTANT_LABELS[state.assistant]} 未运行，会话列表暂不可用；启动后自动恢复。`,
   }));
 }
 
@@ -1948,6 +2032,7 @@ async function refreshSessionsSoft() {
         live: session.live, waiting: session.waiting, status: session.status, mtime: session.mtime,
         outputEndedAt: session.outputEndedAt, readAt: session.readAt,
         desktopUnread: session.desktopUnread,
+        markedUnread: session.markedUnread, readStateVersion: session.readStateVersion,
       });
     }
     updateCachedChatFromSession(session.macId, session);
@@ -1991,7 +2076,7 @@ function activateSession(session) {
   state.selectedSid = session.sessionId;
   state.selectedSessionMacId = session.macId;
   state.selectedSessionAssistant = session.assistant || state.assistant;
-  markSessionRead(session);
+  markSessionRead(session, { explicit: true });
   renderHosts();
   syncSessionRuntimeIndicators();
 }
@@ -2057,8 +2142,8 @@ function sessionRow(s) {
 
 function sessionMenuActions(session) {
   const assistant = session.assistant || state.assistant;
-  if (assistant === 'codex') return ['pin', 'unpin', 'rename', 'archive', 'unarchive', 'delete'];
-  if (assistant === 'dsh') return state.assistantInfo[session.macId]?.dsh?.sessionActions || [];
+  if (assistant === 'codex') return ['mark-unread', 'pin', 'unpin', 'rename', 'archive', 'unarchive', 'delete'];
+  if (isDshAssistant(assistant)) return ['mark-unread', ...(state.assistantInfo[session.macId]?.[assistant]?.sessionActions || [])];
   return [];
 }
 
@@ -2096,6 +2181,9 @@ function renderSessionMenu(session) {
         { tag: 'circle', attrs: { cx: '19', cy: '12', r: '1', fill: 'currentColor', stroke: 'none' } },
       ])),
     h('div', { class: 'ses-menu', hidden: '' },
+      actions.includes('mark-unread') && h('button', { type: 'button', onclick: (event) => {
+        event.stopPropagation(); closeMenus(); return mutateSession(session, 'mark-unread');
+      } }, '标为未读'),
       actions.includes(pinAction) && h('button', { type: 'button', onclick: (event) => { event.stopPropagation(); return mutateSession(session, pinAction); } },
         session.pinned ? '取消置顶' : '置顶'),
       actions.includes('rename') && h('button', { type: 'button', onclick: (event) => { event.stopPropagation(); return renameSession(session); } }, '重命名'),
@@ -2107,6 +2195,18 @@ function renderSessionMenu(session) {
 
 async function mutateSession(session, action, value = '', { throwOnError = false } = {}) {
   try {
+    if (action === 'mark-unread') {
+      const identityCache = state.sessionReadStates;
+      const result = await api(session.macId, 'sessions/read', {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ assistant: session.assistant || state.assistant, sessionId: session.sessionId, unread: true }),
+      });
+      if (state.sessionReadStates !== identityCache) return;
+      if (result.markedUnread !== true || !(result.readStateVersion > 0)) throw new Error('请先更新网关以支持标为未读');
+      receiveSessionReadState(session, result);
+      renderSessionResults();
+      return;
+    }
     await api(session.macId, 'sessions/action', {
       method: 'POST', headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ assistant: session.assistant || state.assistant, sessionId: session.sessionId, action, value }),
@@ -2246,7 +2346,7 @@ function poolShow(entry) {
   state.current = entry;
   // 同步老字段，watch / reload / resize / 移动输入坞复用
   state.assistant = entry.assistant || state.assistant;
-  $$('[data-assistant]').forEach((b) => b.setAttribute('aria-selected', String(b.dataset.assistant === state.assistant)));
+  $$('[data-assistant-select]').forEach((select) => { select.value = state.assistant; });
   state.termSid = entry.sid; state.termUrl = entry.url; state.termSessionId = entry.sessionId;
   state.curTitle = entry.title; state.curCwd = entry.cwd; state.curMode = entry.permMode;
   $('#frame').classList.remove('show');
@@ -2875,11 +2975,11 @@ function applyChatControlSnapshot(chat, source, requestSeq = 0) {
   chat.approvalOptions = Array.isArray(snapshot.approvalOptions) ? snapshot.approvalOptions : [];
   chat.approvalError = snapshot.approvalError || '';
   chat.approvalConfirmedMode = normalizeChatApprovalMode(snapshot.approvalMode, chat);
-  if (chat.assistant === 'dsh') chat.approvalControlsEnabled = chat.approvalOptions.length > 0;
+  if (isDshAssistant(chat.assistant)) chat.approvalControlsEnabled = chat.approvalOptions.length > 0;
   chat.pendingRequestCount = Math.max(Number(snapshot.pendingRequests) || 0,
     Object.values(chat.model?.requests || {}).filter((request) => request?.status === 'pending').length);
   if (!chat.approvalUpdatePending) chat.approvalMode = chat.approvalConfirmedMode;
-  if (chat.assistant === 'dsh' && state.chat === chat
+  if (isDshAssistant(chat.assistant) && state.chat === chat
       && previousApprovalView !== JSON.stringify([chat.approvalMode, chat.approvalOptions, chat.approvalError])) renderChatApprovalMenu(chat);
   chat.followups = visibleQueue;
   if (chat.controlReady) {
@@ -4273,7 +4373,7 @@ function renderChatApprovalRequest(item) {
     details.push(h('pre', { class: 'chat-request-json', text: JSON.stringify(raw.permissions, null, 2) }));
   }
   let actions = null;
-  if (pending && state.assistant === 'dsh') {
+  if (pending && isDshAssistant()) {
     // DSH 的审批 outcome 只有 allowed-once / rejected，没有会话级授权 → 不给「本会话允许」。
     actions = h('div', { class: 'chat-approval-actions' },
       requestActionButton('允许一次', { decision: 'accept' }, true),
@@ -5560,20 +5660,20 @@ function chatServiceTierDescription(tier) {
 }
 
 function normalizeChatApprovalMode(value, chat) {
-  if (chat?.assistant === 'dsh') return typeof value === 'string' ? value : '';
+  if (isDshAssistant(chat?.assistant)) return typeof value === 'string' ? value : '';
   if (value === 'untrusted' || value === 'full-access') return value;
   return 'on-request';
 }
 
 function chatApprovalOptions(chat) {
-  if (chat?.assistant !== 'dsh') return CHAT_APPROVAL_OPTIONS;
+  if (!isDshAssistant(chat?.assistant)) return CHAT_APPROVAL_OPTIONS;
   const labels = { 'read-only': '仅可查看', 'workspace-write': '工作区内修改', 'danger-full-access': '完全访问权限', auto: '自动审查' };
   return (chat.approvalOptions || []).map((option) => ({ ...option,
     label: labels[option.value] || option.name || option.value, danger: option.value === 'danger-full-access' }));
 }
 
 function selectedChatApproval(mode, chat) {
-  if (chat?.assistant === 'dsh') return chatApprovalOptions(chat).find((option) => option.value === mode)
+  if (isDshAssistant(chat?.assistant)) return chatApprovalOptions(chat).find((option) => option.value === mode)
     || { value: mode, label: chat.approvalOptions?.length ? '自定义权限' : '权限不可用' };
   const normalized = normalizeChatApprovalMode(mode);
   return CHAT_APPROVAL_OPTIONS.find((item) => item.value === normalized) || CHAT_APPROVAL_OPTIONS[1];
@@ -5613,12 +5713,12 @@ function renderChatApprovalMenu(chat = state.chat) {
   label.textContent = selected.label;
   trigger.dataset.value = selected.value;
   trigger.setAttribute('aria-label', `如何批准 ${assistantLabel(chat?.assistant)} 操作？`);
-  trigger.title = chat?.assistant === 'dsh' && !chat.approvalOptions?.length ? (chat.approvalError || '需要支持权限设置的 Mac 客户端') : '';
+  trigger.title = isDshAssistant(chat?.assistant) && !chat.approvalOptions?.length ? (chat.approvalError || '需要支持权限设置的 Mac 客户端') : '';
   clear(popover);
   popover.append(
     h('div', { class: 'chat-approval-head' },
       h('span', { text: `如何批准 ${assistantLabel(chat?.assistant)} 操作？` }),
-      chat?.assistant !== 'dsh' ? h('a', {
+      !isDshAssistant(chat?.assistant) ? h('a', {
         class: 'chat-approval-learn',
         href: 'https://developers.openai.com/codex/concepts/sandboxing#how-you-control-it',
         target: '_blank',
@@ -5647,7 +5747,7 @@ function renderChatApprovalMenu(chat = state.chat) {
 function setChatApprovalEnabled(chat, enabled) {
   const trigger = $('#chat-approval');
   if (!trigger) return;
-  const supported = chat?.assistant === 'dsh' ? chat.approvalOptions?.length > 0 : assistantCapabilities().approvalModes;
+  const supported = isDshAssistant(chat?.assistant) ? chat.approvalOptions?.length > 0 : assistantCapabilities().approvalModes;
   if (chat) {
     chat.approvalMode = normalizeChatApprovalMode(chat.approvalMode, chat);
     chat.approvalControlsEnabled = !!enabled && supported;
@@ -5674,7 +5774,7 @@ function toggleChatApproval() {
 async function selectChatApprovalMode(value) {
   if (!state.chat || chatMutationsBlocked(state.chat)) return;
   const chat = state.chat;
-  if (chat.assistant === 'dsh' && !chatApprovalOptions(chat).some((option) => option.value === value)) return;
+  if (isDshAssistant(chat.assistant) && !chatApprovalOptions(chat).some((option) => option.value === value)) return;
   const approvalMode = normalizeChatApprovalMode(value, chat);
   if (approvalMode === chat.approvalMode) {
     closeChatApproval();
@@ -5708,7 +5808,7 @@ async function selectChatApprovalMode(value) {
     if (latest) {
       chat.approvalMode = chat.approvalConfirmedMode;
       if (state.chat === chat) renderChatApprovalMenu(chat);
-      if (chat.assistant === 'dsh' && state.chat === chat) {
+      if (isDshAssistant(chat.assistant) && state.chat === chat) {
         toast('DeepSeek 会话权限已更新。');
       } else if (updatesRunningTurn && state.chat === chat) {
         toast(approvalMode === 'full-access'
@@ -5864,7 +5964,7 @@ function configureChatOptions(chat, resumed) {
   chat.modelsError = resumed.modelsError || '';
   if (resumed.model && !models.some((m) => m.value === resumed.model)) {
     models.unshift({ value: resumed.model, displayName: resumed.model, defaultEffort: '', supportedEfforts: [], serviceTiers: [],
-      unavailable: chat.assistant === 'dsh' && Boolean(chat.modelsError || Array.isArray(resumed.models)) });
+      unavailable: isDshAssistant(chat.assistant) && Boolean(chat.modelsError || Array.isArray(resumed.models)) });
   }
   chat.models = models.filter((model) => model?.value);
   chat.selectedModel = resumed.model || (models.find((m) => m.isDefault)?.value || models[0]?.value || '');
@@ -7068,7 +7168,6 @@ async function loadFileDirectory(path = '', opts = {}) {
 function renderFileBrowser() {
   renderFileLocations();
   renderFileBreadcrumbs();
-  if ($('#file-path-input') && document.activeElement !== $('#file-path-input')) $('#file-path-input').value = state.filePath;
   renderFileEntries();
   $('#file-folder-title').textContent = state.filePath === state.fileRoot ? (state.fileRoot === '/' ? '文件系统' : '主目录') : fileBaseName(state.filePath);
   updateDeviceScopeUI();
@@ -7164,7 +7263,7 @@ function sortFileEntries(entries, key = 'name', direction = 'asc') {
   );
   const numericValue = (entry) => {
     const value = Number(entry?.[sortKey]);
-    return Number.isFinite(value) ? value : 0;
+    return Number.isFinite(value) && (sortKey === 'size' || value > 0) ? value : null;
   };
 
   return [...(entries || [])].sort((left, right) => {
@@ -7172,9 +7271,13 @@ function sortFileEntries(entries, key = 'name', direction = 'asc') {
     const rightFolder = right?.kind === 'folder';
     if (leftFolder !== rightFolder) return leftFolder ? -1 : 1;
 
-    const primary = sortKey === 'name'
-      ? compareNames(left, right)
-      : numericValue(left) - numericValue(right);
+    const leftValue = numericValue(left), rightValue = numericValue(right);
+    // Older devices may omit creation dates; unknown dates stay last in either direction.
+    if (sortKey !== 'name' && (leftValue === null || rightValue === null)) {
+      if (leftValue !== rightValue) return leftValue === null ? 1 : -1;
+      return compareNames(left, right);
+    }
+    const primary = sortKey === 'name' ? compareNames(left, right) : leftValue - rightValue;
     if (primary) return (primary < 0 ? -1 : 1) * multiplier;
     return compareNames(left, right);
   });
@@ -7194,17 +7297,25 @@ function syncFileSortUI() {
       ? `${labels[key]}，当前${current}，点击切换为${next}`
       : `按${labels[key]}排序`);
   });
+  $$('[data-file-sort-choice]').forEach((button) => {
+    button.setAttribute('aria-pressed', String(button.dataset.fileSortChoice === state.fileSortKey &&
+      button.dataset.fileSortDirection === state.fileSortDirection));
+  });
 }
 
-function setFileSort(key) {
+function setFileSort(key, direction) {
   const next = normalizeFileSortKey(key);
-  if (next === state.fileSortKey) {
+  if (direction) {
+    state.fileSortKey = next;
+    state.fileSortDirection = normalizeFileSortDirection(direction);
+  } else if (next === state.fileSortKey) {
     state.fileSortDirection = state.fileSortDirection === 'asc' ? 'desc' : 'asc';
   } else {
     state.fileSortKey = next;
     state.fileSortDirection = next === 'name' ? 'asc' : 'desc';
   }
   closeFileMenus();
+  closeFileSettings();
   persistUIState();
   renderFileEntries();
 }
@@ -8420,9 +8531,20 @@ function init() {
   $('#file-path-form').addEventListener('submit', event => {
     event.preventDefault();
     const path = $('#file-path-input').value.trim();
-    if (!path.startsWith('/')) { toast('请输入绝对路径，例如 /Volumes', 'err'); return; }
+    if (!path.startsWith('/') || path.includes('\u0000')) { $('#file-path-error').hidden = false; return; }
+    closeOverlay('file-path-modal');
     loadFileDirectory(path, { pushHistory: true, fallback: false });
   });
+  $('#file-go-to').onclick = () => {
+    closeFileSettings();
+    $('#file-path-input').value = state.filePath || '/';
+    $('#file-path-error').hidden = true;
+    openOverlay('file-path-modal');
+    if (document.documentElement.dataset.native !== 'ios') {
+      requestAnimationFrame(() => { $('#file-path-input').focus(); $('#file-path-input').select(); });
+    }
+  };
+  $('#file-path-input').oninput = () => { $('#file-path-error').hidden = true; };
   initTheme();
   renderThemeChoices();
   if (window.FleetPreview?.isPreviewRoute()) {
@@ -8474,7 +8596,7 @@ function init() {
   // 注意 button[data-mode]：#app 本身带 data-mode（CSS 切栅格用），裸 [data-mode] 会把 #app 也选中，
   // 给根容器挂上 onclick → 点页面任意处都冒泡触发 setMode→loadSessions（每次点击闪一下）。
   $$('button[data-mode]').forEach((b) => b.onclick = () => setMode(b.dataset.mode));
-  $$('[data-assistant]').forEach((b) => b.onclick = () => setAssistant(b.dataset.assistant));
+  $$('[data-assistant-select]').forEach((select) => { select.onchange = () => setAssistant(select.value); });
   $('#session-groups').onscroll = maybeLoadMoreSessions;
   $('#session-search').oninput = (event) => {
     clearTimeout(sessionSearchTimer);
@@ -8507,10 +8629,13 @@ function init() {
   $('#file-list').addEventListener('wheel', handleFileColumnsWheel, { passive: false });
   $('#file-search').oninput = (event) => { state.fileSearch = event.target.value.trim(); renderFileEntries(); };
   $$('[data-file-view]').forEach((button) => {
-    button.onclick = () => setFileView(button.dataset.fileView);
+    button.onclick = () => { closeFileSettings(); setFileView(button.dataset.fileView); };
   });
   $$('[data-file-sort]').forEach((button) => {
     button.onclick = () => setFileSort(button.dataset.fileSort);
+  });
+  $$('[data-file-sort-choice]').forEach((button) => {
+    button.onclick = () => setFileSort(button.dataset.fileSortChoice, button.dataset.fileSortDirection);
   });
   $('#file-new-folder').onclick = () => openFileNameModal('mkdir');
   $('#file-name-form').onsubmit = submitFileName;
@@ -8821,7 +8946,7 @@ function init() {
   }
 
   updateSessionFilterUI();
-  $$('[data-assistant]').forEach((b) => b.setAttribute('aria-selected', String(b.dataset.assistant === state.assistant)));
+  $$('[data-assistant-select]').forEach((select) => { select.value = state.assistant; });
   initFleetHistory();
   wireChatPageLifecycle();
   setMode(state.mode);
@@ -8864,6 +8989,7 @@ function stopAuthenticatedDashboard() {
   state.chatCache.clear();
   compactComposer?.update();
   state.sessionReadAt.clear();
+  state.sessionReadStates = new Map();
   state.sessionResults = [];
   state.fileEntries = [];
   state.fileColumns = [];

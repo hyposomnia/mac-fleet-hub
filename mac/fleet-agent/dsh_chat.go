@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 )
 
 // errDSHUnsupported 表示 DSH 侧 v1 尚未实现的写入面。
@@ -36,9 +37,8 @@ const dshBacklogLimit = 512
 // shared 模式：它挂到 DSH Desktop 正在运行的 harness host 上，由 host 持有唯一的
 // 持久化写入方。因此这里**没有** writer 租约，也绝不自己启动 DSH 进程。
 type dshChatBackend struct {
-	home             string
-	logPath          string
-	endpointOverride string
+	// spec 决定这个后端的 assistant 标识与端点来源（Desktop 走日志，CLI 走端口发现）。
+	spec dshHarnessSpec
 
 	connMu   sync.Mutex
 	client   *dshClient
@@ -46,6 +46,9 @@ type dshChatBackend struct {
 	authMode dshAuthMode
 	lastErr  error
 	hostSeen bool
+	// retryAfter 限制失败后的重新发现频率。CLI 的发现要扫 loopback 端口，
+	// 而 /api/info 会被 dashboard 周期轮询；没有这道闸门，每次轮询都会白扫一遍。
+	retryAfter time.Time
 
 	waterfallMu     sync.Mutex
 	eventMu         sync.Mutex
@@ -85,17 +88,23 @@ type dshSession struct {
 	started    bool
 }
 
-func newDSHChatBackend(home, logPath, endpointOverride string) *dshChatBackend {
+func newDSHChatBackend(spec dshHarnessSpec) *dshChatBackend {
 	return &dshChatBackend{
-		home:             home,
-		logPath:          logPath,
-		endpointOverride: endpointOverride,
-		sessions:         map[string]*dshSession{},
-		subs:             map[string]map[chan ChatEvent]struct{}{},
-		backlog:          map[string][]ChatEvent{},
-		interactions:     map[string]dshInteraction{},
-		questionWaiting:  map[string]bool{},
+		spec:            spec,
+		sessions:        map[string]*dshSession{},
+		subs:            map[string]map[chan ChatEvent]struct{}{},
+		backlog:         map[string][]ChatEvent{},
+		interactions:    map[string]dshInteraction{},
+		questionWaiting: map[string]bool{},
 	}
+}
+
+// assistant 返回该后端在 Fleet 里的 assistant 标识。
+func (b *dshChatBackend) assistant() string {
+	if b == nil || b.spec.assistant == "" {
+		return "dsh"
+	}
+	return b.spec.assistant
 }
 
 // ensure 返回可用的客户端，必要时（重新）建立连接。
@@ -109,12 +118,21 @@ func (b *dshChatBackend) ensure(ctx context.Context) (*dshClient, error) {
 		b.connMu.Unlock()
 		return client, nil
 	}
+	if !b.retryAfter.IsZero() && time.Now().Before(b.retryAfter) {
+		lastErr := b.lastErr
+		b.connMu.Unlock()
+		if lastErr != nil {
+			return nil, lastErr
+		}
+		return nil, errDSHHostUnavailable
+	}
 	b.connMu.Unlock()
 
-	client, endpoint, mode, err := connectDSH(ctx, b.home, b.logPath, b.endpointOverride)
+	client, endpoint, mode, err := connectDSH(ctx, b.spec)
 	if err != nil {
 		b.connMu.Lock()
 		b.lastErr = err
+		b.retryAfter = time.Now().Add(5 * time.Second)
 		b.connMu.Unlock()
 		return nil, err
 	}
@@ -124,6 +142,7 @@ func (b *dshChatBackend) ensure(ctx context.Context) (*dshClient, error) {
 	b.endpoint = endpoint
 	b.authMode = mode
 	b.lastErr = nil
+	b.retryAfter = time.Time{}
 	b.hostSeen = true
 	b.connMu.Unlock()
 	return client, nil
@@ -262,7 +281,7 @@ func (b *dshChatBackend) History(ctx context.Context, assistant, sessionID, curs
 	if err != nil {
 		return ChatHistoryPage{}, b.translateCallError(err)
 	}
-	return dshHistoryPageFromRecords(sessionID, value)
+	return dshHistoryPageFromRecords(b.assistant(), sessionID, value)
 }
 
 func (b *dshChatBackend) Skills(ctx context.Context, assistant, cwd string) ([]ChatSkill, error) {
@@ -565,7 +584,7 @@ func (b *dshChatBackend) runFollow(ctx context.Context, s *dshSession, stream *d
 			s.model, s.effort = model, effort
 			b.sessMu.Unlock()
 		}
-		events := dshMapRecord(s.id, rec)
+		events := dshMapRecord(b.assistant(), s.id, rec)
 		model, effort := b.sessionModel(s)
 		events = dshApplyModelContext(events, model, effort)
 		b.trackTurnState(s, events)
@@ -651,7 +670,7 @@ func (b *dshChatBackend) loadSnapshot(ctx context.Context, client *dshClient, s 
 			model, effort = m, e
 		}
 	}
-	page := dshHistoryPageOfRecords(s, model, effort)
+	page := dshHistoryPageOfRecords(b.assistant(), s, model, effort)
 	page.Events = append(page.Events, b.pendingInteractions(s.id)...)
 	return page, nil
 }
@@ -786,7 +805,7 @@ func (b *dshChatBackend) dshListSessions(ctx context.Context) ([]Session, error)
 		}
 		out = append(out, Session{
 			SessionID:  item.SessionID,
-			Assistant:  "dsh",
+			Assistant:  b.assistant(),
 			Cwd:        item.Cwd,
 			Title:      item.Projections.Values.Title,
 			Mtime:      item.UpdatedAt,
@@ -800,7 +819,7 @@ func (b *dshChatBackend) dshListSessions(ctx context.Context) ([]Session, error)
 }
 
 // dshHistoryPageFromRecords 把 session/page 的返回投影成历史分页。
-func dshHistoryPageFromRecords(sessionID string, value json.RawMessage) (ChatHistoryPage, error) {
+func dshHistoryPageFromRecords(assistant, sessionID string, value json.RawMessage) (ChatHistoryPage, error) {
 	var page struct {
 		Records []json.RawMessage `json:"records"`
 		HasMore bool              `json:"hasMore"`
@@ -814,7 +833,7 @@ func dshHistoryPageFromRecords(sessionID string, value json.RawMessage) (ChatHis
 		if json.Unmarshal(raw, &rec) != nil {
 			continue
 		}
-		out.Events = append(out.Events, dshMapRecord(sessionID, rec)...)
+		out.Events = append(out.Events, dshMapRecord(assistant, sessionID, rec)...)
 	}
 	if page.HasMore {
 		if seq := dshRecordSeqOfRaw(page.Records); seq > 0 {
@@ -850,10 +869,10 @@ func (b *dshChatBackend) sessionModel(s *dshSession) (string, string) {
 	return s.model, s.effort
 }
 
-func dshHistoryPageOfRecords(s *dshSession, model, effort string) ChatHistoryPage {
+func dshHistoryPageOfRecords(assistant string, s *dshSession, model, effort string) ChatHistoryPage {
 	out := ChatHistoryPage{}
 	for _, rec := range s.history {
-		out.Events = append(out.Events, dshApplyModelContext(dshMapRecord(s.id, rec), model, effort)...)
+		out.Events = append(out.Events, dshApplyModelContext(dshMapRecord(assistant, s.id, rec), model, effort)...)
 	}
 	if s.hasMore && s.oldest > 0 {
 		out.NextCursor = strconv.FormatInt(s.oldest, 10)

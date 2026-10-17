@@ -729,6 +729,14 @@ dsh_enabled_default() {
   printf '%s' "${current:-1}"
 }
 
+# 与 DSH Desktop 同样的 sticky 规则：重渲染时保留已安装 plist 里的 DeepSeek 开关。
+deepseek_enabled_default() {
+  local installed="$HOME/Library/LaunchAgents/com.macfleet.fleet-agent.plist"
+  local current
+  current="$(/usr/bin/plutil -extract EnvironmentVariables.FLEET_DEEPSEEK_ENABLED raw -o - "$installed" 2>/dev/null || true)"
+  printf '%s' "${current:-1}"
+}
+
 render() { # src dst
   sed -e "s#__BREW_PREFIX__#${BREW_PREFIX}#g" \
       -e "s#__FLEET_CONFIG_URL__#${FLEET_CONFIG_URL}#g" \
@@ -764,6 +772,8 @@ render() { # src dst
       -e "s#__DSH_ENABLED__#${DSH_ENABLED:-$(dsh_enabled_default)}#g" \
       -e "s#__DSH_HOME__#${DSH_HOME_DIR:-$HOME/Library/Application Support/dsh-desktop/harness}#g" \
       -e "s#__DSH_LOG__#${DSH_LOG_PATH:-$HOME/Library/Logs/DSH Desktop/harness.log}#g" \
+      -e "s#__DEEPSEEK_ENABLED__#${DEEPSEEK_ENABLED:-$(deepseek_enabled_default)}#g" \
+      -e "s#__DEEPSEEK_HOME__#${DEEPSEEK_HOME_DIR:-$HOME/.dsh}#g" \
       "$1" > "$2"
 }
 PORT="$TTYD_PORT" render "$SCRIPT_DIR/com.macfleet.ttyd.plist"        "$LA/com.macfleet.ttyd.plist"

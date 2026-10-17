@@ -13,7 +13,7 @@ import (
 	"time"
 )
 
-var devicePath = regexp.MustCompile(`^/(m[1-9][0-9]*)/(api|term|files|dsh)(/.*)?$`)
+var devicePath = regexp.MustCompile(`^/(m[1-9][0-9]*)/(api|term|files|dsh|deepseek)(/.*)?$`)
 
 func (server *Server) handleProxy(writer http.ResponseWriter, request *http.Request, session sessionState, user User) bool {
 	preview, isPreview := request.Context().Value(networkPreviewContextKey{}).(networkPreviewContext)
@@ -36,8 +36,8 @@ func (server *Server) handleProxy(writer http.ResponseWriter, request *http.Requ
 		return true
 	}
 	kind, suffix := match[2], match[3]
-	if kind == "dsh" && suffix == "" {
-		http.Redirect(writer, request, server.options.Origin+"/"+device.ID+"/dsh/", 308)
+	if (kind == "dsh" || kind == "deepseek") && suffix == "" {
+		http.Redirect(writer, request, server.options.Origin+"/"+device.ID+"/"+kind+"/", 308)
 		return true
 	}
 	port := server.options.AgentPort
@@ -49,6 +49,8 @@ func (server *Server) handleProxy(writer http.ResponseWriter, request *http.Requ
 		upstreamPath = "/" + device.ID + "/files" + suffix
 	case "dsh":
 		upstreamPath = "/api/dsh-native" + suffix
+	case "deepseek":
+		upstreamPath = "/api/deepseek-native" + suffix
 	}
 	address := "http://" + net.JoinHostPort(device.IP, fmt.Sprint(port))
 	if server.options.ProxyURL != nil {
@@ -88,6 +90,10 @@ func (server *Server) handleProxy(writer http.ResponseWriter, request *http.Requ
 	}
 	if authorizationErr != nil || sessionErr != nil || currentDevice.NodeID != device.NodeID || currentDevice.IP != device.IP {
 		reject(writer, 404, "设备访问授权已失效")
+		return true
+	}
+	if !isPreview && kind == "api" && suffix == "/sessions/read" {
+		server.handleSessionReadState(writer, request.WithContext(ctx), user, device, target, credential)
 		return true
 	}
 	proxy := httputil.NewSingleHostReverseProxy(target)
@@ -139,6 +145,11 @@ func (server *Server) handleProxy(writer http.ResponseWriter, request *http.Requ
 	proxy.ModifyResponse = func(response *http.Response) error {
 		response.Header.Del("Set-Cookie")
 		response.Header.Set("Cache-Control", "no-store")
+		if !isPreview && kind == "api" && suffix == "/sessions" && request.Method == http.MethodGet && response.StatusCode == http.StatusOK {
+			if err := server.applySessionReadStates(request.Context(), response, user.ID, device.Index); err != nil {
+				return err
+			}
+		}
 		if isPreview {
 			if request.Method == http.MethodOptions && request.Header.Get("Access-Control-Request-Method") != "" {
 				response.Body.Close()

@@ -291,7 +291,7 @@ func buildChatSessionControlSnapshotLocked(ctx context.Context, assistant, sessi
 		})
 	}
 	approvalMode := runtimeState.ApprovalMode
-	if assistant != "dsh" {
+	if !isDSHHarness(assistant) {
 		if normalized, normalizeErr := normalizeChatTurnOptions(ChatTurnOptions{ApprovalMode: approvalMode}); normalizeErr == nil {
 			approvalMode = normalized.ApprovalMode
 		} else {

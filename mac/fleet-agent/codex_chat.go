@@ -164,10 +164,18 @@ func newAgentChatBackend() chatBackend {
 		go b.runCodexAppToolsPipeWatcher(context.Background(), 10*time.Second)
 	}
 	router := &routingChatBackend{codex: b}
-	// DSH 只在显式启用时装配：它依赖 DSH Desktop 正在运行，且用的是非公开的
-	// 本地凭据路径，不适合在不相关的机器上默认打开。
+	// 两个 DSH 家族后端各自按开关装配：都依赖对应 harness 正在运行，用的是
+	// 非公开的本地凭据路径；没装的机器由 /api/info 的 installed 判定隐藏入口。
 	if cfg.DSHEnabled {
-		router.dsh = newDSHChatBackend(cfg.DSHHome, cfg.DSHLog, cfg.DSHEndpoint)
+		router.dsh = newDSHChatBackend(dshHarnessSpec{
+			assistant: "dsh", home: cfg.DSHHome, logPath: cfg.DSHLog, endpointOverride: cfg.DSHEndpoint,
+		})
+	}
+	if cfg.DeepSeekEnabled {
+		router.deepseek = newDSHChatBackend(dshHarnessSpec{
+			assistant: "deepseek", home: cfg.DeepSeekHome, logPath: cfg.DeepSeekLog,
+			endpointOverride: cfg.DeepSeekEndpoint, autoDiscover: true,
+		})
 	}
 	return router
 }

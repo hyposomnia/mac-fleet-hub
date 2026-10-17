@@ -38,7 +38,7 @@ func readSessionCursorsLocked() map[string]int64 {
 }
 
 func writeSessionCursor(assistant, sessionID string, activityAt int64) (int64, error) {
-	if assistant != "codex" && assistant != "dsh" && assistant != "claude" {
+	if assistant != "codex" && !isDSHHarness(assistant) && assistant != "claude" {
 		return 0, fmt.Errorf("invalid assistant")
 	}
 	if sessionID == "" || len(sessionID) > 512 || strings.ContainsAny(sessionID, "\r\n") ||
@@ -180,6 +180,7 @@ func applySessionReadState(sessions []Session) {
 			}
 			if unread || desktopUpdatedAt >= activity {
 				session.DesktopUnread = &unread
+				session.DesktopReadStateAt = desktopUpdatedAt
 			}
 		}
 	}

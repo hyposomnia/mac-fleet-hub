@@ -14,6 +14,7 @@ targets:
     platform: iOS
     sources:
       - path: FleetHub
+      - path: Shared
       - path: ../server/dashboard/titanium.json
         buildPhase: resources
       - path: ../server/dashboard/native_appearance.js
@@ -31,7 +32,7 @@ targets:
       properties:
         CFBundleDisplayName: Fleet AI
         CFBundleShortVersionString: "0.2.0"
-        CFBundleVersion: "6"
+        CFBundleVersion: "13"
         FleetDefaultGateway: $(FLEET_DEFAULT_GATEWAY)
         UILaunchScreen: {}
         UIApplicationSupportsIndirectInputEvents: true
@@ -52,11 +53,32 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.macfleet.FleetHub
+        CODE_SIGN_ENTITLEMENTS: FleetHub/FleetHub.entitlements
         GENERATE_INFOPLIST_FILE: NO
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
       configs:
         Debug:
           INFOPLIST_KEY_NSAppTransportSecurity_NSAllowsLocalNetworking: YES
+    dependencies:
+      - target: FleetWidgets
+  FleetWidgets:
+    type: app-extension
+    platform: iOS
+    sources: [FleetWidgets, Shared]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.macfleet.FleetHub.Widgets
+        CODE_SIGN_ENTITLEMENTS: FleetWidgets/FleetWidgets.entitlements
+        APPLICATION_EXTENSION_API_ONLY: YES
+        SKIP_INSTALL: YES
+    info:
+      path: FleetWidgets/Info.plist
+      properties:
+        CFBundleDisplayName: Fleet AI 待机
+        CFBundleShortVersionString: "0.2.0"
+        CFBundleVersion: "13"
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.widgetkit-extension
   FleetHubTests:
     type: bundle.unit-test
     platform: iOS

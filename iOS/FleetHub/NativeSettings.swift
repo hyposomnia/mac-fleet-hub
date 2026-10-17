@@ -21,35 +21,6 @@ struct NativeTextButtonStyle: ButtonStyle {
     }
 }
 
-struct NativeDrawerHeader: View {
-    @Environment(\.fleetStyle) private var style
-    let title: String
-    var locked = false
-    let close: () -> Void
-    var body: some View {
-        HStack {
-            Text(title).font(.system(size: 18, weight: .semibold)).lineLimit(2)
-            Spacer(minLength: 8)
-            Button(action: close) { Image(systemName: "xmark") }
-                .buttonStyle(TitaniumIconButtonStyle()).disabled(locked)
-                .accessibilityLabel("关闭\(title)")
-        }.padding(.horizontal, 18).frame(minHeight: 56).foregroundStyle(style.color("text"))
-    }
-}
-
-struct NativeCard<Content: View>: View {
-    @Environment(\.fleetStyle) private var style
-    var title: String = ""
-    @ViewBuilder var content: () -> Content
-    var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            if !title.isEmpty { Text(title).font(.system(size: 17, weight: .semibold)) }
-            content()
-        }.frame(maxWidth: .infinity, alignment: .leading).padding(16)
-            .background(style.color("surface-1"), in: RoundedRectangle(cornerRadius: 16))
-    }
-}
-
 struct NativeField: View {
     @Environment(\.fleetStyle) private var style
     let title: String
@@ -66,8 +37,7 @@ struct NativeField: View {
             }
             .focused($focused).textInputAutocapitalization(.never).autocorrectionDisabled()
             .submitLabel(.done).onSubmit { focused = false }
-            .font(.system(size: 16)).padding(.horizontal, 12).frame(minHeight: 44)
-            .background(style.color("surface-2"), in: RoundedRectangle(cornerRadius: 12))
+            .font(.body).frame(minHeight: NativeSettingsLayout.rowHeight)
         }
     }
 }
@@ -79,7 +49,7 @@ struct NativeFieldLabel: View {
     var done: () -> Void
     var body: some View {
         HStack {
-            Text(title).font(.system(size: 13)).foregroundStyle(style.color("text-1"))
+            Text(title).font(.caption).foregroundStyle(.secondary)
             Spacer(minLength: 8)
             Button("完成输入", action: done)
                 .font(.caption).foregroundStyle(style.color("accent-text"))
@@ -111,6 +81,15 @@ struct AccessKey: Identifiable {
     static func mask(_ value: String) -> String {
         value.count > 20 ? String(value.prefix(12)) + "••••••" + String(value.suffix(4)) : "••••••"
     }
+    static func dateLabel(_ value: String) -> String {
+        let formatter = ISO8601DateFormatter()
+        var date = formatter.date(from: value)
+        if date == nil {
+            formatter.formatOptions.insert(.withFractionalSeconds)
+            date = formatter.date(from: value)
+        }
+        return date?.formatted(date: .numeric, time: .shortened) ?? "暂无"
+    }
 }
 
 @MainActor
@@ -128,6 +107,48 @@ final class NativeSettingsModel: ObservableObject {
     @Published var error: String?
     @Published var status = ""
     init(store: FleetStore) { service = FleetService(store: store) }
+    private var paletteSaveTask: Task<Void, Never>?
+    private var paletteRevision = 0
+    private var persistedPalette: [String: [String: String]] = [:]
+    private var persistedSessionSettings: [String: Int] = [:]
+    private var sessionSettingsLoaded = false
+    private var sessionValues: [String: Int] {
+        Dictionary(uniqueKeysWithValues: SessionSetting.all.compactMap { field in
+            (settings[field.id] as? Int).map { (field.id, $0) }
+        })
+    }
+    var hasSessionChanges: Bool { sessionSettingsLoaded && sessionValues != persistedSessionSettings }
+    func saveSessionSettings() async throws {
+        guard hasSessionChanges else { return }
+        let values = sessionValues
+        _ = try await service.request("/api/settings", method: "POST", body: values)
+        _ = try await service.shared("refresh")
+        persistedSessionSettings = values
+    }
+    func savePaletteAutomatically() {
+        paletteRevision += 1
+        guard paletteSaveTask == nil else { return }
+        paletteSaveTask = Task {
+            defer { paletteSaveTask = nil }
+            while !Task.isCancelled {
+                let revision = paletteRevision
+                try? await Task.sleep(for: .milliseconds(350))
+                if revision != paletteRevision { continue }
+                let draft = palette
+                guard ["light", "dark"].allSatisfy({ mode in
+                    ["canvas", "accent", "highlight", "text"].allSatisfy { NativeColorField.color(draft[mode]?[$0] ?? "") != nil }
+                }), draft != persistedPalette else { return }
+                do {
+                    _ = try await service.shared("save-palette", values: ["palette": draft])
+                    persistedPalette = draft; error = nil; status = "配色已保存"
+                } catch {
+                    if revision != paletteRevision { continue }
+                    self.error = "配色保存失败：" + error.localizedDescription; return
+                }
+                if revision == paletteRevision { return }
+            }
+        }
+    }
     func perform(_ operation: @escaping () async throws -> Void) {
         guard !saving else { return }
         saving = true; error = nil; status = ""
@@ -146,10 +167,13 @@ final class NativeSettingsModel: ObservableObject {
             case "account": logins = try await service.request("/api/auth/sessions")["sessions"] as? [[String: Any]] ?? []
             case "appearance":
                 let result = try await service.shared("palette") as? [String: Any] ?? [:]
-                palette = result["palette"] as? [String: [String: String]] ?? [:]
+                if palette.isEmpty { palette = result["palette"] as? [String: [String: String]] ?? [:]; persistedPalette = palette }
                 defaults = result["defaults"] as? [String: [String: String]] ?? [:]
             case "sessions":
-                settings = try await service.request("/api/settings")
+                if !sessionSettingsLoaded {
+                    settings = try await service.request("/api/settings")
+                    persistedSessionSettings = sessionValues; sessionSettingsLoaded = true
+                }
                 cache = try await service.shared("cache") as? [String: Any] ?? [:]
             case "add-device": release = (try? await service.request("/enroll/client-release.json")) ?? [:]
             default: break
@@ -165,6 +189,9 @@ struct NativeSettingsPanel: View {
     @StateObject private var model: NativeSettingsModel
     @State private var page = "account"
     @State private var keyEditor: AccessKey?
+    @State private var deviceEditor: NativeSheet?
+    @State private var order: [String] = []
+    @State private var numberEditor: SessionSetting?
     @State private var creatingKey = false
     @State private var revokeOthers = false
     @State private var loggingOut = false
@@ -183,27 +210,68 @@ struct NativeSettingsPanel: View {
         _page = State(initialValue: store.nativeSettingsPage)
     }
     var body: some View {
-        VStack(spacing: 0) {
-                NativeDrawerHeader(title: creatingKey || keyEditor != nil ? "访问密钥" : "设置", locked: store.drawerLocked || model.saving) { store.nativeSheet = nil }
-                if creatingKey || keyEditor != nil { settingsContent }
-                else if expanded {
-                    HStack(alignment: .top, spacing: 0) {
-                        VStack(spacing: 6) { pageButtons; Spacer() }.padding(12).frame(width: 172)
-                            .background(style.color("surface-1"))
-                        settingsContent
-                    }
-                } else {
-                    ScrollView(.horizontal, showsIndicators: false) {
-                        HStack(spacing: 4) { pageButtons }.padding(.horizontal, 16)
-                    }.fixedSize(horizontal: false, vertical: true)
-                    settingsContent
+        GeometryReader { geometry in
+        NavigationStack {
+            Form {
+                if model.loading { ProgressView().frame(maxWidth: .infinity) }
+                if let error = model.error { Text(error).foregroundStyle(.red).accessibilityIdentifier("native-settings-error") }
+                if !model.status.isEmpty { Text(model.status).foregroundStyle(style.color("accent-text")) }
+                switch page {
+                case "add-device": devices
+                case "sessions": sessions
+                case "appearance": appearance
+                case "automation": automation
+                default: account
                 }
+            }
+            .nativeSettingsForm().accessibilityIdentifier("native-settings-content")
+            .navigationTitle("设置").navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .principal) {
+                    pageTabs.frame(width: max(120, min(geometry.size.width, 800) - 104))
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("完成", action: finish)
+                        .disabled(store.drawerLocked || model.saving || (page == "sessions" && model.loading))
+                        .accessibilityLabel("关闭设置")
+                }
+            }
         }
-        .font(.system(size: 15)).foregroundStyle(style.color("text"))
-        .buttonStyle(NativeTextButtonStyle())
-        .accessibilityElement(children: .contain)
-        .accessibilityIdentifier("native-settings-panel")
+        }
+        .tint(style.color("accent-text"))
+        .accessibilityElement(children: .contain).accessibilityIdentifier("native-settings-panel")
+        .interactiveDismissDisabled(model.hasSessionChanges)
         .task(id: page) { await model.load(page) }
+        .onAppear { order = store.devices.map(\.id) }
+        .onChange(of: store.devices.map(\.id)) { _, ids in order = ids }
+        .sheet(item: $deviceEditor) { sheet in
+            if case .device(let id) = sheet {
+                NativeDeviceEditor(store: store, identifier: id).nativeSheetSurface(locked: store.drawerBusy)
+            }
+        }
+        .sheet(isPresented: Binding(get: { creatingKey || keyEditor != nil }, set: { if !$0 { creatingKey = false; keyEditor = nil } })) {
+            NativeAccessKeyEditor(store: store, model: model, key: keyEditor) { creatingKey = false; keyEditor = nil }
+                .nativeSheetSurface(locked: model.saving)
+        }
+        .sheet(item: $numberEditor) { field in
+            NativeNumberEditor(field: field, value: model.settings[field.id] as? Int ?? field.minimum) { value in
+                model.settings[field.id] = value
+            }.nativeSheetSurface(detents: [.medium])
+        }
+        .sheet(isPresented: Binding(get: { !security.isEmpty }, set: { if !$0 && !store.drawerLocked && !model.saving { clearSecurity() } })) {
+            NavigationStack {
+                Form {
+                    securityContent
+                    if let error = model.error { Text(error).foregroundStyle(.red) }
+                }.nativeSettingsForm().accessibilityIdentifier("native-editor-content")
+                .navigationTitle(securityTitle).navigationBarTitleDisplayMode(.inline)
+                .toolbar {
+                    ToolbarItem(placement: .cancellationAction) {
+                        Button("取消") { clearSecurity() }.disabled(store.drawerLocked || model.saving)
+                    }
+                }
+            }.accessibilityIdentifier("native-security-editor").nativeSheetSurface(locked: store.drawerLocked || model.saving)
+        }
         .alert("退出其他设备的登录？当前登录会保留。", isPresented: $revokeOthers) {
             Button("取消", role: .cancel) {}
             Button("退出其他设备", role: .destructive) {
@@ -214,214 +282,239 @@ struct NativeSettingsPanel: View {
             Button("取消", role: .cancel) {}
             Button("退出登录", role: .destructive) { model.perform { _ = try await model.service.shared("logout") } }
         }
-        .alert("重新生成恢复码并使旧恢复码失效？", isPresented: $regenerateCodes) {
-            Button("取消", role: .cancel) {}
-            Button("重新生成", role: .destructive) { submitSecurity() }
-        }
-        .onDisappear { credentials = [:]; recoveryCodes = []; totpSecret = ""; totpURI = "" }
+        .onDisappear { if !store.ready { clearSecurity() } }
     }
 
-    private var pageButtons: some View {
-        ForEach(pages, id: \.0) { identifier, title in
-            Button { security = ""; page = identifier } label: {
-                Text(title).font(.system(size: 15, weight: page == identifier ? .semibold : .regular))
-                    .padding(.horizontal, 12).frame(minHeight: 44)
-                    .frame(maxWidth: .infinity)
-                    .foregroundStyle(style.color(page == identifier ? "accent-text" : "text-1"))
-                    .background(page == identifier ? style.selection : .clear, in: RoundedRectangle(cornerRadius: 12))
-            }.buttonStyle(.plain).disabled(store.drawerLocked || model.saving)
-                .accessibilityIdentifier("native-settings-\(identifier)")
-                .accessibilityAddTraits(page == identifier ? .isSelected : [])
-        }
-    }
-
-    private var settingsContent: some View {
-        ScrollView {
-                VStack(alignment: .leading, spacing: 16) {
-                    if model.loading { ProgressView("正在加载…").frame(maxWidth: .infinity) }
-                    if let error = model.error { Text(error).foregroundStyle(style.color("danger")).accessibilityIdentifier("native-settings-error") }
-                    if !model.status.isEmpty { Text(model.status).foregroundStyle(style.color("accent-text")) }
-                    if creatingKey || keyEditor != nil {
-                        NativeAccessKeyEditor(store: store, model: model, key: keyEditor) { creatingKey = false; keyEditor = nil }
-                    } else {
-                        switch page {
-                        case "add-device": devices
-                        case "appearance": appearance
-                        case "automation": automation
-                        case "sessions": sessions
-                        default: account
-                        }
+    private var pageTabs: some View {
+        ScrollViewReader { proxy in
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 12) {
+                    ForEach(pages, id: \.0) { identifier, title in
+                        Button {
+                            guard !store.drawerLocked && !model.saving else { return }
+                            page = identifier
+                        } label: {
+                            Text(title.replacingOccurrences(of: "设置", with: "")).font(.subheadline.weight(page == identifier ? .semibold : .regular))
+                                .fixedSize().frame(minHeight: 44)
+                                .foregroundStyle(page == identifier ? style.color("accent-text") : .secondary)
+                                .overlay(alignment: .bottom) {
+                                    if page == identifier { Capsule().fill(style.color("accent-text")).frame(height: 2) }
+                                }
+                        }.buttonStyle(.plain).id(identifier).accessibilityLabel(title)
+                            .accessibilityIdentifier("native-settings-\(identifier)")
+                            .accessibilityAddTraits(page == identifier ? .isSelected : [])
+                            .disabled(store.drawerLocked || model.saving)
                     }
-                }.padding(16).padding(.bottom, keyboardInset).frame(maxWidth: 800).frame(maxWidth: .infinity)
-        }.scrollDismissesKeyboard(.interactively).accessibilityIdentifier("native-settings-content")
+                }
+            }
+            .accessibilityIdentifier("native-settings-tabs")
+            .onChange(of: page) { _, value in withAnimation { proxy.scrollTo(value, anchor: .center) } }
+        }
     }
 
-    private var keyboardInset: CGFloat {
-        guard let top = store.keyboardTop, let window = store.webView?.window else { return 0 }
-        return max(0, window.bounds.maxY - top)
+    private func finish() {
+        if model.hasSessionChanges {
+            model.perform {
+                try await model.saveSessionSettings()
+                store.nativeSheet = nil
+            }
+        } else { store.nativeSheet = nil }
     }
 
+    private var securityTitle: String {
+        security == "password" ? "更改密码" : security == "totp" ? "更换 Authenticator" : "恢复码"
+    }
+    private func clearSecurity() {
+        credentials = [:]; recoveryCodes = []; totpSecret = ""; totpURI = ""; savedCodes = false
+        store.drawerLocked = false; security = ""
+    }
+
+    private var orderedDevices: [FleetDevice] {
+        order.compactMap { id in store.devices.first { $0.id == id } }
+    }
     private var devices: some View {
-        VStack(spacing: 16) {
-            NativeCard(title: "设备列表") {
-                ForEach(store.devices) { device in
-                    HStack {
+        Group {
+            NativeSettingsSection(title: "设备列表") {
+                ForEach(orderedDevices) { device in
+                    HStack(spacing: 12) {
                         FleetDeviceIcon(device: device)
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text(device.name).fontWeight(.medium)
-                            Text(device.online ? "在线" : "离线").font(.caption).foregroundStyle(style.color("text-2"))
+                        VStack(alignment: .leading, spacing: NativeSettingsLayout.detailSpacing) {
+                            Text(device.name)
+                            DeviceStatusTag(online: device.online)
                         }
                         Spacer()
-                        Button("编辑") { store.nativeSheet = .device(device.id) }
-                    }.frame(minHeight: 44)
-                }
-                if store.devices.isEmpty { Text("暂无设备") }
+                        Button("编辑") { deviceEditor = .device(device.id) }
+                            .buttonStyle(.borderless).accessibilityLabel("编辑\(device.name)")
+                    }.frame(minHeight: NativeSettingsLayout.rowHeight)
+                }.onMove(perform: moveDevices)
+                if store.devices.isEmpty { Text("暂无设备").foregroundStyle(.secondary) }
             }
-            NativeCard(title: "新增设备") {
-                Text("在需要访问的 Mac 上安装 Fleet Agent Settings；iPhone 无需安装电脑端 Agent。")
-                if let gateway = store.gateway, model.release["installation_protocol"] as? Int == 1 {
-                    let command = "curl -fsSL '\(gateway.appendingPathComponent("install.sh").absoluteString)' | bash"
-                    Text(command).font(.system(size: 12, design: .monospaced)).textSelection(.enabled)
-                    Button("复制安装命令") { FleetService.copy(command); model.status = "安装命令已复制" }
-                } else {
-                    Text("当前版本暂不支持命令安装；如已发布安装包，可使用下方下载入口。").foregroundStyle(style.color("text-2"))
-                }
-                if let assets = model.release["assets"] as? [String: Any], let dmg = assets["dmg"] as? [String: Any], let path = dmg["path"] as? String {
-                    Button("在浏览器下载安装包") { store.openExternal(path) }
-                }
-                if let gateway = store.gateway {
-                    Button("复制服务器地址") { FleetService.copy(gateway.absoluteString); model.status = "地址已复制" }
-                }
-                Text("打开 Mac 应用后关联账号，在浏览器登录并授权连接。磁盘权限需在该 Mac 的系统设置中授予。")
-                    .foregroundStyle(style.color("text-2"))
+            NativeSettingsSection(title: "新增设备") {
+                Text("在 Mac 电脑上打开 \(store.gateway?.absoluteString.trimmingCharacters(in: CharacterSet(charactersIn: "/")) ?? "当前服务地址") 即可新增设备。App 不支持新增设备。")
+                    .foregroundStyle(.secondary)
             }
+        }
+        .environment(\.editMode, .constant(.active))
+    }
+    private func moveDevices(from source: IndexSet, to destination: Int) {
+        guard !model.saving else { return }
+        let previous = order
+        order.move(fromOffsets: source, toOffset: destination)
+        let updated = order
+        model.perform {
+            do {
+                _ = try await model.service.request("/api/settings", method: "PATCH", body: ["order": updated])
+                _ = try await model.service.shared("refresh")
+            } catch { order = previous; throw error }
         }
     }
 
     private var appearance: some View {
-        VStack(spacing: 16) {
-            NativeCard(title: "显示模式") {
+        Group {
+            NativeSettingsSection(title: "显示模式") {
                 HStack(spacing: 8) {
-                    ForEach([("light", "浅色", "sun.max"), ("dark", "深色", "moon"), ("system", "跟随系统", "circle.lefthalf.filled")], id: \.0) { value, title, symbol in
+                    ForEach([("light", "浅色", "sun.max", "sun.max.fill"), ("dark", "深色", "moon", "moon.fill"), ("system", "跟随系统", "circle.lefthalf.filled", "circle.lefthalf.filled")], id: \.0) { value, title, symbol, selectedSymbol in
+                        let selected = store.snapshot?.themePreference == value
                         Button { store.send("theme", values: ["preference": value]) } label: {
-                            VStack(spacing: 8) { Image(systemName: symbol); Text(title).font(.caption) }
+                            VStack(spacing: 8) {
+                                Image(systemName: selected ? selectedSymbol : symbol)
+                                    .frame(height: 24)
+                                    .foregroundStyle(selected ? style.color("accent-text") : .primary)
+                                Text(title).font(.caption)
+                            }
                                 .frame(maxWidth: .infinity, minHeight: 66)
-                                .background(store.snapshot?.themePreference == value ? style.selection : .clear, in: RoundedRectangle(cornerRadius: 12))
-                        }.buttonStyle(.plain).accessibilityLabel(title).disabled(store.busy)
+                                .contentShape(Rectangle())
+                        }.buttonStyle(.plain).accessibilityLabel(title)
+                            .accessibilityAddTraits(selected ? .isSelected : [])
+                            .disabled(store.busy)
                     }
                 }
             }
             ForEach([("light", "浅色配色"), ("dark", "深色配色")], id: \.0) { mode, title in
-                NativeCard(title: title) {
+                NativeSettingsSection(title: title) {
                     ForEach([("canvas", "页面背景"), ("accent", "主题色"), ("highlight", "反差色"), ("text", "字色")], id: \.0) { field, label in
-                        NativeField(title: label, value: Binding(get: { model.palette[mode]?[field] ?? model.defaults[mode]?[field] ?? "" }, set: { model.palette[mode, default: [:]][field] = $0 }))
+                        NativeColorField(title: label, value: Binding(get: { model.palette[mode]?[field] ?? model.defaults[mode]?[field] ?? "" }, set: { model.palette[mode, default: [:]][field] = $0; model.savePaletteAutomatically() }))
                     }
                 }
             }
-            HStack {
-                Button("恢复默认") { model.palette = model.defaults }
-                Spacer()
-                Button("保存配色") {
-                    model.perform {
-                        _ = try await model.service.shared("save-palette", values: ["palette": model.palette])
-                        model.status = "配色已保存"
-                    }
-                }.buttonStyle(NativePrimaryButtonStyle()).disabled(model.saving || !validPalette)
+            NativeSettingsSection {
+                Button { model.palette = model.defaults; model.savePaletteAutomatically() } label: {
+                    NativeSettingsRowLabel(title: "恢复默认", icon: "arrow.counterclockwise")
+                }
             }
         }
     }
 
-    private var validPalette: Bool {
-        ["light", "dark"].allSatisfy { mode in ["canvas", "accent", "highlight", "text"].allSatisfy { field in
-            model.palette[mode]?[field]?.range(of: "^#[0-9a-fA-F]{6}$", options: .regularExpression) != nil
-        } }
-    }
-
     private var sessions: some View {
-        NativeCard(title: "会话设置") {
-            ForEach([("chatCacheMaxSessions", "保持连接的会话缓存数", 1), ("autoCloseMinutes", "空闲连接回收（分钟，0 为永不）", 0), ("desktopMaxWindows", "电脑端保留的终端连接", 1), ("mobileMaxWindows", "手机端保留的终端连接", 1)], id: \.0) { key, label, minimum in
-                Stepper(value: Binding(get: { model.settings[key] as? Int ?? minimum }, set: { model.settings[key] = $0 }), in: minimum...10000) {
-                    Text("\(label)：\(model.settings[key] as? Int ?? minimum)")
+        Group {
+            NativeSettingsSection(title: "连接与缓存") {
+                ForEach(SessionSetting.all) { field in
+                    Button { numberEditor = field } label: {
+                        HStack(spacing: 12) {
+                            NativeSettingsRowLabel(title: field.title, icon: field.icon).foregroundStyle(.primary)
+                            Spacer(minLength: 4)
+                            Text(field.label(model.settings[field.id] as? Int ?? field.minimum)).foregroundStyle(.secondary)
+                            Image(systemName: "chevron.right").font(.caption.weight(.semibold)).foregroundStyle(.tertiary)
+                        }.frame(minHeight: 32)
+                    }.accessibilityIdentifier("setting-\(field.id)")
                 }
             }
-            Text("当前缓存：\(model.cache["count"] as? Int ?? 0) / \(model.cache["max"] as? Int ?? 0)")
-            Text("回收不活跃连接不会丢失草稿或结束正在执行的任务。")
-                .font(.caption).foregroundStyle(style.color("text-2"))
-            Button("保存会话设置") {
-                model.perform {
-                    let names = ["chatCacheMaxSessions", "autoCloseMinutes", "desktopMaxWindows", "mobileMaxWindows"]
-                    _ = try await model.service.request("/api/settings", method: "POST", body: model.settings.filter { names.contains($0.key) })
-                    _ = try await model.service.shared("refresh"); model.status = "会话设置已保存"
-                }
-            }.buttonStyle(NativePrimaryButtonStyle()).disabled(model.saving || model.loading)
+            NativeSettingsSection {
+                LabeledContent {
+                    Text("\(model.cache["count"] as? Int ?? 0) / \(model.cache["max"] as? Int ?? 0)")
+                } label: { NativeSettingsRowLabel(title: "当前缓存", icon: "tray.full") }
+            }
         }
     }
 
     private var automation: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            HStack {
-                Text("访问密钥").font(.system(size: 18, weight: .semibold))
-                Spacer()
-                Button("新建密钥") { creatingKey = true }.buttonStyle(NativePrimaryButtonStyle())
-            }
-            if model.keys.isEmpty && !model.loading { Text("尚未创建访问密钥").foregroundStyle(style.color("text-2")) }
-            ForEach(model.keys) { key in
-                NativeCard {
-                    HStack(alignment: .firstTextBaseline) {
-                        Text(key.name).fontWeight(.semibold).lineLimit(2)
-                        Spacer(minLength: 8)
-                        Button("编辑") { keyEditor = key }.fixedSize()
-                    }
-                    ViewThatFits(in: .horizontal) {
-                        HStack(spacing: 10) { keyValue(key); keyCopyActions(key) }
-                        VStack(alignment: .leading, spacing: 8) { keyValue(key); HStack { keyCopyActions(key) } }
-                    }
-                    let binding = key.binding
-                    Text("范围：" + [binding["device_id"].map { id in store.devices.first(where: { $0.id == id })?.name ?? id } ?? "全部设备", binding["ai_client"] ?? "全部客户端", binding["project_path"] ?? "全部项目", binding["session_id"] ?? "全部会话"].joined(separator: " · "))
-                        .font(.caption).foregroundStyle(style.color("text-2"))
-                    Text("RPM：\(key.rpm)　创建：\(key.created)").font(.caption).foregroundStyle(style.color("text-2"))
-                    Text("最近使用：\(key.used)").font(.caption).foregroundStyle(style.color("text-2"))
+        Group {
+            NativeSettingsSection(title: "访问密钥") {
+                if model.keys.isEmpty && !model.loading { Text("尚未创建访问密钥").foregroundStyle(.secondary) }
+                ForEach(model.keys) { key in
+                    NavigationLink {
+                        NativeAccessKeyDetail(store: store, model: model, original: key) {
+                            model.error = nil; keyEditor = $0
+                        }
+                    } label: {
+                        VStack(alignment: .leading, spacing: NativeSettingsLayout.detailSpacing) {
+                                Text(key.name).lineLimit(2)
+                                Text("最近使用：" + AccessKey.dateLabel(key.used))
+                                    .font(.caption).foregroundStyle(.secondary)
+                        }.frame(minHeight: NativeSettingsLayout.rowHeight).contentShape(Rectangle())
+                    }.buttonStyle(.plain).accessibilityIdentifier("access-key-\(key.id)")
+                }
+                Button { model.error = nil; creatingKey = true } label: {
+                    NativeSettingsRowLabel(title: "新建密钥", icon: "plus")
                 }
             }
-            Text("未限定范围的密钥可向你的全部设备会话发送消息，请妥善保管。")
-                .font(.caption).foregroundStyle(style.color("wait"))
-            HStack {
-                Button("消息记录") { store.openExternal("/automation-records.html") }
-                Button("使用文档") { store.openExternal("/automation-guide.html") }
+            NativeSettingsSection {
+                Button { store.openExternal("/automation-records.html") } label: { NativeSettingsRowLabel(title: "消息记录", icon: "clock.arrow.circlepath") }
+                Button { store.openExternal("/automation-guide.html") } label: { NativeSettingsRowLabel(title: "使用文档", icon: "book") }
             }
         }
     }
 
-    private func keyValue(_ key: AccessKey) -> some View {
-        Text(key.recoverable ? key.masked : "旧版密钥不可恢复").font(.system(size: 12, design: .monospaced)).lineLimit(1)
-            .frame(maxWidth: .infinity, alignment: .leading)
-    }
-    private func keyCopyActions(_ key: AccessKey) -> some View {
+    private var account: some View {
         Group {
-            Button("复制") { FleetService.copy(key.secret, sensitive: true); model.status = "密钥已复制（两分钟后从剪贴板清除）" }.fixedSize()
-            Button("复制请求示例") {
-                model.perform {
-                    let result = try await model.service.shared("access-key-request", values: ["key": ["key": key.secret, "name": key.name, "binding": key.binding]])
-                    if let value = result as? String { FleetService.copy(value, sensitive: true); model.status = "请求示例已复制" }
+            NativeSettingsSection {
+                Text(store.snapshot?.email ?? "账号设置").frame(minHeight: NativeSettingsLayout.rowHeight)
+            }
+            NativeSettingsSection(title: "登录设备") {
+                ForEach(Array(model.logins.enumerated()), id: \.offset) { _, login in
+                    VStack(alignment: .leading, spacing: NativeSettingsLayout.detailSpacing) {
+                        HStack {
+                            Text(LoginDeviceLabel.name(login))
+                            if login["current"] as? Bool == true {
+                                Text("当前设备").font(.caption2.weight(.medium)).padding(.horizontal, 7).padding(.vertical, 3)
+                                    .foregroundStyle(style.color("accent-text"))
+                                    .background(style.selection, in: Capsule())
+                            }
+                        }
+                        Text("最后登录时间：\(dateLabel(login["last_seen"] ?? login["created_at"]))")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }.frame(minHeight: NativeSettingsLayout.rowHeight)
                 }
-            }.fixedSize()
-        }.font(.caption).disabled(!key.recoverable || model.saving)
+                Button("退出其他设备的登录", role: .destructive) { revokeOthers = true }.foregroundStyle(.red)
+            }.accessibilityIdentifier("account-logins-card")
+            NativeSettingsSection(title: "账号安全") {
+                Button { model.error = nil; credentials = [:]; security = "password" } label: {
+                    securityRow("更改密码", icon: "key")
+                }
+                Button { model.error = nil; credentials = [:]; security = "totp" } label: {
+                    securityRow("更换 Authenticator", icon: "lock.shield")
+                }
+                Button { model.error = nil; credentials = [:]; security = "recovery-codes" } label: {
+                    securityRow("重新生成恢复码", icon: "arrow.clockwise")
+                }
+            }.accessibilityIdentifier("account-security-card")
+            NativeSettingsSection {
+                Button(role: .destructive) { loggingOut = true } label: { NativeSettingsRowLabel(title: "退出登录", icon: "rectangle.portrait.and.arrow.right").foregroundStyle(.red) }
+            }
+        }
     }
 
-    private var account: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            Text(store.snapshot?.email ?? "账号设置").font(.system(size: 17, weight: .semibold))
+    private func securityRow(_ title: String, icon: String) -> some View {
+        HStack {
+            NativeSettingsRowLabel(title: title, icon: icon).foregroundStyle(.primary)
+            Spacer(minLength: 8)
+            Image(systemName: "chevron.right").font(.caption.weight(.semibold)).foregroundStyle(.tertiary)
+        }.contentShape(Rectangle())
+    }
+
+    @ViewBuilder private var securityContent: some View {
+        Group {
             if !recoveryCodes.isEmpty {
-                NativeCard(title: "保存恢复码") {
+                NativeSettingsSection(title: "保存恢复码") {
                     Text("请离线保存。每个恢复码只能使用一次，离开后无法再次查看。")
                     Text(recoveryCodes.joined(separator: "\n")).font(.system(size: 15, design: .monospaced)).textSelection(.enabled)
                     Button("复制恢复码") { FleetService.copy(recoveryCodes.joined(separator: "\n"), sensitive: true) }
                     Toggle("我已安全保存恢复码", isOn: $savedCodes)
-                    Button("继续") { recoveryCodes = []; savedCodes = false; store.drawerLocked = false; security = "" }
-                        .buttonStyle(NativePrimaryButtonStyle()).disabled(!savedCodes)
+                    Button("完成") { clearSecurity() }
+                        .buttonStyle(.automatic).disabled(!savedCodes)
                 }
             } else if !totpSecret.isEmpty {
-                NativeCard(title: "更换 Authenticator") {
+                NativeSettingsSection(title: "更换 Authenticator") {
                     if let image = qrImage { Image(uiImage: image).interpolation(.none).resizable().scaledToFit().frame(maxWidth: 220).accessibilityLabel("Authenticator 设置二维码") }
                     Text("无法扫码时手动输入：\(totpSecret)").font(.system(size: 12, design: .monospaced)).textSelection(.enabled)
                     NativeField(title: "新的 Authenticator 验证码", value: credential("code"), keyboard: .numberPad)
@@ -429,7 +522,7 @@ struct NativeSettingsPanel: View {
                     Text("请完成验证并保存恢复码后再关闭。")
                 }
             } else if !security.isEmpty {
-                NativeCard(title: security == "password" ? "更改密码" : security == "totp" ? "更换 Authenticator" : "重新生成恢复码") {
+                NativeSettingsSection(title: security == "password" ? "更改密码" : security == "totp" ? "更换 Authenticator" : "重新生成恢复码") {
                     NativeField(title: "当前密码", value: credential("current_password"), secure: true)
                     if security == "password" {
                         NativeField(title: "新密码", value: credential("password"), secure: true)
@@ -437,34 +530,17 @@ struct NativeSettingsPanel: View {
                     }
                     NativeField(title: "Authenticator 验证码", value: credential("code"), keyboard: .numberPad)
                     HStack {
-                        Button("取消") { security = ""; credentials = [:] }
+                        Button("取消") { clearSecurity() }
                         Spacer()
                         Button("继续") { if security == "recovery-codes" { regenerateCodes = true } else { submitSecurity() } }
-                            .buttonStyle(NativePrimaryButtonStyle()).disabled(model.saving)
+                            .buttonStyle(.automatic).disabled(model.saving)
                     }
-                }
-            } else {
-                NativeCard(title: "登录设备") {
-                    ForEach(Array(model.logins.enumerated()), id: \.offset) { _, login in
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text(login["current"] as? Bool == true ? "此设备" : "其他设备").fontWeight(.medium)
-                            if let agent = login["user_agent"] as? String ?? login["agent"] as? String, !agent.isEmpty { Text(agent).font(.caption) }
-                            if let address = login["ip"] as? String, !address.isEmpty { Text(address).font(.caption).foregroundStyle(style.color("text-2")) }
-                            ForEach([("created_at", "创建时间"), ("last_seen", "最近使用"), ("expires_at", "到期时间")], id: \.0) { key, label in
-                                if login[key] != nil { Text("\(label)：\(dateLabel(login[key]))").font(.caption).foregroundStyle(style.color("text-2")) }
-                            }
-                        }
-                    }
-                    Button("退出其他设备的登录", role: .destructive) { revokeOthers = true }
-                }
-                NativeCard(title: "账号安全") {
-                    Button("更改密码") { security = "password"; credentials = [:] }
-                    Button("更换 Authenticator") { security = "totp"; credentials = [:] }
-                    Button("重新生成恢复码") { security = "recovery-codes"; credentials = [:] }
-                    if store.snapshot?.admin == true { Button("在浏览器打开管理") { store.openExternal("/admin") } }
-                    Button("退出登录", role: .destructive) { loggingOut = true }
                 }
             }
+        }
+        .alert("重新生成恢复码并使旧恢复码失效？", isPresented: $regenerateCodes) {
+            Button("取消", role: .cancel) {}
+            Button("重新生成", role: .destructive) { submitSecurity() }
         }
     }
 

@@ -23,6 +23,15 @@ type assistantCapabilities struct {
 	ApprovalModes bool
 }
 
+// isDSHHarness 判断 assistant 是否属于 DSH 家族（Desktop 与 CLI 共用协议）。
+func isDSHHarness(assistant string) bool {
+	switch normAssistant(assistant) {
+	case "dsh", "deepseek":
+		return true
+	}
+	return false
+}
+
 // chatCapabilities 是"哪个 assistant 支持什么"的唯一真源。
 //
 // 判定走 normAssistant，因此大小写与空白与其它入口一致；未知 assistant
@@ -37,6 +46,11 @@ func chatCapabilities(assistant string) assistantCapabilities {
 			return assistantCapabilities{}
 		}
 		// DSH 的权限修改独立于消息投递。
+		return assistantCapabilities{SelfDraw: true, Queue: true}
+	case "deepseek":
+		if !cfg.DeepSeekEnabled {
+			return assistantCapabilities{}
+		}
 		return assistantCapabilities{SelfDraw: true, Queue: true}
 	default:
 		return assistantCapabilities{}

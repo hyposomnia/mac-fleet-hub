@@ -64,12 +64,19 @@ type Config struct {
 	TmuxConf          string // 自管理 tmux 配置（~/.macfleet-tmux.conf），经 tmux -f 在 server 启动时加载
 	ChatQueueFile     string // Codex 待发送消息队列（agent 权威持久化）
 
-	// DeepSeek Harness（DSH）shared 接入。默认关闭：这是一个按机器灰度的开关，
-	// 因为它依赖 DSH Desktop 正在运行，且用的是非公开的本地凭据路径。
+	// DeepSeek Harness（DSH）shared 接入。两个入口默认开启、按机器可关：
+	// 都依赖对应 harness 正在运行，用的是非公开的本地凭据路径。
 	DSHEnabled  bool   // FLEET_DSH_ENABLED：默认开启（1），显式 0 可单机退出
 	DSHHome     string // DSH Desktop 的 harness 主目录（.credentials.yaml 与 sessions/ 都在这里）
 	DSHLog      string // Desktop 写 harness stdout 的日志（端点与每进程 token 的唯一来源）
 	DSHEndpoint string // 显式覆盖 127.0.0.1:<port>，仅供排障
+
+	// dsh CLI / web harness（assistant=deepseek）。与 Desktop 是两个独立根：
+	// 状态在 ~/.dsh，没有固定日志，端点靠扫描 loopback 监听端口 + 凭据认领。
+	DeepSeekEnabled  bool   // FLEET_DEEPSEEK_ENABLED：默认开启（1）
+	DeepSeekHome     string // FLEET_DEEPSEEK_HOME：默认 ~/.dsh
+	DeepSeekLog      string // FLEET_DEEPSEEK_LOG：可选，用户把 `dsh web` stdout 落盘时提供
+	DeepSeekEndpoint string // FLEET_DEEPSEEK_ENDPOINT：显式覆盖 127.0.0.1:<port>
 }
 
 // 代理配置：Web 端可设，按会话注入到 claude 的环境（HTTP(S)_PROXY）。
@@ -154,6 +161,11 @@ func loadConfig() Config {
 		DSHHome:     envOr("FLEET_DSH_HOME", defaultDSHHome()),
 		DSHLog:      envOr("FLEET_DSH_LOG", defaultDSHLog()),
 		DSHEndpoint: strings.TrimSpace(os.Getenv("FLEET_DSH_ENDPOINT")),
+
+		DeepSeekEnabled:  envOr("FLEET_DEEPSEEK_ENABLED", "1") == "1",
+		DeepSeekHome:     envOr("FLEET_DEEPSEEK_HOME", defaultDeepSeekHome()),
+		DeepSeekLog:      strings.TrimSpace(os.Getenv("FLEET_DEEPSEEK_LOG")),
+		DeepSeekEndpoint: strings.TrimSpace(os.Getenv("FLEET_DEEPSEEK_ENDPOINT")),
 	}
 }
 
@@ -217,25 +229,26 @@ func configSync() {
 
 // ---------------- 数据类型 ----------------
 type Session struct {
-	SessionID     string `json:"sessionId"`
-	Assistant     string `json:"assistant"`
-	Cwd           string `json:"cwd"`
-	Title         string `json:"title"`
-	GitBranch     string `json:"gitBranch"`
-	Mtime         int64  `json:"mtime"`                   // 毫秒
-	OutputEndedAt int64  `json:"outputEndedAt,omitempty"` // 最近一次 Codex 输出完成（task_complete）时间，毫秒
-	ReadAt        int64  `json:"readAt,omitempty"`        // Fleet 各浏览器共享的已读活动时间
-	DesktopUnread *bool  `json:"desktopUnread,omitempty"` // Codex Desktop 当前账号/本机的未读集合
-	Live          bool   `json:"live"`                    // Desktop 未归档（活跃）
-	Pty           bool   `json:"pty"`                     // 控制台已为该会话起过 fleet tmux（有可终止/可回到的进程）
-	Waiting       bool   `json:"waiting"`                 // 卡在「等你回答/授权」：jsonl 最后一条 assistant 且 stop_reason==tool_use
-	Status        string `json:"status,omitempty"`
-	Source        string `json:"source,omitempty"`
-	Pinned        bool   `json:"pinned,omitempty"`
-	ProjectID     string `json:"projectId,omitempty"`
-	ProjectName   string `json:"projectName,omitempty"`
-	ProjectCwd    string `json:"projectCwd,omitempty"`
-	Projectless   bool   `json:"projectless,omitempty"`
+	SessionID          string `json:"sessionId"`
+	Assistant          string `json:"assistant"`
+	Cwd                string `json:"cwd"`
+	Title              string `json:"title"`
+	GitBranch          string `json:"gitBranch"`
+	Mtime              int64  `json:"mtime"`                   // 毫秒
+	OutputEndedAt      int64  `json:"outputEndedAt,omitempty"` // 最近一次 Codex 输出完成（task_complete）时间，毫秒
+	ReadAt             int64  `json:"readAt,omitempty"`        // Fleet 各浏览器共享的已读活动时间
+	DesktopUnread      *bool  `json:"desktopUnread,omitempty"` // Codex Desktop 当前账号/本机的未读集合
+	DesktopReadStateAt int64  `json:"desktopReadStateAt,omitempty"`
+	Live               bool   `json:"live"`    // Desktop 未归档（活跃）
+	Pty                bool   `json:"pty"`     // 控制台已为该会话起过 fleet tmux（有可终止/可回到的进程）
+	Waiting            bool   `json:"waiting"` // 卡在「等你回答/授权」：jsonl 最后一条 assistant 且 stop_reason==tool_use
+	Status             string `json:"status,omitempty"`
+	Source             string `json:"source,omitempty"`
+	Pinned             bool   `json:"pinned,omitempty"`
+	ProjectID          string `json:"projectId,omitempty"`
+	ProjectName        string `json:"projectName,omitempty"`
+	ProjectCwd         string `json:"projectCwd,omitempty"`
+	Projectless        bool   `json:"projectless,omitempty"`
 }
 
 // jsonl 行（只取需要字段）
@@ -273,6 +286,8 @@ func normAssistant(a string) string {
 		return "codex"
 	case "dsh":
 		return "dsh"
+	case "deepseek":
+		return "deepseek"
 	default:
 		return "claude"
 	}
@@ -1489,16 +1504,17 @@ func markSessionRuntime(assistant string, all []Session, ptySet map[string]bool,
 
 func handleSessions(w http.ResponseWriter, r *http.Request) {
 	assistant := normAssistant(r.URL.Query().Get("assistant"))
-	if assistant == "dsh" {
-		// DSH 的会话列表只有一个来源：Desktop 正在跑的 host。
+	if isDSHHarness(assistant) {
+		// DSH 家族的会话列表只有一个来源：对应 harness 正在跑的 host。
 		// shared 模式下没有 host 就没有可驱动的会话（历史、发送、审批全都经它），
 		// 因此这里不做磁盘降级列表——列出打不开的会话只会误导。
-		dsh, ok := agentChatBackend.(*routingChatBackend)
-		if !ok || dsh.dshBackend() == nil {
-			writeErr(w, http.StatusNotImplemented, "dsh_disabled", "本机未启用 DSH 接入。")
+		router, ok := agentChatBackend.(*routingChatBackend)
+		backend := router.dshBackendFor(assistant)
+		if !ok || backend == nil {
+			writeErr(w, http.StatusNotImplemented, "dsh_disabled", "本机未启用该 DeepSeek Harness 接入。")
 			return
 		}
-		sessions, err := dsh.dshBackend().listSessions(r.Context(), r.URL.Query().Get("archived") == "true", r.URL.Query().Get("search"))
+		sessions, err := backend.listSessions(r.Context(), r.URL.Query().Get("archived") == "true", r.URL.Query().Get("search"))
 		if err != nil {
 			writeChatErr(w, err)
 			return
@@ -1561,17 +1577,18 @@ func handleSessionAction(w http.ResponseWriter, r *http.Request) {
 		Value     string `json:"value"`
 	}
 	if json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&req) != nil ||
-		(normAssistant(req.Assistant) != "codex" && normAssistant(req.Assistant) != "dsh") || strings.TrimSpace(req.SessionID) == "" {
+		(normAssistant(req.Assistant) != "codex" && !isDSHHarness(normAssistant(req.Assistant))) || strings.TrimSpace(req.SessionID) == "" {
 		http.Error(w, "bad request", http.StatusBadRequest)
 		return
 	}
-	if normAssistant(req.Assistant) == "dsh" {
+	if isDSHHarness(normAssistant(req.Assistant)) {
 		router, ok := agentChatBackend.(*routingChatBackend)
-		if !ok || router.dshBackend() == nil {
-			writeErr(w, http.StatusNotImplemented, "dsh_disabled", "本机未启用 DeepSeek 接入。")
+		backend := router.dshBackendFor(normAssistant(req.Assistant))
+		if !ok || backend == nil {
+			writeErr(w, http.StatusNotImplemented, "dsh_disabled", "本机未启用该 DeepSeek Harness 接入。")
 			return
 		}
-		if err := router.dshBackend().mutateSession(r.Context(), req.SessionID, req.Action, req.Value); err != nil {
+		if err := backend.mutateSession(r.Context(), req.SessionID, req.Action, req.Value); err != nil {
 			writeChatErr(w, err)
 			return
 		}
@@ -1836,6 +1853,37 @@ func handleProxy(w http.ResponseWriter, r *http.Request) {
 }
 
 // 主机信息（弹窗用）：mesh IP、mac 序号、当前代理状态。
+// dshAssistantInfo 生成一个 DSH 家族 assistant 的能力块。
+//
+// desktopAppPath 仅 Desktop 有（用于排障提示）；CLI 传空。
+func dshAssistantInfo(enabled, installed bool, desktopAppPath string, backend *dshChatBackend, r *http.Request) map[string]interface{} {
+	info := map[string]interface{}{
+		"enabled":        enabled,
+		"nativeUI":       true,
+		"sessionActions": []string{"pin", "unpin", "rename", "archive", "delete"},
+		"installed":      installed,
+		"hostRunning":    false,
+		"endpoint":       "",
+		"authMode":       string(dshAuthNone),
+	}
+	if desktopAppPath != "" {
+		info["desktopAppPath"] = desktopAppPath
+	}
+	if backend != nil {
+		probeCtx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
+		backend.probeNativeUI(probeCtx)
+		cancel()
+		endpoint, mode, lastErr, seen := backend.Status()
+		info["authMode"] = string(mode)
+		if endpoint.Port > 0 {
+			info["endpoint"] = fmt.Sprintf("127.0.0.1:%d", endpoint.Port)
+		}
+		info["hostRunning"] = seen && lastErr == nil
+	}
+	info["degraded"] = !(enabled && info["hostRunning"].(bool))
+	return info
+}
+
 func handleInfo(w http.ResponseWriter, r *http.Request) {
 	host := cfg.Listen
 	if i := strings.LastIndex(host, ":"); i > 0 {
@@ -1855,31 +1903,12 @@ func handleInfo(w http.ResponseWriter, r *http.Request) {
 		backend.mu.Unlock()
 	}
 
-	// DSH 能力块：dashboard 用它决定是否显示第三个 assistant 入口。
+	// DeepSeek Harness 能力块：dashboard 用它决定是否显示入口。
+	// 两个 harness 各自独立上报：dsh=DSH Desktop，deepseek=dsh CLI / web harness。
 	// enabled 是配置开关，hostRunning 需要一次成功连接才为 true——两者都满足
-	// 才认为可用，避免在 Desktop 没跑时露出一个点了报错的入口。
-	dshInfo := map[string]interface{}{
-		"enabled":        cfg.DSHEnabled,
-		"nativeUI":       true,
-		"sessionActions": []string{"pin", "unpin", "rename", "archive", "delete"},
-		"desktopAppPath": dshDesktopAppPath,
-		"installed":      dshDesktopInstalled(),
-		"hostRunning":    false,
-		"endpoint":       "",
-		"authMode":       string(dshAuthNone),
-	}
-	if backend := router.dshBackend(); backend != nil {
-		probeCtx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
-		backend.probeNativeUI(probeCtx)
-		cancel()
-		endpoint, mode, lastErr, seen := backend.Status()
-		dshInfo["authMode"] = string(mode)
-		if endpoint.Port > 0 {
-			dshInfo["endpoint"] = fmt.Sprintf("127.0.0.1:%d", endpoint.Port)
-		}
-		dshInfo["hostRunning"] = seen && lastErr == nil
-	}
-	dshInfo["degraded"] = !(cfg.DSHEnabled && dshInfo["hostRunning"].(bool))
+	// 才认为可用，避免在 host 没跑时露出一个点了报错的入口。
+	dshInfo := dshAssistantInfo(cfg.DSHEnabled, dshDesktopInstalled(), dshDesktopAppPath, router.dshBackend(), r)
+	deepSeekInfo := dshAssistantInfo(cfg.DeepSeekEnabled, deepSeekInstalled(cfg.DeepSeekHome), "", router.deepseekBackend(), r)
 
 	writeJSON(w, map[string]interface{}{
 		"macIndex": cfg.MacIndex, "meshIP": host, "fileRoot": cfg.FileRoot, "proxy": p,
@@ -1889,6 +1918,7 @@ func handleInfo(w http.ResponseWriter, r *http.Request) {
 		"codexAppToolsSupported":  codexDesktopAppToolsSupported(),
 		"codexAppToolsReady":      codexAppToolsReady,
 		"dsh":                     dshInfo,
+		"deepseek":                deepSeekInfo,
 	})
 }
 
@@ -2108,8 +2138,10 @@ func serveAgent(listener net.Listener, ready func()) error {
 		registerDeviceServices(mux, binding)
 	}
 	mux.HandleFunc("/api/sessions", handleSessions)
+	mux.HandleFunc("/api/usage/daily", handleDailyUsage)
 	mux.HandleFunc("/api/sessions/action", handleSessionAction)
 	mux.HandleFunc("/api/sessions/read", handleSessionRead)
+	mux.HandleFunc("/api/sessions/read-state", handleNativeSessionReadState)
 	mux.HandleFunc("/api/projects", handleProjects)
 	mux.HandleFunc("/api/open", handleOpen)
 	mux.HandleFunc("/api/new", handleNew)
@@ -2119,7 +2151,8 @@ func serveAgent(listener net.Listener, ready func()) error {
 	mux.HandleFunc("/api/proxy", handleProxy)
 	mux.HandleFunc("/api/info", handleInfo)
 	mux.Handle("/api/network-preview/", newNetworkPreviewProxy())
-	mux.Handle("/api/dsh-native/", newDSHNativeProxy(cfg.MacIndex, resolveDSHNativeTarget, markDSHNativeProxyFailure))
+	mux.Handle("/api/dsh-native/", newDSHNativeProxy(cfg.MacIndex, "dsh", resolveDSHNativeTarget, markDSHNativeProxyFailure))
+	mux.Handle("/api/deepseek-native/", newDSHNativeProxy(cfg.MacIndex, "deepseek", resolveDeepSeekNativeTarget, markDeepSeekNativeProxyFailure))
 	mux.HandleFunc("/api/file/list", handleFileList)
 	mux.HandleFunc("/api/file/preview", handleFilePreview)
 	mux.HandleFunc("/api/file/content", handleFileContent)

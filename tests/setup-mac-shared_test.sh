@@ -124,14 +124,18 @@ sed -e 's#__BREW_PREFIX__#/opt/homebrew#g' \
     -e 's#__DSH_ENABLED__#0#g' \
     -e 's#__DSH_HOME__#/tmp/dsh-home#g' \
     -e 's#__DSH_LOG__#/tmp/harness.log#g' \
+    -e 's#__DEEPSEEK_ENABLED__#1#g' \
+    -e 's#__DEEPSEEK_HOME__#/tmp/\.dsh#g' \
     "$AGENT_PLIST" > "$rendered_agent"
 /usr/bin/plutil -lint "$rendered_agent" >/dev/null
 [[ "$(/usr/bin/plutil -extract EnvironmentVariables.FLEET_DSH_ENABLED raw -o - "$rendered_agent")" == "0" ]]
 [[ "$(/usr/bin/plutil -extract EnvironmentVariables.FLEET_DSH_HOME raw -o - "$rendered_agent")" == "/tmp/dsh-home" ]]
 [[ "$(/usr/bin/plutil -extract EnvironmentVariables.FLEET_DSH_LOG raw -o - "$rendered_agent")" == "/tmp/harness.log" ]]
+[[ "$(/usr/bin/plutil -extract EnvironmentVariables.FLEET_DEEPSEEK_ENABLED raw -o - "$rendered_agent")" == "1" ]]
+[[ "$(/usr/bin/plutil -extract EnvironmentVariables.FLEET_DEEPSEEK_HOME raw -o - "$rendered_agent")" == "/tmp/.dsh" ]]
 # 渲染后不能残留任何未替换的占位符，否则 launchd 会把字面量当成配置值。
-if rg -qF -- '__DSH_' "$rendered_agent"; then
-  fail "fleet-agent plist 渲染后仍残留 DSH 占位符"
+if rg -qF -- '__DSH_' "$rendered_agent" || rg -qF -- '__DEEPSEEK_' "$rendered_agent"; then
+  fail "fleet-agent plist 渲染后仍残留 DSH/DeepSeek 占位符"
 fi
 contains "$SETUP" '__DSH_ENABLED__'
 # DSH 开关必须"sticky"：重渲染 plist 时保留已安装里的值，
@@ -142,5 +146,9 @@ contains "$SETUP" 's#__DSH_ENABLED__#${DSH_ENABLED:-$(dsh_enabled_default)}#g'
 contains "$SETUP" 'current:-1' 
 contains "$SETUP" '__DSH_HOME__'
 contains "$SETUP" '__DSH_LOG__'
+# 两个 harness 的开关都必须是 sticky 的，并且 DeepSeek 的 home 默认 ~/.dsh。
+contains "$SETUP" 'deepseek_enabled_default()'
+contains "$SETUP" 's#__DEEPSEEK_ENABLED__#${DEEPSEEK_ENABLED:-$(deepseek_enabled_default)}#g'
+contains "$SETUP" 's#__DEEPSEEK_HOME__#${DEEPSEEK_HOME_DIR:-$HOME/.dsh}#g'
 
 echo "setup-mac shared tests passed"

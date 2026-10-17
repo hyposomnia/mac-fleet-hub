@@ -37,7 +37,7 @@ func TestDSHQuestionsTranslateDescriptorOrderedAnswers(t *testing.T) {
 }
 
 func TestDSHQuestionsWaterfallAndPayloadFreeCancellation(t *testing.T) {
-	b := newDSHChatBackend("", "", "")
+	b := newDSHChatBackend(dshHarnessSpec{})
 	frame := `{"type":"waterfall","event":"user-questions/request","eventId":"event-q","agentId":"session-1","request":` + dshQuestionRequestFixture + `}`
 	b.handleWaterfall(json.RawMessage(frame))
 	pending := b.pendingInteractions("session-1")
@@ -125,7 +125,7 @@ func TestDSHQuestionsContinuedRestoreAndAnswer(t *testing.T) {
 }
 
 func TestDSHQuestionsOpenProjectionMarksUnopenedSessionWaiting(t *testing.T) {
-	b := newDSHChatBackend("", "", "")
+	b := newDSHChatBackend(dshHarnessSpec{})
 	b.syncQuestionListing(json.RawMessage(`{"items":[{"sessionId":"session-1","projections":{"values":{"userQuestions":{"active":[{"callId":"open-call","state":"open","questions":[{"id":"q","question":"Continue?"}]}]}}}}]}`))
 	if !b.sessionHasQuestions("session-1") || b.sessionHasQuestions("session-2") {
 		t.Fatal("open question waiting identity incorrect")

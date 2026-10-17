@@ -40,6 +40,7 @@ type scope struct {
 	cancel  context.CancelFunc
 }
 type Server struct {
+	sessionReadMu   [32]sync.Mutex
 	options         Options
 	db              *sql.DB
 	mu              sync.Mutex
@@ -280,6 +281,16 @@ func (server *Server) ServeHTTP(writer http.ResponseWriter, request *http.Reques
 		reject(writer, 404, "请由 nginx 分发安装包")
 		return
 	}
+	if path == "/api/standby" && strings.HasPrefix(request.Header.Get("Authorization"), "Bearer ") {
+		token := strings.TrimPrefix(request.Header.Get("Authorization"), "Bearer ")
+		user, err := server.standbyUser(token)
+		if err != nil {
+			reject(writer, 401, "小组件授权已失效")
+			return
+		}
+		server.handleStandby(writer, request, user, func() bool { _, err := server.standbyUser(token); return err == nil })
+		return
+	}
 	session, user, err := server.authenticate(request, true)
 	if err != nil {
 		if !strings.HasPrefix(path, "/api/") && !strings.HasPrefix(path, "/m") {
@@ -296,7 +307,8 @@ func (server *Server) ServeHTTP(writer http.ResponseWriter, request *http.Reques
 	}
 	if unsafeMethod(request.Method) {
 		match := devicePath.FindStringSubmatch(path)
-		embedded := len(match) > 0 && (match[2] == "files" || match[2] == "dsh" || (match[2] == "api" && strings.HasPrefix(match[3], "/dsh-native/")))
+		embedded := len(match) > 0 && (match[2] == "files" || match[2] == "dsh" || match[2] == "deepseek" ||
+			(match[2] == "api" && (strings.HasPrefix(match[3], "/dsh-native/") || strings.HasPrefix(match[3], "/deepseek-native/"))))
 		validToken := request.Header.Get("X-CSRF-Token") == session.CSRF
 		if embedded {
 			validToken = request.Header.Get("Sec-Fetch-Site") == "same-origin"
@@ -307,6 +319,14 @@ func (server *Server) ServeHTTP(writer http.ResponseWriter, request *http.Reques
 		}
 	}
 	if strings.HasPrefix(path, "/m") && server.handleProxy(writer, request, session, user) {
+		return
+	}
+	if path == "/api/standby/token" {
+		server.mintStandbyToken(writer, request, session)
+		return
+	}
+	if path == "/api/standby" {
+		server.handleStandby(writer, request, user, func() bool { _, _, err := server.authenticate(request, true); return err == nil })
 		return
 	}
 	if path == "/oauth/authorize" {

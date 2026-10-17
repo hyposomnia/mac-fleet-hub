@@ -15,19 +15,29 @@
 		36F17450961CE84915E159B0 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 8F77734466DE353D3C455BB1 /* Assets.xcassets */; };
 		47FA99D64648C0805D9D04DC /* mobile_composer.js in Resources */ = {isa = PBXBuildFile; fileRef = 1078D6C52AA76480E2E3F89E /* mobile_composer.js */; };
 		4A5191DAFDE048E44AE1DE85 /* mobile_composer.css in Resources */ = {isa = PBXBuildFile; fileRef = 77AED175E452B1AA3228541E /* mobile_composer.css */; };
+		514533CBC65B4137CD8BD386 /* StandbyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 317E7BE5C224330827E3755A /* StandbyTests.swift */; };
 		51D2FBA359A3D0E1B67D34C8 /* NativeSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = F8D418655B572D5D31185CF8 /* NativeSettings.swift */; };
+		7347ED3BA359C6D5619C1AFC /* NativeSettingsControls.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0E398BCA45B6E7D9A463B92 /* NativeSettingsControls.swift */; };
 		77DF0F9D0038448D46476E5D /* FleetService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 03F1013C0FE7F62D78F49662 /* FleetService.swift */; };
 		7E4CAE750F213C594D664602 /* FleetStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = C88DD2D20B7023401439699C /* FleetStore.swift */; };
 		864B5D3B47E92E361E50310E /* FleetHubDuoUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FC48FAA85F369A2025365554 /* FleetHubDuoUITests.swift */; };
+		8CD68002EC270CF059F69EE7 /* FleetWidgets.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 5444CCA00BBF400CF8601D78 /* FleetWidgets.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		A05C8E1902B8B662508B4EEB /* FleetWorkspace.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6811782891FCA4B518C6C090 /* FleetWorkspace.swift */; };
+		A5216C5505519D3F9ABF439E /* StandbyData.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5D1A1F402F505D7859067661 /* StandbyData.swift */; };
 		ACB8840830ADEA2A94B816BF /* NativeEditors.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6FC06000CA4567DA3E75EEF0 /* NativeEditors.swift */; };
 		C0FC50CFB369C6EDFEDD4C13 /* FleetHubUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49B145BF4474DB32DD1BAD00 /* FleetHubUITests.swift */; };
 		C370B6402FADD33FC459F7E8 /* native_workspace.js in Resources */ = {isa = PBXBuildFile; fileRef = DD147FB1EBEA245F185AEBB8 /* native_workspace.js */; };
+		C67A127591CAC715AECCDEEE /* NativeAuthentication.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4F2F65C2B228668D5CC0B668 /* NativeAuthentication.swift */; };
 		CC95BB643121EBCCA366C090 /* titanium.json in Resources */ = {isa = PBXBuildFile; fileRef = 2B34CB87E7F673CA80EE05B6 /* titanium.json */; };
 		D08CCB6BA25074ECF987D33A /* FleetWebView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 76958456E0055ED81DABD5FD /* FleetWebView.swift */; };
+		D2009B3EFAB6040082A14104 /* StandbyBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = 356F2A31D13E90925EE60C01 /* StandbyBridge.swift */; };
 		D4CF24362D0609649933EADB /* Models.swift in Sources */ = {isa = PBXBuildFile; fileRef = D8ADF1B3E850B159B52ED8DD /* Models.swift */; };
+		D5AE4C99F81A7277FCAD57D3 /* NativeWebPresentation.swift in Sources */ = {isa = PBXBuildFile; fileRef = DBD5228ECF3E2BEAEE7E2FCB /* NativeWebPresentation.swift */; };
+		DE28948A4CDBCB908F820181 /* FleetWidgets.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0F9B1B072F749E5FBFF02285 /* FleetWidgets.swift */; };
+		DF7DD847D7AD64F10889EA39 /* StandbyData.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5D1A1F402F505D7859067661 /* StandbyData.swift */; };
 		E383B0135266FB014B9385D3 /* FleetHubApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 594521259BA14B77BB826A32 /* FleetHubApp.swift */; };
 		ED268559CAE623C7CBDB3F2B /* native_appearance.js in Resources */ = {isa = PBXBuildFile; fileRef = 6B4589FF7478E8155FC82B64 /* native_appearance.js */; };
+		F1224EC23F494AF5F31C22BE /* NativeAuthenticationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0524EF0A1961396D7798B0F /* NativeAuthenticationTests.swift */; };
 		FA66AEF92EFC468B307FFF6B /* FleetAppearance.swift in Sources */ = {isa = PBXBuildFile; fileRef = A266A3A8C9F3D26E220ECAD1 /* FleetAppearance.swift */; };
 /* End PBXBuildFile section */
 
@@ -46,43 +56,88 @@
 			remoteGlobalIDString = 66E5B674FCFE3A3CB98E59E8;
 			remoteInfo = FleetHub;
 		};
+		DADA02E7627F392DD9184349 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 97B5EE9F7192D086AC71ED2D /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 876C6F4F30970C23E80CB3CC;
+			remoteInfo = FleetWidgets;
+		};
 /* End PBXContainerItemProxy section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		80494C46C89277E8A24DB870 /* Embed Foundation Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 13;
+			files = (
+				8CD68002EC270CF059F69EE7 /* FleetWidgets.appex in Embed Foundation Extensions */,
+			);
+			name = "Embed Foundation Extensions";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
 		03F1013C0FE7F62D78F49662 /* FleetService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FleetService.swift; sourceTree = "<group>"; };
 		04C9E888944560B849DF7DFD /* TitaniumStyle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TitaniumStyle.swift; sourceTree = "<group>"; };
 		0AC5D7D07DE6A96BF1E392FF /* NativeWebDialogs.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeWebDialogs.swift; sourceTree = "<group>"; };
 		0DC6316646EDA892B1814F14 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
+		0F9B1B072F749E5FBFF02285 /* FleetWidgets.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FleetWidgets.swift; sourceTree = "<group>"; };
 		1078D6C52AA76480E2E3F89E /* mobile_composer.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = mobile_composer.js; sourceTree = "<group>"; };
 		2B34CB87E7F673CA80EE05B6 /* titanium.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = titanium.json; sourceTree = "<group>"; };
 		2D76CAE56A17808F76094E55 /* FleetHubTests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = FleetHubTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		317E7BE5C224330827E3755A /* StandbyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StandbyTests.swift; sourceTree = "<group>"; };
+		356F2A31D13E90925EE60C01 /* StandbyBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StandbyBridge.swift; sourceTree = "<group>"; };
 		49B145BF4474DB32DD1BAD00 /* FleetHubUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FleetHubUITests.swift; sourceTree = "<group>"; };
+		4F2F65C2B228668D5CC0B668 /* NativeAuthentication.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeAuthentication.swift; sourceTree = "<group>"; };
+		5444CCA00BBF400CF8601D78 /* FleetWidgets.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = FleetWidgets.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		54A687EAB625DE0467133967 /* FleetHub.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = FleetHub.entitlements; sourceTree = "<group>"; };
 		594521259BA14B77BB826A32 /* FleetHubApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FleetHubApp.swift; sourceTree = "<group>"; };
+		5D1A1F402F505D7859067661 /* StandbyData.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StandbyData.swift; sourceTree = "<group>"; };
+		67CA4E2FD606B4241B7B66A7 /* FleetWidgets.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = FleetWidgets.entitlements; sourceTree = "<group>"; };
 		6811782891FCA4B518C6C090 /* FleetWorkspace.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FleetWorkspace.swift; sourceTree = "<group>"; };
 		6B4589FF7478E8155FC82B64 /* native_appearance.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = native_appearance.js; sourceTree = "<group>"; };
 		6FC06000CA4567DA3E75EEF0 /* NativeEditors.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeEditors.swift; sourceTree = "<group>"; };
 		76958456E0055ED81DABD5FD /* FleetWebView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FleetWebView.swift; sourceTree = "<group>"; };
+		76B01DE78F7D398C3BF830B1 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		77AED175E452B1AA3228541E /* mobile_composer.css */ = {isa = PBXFileReference; lastKnownFileType = text.css; path = mobile_composer.css; sourceTree = "<group>"; };
 		7B704AF39E5CC584C317CDFF /* FleetHubTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FleetHubTests.swift; sourceTree = "<group>"; };
 		8F77734466DE353D3C455BB1 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		90248077BE71DE75C0947E10 /* SidebarViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarViews.swift; sourceTree = "<group>"; };
+		A0524EF0A1961396D7798B0F /* NativeAuthenticationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeAuthenticationTests.swift; sourceTree = "<group>"; };
 		A266A3A8C9F3D26E220ECAD1 /* FleetAppearance.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FleetAppearance.swift; sourceTree = "<group>"; };
 		BECD979FC07FB883CBCD7B8D /* native_dialogs.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = native_dialogs.js; sourceTree = "<group>"; };
+		C0E398BCA45B6E7D9A463B92 /* NativeSettingsControls.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeSettingsControls.swift; sourceTree = "<group>"; };
 		C1299000317C5B56804F705B /* FleetHubUITests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = FleetHubUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		C88DD2D20B7023401439699C /* FleetStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FleetStore.swift; sourceTree = "<group>"; };
 		D8ADF1B3E850B159B52ED8DD /* Models.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Models.swift; sourceTree = "<group>"; };
+		DBD5228ECF3E2BEAEE7E2FCB /* NativeWebPresentation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeWebPresentation.swift; sourceTree = "<group>"; };
 		DD147FB1EBEA245F185AEBB8 /* native_workspace.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = native_workspace.js; sourceTree = "<group>"; };
 		F8D418655B572D5D31185CF8 /* NativeSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeSettings.swift; sourceTree = "<group>"; };
-		FB550FA84538C3D708D2C7C9 /* FleetHub.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = FleetHub.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		FB550FA84538C3D708D2C7C9 /* FleetHub.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = FleetHub.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		FC48FAA85F369A2025365554 /* FleetHubDuoUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FleetHubDuoUITests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXGroup section */
+		17CD513D8F7A7938D8A3FBF8 /* FleetWidgets */ = {
+			isa = PBXGroup;
+			children = (
+				67CA4E2FD606B4241B7B66A7 /* FleetWidgets.entitlements */,
+				0F9B1B072F749E5FBFF02285 /* FleetWidgets.swift */,
+				76B01DE78F7D398C3BF830B1 /* Info.plist */,
+			);
+			path = FleetWidgets;
+			sourceTree = "<group>";
+		};
 		38BA0C3DED77A45E60B44100 = {
 			isa = PBXGroup;
 			children = (
 				98534BDCA65536CE68372267 /* dashboard */,
 				7E3A85B8987D4FE44CDD7A8A /* FleetHub */,
+				17CD513D8F7A7938D8A3FBF8 /* FleetWidgets */,
+				B004E564DCA51545F6C16417 /* Shared */,
 				4F44D8DDDBF98DEA60380236 /* Swift */,
 				D11EBCED8399634075576F4F /* UI */,
 				87DA0F2B8E3849C074C9CEEF /* Products */,
@@ -93,6 +148,8 @@
 			isa = PBXGroup;
 			children = (
 				7B704AF39E5CC584C317CDFF /* FleetHubTests.swift */,
+				A0524EF0A1961396D7798B0F /* NativeAuthenticationTests.swift */,
+				317E7BE5C224330827E3755A /* StandbyTests.swift */,
 			);
 			name = Swift;
 			path = Tests/Swift;
@@ -103,6 +160,7 @@
 			children = (
 				8F77734466DE353D3C455BB1 /* Assets.xcassets */,
 				A266A3A8C9F3D26E220ECAD1 /* FleetAppearance.swift */,
+				54A687EAB625DE0467133967 /* FleetHub.entitlements */,
 				594521259BA14B77BB826A32 /* FleetHubApp.swift */,
 				03F1013C0FE7F62D78F49662 /* FleetService.swift */,
 				C88DD2D20B7023401439699C /* FleetStore.swift */,
@@ -110,10 +168,14 @@
 				6811782891FCA4B518C6C090 /* FleetWorkspace.swift */,
 				0DC6316646EDA892B1814F14 /* Info.plist */,
 				D8ADF1B3E850B159B52ED8DD /* Models.swift */,
+				4F2F65C2B228668D5CC0B668 /* NativeAuthentication.swift */,
 				6FC06000CA4567DA3E75EEF0 /* NativeEditors.swift */,
 				F8D418655B572D5D31185CF8 /* NativeSettings.swift */,
+				C0E398BCA45B6E7D9A463B92 /* NativeSettingsControls.swift */,
 				0AC5D7D07DE6A96BF1E392FF /* NativeWebDialogs.swift */,
+				DBD5228ECF3E2BEAEE7E2FCB /* NativeWebPresentation.swift */,
 				90248077BE71DE75C0947E10 /* SidebarViews.swift */,
+				356F2A31D13E90925EE60C01 /* StandbyBridge.swift */,
 				04C9E888944560B849DF7DFD /* TitaniumStyle.swift */,
 			);
 			path = FleetHub;
@@ -125,6 +187,7 @@
 				FB550FA84538C3D708D2C7C9 /* FleetHub.app */,
 				2D76CAE56A17808F76094E55 /* FleetHubTests.xctest */,
 				C1299000317C5B56804F705B /* FleetHubUITests.xctest */,
+				5444CCA00BBF400CF8601D78 /* FleetWidgets.appex */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -141,6 +204,14 @@
 			);
 			name = dashboard;
 			path = ../server/dashboard;
+			sourceTree = "<group>";
+		};
+		B004E564DCA51545F6C16417 /* Shared */ = {
+			isa = PBXGroup;
+			children = (
+				5D1A1F402F505D7859067661 /* StandbyData.swift */,
+			);
+			path = Shared;
 			sourceTree = "<group>";
 		};
 		D11EBCED8399634075576F4F /* UI */ = {
@@ -162,10 +233,12 @@
 			buildPhases = (
 				C73798B6CBB8D84B5D4A2CA2 /* Sources */,
 				031CE98DD3AAF6B1ED010990 /* Resources */,
+				80494C46C89277E8A24DB870 /* Embed Foundation Extensions */,
 			);
 			buildRules = (
 			);
 			dependencies = (
+				15531B381C23112E9C279057 /* PBXTargetDependency */,
 			);
 			name = FleetHub;
 			packageProductDependencies = (
@@ -173,6 +246,23 @@
 			productName = FleetHub;
 			productReference = FB550FA84538C3D708D2C7C9 /* FleetHub.app */;
 			productType = "com.apple.product-type.application";
+		};
+		876C6F4F30970C23E80CB3CC /* FleetWidgets */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 20CCB7F2D5BF17F8EC87CB02 /* Build configuration list for PBXNativeTarget "FleetWidgets" */;
+			buildPhases = (
+				88EBAE4A3D4DCBD2A3D3BEB9 /* Sources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = FleetWidgets;
+			packageProductDependencies = (
+			);
+			productName = FleetWidgets;
+			productReference = 5444CCA00BBF400CF8601D78 /* FleetWidgets.appex */;
+			productType = "com.apple.product-type.app-extension";
 		};
 		C19F8A6D1191ED309CDFB47B /* FleetHubTests */ = {
 			isa = PBXNativeTarget;
@@ -222,6 +312,9 @@
 					66E5B674FCFE3A3CB98E59E8 = {
 						ProvisioningStyle = Automatic;
 					};
+					876C6F4F30970C23E80CB3CC = {
+						ProvisioningStyle = Automatic;
+					};
 					C19F8A6D1191ED309CDFB47B = {
 						ProvisioningStyle = Automatic;
 					};
@@ -246,6 +339,7 @@
 			projectRoot = "";
 			targets = (
 				66E5B674FCFE3A3CB98E59E8 /* FleetHub */,
+				876C6F4F30970C23E80CB3CC /* FleetWidgets */,
 				C19F8A6D1191ED309CDFB47B /* FleetHubTests */,
 				E0A85300AF6774E9F38466A0 /* FleetHubUITests */,
 			);
@@ -279,6 +373,15 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		88EBAE4A3D4DCBD2A3D3BEB9 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				DE28948A4CDBCB908F820181 /* FleetWidgets.swift in Sources */,
+				DF7DD847D7AD64F10889EA39 /* StandbyData.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		C73798B6CBB8D84B5D4A2CA2 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -290,10 +393,15 @@
 				D08CCB6BA25074ECF987D33A /* FleetWebView.swift in Sources */,
 				A05C8E1902B8B662508B4EEB /* FleetWorkspace.swift in Sources */,
 				D4CF24362D0609649933EADB /* Models.swift in Sources */,
+				C67A127591CAC715AECCDEEE /* NativeAuthentication.swift in Sources */,
 				ACB8840830ADEA2A94B816BF /* NativeEditors.swift in Sources */,
 				51D2FBA359A3D0E1B67D34C8 /* NativeSettings.swift in Sources */,
+				7347ED3BA359C6D5619C1AFC /* NativeSettingsControls.swift in Sources */,
 				35B7BFC407AFED3F697AAB8F /* NativeWebDialogs.swift in Sources */,
+				D5AE4C99F81A7277FCAD57D3 /* NativeWebPresentation.swift in Sources */,
 				28046202DEBAD809BDBD2D87 /* SidebarViews.swift in Sources */,
+				D2009B3EFAB6040082A14104 /* StandbyBridge.swift in Sources */,
+				A5216C5505519D3F9ABF439E /* StandbyData.swift in Sources */,
 				16A4F116FEFF3AB674457A9E /* TitaniumStyle.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -303,12 +411,19 @@
 			buildActionMask = 2147483647;
 			files = (
 				054779928135E5E7561E2B71 /* FleetHubTests.swift in Sources */,
+				F1224EC23F494AF5F31C22BE /* NativeAuthenticationTests.swift in Sources */,
+				514533CBC65B4137CD8BD386 /* StandbyTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
+		15531B381C23112E9C279057 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 876C6F4F30970C23E80CB3CC /* FleetWidgets */;
+			targetProxy = DADA02E7627F392DD9184349 /* PBXContainerItemProxy */;
+		};
 		7759E5BA4D7A5F1DDB9ED99E /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
 			target = 66E5B674FCFE3A3CB98E59E8 /* FleetHub */;
@@ -360,7 +475,9 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = FleetHub/FleetHub.entitlements;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
+				DEVELOPMENT_TEAM = R8547NPN2Q;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = FleetHub/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -435,7 +552,9 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = FleetHub/FleetHub.entitlements;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
+				DEVELOPMENT_TEAM = R8547NPN2Q;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = FleetHub/Info.plist;
 				INFOPLIST_KEY_NSAppTransportSecurity_NSAllowsLocalNetworking = YES;
@@ -448,6 +567,25 @@
 				TARGETED_DEVICE_FAMILY = "1,2";
 			};
 			name = Debug;
+		};
+		741BDAF8CF1C61AF6E9BD5E9 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				APPLICATION_EXTENSION_API_ONLY = YES;
+				CODE_SIGN_ENTITLEMENTS = FleetWidgets/FleetWidgets.entitlements;
+				DEVELOPMENT_TEAM = R8547NPN2Q;
+				INFOPLIST_FILE = FleetWidgets/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.macfleet.FleetHub.Widgets;
+				SDKROOT = iphoneos;
+				SKIP_INSTALL = YES;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
 		};
 		9D41AFEA4F968230A88ED00B /* Debug */ = {
 			isa = XCBuildConfiguration;
@@ -480,6 +618,25 @@
 				SDKROOT = iphoneos;
 				TARGETED_DEVICE_FAMILY = "1,2";
 				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/FleetHub.app/FleetHub";
+			};
+			name = Debug;
+		};
+		AAB19D8B411119A74CE73D74 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				APPLICATION_EXTENSION_API_ONLY = YES;
+				CODE_SIGN_ENTITLEMENTS = FleetWidgets/FleetWidgets.entitlements;
+				DEVELOPMENT_TEAM = R8547NPN2Q;
+				INFOPLIST_FILE = FleetWidgets/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.macfleet.FleetHub.Widgets;
+				SDKROOT = iphoneos;
+				SKIP_INSTALL = YES;
+				TARGETED_DEVICE_FAMILY = "1,2";
 			};
 			name = Debug;
 		};
@@ -551,6 +708,15 @@
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
+		20CCB7F2D5BF17F8EC87CB02 /* Build configuration list for PBXNativeTarget "FleetWidgets" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				AAB19D8B411119A74CE73D74 /* Debug */,
+				741BDAF8CF1C61AF6E9BD5E9 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
 		571BFA3A8CFE2A44DDA78F45 /* Build configuration list for PBXProject "FleetHub" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (

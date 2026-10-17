@@ -14,7 +14,7 @@ import (
 // newTestDSHBackend 直接注入假 host 的客户端，绕过真实端点发现与凭据。
 func newTestDSHBackend(t *testing.T, host *dshTestHost) *dshChatBackend {
 	t.Helper()
-	b := newDSHChatBackend("/nonexistent", "/nonexistent", "")
+	b := newDSHChatBackend(dshHarnessSpec{home: "/nonexistent", logPath: "/nonexistent"})
 	b.client = newDSHClient(host.srv.URL, "")
 	b.hostSeen = true
 	t.Cleanup(b.Close)

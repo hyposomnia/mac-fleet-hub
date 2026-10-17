@@ -163,6 +163,9 @@ claim 还返回独立的 device_token/proxy_token，客户端原子写入 `0700`
 | `FLEET_CODEX_DESKTOP_WS_URL` | 共享 listener 的 loopback WebSocket 配置（Desktop 经 stdio bridge 接入）；只能是 `ws://127.0.0.1:<端口>[/路径]` | `ws://127.0.0.1:47682/rpc` |
 | `FLEET_CODEX_DESKTOP_SHARED_DAEMON` | `shared` 必须为 `1`，由安装器配置 Desktop CLI hook；需要独立后端时显式使用 `isolated` | `1` |
 | `FLEET_REPLACE_TAILNET` | 当前已连接其他 Tailscale 控制面时，明确允许退出并切换到 Fleet mesh | `0` | 仅确认可以替换当前 tailnet 时设为 `1` |
+| `FLEET_DEEPSEEK_ENABLED` | `dsh` CLI / web harness 入口（assistant=`deepseek`）；默认开启，显式 `0` 单机退出 | 安装器 plist |
+| `FLEET_DEEPSEEK_HOME` | 该 harness 的主目录，凭据与 sessions 都在这里 | 默认 `~/.dsh`；CLI 用了自定义 `DSH_HOME` 时同步 |
+| `FLEET_DEEPSEEK_ENDPOINT` | 显式钉住端点 `127.0.0.1:<port>` | 默认自动发现（扫描 loopback 并用凭据认领）；同机多个同 home host 时用 |
 
 ### 安装与授权
 

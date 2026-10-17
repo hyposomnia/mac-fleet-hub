@@ -467,6 +467,30 @@ func decodeAccessKeyEdit(w http.ResponseWriter, r *http.Request, fallback string
 	return name, rpm, &binding, true, nil
 }
 
+// aiClientAssistant 把对外 ai_client 映射到 agent 的 assistant 标识。
+//
+// 2026-10 把 DeepSeek 家族拆成两个 harness 之后：
+//   - deepseek     → dsh（DSH Desktop）。这是拆分前唯一入口，保持原语义不变；
+//   - deepseek-cli → deepseek（dsh CLI / web harness），新增入口。
+//
+// 两个哈务共用同一套 chat 协议，但会话目录、端点与凭据完全独立。
+func aiClientAssistant(client string) (string, bool) {
+	switch client {
+	case "codex":
+		return "codex", true
+	case "deepseek":
+		return "dsh", true
+	case "deepseek-cli":
+		return "deepseek", true
+	}
+	return "", false
+}
+
+func validAIClient(client string) bool {
+	_, ok := aiClientAssistant(client)
+	return ok
+}
+
 func (a *messageAPI) validateBinding(ctx context.Context, binding *accessKeyBinding) (*accessKeyBinding, *apiProblem) {
 	if binding == nil {
 		return nil, nil
@@ -474,7 +498,7 @@ func (a *messageAPI) validateBinding(ctx context.Context, binding *accessKeyBind
 	if binding.DeviceID == "" || len(binding.DeviceID) > 128 ||
 		(binding.AIClient == "" && (binding.ProjectPath != "" || binding.SessionID != "")) ||
 		(binding.ProjectPath == "" && binding.SessionID != "") ||
-		(binding.AIClient != "" && binding.AIClient != "codex" && binding.AIClient != "deepseek") ||
+		(binding.AIClient != "" && !validAIClient(binding.AIClient)) ||
 		(binding.ProjectPath != "" && (!filepath.IsAbs(binding.ProjectPath) || filepath.Clean(binding.ProjectPath) != binding.ProjectPath || len(binding.ProjectPath) > 4096)) ||
 		len(binding.SessionID) > 256 {
 		return nil, &apiProblem{Status: 400, Code: "invalid_binding", Message: "绑定须按设备、AI 客户端、项目绝对路径、会话 ID 逐级指定"}
@@ -484,10 +508,7 @@ func (a *messageAPI) validateBinding(ctx context.Context, binding *accessKeyBind
 		return nil, &apiProblem{Status: 400, Code: "invalid_binding", Message: "绑定设备 ID 不存在"}
 	}
 	if binding.SessionID != "" {
-		assistant := binding.AIClient
-		if assistant == "deepseek" {
-			assistant = "dsh"
-		}
+		assistant, _ := aiClientAssistant(binding.AIClient)
 		sessions, problem := a.fetchSessions(ctx, device, assistant)
 		if problem != nil {
 			return nil, problem
@@ -953,8 +974,8 @@ func (a *messageAPI) submitMessage(w http.ResponseWriter, r *http.Request, key a
 		writeAPIProblem(w, &apiProblem{Status: 400, Code: "invalid_request", Message: "device、project 和非空 message 为必填字段"})
 		return
 	}
-	if req.AIClient != "codex" && req.AIClient != "deepseek" {
-		writeAPIProblem(w, &apiProblem{Status: 400, Code: "invalid_request", Message: "ai_client 只能是 codex 或 deepseek"})
+	if !validAIClient(req.AIClient) {
+		writeAPIProblem(w, &apiProblem{Status: 400, Code: "invalid_request", Message: "ai_client 只能是 codex、deepseek 或 deepseek-cli"})
 		return
 	}
 	if req.CallbackURL != nil && *req.CallbackURL != "" {
@@ -1156,10 +1177,7 @@ func (a *messageAPI) resolveMessageTarget(ctx context.Context, req submitMessage
 	if problem != nil {
 		return resolvedTarget{}, problem
 	}
-	assistant := req.AIClient
-	if assistant == "deepseek" {
-		assistant = "dsh"
-	}
+	assistant, _ := aiClientAssistant(req.AIClient)
 	sessions, problem := a.fetchSessions(ctx, device, assistant)
 	if problem != nil {
 		return resolvedTarget{}, problem
