@@ -1517,15 +1517,6 @@ test('read-only Fleet writer is shown as unreleased instead of Codex-ready', () 
   assert.equal(released.action, 'enable-write');
 });
 
-test('pending app-server requests stay visible beside the composer and in the ownership header', () => {
-  assert.match(indexHTML, /id="chat-pending-interaction"/);
-  assert.match(appSrc, /function renderChatPendingInteraction/);
-  assert.match(appSrc, /等待你审批或回答/);
-  assert.match(appSrc, /pendingRequestCount/);
-  assert.match(appSrc, /等待你处理/);
-  assert.match(styleCSS, /\.chat-pending-interaction/);
-});
-
 test('successfully sent queue items do not render a redundant status card', () => {
   assert.match(appSrc, /queued && queued\.status !== 'sent'/);
 });
@@ -3724,8 +3715,8 @@ test('async answers use the durable auto queue with exact ids and preserve the c
   }
 });
 
-const { chatCacheKey, pendingChatInteractionCount, renderChatPendingInteraction, updateSessionStateDot } = vm.runInContext(
-  '({ chatCacheKey, pendingChatInteractionCount, renderChatPendingInteraction, updateSessionStateDot })', appSandbox,
+const { chatCacheKey, pendingChatInteractionCount, updateSessionStateDot } = vm.runInContext(
+  '({ chatCacheKey, pendingChatInteractionCount, updateSessionStateDot })', appSandbox,
 );
 
 test('Codex and DSH pending questions replace their running indicator with an answer badge', () => {
@@ -3787,26 +3778,6 @@ test('a different assistant cache cannot overwrite the session waiting flag', ()
   appState.chatCache.set(key, { assistant: 'codex', historyReady: true, model: createChatState() });
   try { assert.equal(sessionStatus(session).label, '请输入回答'); }
   finally { appState.chatCache.delete(key); }
-});
-
-test('answer prompt points to the pending form without describing an async turn as paused', () => {
-  const host = testElement('div');
-  const originalQuery = appSandbox.document.querySelector;
-  let scrolled = false;
-  appSandbox.document.querySelector = (selector) => selector === '#chat-pending-interaction' ? host
-    : selector.includes('data-needs-answer="true"') ? { scrollIntoView() { scrolled = true; } } : null;
-  try {
-    const chat = { model: reduceChatEvent(createChatState(), asyncQuestionEvent) };
-    renderChatPendingInteraction(chat);
-    assert.equal(host.hidden, false);
-    assert.ok(nodeText(host).includes('请输入回答'));
-    assert.equal(nodeText(host).includes('任务已暂停'), false);
-    host.children[1].onclick();
-    assert.equal(scrolled, true);
-    chat.model = createChatState();
-    renderChatPendingInteraction(chat);
-    assert.equal(host.hidden, true);
-  } finally { appSandbox.document.querySelector = originalQuery; }
 });
 
 test('image tool projection keeps a renderable media path and command actions', () => {

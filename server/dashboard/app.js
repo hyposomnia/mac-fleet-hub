@@ -3027,34 +3027,6 @@ function visiblePendingChatRequestCount(chat) {
   return Math.max(pendingChatRequestCount(chat), Number(chat?.pendingRequestCount) || 0);
 }
 
-function renderChatPendingInteraction(chat = state.chat) {
-  const host = $('#chat-pending-interaction');
-  if (!host) return;
-  clear(host);
-  const asyncQuestions = pendingChatAsyncQuestions(chat);
-  const count = visiblePendingChatRequestCount(chat) + asyncQuestions.length;
-  if (!chat || count < 1) {
-    host.hidden = true;
-    return;
-  }
-  const actionable = Object.values(chat.model?.requests || {}).find((request) => request?.status === 'pending');
-  const needsAnswer = asyncQuestions.length > 0 || actionable?.type === 'request_user_input';
-  host.hidden = false;
-  host.append(
-    h('div', { class: 'chat-pending-interaction-copy' },
-      h('strong', { text: needsAnswer ? '请输入回答' : '等待你审批或回答' }),
-      h('span', { text: needsAnswer ? '选择选项或填写答案后提交。' : (actionable ? '任务已暂停，处理后才会继续输出。' : '请求正在同步；若连接已丢失，服务端会在无进展超时后自动释放。') })),
-    h('button', {
-      type: 'button', class: 'btn sm accent', text: needsAnswer ? '前往回答' : '等待你处理', disabled: actionable || asyncQuestions.length ? null : '',
-      onclick: () => {
-        const target = asyncQuestions.length ? $('#chat-scroll .chat-async-questions[data-needs-answer="true"]')
-          : $('#chat-scroll .chat-request[data-request-id]');
-        if (target) target.scrollIntoView({ behavior: 'smooth', block: 'center' });
-      },
-    }),
-  );
-}
-
 function sessionHasVisibleRequest(session) {
   const cached = session?.sessionId && session?.macId
     ? state.chatCache.get(chatCacheKey(session.macId, session.sessionId, session.assistant)) : null;
@@ -3581,7 +3553,6 @@ function renderChat({ preserveScroll = false, forceBottom = false } = {}) {
     chatRow(h('div', { class: 'chat-card muted', text: assistantConnectingText() })), 'state:loading', assistantConnectingText(),
   ));
   const model = chat.model || FleetChatModel.createChatState();
-  renderChatPendingInteraction(chat);
   renderChatOwnershipHead(chat);
   const metaVisible = chatMessageMetaVisibility(model);
   const entries = model.messages
