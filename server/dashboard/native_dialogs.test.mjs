@@ -159,7 +159,7 @@ function harness({ native = true, pathname = '/', mainFrame = true, bridge = tru
     rerun() { vm.runInContext(source, context); },
     attach(node) { app.append(node); bindDocument(app); },
     open(id = 'file-name-modal', ...children) {
-      const overlay = ['device-modal', 'new-project-modal', 'file-name-modal', 'confirm-file-delete', 'confirm-kill'].includes(id);
+      const overlay = ['device-modal', 'new-project-modal', 'file-name-modal', 'file-path-modal', 'confirm-file-delete', 'confirm-kill'].includes(id);
       const dialog = element('div', { id, class: overlay ? 'overlay' : '' }, '', ...children);
       app.append(dialog); bindDocument(app); context.FleetNativeDialogs.publish(); return dialog;
     },
@@ -298,7 +298,7 @@ test('submit buttons check form validity before clicking and actions schedule pu
 });
 
 test('close routes each dialog through its H5 closer and reopening publishes again', () => {
-  for (const id of ['device-modal', 'new-project-modal', 'file-name-modal', 'confirm-file-delete', 'confirm-kill', 'chat-approval-popover', 'chat-options-popover', 'file-settings-menu']) {
+  for (const id of ['device-modal', 'new-project-modal', 'file-name-modal', 'file-path-modal', 'confirm-file-delete', 'confirm-kill', 'chat-approval-popover', 'chat-options-popover', 'file-settings-menu']) {
     const current = harness();
     const button = element('button', {}, '继续');
     const dialog = current.open(id, button);
@@ -567,6 +567,20 @@ test('file settings project view buttons and the hidden-file toggle through exis
   current.flush();
   assert.equal(list.clicks, 1);
   assert.equal(toggle.checked, true);
+});
+
+test('file menu preserves sort groups and explicit direction selection for UIKit', () => {
+  const current = harness();
+  const group = element('div', { 'data-native-menu-group': '排序方式' });
+  const ascending = element('button', { type: 'button', 'aria-pressed': 'true' }, '创建时间升序');
+  const descending = element('button', { type: 'button', 'aria-pressed': 'false' }, '创建时间降序');
+  group.append(ascending, descending);
+  current.open('file-settings-menu', group);
+  assert.equal(current.item('创建时间升序').group, '排序方式');
+  assert.equal(current.item('创建时间升序').selected, true);
+  assert.equal(current.item('创建时间降序').selected, false);
+  current.api.act('file-settings-menu', current.item('创建时间降序').id);
+  assert.equal(descending.clicks, 1);
 });
 
 test('generic dialog projection excludes settings sheets and image/skill surfaces', () => {
@@ -936,4 +950,18 @@ test('browser: inert projected controls retain H5 click, form and checkbox behav
       assert.deepEqual(clicked, { checked: true, businessValue: true, events: ['click', 'input', 'change'], persisted: 3, rendered: 3 });
     }));
   } finally { await browser.close(); }
+});
+
+test('file menus project the trigger rectangle and Web view icon identities', () => {
+  const current = harness();
+  const trigger = element('button', { id: 'file-settings' });
+  trigger.getBoundingClientRect = () => ({ x: 300, y: 20, width: 44, height: 44 });
+  current.attach(trigger);
+  current.open('file-settings-menu',
+    element('button', { 'data-file-view': 'icons', 'aria-label': '图标视图' }),
+    element('button', { 'data-file-view': 'list', 'aria-label': '列表视图', 'aria-pressed': 'true' }),
+    element('button', { 'data-file-view': 'columns', 'aria-label': '分栏视图' }));
+  assert.deepEqual(current.payload.anchor, { x: 300, y: 20, width: 44, height: 44 });
+  assert.deepEqual(current.payload.items.map(item => item.icon), ['FileIcons', 'FileList', 'FileColumns']);
+  assert.equal(current.payload.items[1].selected, true);
 });

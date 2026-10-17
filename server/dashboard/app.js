@@ -195,7 +195,7 @@ const state = {
   fileSearch: '',
   fileShowHidden: false,
   fileView: 'list',     // icons | list | columns
-  fileSortKey: 'name',  // name | modifiedAt | size
+  fileSortKey: 'name',  // name | createdAt | modifiedAt | size
   fileSortDirection: 'asc', // asc | desc
   fileColumns: [],
   fileSelectedPath: '',
@@ -289,7 +289,7 @@ function normalizeFileView(view) {
 }
 
 function normalizeFileSortKey(key) {
-  return ['name', 'modifiedAt', 'size'].includes(key) ? key : 'name';
+  return ['name', 'createdAt', 'modifiedAt', 'size'].includes(key) ? key : 'name';
 }
 
 function normalizeFileSortDirection(direction) {
@@ -7068,7 +7068,6 @@ async function loadFileDirectory(path = '', opts = {}) {
 function renderFileBrowser() {
   renderFileLocations();
   renderFileBreadcrumbs();
-  if ($('#file-path-input') && document.activeElement !== $('#file-path-input')) $('#file-path-input').value = state.filePath;
   renderFileEntries();
   $('#file-folder-title').textContent = state.filePath === state.fileRoot ? (state.fileRoot === '/' ? '文件系统' : '主目录') : fileBaseName(state.filePath);
   updateDeviceScopeUI();
@@ -7164,7 +7163,7 @@ function sortFileEntries(entries, key = 'name', direction = 'asc') {
   );
   const numericValue = (entry) => {
     const value = Number(entry?.[sortKey]);
-    return Number.isFinite(value) ? value : 0;
+    return Number.isFinite(value) && (sortKey === 'size' || value > 0) ? value : null;
   };
 
   return [...(entries || [])].sort((left, right) => {
@@ -7172,9 +7171,13 @@ function sortFileEntries(entries, key = 'name', direction = 'asc') {
     const rightFolder = right?.kind === 'folder';
     if (leftFolder !== rightFolder) return leftFolder ? -1 : 1;
 
-    const primary = sortKey === 'name'
-      ? compareNames(left, right)
-      : numericValue(left) - numericValue(right);
+    const leftValue = numericValue(left), rightValue = numericValue(right);
+    // Older devices may omit creation dates; unknown dates stay last in either direction.
+    if (sortKey !== 'name' && (leftValue === null || rightValue === null)) {
+      if (leftValue !== rightValue) return leftValue === null ? 1 : -1;
+      return compareNames(left, right);
+    }
+    const primary = sortKey === 'name' ? compareNames(left, right) : leftValue - rightValue;
     if (primary) return (primary < 0 ? -1 : 1) * multiplier;
     return compareNames(left, right);
   });
@@ -7194,17 +7197,25 @@ function syncFileSortUI() {
       ? `${labels[key]}，当前${current}，点击切换为${next}`
       : `按${labels[key]}排序`);
   });
+  $$('[data-file-sort-choice]').forEach((button) => {
+    button.setAttribute('aria-pressed', String(button.dataset.fileSortChoice === state.fileSortKey &&
+      button.dataset.fileSortDirection === state.fileSortDirection));
+  });
 }
 
-function setFileSort(key) {
+function setFileSort(key, direction) {
   const next = normalizeFileSortKey(key);
-  if (next === state.fileSortKey) {
+  if (direction) {
+    state.fileSortKey = next;
+    state.fileSortDirection = normalizeFileSortDirection(direction);
+  } else if (next === state.fileSortKey) {
     state.fileSortDirection = state.fileSortDirection === 'asc' ? 'desc' : 'asc';
   } else {
     state.fileSortKey = next;
     state.fileSortDirection = next === 'name' ? 'asc' : 'desc';
   }
   closeFileMenus();
+  closeFileSettings();
   persistUIState();
   renderFileEntries();
 }
@@ -8420,9 +8431,20 @@ function init() {
   $('#file-path-form').addEventListener('submit', event => {
     event.preventDefault();
     const path = $('#file-path-input').value.trim();
-    if (!path.startsWith('/')) { toast('请输入绝对路径，例如 /Volumes', 'err'); return; }
+    if (!path.startsWith('/') || path.includes('\u0000')) { $('#file-path-error').hidden = false; return; }
+    closeOverlay('file-path-modal');
     loadFileDirectory(path, { pushHistory: true, fallback: false });
   });
+  $('#file-go-to').onclick = () => {
+    closeFileSettings();
+    $('#file-path-input').value = state.filePath || '/';
+    $('#file-path-error').hidden = true;
+    openOverlay('file-path-modal');
+    if (document.documentElement.dataset.native !== 'ios') {
+      requestAnimationFrame(() => { $('#file-path-input').focus(); $('#file-path-input').select(); });
+    }
+  };
+  $('#file-path-input').oninput = () => { $('#file-path-error').hidden = true; };
   initTheme();
   renderThemeChoices();
   if (window.FleetPreview?.isPreviewRoute()) {
@@ -8507,10 +8529,13 @@ function init() {
   $('#file-list').addEventListener('wheel', handleFileColumnsWheel, { passive: false });
   $('#file-search').oninput = (event) => { state.fileSearch = event.target.value.trim(); renderFileEntries(); };
   $$('[data-file-view]').forEach((button) => {
-    button.onclick = () => setFileView(button.dataset.fileView);
+    button.onclick = () => { closeFileSettings(); setFileView(button.dataset.fileView); };
   });
   $$('[data-file-sort]').forEach((button) => {
     button.onclick = () => setFileSort(button.dataset.fileSort);
+  });
+  $$('[data-file-sort-choice]').forEach((button) => {
+    button.onclick = () => setFileSort(button.dataset.fileSortChoice, button.dataset.fileSortDirection);
   });
   $('#file-new-folder').onclick = () => openFileNameModal('mkdir');
   $('#file-name-form').onsubmit = submitFileName;

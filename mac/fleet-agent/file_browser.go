@@ -27,6 +27,7 @@ type fileBrowserEntry struct {
 	Extension   string `json:"extension,omitempty"`
 	MIME        string `json:"mime,omitempty"`
 	Size        int64  `json:"size"`
+	CreatedAt   int64  `json:"createdAt,omitempty"`
 	ModifiedAt  int64  `json:"modifiedAt"`
 	Hidden      bool   `json:"hidden,omitempty"`
 	Symlink     bool   `json:"symlink,omitempty"`
@@ -154,7 +155,7 @@ func fileBrowserEntryFor(dir string, entry os.DirEntry) (fileBrowserEntry, bool)
 	previewable = previewable && format.Kind != "stylesheet" && format.Kind != "track"
 	return fileBrowserEntry{
 		Name: entry.Name(), Path: path, Kind: kind, Extension: extension,
-		MIME: mime.TypeByExtension(extension), Size: size, ModifiedAt: info.ModTime().UnixMilli(),
+		MIME: mime.TypeByExtension(extension), Size: size, CreatedAt: fileCreatedAt(info), ModifiedAt: info.ModTime().UnixMilli(),
 		Hidden: strings.HasPrefix(entry.Name(), "."), Symlink: symlink,
 		Previewable: kind == "file" && previewable,
 	}, true

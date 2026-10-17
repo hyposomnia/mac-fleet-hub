@@ -1662,6 +1662,22 @@ test('file browser sorts folders and files by modified time or byte size without
   assert.match(indexHTML, /data-file-sort="size"/);
 });
 
+test('file menu sorts names and independent creation/modification times in both directions', () => {
+  const entries = [
+    { name: 'file10.txt', kind: 'file', createdAt: 100, modifiedAt: 300 },
+    { name: 'file2.txt', kind: 'file', createdAt: 300, modifiedAt: 200 },
+    { name: 'file1.txt', kind: 'file', createdAt: 200, modifiedAt: 100 },
+    { name: 'unknown.txt', kind: 'file' },
+  ];
+  const names = (key, direction) => [...sortFileEntries(entries, key, direction)].map(entry => entry.name);
+  assert.deepEqual(names('name', 'asc'), ['file1.txt', 'file2.txt', 'file10.txt', 'unknown.txt']);
+  assert.deepEqual(names('name', 'desc'), ['unknown.txt', 'file10.txt', 'file2.txt', 'file1.txt']);
+  assert.deepEqual(names('createdAt', 'asc'), ['file10.txt', 'file1.txt', 'file2.txt', 'unknown.txt']);
+  assert.deepEqual(names('createdAt', 'desc'), ['file2.txt', 'file1.txt', 'file10.txt', 'unknown.txt']);
+  assert.deepEqual(names('modifiedAt', 'asc'), ['file1.txt', 'file2.txt', 'file10.txt', 'unknown.txt']);
+  assert.deepEqual(names('modifiedAt', 'desc'), ['file10.txt', 'file2.txt', 'file1.txt', 'unknown.txt']);
+});
+
 test('file browser supports persistent icon, list, and column views', () => {
   assert.equal(normalizeFileView('icons'), 'icons');
   assert.equal(normalizeFileView('list'), 'list');
