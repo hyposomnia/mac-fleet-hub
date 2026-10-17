@@ -2,6 +2,8 @@
 
 ## 2026-10-17
 
+- Web v277 文件菜单的图标统一前置；排序精简为文件名、创建时间、修改时间三项，点击当前项切换升降序。
+
 - Fleet 新建 Codex 会话在首次消息成功发送后，复用现有 app-server 与登录态异步生成 AI 标题；临时只读生成线程、90 秒超时、一次失败重试，手动命名优先。Mac 源码已接入，需正式签名客户端发布后生效。Web 软刷新同步列表与已打开聊天的标题。
 
 - **DeepSeek Harness 拆成两个独立入口**：`dsh` = DSH Desktop（端点来自 Desktop 的 harness.log），新增 `deepseek` = `dsh` CLI / web harness（状态在 `~/.dsh`，没有固定日志）。两者各有会话目录、原生 UI 路径（`/mN/dsh/` 与 `/mN/deepseek/`）与能力块；同一台 Mac 可以只开其中一个，也可以同时运行、互不串台。消息 API 新增 `ai_client=deepseek-cli`，旧的 `deepseek` 仍指向 DSH Desktop（不破坏已有自动化）。

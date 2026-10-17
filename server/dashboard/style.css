@@ -1991,7 +1991,6 @@ html[data-workspace-tab="true"] .preview-encoding-control::after { right: 10px; 
 @media (max-width: 860px) {
   .file-settings-menu { border-radius: 24px; }
   .file-menu-group button, .file-setting-option { padding-left: 44px; font-size: var(--t-display); }
-  .file-menu-group .ic { order: -1; }
   .file-menu-group button[aria-pressed="true"]::before, .file-setting-option:has(input:checked)::before { font-size: var(--t-display); }
   .file-path-modal .modal { max-width: 320px; border-radius: 28px; }
   .file-path-modal .modal-head { font-size: var(--t-display); font-weight: 600; }

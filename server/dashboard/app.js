@@ -7290,7 +7290,7 @@ function sortFileEntries(entries, key = 'name', direction = 'asc') {
 }
 
 function syncFileSortUI() {
-  const labels = { name: '名称', modifiedAt: '修改时间', size: '大小' };
+  const labels = { name: '文件名', createdAt: '创建时间', modifiedAt: '修改时间', size: '大小' };
   $$('[data-file-sort]').forEach((button) => {
     const key = normalizeFileSortKey(button.dataset.fileSort);
     const active = key === state.fileSortKey;
@@ -7304,8 +7304,16 @@ function syncFileSortUI() {
       : `按${labels[key]}排序`);
   });
   $$('[data-file-sort-choice]').forEach((button) => {
-    button.setAttribute('aria-pressed', String(button.dataset.fileSortChoice === state.fileSortKey &&
-      button.dataset.fileSortDirection === state.fileSortDirection));
+    const key = button.dataset.fileSortChoice;
+    const active = key === state.fileSortKey;
+    const direction = active ? state.fileSortDirection : (key === 'name' ? 'asc' : 'desc');
+    const current = direction === 'desc' ? '降序' : '升序';
+    const next = direction === 'desc' ? '升序' : '降序';
+    button.setAttribute('aria-pressed', String(active));
+    button.setAttribute('aria-description', active ? `当前${current}，点击切换为${next}` : `点击按${current}排列`);
+    button.title = active ? `${labels[key]}，当前${current}，点击切换为${next}` : `按${labels[key]}排序`;
+    button.querySelector('path')?.setAttribute('d', direction === 'desc'
+      ? 'M12 4v16m-5-5 5 5 5-5' : 'M12 20V4m-5 5 5-5 5 5');
   });
 }
 
@@ -8641,7 +8649,7 @@ function init() {
     button.onclick = () => setFileSort(button.dataset.fileSort);
   });
   $$('[data-file-sort-choice]').forEach((button) => {
-    button.onclick = () => setFileSort(button.dataset.fileSortChoice, button.dataset.fileSortDirection);
+    button.onclick = () => setFileSort(button.dataset.fileSortChoice);
   });
   $('#file-new-folder').onclick = () => openFileNameModal('mkdir');
   $('#file-name-form').onsubmit = submitFileName;

@@ -17,10 +17,10 @@
   <!-- theme.js 在样式加载前同步应用已保存的外观，默认浅色。 -->
 
   <link rel="stylesheet" href="vendor/codemirror/lib/codemirror.css?v=5.65.20" />
-  <link rel="stylesheet" href="style.css?v=276" />
-  <link rel="stylesheet" href="annotations.css?v=276" />
+  <link rel="stylesheet" href="style.css?v=277" />
+  <link rel="stylesheet" href="annotations.css?v=277" />
   <link rel="stylesheet" href="mobile_composer.css?v=1" />
-  <link rel="stylesheet" href="account.css?v=276" />
+  <link rel="stylesheet" href="account.css?v=277" />
 </head>
 <body>
   <div id="auth-status" role="status"><span id="auth-status-message">正在验证登录…</span><a href="">重新加载</a></div>
@@ -225,21 +225,18 @@
         <input id="file-upload-input" type="file" multiple hidden>
         <div id="file-settings-menu" class="file-settings-menu" role="dialog" aria-label="文件菜单" hidden>
           <div id="file-view-switch" class="file-menu-group file-view-switch" role="group" aria-label="查看方式" data-native-menu-group="查看方式">
-            <button type="button" data-file-view="icons" title="图标视图" aria-label="图标视图" aria-pressed="false"><span>图标视图</span><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg></button>
-            <button type="button" data-file-view="list" title="列表视图" aria-label="列表视图" aria-pressed="true"><span>列表视图</span><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6h12M9 12h12M9 18h12M3 6h1M3 12h1M3 18h1"/></svg></button>
-            <button type="button" data-file-view="columns" title="分栏视图" aria-label="分栏视图" aria-pressed="false"><span>分栏视图</span><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="1.5"/><path d="M9 4v16M15 4v16"/></svg></button>
+            <button type="button" data-file-view="icons" title="图标视图" aria-label="图标视图" aria-pressed="false"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg><span>图标视图</span></button>
+            <button type="button" data-file-view="list" title="列表视图" aria-label="列表视图" aria-pressed="true"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6h12M9 12h12M9 18h12M3 6h1M3 12h1M3 18h1"/></svg><span>列表视图</span></button>
+            <button type="button" data-file-view="columns" title="分栏视图" aria-label="分栏视图" aria-pressed="false"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="1.5"/><path d="M9 4v16M15 4v16"/></svg><span>分栏视图</span></button>
           </div>
           <div class="file-menu-group" role="group" aria-label="排序方式" data-native-menu-group="排序方式">
-            <button type="button" data-file-sort-choice="name" data-file-sort-direction="asc" aria-pressed="true" aria-label="文件名升序"><span>文件名升序</span><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20V4m-5 5 5-5 5 5"/></svg></button>
-            <button type="button" data-file-sort-choice="name" data-file-sort-direction="desc" aria-pressed="false" aria-label="文件名降序"><span>文件名降序</span><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v16m-5-5 5 5 5-5"/></svg></button>
-            <button type="button" data-file-sort-choice="createdAt" data-file-sort-direction="asc" aria-pressed="false" aria-label="创建时间升序"><span>创建时间升序</span><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20V4m-5 5 5-5 5 5"/></svg></button>
-            <button type="button" data-file-sort-choice="createdAt" data-file-sort-direction="desc" aria-pressed="false" aria-label="创建时间降序"><span>创建时间降序</span><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v16m-5-5 5 5 5-5"/></svg></button>
-            <button type="button" data-file-sort-choice="modifiedAt" data-file-sort-direction="asc" aria-pressed="false" aria-label="修改时间升序"><span>修改时间升序</span><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20V4m-5 5 5-5 5 5"/></svg></button>
-            <button type="button" data-file-sort-choice="modifiedAt" data-file-sort-direction="desc" aria-pressed="false" aria-label="修改时间降序"><span>修改时间降序</span><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v16m-5-5 5 5 5-5"/></svg></button>
+            <button type="button" data-file-sort-choice="name" aria-pressed="true" aria-label="文件名"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20V4m-5 5 5-5 5 5"/></svg><span>文件名</span></button>
+            <button type="button" data-file-sort-choice="createdAt" aria-pressed="false" aria-label="创建时间"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v16m-5-5 5 5 5-5"/></svg><span>创建时间</span></button>
+            <button type="button" data-file-sort-choice="modifiedAt" aria-pressed="false" aria-label="修改时间"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v16m-5-5 5 5 5-5"/></svg><span>修改时间</span></button>
           </div>
           <div class="file-menu-group" data-native-menu-group="选项">
-            <label class="file-setting-option" for="file-show-hidden"><span>显示隐藏文件</span><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/></svg><input id="file-show-hidden" type="checkbox" aria-label="显示隐藏文件"></label>
-            <button id="file-go-to" type="button"><span>前往文件夹…</span><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 7h7l2 2h9v11H3zM12 16h6m-2-2 2 2-2 2"/></svg></button>
+            <label class="file-setting-option" for="file-show-hidden"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/></svg><span>显示隐藏文件</span><input id="file-show-hidden" type="checkbox" aria-label="显示隐藏文件"></label>
+            <button id="file-go-to" type="button"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 7h7l2 2h9v11H3zM12 16h6m-2-2 2 2-2 2"/></svg><span>前往文件夹…</span></button>
           </div>
         </div>
       </section>
@@ -663,22 +660,22 @@
   <script src="vendor/codemirror/mode/yaml/yaml.js?v=5.65.20"></script>
   <script src="vendor/codemirror/mode/toml/toml.js?v=5.65.20"></script>
   <script src="vendor/codemirror/mode/properties/properties.js?v=5.65.20"></script>
-  <script src="auth-client.js?v=276"></script>
+  <script src="auth-client.js?v=277"></script>
   <script src="account.js?v=252"></script>
   <script src="settings_dialog.js?v=250"></script>
-  <script src="annotation_model.js?v=276"></script>
-  <script src="annotation_ui.js?v=276"></script>
-  <script src="markdown.js?v=276"></script>
-  <script src="preview.js?v=276"></script>
-  <script src="chat_model.js?v=276"></script>
-  <script src="upload_model.js?v=276"></script>
+  <script src="annotation_model.js?v=277"></script>
+  <script src="annotation_ui.js?v=277"></script>
+  <script src="markdown.js?v=277"></script>
+  <script src="preview.js?v=277"></script>
+  <script src="chat_model.js?v=277"></script>
+  <script src="upload_model.js?v=277"></script>
   <script src="device_appearance.js?v=250"></script>
   <script src="sidebar_layout.js?v=250"></script>
-  <script src="workspace_tabs.js?v=276"></script>
-  <script src="compact_composer.js?v=276"></script>
+  <script src="workspace_tabs.js?v=277"></script>
+  <script src="compact_composer.js?v=277"></script>
   <script src="mobile_composer.js?v=1"></script>
   <script src="fleet_core.js?v=250"></script>
-  <script src="app.js?v=276"></script>
+  <script src="app.js?v=277"></script>
   <script src="workspace.js?v=250"></script>
   <script src="native_bridge.js?v=250"></script>
 </body>
