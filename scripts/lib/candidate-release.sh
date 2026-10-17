@@ -53,7 +53,11 @@ run_candidate_release() {
   (cd "$work/distribution" && shasum -a 256 bootstrap.sh mac-bundle.tar.gz release.json dist/fleet-agent-darwin-amd64 dist/fleet-agent-darwin-arm64) > "$work/SHA256SUMS"
   local remote_input="/tmp/macfleet-candidate-$revision"
   ssh_retry "$port" "$target" '创建候选暂存目录' "umask 077; mkdir -p '$remote_input'"
-  scp -o BatchMode=yes -o ConnectTimeout=8 -P "$port" -r "$work/distribution" "$work/SHA256SUMS" "$target:$remote_input/"
+  # Jump hosts may allow exec channels without providing SFTP or legacy SCP.
+  # Keep the verified release together and transfer it over the same SSH channel.
+  echo ">>> tar over ssh $target:$port — candidate distribution + SHA256SUMS"
+  COPYFILE_DISABLE=1 tar -czf - -C "$work" distribution SHA256SUMS | \
+    ssh -o BatchMode=yes -o ConnectTimeout=8 -p "$port" "$target" "tar -xzf - -C '$remote_input'"
   step '只发布验收安装源，不替换当前服务或客户端'
   ssh_retry "$port" "$target" '原子发布独立候选下载源' "sudo -n bash -c 'set -e; test -f \"$candidate_root/.candidate-instance\"; cd \"$remote_input/distribution\"; sha256sum -c ../SHA256SUMS; install -d -m 0755 \"$candidate_root/client-releases\"; test ! -e \"$candidate_root/client-releases/$revision\"; cp -R . \"$candidate_root/client-releases/$revision\"; find \"$candidate_root/client-releases/$revision\" -type d -exec chmod 0755 {} +; find \"$candidate_root/client-releases/$revision\" -type f -exec chmod 0644 {} +; ln -s \"$candidate_root/client-releases/$revision\" \"$candidate_root/client-next-$revision\"; mv -Tf \"$candidate_root/client-next-$revision\" \"$candidate_root/client-current\"'"
   for asset in bootstrap.sh mac-bundle.tar.gz release.json dist/fleet-agent-darwin-amd64 dist/fleet-agent-darwin-arm64; do
