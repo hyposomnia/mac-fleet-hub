@@ -497,7 +497,6 @@ svg.ic.fill { fill: currentColor; stroke: none; }
 .automation-key-delete { margin-right: auto; }
 .automation-key-card { display: grid; min-width: 0; gap: 10px; padding: var(--settings-section-padding, 16px); border: 0; border-radius: var(--radius-card); background: var(--settings-surface, var(--surface-1)); }
 .automation-key-copy-row { grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; min-width: 0; }
-.automation-key-value { display: block; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-1); font-size: var(--t-secondary); }
 .automation-key-copy-row > .btn, .automation-key-request-link { white-space: nowrap; }
 .automation-key-card > .automation-key-form { margin-top: 2px; padding: 14px 0 0; border: 0;  border-radius: 0; background: transparent; }
 .automation-key-head { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 12px; }

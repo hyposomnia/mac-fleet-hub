@@ -16,9 +16,9 @@ const harnessSource = `
   const accessKeyBindingLabel = binding => binding?.label || '范围：全部设备 · 全部客户端 · 全部项目 · 全部会话';
   const openAccessKeyForm = key => calls.edits.push(key.id);
   ${app.slice(app.indexOf('function h('), app.indexOf('// 内联 SVG'))}
-  ${app.slice(app.indexOf('function maskedAccessKey('), app.indexOf('function accessKeyClientName('))}
+  ${app.slice(app.indexOf('function renderAccessKeys('), app.indexOf('function accessKeyClientName('))}
   ${app.slice(app.indexOf('async function copyAccessKeyValue('), app.indexOf('function formatBytes('))}
-  return { calls, maskedAccessKey, accessKeyCurl, render(keys) { automationAccessKeys = keys; renderAccessKeys(); } };
+  return { calls, accessKeyCurl, render(keys) { automationAccessKeys = keys; renderAccessKeys(); } };
 `;
 
 function syntheticKey(overrides = {}) {
@@ -48,17 +48,17 @@ function fixture() {
   return { ...new Function('document', 'navigator', 'window', harnessSource)(document, navigator, window), root, clipboard, prompts, navigator };
 }
 
-test('cards keep name/edit above masked value/copy/request, and metadata below', async () => {
+test('cards show name, last use and actions without credentials or scope metadata', async () => {
   const current = fixture();
   const key = syntheticKey();
   current.render([key]);
   const card = current.root.children[0];
-  const [head, row, meta] = card.children;
+  const [head, row] = card.children;
   assert.equal(head.children[0].textContent, key.name);
   assert.equal(head.children[1].textContent, '编辑');
-  assert.deepEqual(row.children.map(child => child.tagName), ['code', 'button', 'a']);
-  assert.equal(row.children[0].textContent, 'mfh_live_syn••••••1234');
-  assert.match(meta.textContent, /范围：.*RPM：25.*创建：2026-10-15.*最近使用：—/);
+  assert.deepEqual(row.children.map(child => child.tagName), ['span', 'button', 'a']);
+  assert.equal(row.children[0].textContent, '最近使用：—');
+  assert.doesNotMatch(card.textContent, /mfh_live_|••••••|范围：|RPM：|创建：/);
   assert.ok(!JSON.stringify(card).includes(key.key), 'full credential must stay outside the DOM');
   await row.children[1].onclick();
   await row.children[2].onclick({ preventDefault() {} });
@@ -69,22 +69,13 @@ test('cards keep name/edit above masked value/copy/request, and metadata below',
   assert.deepEqual(current.calls.edits, [key.id]);
 });
 
-test('mask hides short and absent credentials completely and bounds long display values', () => {
-  const current = fixture();
-  for (const value of [null, undefined, '', 'x', 'short-secret', 'a'.repeat(20)]) {
-    assert.equal(current.maskedAccessKey(value), '••••••');
-  }
-  assert.equal(current.maskedAccessKey('a'.repeat(21)), `${'a'.repeat(12)}••••••aaaa`);
-  assert.equal(current.maskedAccessKey('a'.repeat(1000)).length, 22);
-});
-
 test('unrecoverable or missing values disable both copies and preserve editing', () => {
   const current = fixture();
   for (const key of [syntheticKey({ recoverable: false }), syntheticKey({ key: '' })]) {
     current.render([key]);
     const card = current.root.children[0];
-    const [value, copy, request] = card.children[1].children;
-    assert.match(value.textContent, /原文不可恢复/);
+    const [, copy, request] = card.children[1].children;
+    assert.match(copy.attributes.title, /原文不可恢复/);
     assert.equal(copy.attributes.disabled, '');
     assert.equal(request.attributes['aria-disabled'], 'true');
     assert.equal(request.attributes.tabindex, '-1');
@@ -154,7 +145,6 @@ test('browser: cards fit 320/390/430/1440 widths and copy complete synthetic val
           const card = document.querySelector('.automation-key-card');
           const head = card.querySelector('.automation-key-head');
           const row = card.querySelector('.automation-key-copy-row');
-          const meta = card.querySelector('.automation-key-meta');
           const title = head.querySelector('strong').getBoundingClientRect();
           const edit = head.querySelector('button').getBoundingClientRect();
           const children = [...row.children].map(element => element.getBoundingClientRect());
@@ -163,7 +153,7 @@ test('browser: cards fit 320/390/430/1440 widths and copy complete synthetic val
             fits: [document.documentElement, scroller, ...document.querySelectorAll('.automation-key-card')].every(element => element.scrollWidth <= element.clientWidth + 1),
             headFits: title.right <= edit.left && Math.abs(title.top + title.height / 2 - edit.top - edit.height / 2) < 2,
             rowFits: children.every(rect => Math.abs(rect.top + rect.height / 2 - children[0].top - children[0].height / 2) < 2) && children.every((rect, index) => !index || children[index - 1].right <= rect.left),
-            order: head.getBoundingClientRect().bottom <= row.getBoundingClientRect().top && row.getBoundingClientRect().bottom <= meta.getBoundingClientRect().top,
+            order: head.getBoundingClientRect().bottom <= row.getBoundingClientRect().top,
           };
         });
         for (const [check, passed] of Object.entries(layout)) assert.ok(passed, `${theme} ${width}px: ${check}`);

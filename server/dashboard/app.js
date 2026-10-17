@@ -1014,10 +1014,6 @@ function openUnifiedSettings(page, trigger) {
   }
   return FleetSettingsDialog.active.open(page, trigger);
 }
-function maskedAccessKey(value) {
-  const secret = String(value || '');
-  return secret.length > 20 ? `${secret.slice(0, 12)}••••••${secret.slice(-4)}` : '••••••';
-}
 function renderAccessKeys() {
   const root = $('#automation-key-list');
   root.replaceChildren();
@@ -1029,6 +1025,7 @@ function renderAccessKeys() {
     const canCopy = Boolean(key.recoverable && key.key);
     const copy = h('button', {
       type: 'button', class: 'btn sm', text: '复制', disabled: canCopy ? null : '',
+      title: canCopy ? '复制访问密钥' : '旧版密钥原文不可恢复；该密钥仍可继续使用',
       onclick: () => { if (canCopy) copyAccessKeyValue(key.key); },
     });
     const request = h('a', {
@@ -1038,19 +1035,13 @@ function renderAccessKeys() {
       onclick: (event) => { event.preventDefault(); if (canCopy) copyAccessKeyRequest(key); },
     });
     const edit = h('button', { type: 'button', class: 'btn sm automation-key-edit', text: '编辑', 'aria-expanded': 'false', onclick: () => openAccessKeyForm(key) });
-    const secret = canCopy ? maskedAccessKey(key.key) : '旧版密钥原文不可恢复；该密钥仍可继续使用';
     root.append(h('article', { class: 'automation-key-card', dataset: { keyId: key.id } },
       h('div', { class: 'automation-key-head' },
         h('div', { class: 'automation-key-title' },
           h('strong', { text: key.name || '未命名密钥' })),
         h('div', { class: 'automation-key-actions' }, edit)),
       h('div', { class: 'api-key-copy-row automation-key-copy-row' },
-        h('code', { class: 'automation-key-value tnum', text: secret, 'aria-label': canCopy ? '访问密钥（已掩码）' : secret }), copy, request),
-      h('div', { class: 'automation-key-meta' },
-        h('span', { class: 'automation-key-scope', text: accessKeyBindingLabel(key.binding) }),
-        h('span', { text: `RPM：${key.rpm || 10}` }),
-        h('span', { text: `创建：${settingsDate(key.created_at)}` }),
-        h('span', { text: `最近使用：${settingsDate(key.last_used_at)}` }))));
+        h('span', { class: 'automation-key-meta', text: `最近使用：${settingsDate(key.last_used_at)}` }), copy, request)));
   }
 }
 function accessKeyClientName(client) {
