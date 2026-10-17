@@ -123,6 +123,7 @@ struct SettingsView: View {
         } message: {
             Text("撤销设备授权、停止后台并卸载两个程序。" +
                  (removeSettings ? "本机 Fleet 配置也会删除。" : "本机 Fleet 配置保留。") +
+                 "\n\n" + CodexSharedRuntime.removalInstructions +
                  "\n\n聊天会话由 Codex / Claude 保存，独立于 Fleet；卸载不会删除这些会话或你的个人文件。")
         }
         .alert("界面预览", isPresented: $previewRestriction) {

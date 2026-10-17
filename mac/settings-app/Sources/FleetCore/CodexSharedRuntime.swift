@@ -5,6 +5,7 @@ import Foundation
 /// starting or updating Fleet never creates an app-server process here.
 @MainActor
 public final class CodexSharedRuntime {
+    public static let removalInstructions = "请先等待 ChatGPT 桌面应用（Codex Desktop）的当前任务结束，再按 ⌘Q 完全退出该应用（仅关闭窗口不够），然后回到 Fleet Agent Settings 再次点击“卸载”。卸载需要恢复桌面应用原有的启动方式。"
     private let layout: RuntimeLayout
     private let execute: (URL, [String], Data?, TimeInterval) async throws -> Data
     private var domain: String { "gui/\(getuid())" }
@@ -142,8 +143,16 @@ public final class CodexSharedRuntime {
         let arguments = [layout.codexResources.appendingPathComponent("codex-desktop-install.mjs").path, command, hook.path,
                          "/Applications/ChatGPT.app", "ws://127.0.0.1:47682", layout.home.appendingPathComponent(".macfleet/codex-app-server.sock").path,
                          home, layout.home.appendingPathComponent(".macfleet/codex-runtime").path]
-        let data = try await execute(URL(fileURLWithPath: node), arguments, nil, 35)
-        return String(data: data, encoding: .utf8) ?? ""
+        do {
+            let data = try await execute(URL(fileURLWithPath: node), arguments, nil, 35)
+            return String(data: data, encoding: .utf8) ?? ""
+        } catch {
+            if ["check-removal", "remove"].contains(command),
+               error.localizedDescription.contains("Desktop must close before removing its CLI hook") {
+                throw FleetError.message("暂时无法卸载：ChatGPT 桌面应用（Codex Desktop）仍在运行。\n\n" + Self.removalInstructions)
+            }
+            throw error
+        }
     }
     private func jobFile(_ scope: String) -> URL { layout.state.appendingPathComponent("codex-desktop-env\(scope == "gui" ? "" : "-user").plist") }
     private func jobLabel(_ scope: String) -> String { "com.macfleet.codex-desktop-env\(scope == "gui" ? "" : "-user")" }

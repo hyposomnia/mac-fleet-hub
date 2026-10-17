@@ -87,7 +87,18 @@ final class CodexSharedRuntimeTests: XCTestCase {
     func testRemovalRequiresDesktopClosedAndRestoresBothDomainsBeforeRemovingFiles() async throws {
         let f = try HookFixture(); defer { f.remove() }
         try await f.runtime.start(); f.events.removeAll(); f.desktopOpen = true
-        await expectFailure { try await f.runtime.remove() }
+        do {
+            try await f.runtime.remove()
+            XCTFail("removed the hook while Desktop was running")
+        } catch {
+            let message = error.localizedDescription
+            XCTAssertTrue(message.contains("ChatGPT 桌面应用（Codex Desktop）仍在运行"))
+            XCTAssertTrue(message.contains("当前任务结束"))
+            XCTAssertTrue(message.contains("⌘Q"))
+            XCTAssertTrue(message.contains("仅关闭窗口不够"))
+            XCTAssertTrue(message.contains("再次点击“卸载”"))
+            XCTAssertFalse(message.contains("CLI hook"))
+        }
         XCTAssertFalse(f.events.contains("remove"))
         XCTAssertFalse(f.events.contains("gui-clear"))
         f.desktopOpen = false
@@ -161,7 +172,7 @@ private final class HookFixture {
         if let index = args.firstIndex(where: { $0.hasSuffix("codex-desktop-install.mjs") }) {
             let command = args[index + 1]
             if command == "check" && desktopOpen && !current { throw FleetError.message("Desktop must close") }
-            if command == "check-removal" && desktopOpen { throw FleetError.message("Desktop must close") }
+            if command == "check-removal" && desktopOpen { throw FleetError.message("mac-fleet hook install: Desktop must close before removing its CLI hook") }
             if command == "install", installFails { throw FleetError.message("installer failed before environment") }
             if command == "install" { installArguments = Array(args[index...]); events.append("install"); return Data((current ? "current\n" : "staged\n").utf8) }
             events.append(command); return Data()
