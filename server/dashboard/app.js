@@ -1024,7 +1024,7 @@ function renderAccessKeys() {
   for (const key of automationAccessKeys) {
     const canCopy = Boolean(key.recoverable && key.key);
     const copy = h('button', {
-      type: 'button', class: 'btn sm', text: '复制', disabled: canCopy ? null : '',
+      type: 'button', class: 'automation-doc-link automation-key-copy-link', text: '复制密钥', disabled: canCopy ? null : '',
       title: canCopy ? '复制访问密钥' : '旧版密钥原文不可恢复；该密钥仍可继续使用',
       onclick: () => { if (canCopy) copyAccessKeyValue(key.key); },
     });

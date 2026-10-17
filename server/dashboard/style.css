@@ -497,13 +497,13 @@ svg.ic.fill { fill: currentColor; stroke: none; }
 .automation-key-delete { margin-right: auto; }
 .automation-key-card { display: grid; min-width: 0; gap: 10px; padding: var(--settings-section-padding, 16px); border: 0; border-radius: var(--radius-card); background: var(--settings-surface, var(--surface-1)); }
 .automation-key-copy-row { grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; min-width: 0; }
-.automation-key-copy-row > .btn, .automation-key-request-link { white-space: nowrap; }
+.automation-key-copy-link { padding: 0; }
 .automation-key-card > .automation-key-form { margin-top: 2px; padding: 14px 0 0; border: 0;  border-radius: 0; background: transparent; }
 .automation-key-head { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 12px; }
 .automation-key-title { min-width: 0; }
 .automation-key-title strong { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); font-size: var(--t-body); }
 .automation-key-actions { display: flex; align-items: center; gap: 12px; flex: none; }
-.automation-key-request-link[aria-disabled="true"] { color: var(--text-2); pointer-events: none; text-decoration: none; }
+.automation-key-copy-link:disabled, .automation-key-request-link[aria-disabled="true"] { color: var(--text-2); pointer-events: none; text-decoration: none; }
 .automation-key-meta { display: flex; min-width: 0; flex-wrap: wrap; gap: 6px 18px; color: var(--text-2); font-size: var(--t-caption); }
 .automation-key-meta > span { min-width: 0; max-width: 100%; overflow-wrap: anywhere; }
 .message-records { display: grid; gap: 8px; margin-top: var(--s3); }

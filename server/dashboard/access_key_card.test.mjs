@@ -58,6 +58,8 @@ test('cards show name, last use and actions without credentials or scope metadat
   assert.equal(head.children[1].textContent, '编辑');
   assert.deepEqual(row.children.map(child => child.tagName), ['span', 'button', 'a']);
   assert.equal(row.children[0].textContent, '最近使用：—');
+  assert.equal(row.children[1].textContent, '复制密钥');
+  assert.match(row.children[1].className, /automation-doc-link/);
   assert.doesNotMatch(card.textContent, /mfh_live_|••••••|范围：|RPM：|创建：/);
   assert.ok(!JSON.stringify(card).includes(key.key), 'full credential must stay outside the DOM');
   await row.children[1].onclick();
