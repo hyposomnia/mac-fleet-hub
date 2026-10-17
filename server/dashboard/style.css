@@ -1902,10 +1902,6 @@ html[data-workspace-tab="true"] .preview-encoding-control::after { right: 10px; 
 }
 .file-column-message small { display: block; margin-top: 6px; overflow-wrap: anywhere; color: var(--text-3); }
 
-.file-status {
-  display: flex; align-items: center; justify-content: space-between; min-height: 32px; padding: 0 16px;
-  border: 0; color: var(--text-2); font-size: var(--t-caption);
-}
 .file-empty, .file-loading { display: grid; place-items: center; min-height: 240px; padding: 30px; color: var(--text-2); text-align: center; }
 .file-empty small { display: block; max-width: 420px; margin-top: 7px; overflow-wrap: anywhere; }
 
@@ -2278,7 +2274,6 @@ html[data-workspace-tab="true"] .preview-encoding-control::after { right: 10px; 
   .file-column-row { min-height: 52px; }
   .file-column-row .file-row-menu-trigger { width: 34px; height: 34px; opacity: 1; }
   .file-column-row .file-column-chevron { opacity: 0; }
-  .file-status { min-height: calc(32px + env(safe-area-inset-bottom, 0px)); padding-bottom: env(safe-area-inset-bottom, 0px); }
   .file-preview-panel {
     position: fixed !important; inset: 0 !important; z-index: 60 !important; width: auto !important;
     border: 0; background: var(--surface); box-shadow: none;

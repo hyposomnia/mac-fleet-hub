@@ -3013,9 +3013,10 @@ test('mobile session detail supports a deliberate edge swipe back', () => {
 
 test('mobile file back gesture moves only the browsing region', () => {
   const fileLayout = indexHTML.match(/<div class="file-layout">[\s\S]*?<aside class="file-sources">/)?.[0] || '';
-  const fileContent = indexHTML.match(/<div class="file-browser-content">[\s\S]*?<\/footer>\s*<\/div>/)?.[0] || '';
+  const fileContent = indexHTML.match(/<div class="file-browser-content">[\s\S]*?<\/div>/)?.[0] || '';
   assert.match(fileLayout, /id="file-back-gesture"[^>]*aria-hidden="true"[^>]*hidden/);
-  assert.match(fileContent, /id="file-list"[\s\S]*class="file-status"/);
+  assert.match(fileContent, /id="file-list"/);
+  assert.doesNotMatch(indexHTML, /class="file-status"|id="file-count"|id="file-status-device"/);
   assert.ok(indexHTML.indexOf('class="file-table-head"') < indexHTML.indexOf('class="file-browser-content"'));
   assert.match(styleCSS, /#app\[data-mode="files"\]\.file-back-dragging \.file-browser-content\s*\{[^}]*transform:\s*translate3d\(var\(--file-back-x\), 0, 0\)/s);
   assert.match(styleCSS, /#app\[data-mode="files"\]\.file-back-settling \.file-browser-content\s*\{[^}]*transition:\s*transform/s);

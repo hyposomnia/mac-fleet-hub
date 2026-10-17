@@ -6722,8 +6722,6 @@ function updateDeviceScopeUI() {
     $('.device-scope-avatar', button).replaceChildren(allDevices ? allDevicesIcon()
       : (selectedId ? deviceStatusIcon(selectedId) : FleetDeviceAppearance.createIcon()));
   });
-  const statusDevice = $('#file-status-device');
-  if (statusDevice) statusDevice.textContent = state.fileMacId ? macName(state.fileMacId) : '';
 }
 
 function openDevicePicker(context = 'sessions') {
@@ -7166,7 +7164,6 @@ async function loadFileDirectory(path = '', opts = {}) {
     state.fileLoading = false;
     clear(list);
     list.append(h('div', { class: 'file-empty' }, '无法读取文件', h('small', { text: error.message })));
-    $('#file-count').textContent = '0 项';
     syncFileBackGestureAvailability();
   }
 }
@@ -7550,12 +7547,6 @@ function fileEmptyCopy(sourceEntries, query) {
   return sourceEntries.length && !state.fileShowHidden ? '这个文件夹没有可见项目' : '这个文件夹是空的';
 }
 
-function updateFileCount(entries, visibleEntries) {
-  $('#file-count').textContent = state.fileSearch && entries.length !== visibleEntries.length
-    ? `${entries.length}/${visibleEntries.length} 项`
-    : `${entries.length} 项`;
-}
-
 function activateFileEntry(entry, columnIndex = null) {
   if (Number.isInteger(columnIndex)) {
     if (entry.kind === 'folder') {
@@ -7617,7 +7608,6 @@ function renderFileColumns(wrap) {
   const columns = state.fileColumns;
   if (!columns.length) {
     wrap.append(h('div', { class: 'file-empty', text: '这个文件夹是空的' }));
-    updateFileCount([], []);
     return;
   }
   columns.forEach((column, columnIndex) => {
@@ -7670,7 +7660,6 @@ function renderFileColumns(wrap) {
     ),
     body);
     wrap.append(section);
-    if (last) updateFileCount(entries, visibleEntries);
   });
 }
 
@@ -7740,7 +7729,6 @@ function renderFileEntries() {
   if (!entries.length) wrap.append(h('div', { class: 'file-empty', text: fileEmptyCopy(state.fileEntries, state.fileSearch) }));
   if (state.fileView === 'icons') renderFileIcons(wrap, entries);
   else renderFileList(wrap, entries);
-  updateFileCount(entries, visibleEntries);
 }
 
 let fileSettingsTrigger = null;
