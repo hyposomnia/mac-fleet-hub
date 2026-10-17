@@ -285,35 +285,44 @@ type ChatResumeResult struct {
 	Control         *ChatSessionControlSnapshot `json:"control,omitempty"`
 }
 
-// ChatRuntimeState is the backend-owned writer/turn/settings projection. It
-// deliberately excludes queue/access data so the HTTP control layer can combine
-// both under the per-session operation lock.
+type ChatApprovalOption struct {
+	Value       string `json:"value"`
+	Name        string `json:"name"`
+	Description string `json:"description,omitempty"`
+}
+
+// ChatRuntimeState is the backend-owned writer/turn/settings projection.
+// Queue and access state are combined under the per-session operation lock.
 type ChatRuntimeState struct {
-	SharedRuntime   bool   `json:"sharedRuntime,omitempty"`
-	Status          string `json:"status"`
-	ActiveTurnID    string `json:"activeTurnId,omitempty"`
-	TurnOwner       string `json:"turnOwner,omitempty"`
-	WriterOwner     string `json:"writerOwner,omitempty"`
-	ApprovalMode    string `json:"approvalMode,omitempty"`
-	PendingRequests int    `json:"pendingRequests,omitempty"`
+	ApprovalOptions []ChatApprovalOption `json:"approvalOptions,omitempty"`
+	ApprovalError   string               `json:"approvalError,omitempty"`
+	SharedRuntime   bool                 `json:"sharedRuntime,omitempty"`
+	Status          string               `json:"status"`
+	ActiveTurnID    string               `json:"activeTurnId,omitempty"`
+	TurnOwner       string               `json:"turnOwner,omitempty"`
+	WriterOwner     string               `json:"writerOwner,omitempty"`
+	ApprovalMode    string               `json:"approvalMode,omitempty"`
+	PendingRequests int                  `json:"pendingRequests,omitempty"`
 }
 
 // ChatSessionControlSnapshot is the only browser-facing source of truth for
 // session mutations. Epoch + version let the browser reject late HTTP replies
 // without inventing any writer/turn/queue transitions locally.
 type ChatSessionControlSnapshot struct {
-	SharedRuntime     bool            `json:"sharedRuntime,omitempty"`
-	AnnotationVersion string          `json:"annotationVersion,omitempty"`
-	ServerEpoch       string          `json:"serverEpoch"`
-	SnapshotVersion   uint64          `json:"snapshotVersion"`
-	AccessMode        string          `json:"accessMode"`
-	WriterOwner       string          `json:"writerOwner,omitempty"`
-	TurnPhase         string          `json:"turnPhase"`
-	ActiveTurnID      string          `json:"activeTurnId,omitempty"`
-	TurnOwner         string          `json:"turnOwner,omitempty"`
-	ApprovalMode      string          `json:"approvalMode"`
-	PendingRequests   int             `json:"pendingRequests,omitempty"`
-	Items             []ChatQueueView `json:"items"`
+	ApprovalOptions   []ChatApprovalOption `json:"approvalOptions,omitempty"`
+	ApprovalError     string               `json:"approvalError,omitempty"`
+	SharedRuntime     bool                 `json:"sharedRuntime,omitempty"`
+	AnnotationVersion string               `json:"annotationVersion,omitempty"`
+	ServerEpoch       string               `json:"serverEpoch"`
+	SnapshotVersion   uint64               `json:"snapshotVersion"`
+	AccessMode        string               `json:"accessMode"`
+	WriterOwner       string               `json:"writerOwner,omitempty"`
+	TurnPhase         string               `json:"turnPhase"`
+	ActiveTurnID      string               `json:"activeTurnId,omitempty"`
+	TurnOwner         string               `json:"turnOwner,omitempty"`
+	ApprovalMode      string               `json:"approvalMode"`
+	PendingRequests   int                  `json:"pendingRequests,omitempty"`
+	Items             []ChatQueueView      `json:"items"`
 }
 
 type ChatHistoryPage struct {
@@ -602,8 +611,12 @@ func handleChatSettings(w http.ResponseWriter, r *http.Request) {
 	if !requireChatWriteAccess(w, assistant, req.SessionID) {
 		return
 	}
-	opts, err := normalizeChatTurnOptions(ChatTurnOptions{ApprovalMode: req.ApprovalMode})
-	if err != nil || opts.ApprovalMode == "" {
+	opts := ChatTurnOptions{ApprovalMode: req.ApprovalMode}
+	var err error
+	if assistant != "dsh" {
+		opts, err = normalizeChatTurnOptions(opts)
+	}
+	if err != nil || strings.TrimSpace(opts.ApprovalMode) == "" {
 		writeErr(w, http.StatusBadRequest, "bad_chat_options", "无效的审批模式")
 		return
 	}

@@ -341,8 +341,7 @@ function initSessionListPreferences() {
 //   selfDraw      自绘聊天面（历史分页、发送、流式、审批往返都在这个面里）
 //   sessionCursor 会话列表走游标 + 服务端筛选（archived/limit/search/cursor）；否则走 scope=active|all
 //   terminal      网页已退役 ttyd；所有助手均关闭终端入口。
-//   approvalModes 会话级权限预设（untrusted/on-request/full-access）。DSH 的权限由 host 自己的
-//                 permission 设置决定，Fleet 侧没有对应预设：既不下发 approvalMode，也不开放审批入口。
+//   approvalModes 投递前同步 Codex 权限预设。DSH 在独立菜单中修改 host 广告的会话权限，消息不重放设置。
 // DSH 的 selfDraw 还要求目标 Mac 的 /api/info 报 dsh.enabled 且未降级（DSH Desktop 在跑）；
 // 拿不到 info（旧 agent / 离线）按不可用处理，不露出半成品入口。macId 省略时取当前设备。
 function assistantCapabilities(assistant = state.assistant, macId = '') {
@@ -2751,7 +2750,10 @@ function isCompleteChatControlSnapshot(snapshot) {
     && typeof snapshot.serverEpoch === 'string' && snapshot.serverEpoch.trim().length > 0
     && Number.isSafeInteger(snapshot.snapshotVersion) && snapshot.snapshotVersion > 0
     && ['read_write', 'read_only'].includes(snapshot.accessMode)
-    && ['untrusted', 'on-request', 'full-access'].includes(snapshot.approvalMode)
+    && (['untrusted', 'on-request', 'full-access'].includes(snapshot.approvalMode)
+      || (typeof snapshot.approvalMode === 'string' && snapshot.approvalMode.trim().length > 0
+        && Array.isArray(snapshot.approvalOptions) && snapshot.approvalOptions.length > 0
+        && snapshot.approvalOptions.every((option) => typeof option?.value === 'string' && option.value.trim().length > 0)))
     && ['running', 'idle', 'unknown'].includes(snapshot.turnPhase)
     && Array.isArray(snapshot.items)
     && snapshot.items.every((item) => Array.isArray(item?.allowedActions));
@@ -2781,10 +2783,16 @@ function applyChatControlSnapshot(chat, source, requestSeq = 0) {
   chat.controlReady = chat.turnPhase !== 'unknown';
   chat.controlStale = false;
   chat.controlLastSyncedAt = Date.now();
-  chat.approvalConfirmedMode = normalizeChatApprovalMode(snapshot.approvalMode);
+  const previousApprovalView = JSON.stringify([chat.approvalMode, chat.approvalOptions, chat.approvalError]);
+  chat.approvalOptions = Array.isArray(snapshot.approvalOptions) ? snapshot.approvalOptions : [];
+  chat.approvalError = snapshot.approvalError || '';
+  chat.approvalConfirmedMode = normalizeChatApprovalMode(snapshot.approvalMode, chat);
+  if (chat.assistant === 'dsh') chat.approvalControlsEnabled = chat.approvalOptions.length > 0;
   chat.pendingRequestCount = Math.max(Number(snapshot.pendingRequests) || 0,
     Object.values(chat.model?.requests || {}).filter((request) => request?.status === 'pending').length);
   if (!chat.approvalUpdatePending) chat.approvalMode = chat.approvalConfirmedMode;
+  if (chat.assistant === 'dsh' && state.chat === chat
+      && previousApprovalView !== JSON.stringify([chat.approvalMode, chat.approvalOptions, chat.approvalError])) renderChatApprovalMenu(chat);
   chat.followups = visibleQueue;
   if (chat.controlReady) {
     chat.model = FleetChatModel.reduceChatEvent(chat.model, {
@@ -5459,12 +5467,22 @@ function chatServiceTierDescription(tier) {
   return tier.description || '';
 }
 
-function normalizeChatApprovalMode(value) {
+function normalizeChatApprovalMode(value, chat) {
+  if (chat?.assistant === 'dsh') return typeof value === 'string' ? value : '';
   if (value === 'untrusted' || value === 'full-access') return value;
   return 'on-request';
 }
 
-function selectedChatApproval(mode) {
+function chatApprovalOptions(chat) {
+  if (chat?.assistant !== 'dsh') return CHAT_APPROVAL_OPTIONS;
+  const labels = { 'read-only': '仅可查看', 'workspace-write': '工作区内修改', 'danger-full-access': '完全访问权限', auto: '自动审查' };
+  return (chat.approvalOptions || []).map((option) => ({ ...option,
+    label: labels[option.value] || option.name || option.value, danger: option.value === 'danger-full-access' }));
+}
+
+function selectedChatApproval(mode, chat) {
+  if (chat?.assistant === 'dsh') return chatApprovalOptions(chat).find((option) => option.value === mode)
+    || { value: mode, label: chat.approvalOptions?.length ? '自定义权限' : '权限不可用' };
   const normalized = normalizeChatApprovalMode(mode);
   return CHAT_APPROVAL_OPTIONS.find((item) => item.value === normalized) || CHAT_APPROVAL_OPTIONS[1];
 }
@@ -5476,7 +5494,7 @@ function chatApprovalIcon(value, cls = 'ic') {
     { tag: 'path', attrs: { d: 'M10 10.5V6a2 2 0 0 0-4 0v8' } },
     { tag: 'path', attrs: { d: 'M6 14v-2a2 2 0 0 0-4 0v2a8 8 0 0 0 8 8h2a8 8 0 0 0 8-8v-3a2 2 0 0 0-4 0v1' } },
   ]);
-  if (value === 'full-access') return svgIconParts(cls, [
+  if (value === 'full-access' || value === 'danger-full-access') return svgIconParts(cls, [
     { tag: 'path', attrs: { d: 'M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10' } },
     { tag: 'path', attrs: { d: 'M12 8v5' } },
     { tag: 'path', attrs: { d: 'M12 17h.01' } },
@@ -5499,21 +5517,23 @@ function renderChatApprovalMenu(chat = state.chat) {
   const label = $('#chat-approval-label');
   const popover = $('#chat-approval-popover');
   if (!trigger || !label || !popover) return;
-  const selected = selectedChatApproval(chat?.approvalMode);
+  const selected = selectedChatApproval(chat?.approvalMode, chat);
   label.textContent = selected.label;
   trigger.dataset.value = selected.value;
+  trigger.setAttribute('aria-label', `如何批准 ${assistantLabel(chat?.assistant)} 操作？`);
+  trigger.title = chat?.assistant === 'dsh' && !chat.approvalOptions?.length ? (chat.approvalError || '需要支持权限设置的 Mac 客户端') : '';
   clear(popover);
   popover.append(
     h('div', { class: 'chat-approval-head' },
-      h('span', { text: '如何批准 ChatGPT 操作？' }),
-      h('a', {
+      h('span', { text: `如何批准 ${assistantLabel(chat?.assistant)} 操作？` }),
+      chat?.assistant !== 'dsh' ? h('a', {
         class: 'chat-approval-learn',
         href: 'https://developers.openai.com/codex/concepts/sandboxing#how-you-control-it',
         target: '_blank',
         rel: 'noopener noreferrer',
         text: '了解更多',
-      })),
-    ...CHAT_APPROVAL_OPTIONS.map((option) => {
+      }) : null),
+    ...chatApprovalOptions(chat).map((option) => {
       const active = option.value === selected.value;
       return h('button', {
         type: 'button',
@@ -5535,11 +5555,9 @@ function renderChatApprovalMenu(chat = state.chat) {
 function setChatApprovalEnabled(chat, enabled) {
   const trigger = $('#chat-approval');
   if (!trigger) return;
-  // 没有会话级权限预设的助手（DSH）保持禁用：入口点下去只会拿到一个"暂不支持"，
-  // 与 agent 侧 chat_capabilities.ApprovalModes 同一判定。
-  const supported = assistantCapabilities().approvalModes;
+  const supported = chat?.assistant === 'dsh' ? chat.approvalOptions?.length > 0 : assistantCapabilities().approvalModes;
   if (chat) {
-    chat.approvalMode = normalizeChatApprovalMode(chat.approvalMode);
+    chat.approvalMode = normalizeChatApprovalMode(chat.approvalMode, chat);
     chat.approvalControlsEnabled = !!enabled && supported;
   }
   trigger.disabled = !enabled || !supported || chatMutationsBlocked(chat);
@@ -5564,7 +5582,8 @@ function toggleChatApproval() {
 async function selectChatApprovalMode(value) {
   if (!state.chat || chatMutationsBlocked(state.chat)) return;
   const chat = state.chat;
-  const approvalMode = normalizeChatApprovalMode(value);
+  if (chat.assistant === 'dsh' && !chatApprovalOptions(chat).some((option) => option.value === value)) return;
+  const approvalMode = normalizeChatApprovalMode(value, chat);
   if (approvalMode === chat.approvalMode) {
     closeChatApproval();
     return;
@@ -5597,7 +5616,9 @@ async function selectChatApprovalMode(value) {
     if (latest) {
       chat.approvalMode = chat.approvalConfirmedMode;
       if (state.chat === chat) renderChatApprovalMenu(chat);
-      if (updatesRunningTurn && state.chat === chat) {
+      if (chat.assistant === 'dsh' && state.chat === chat) {
+        toast('DeepSeek 会话权限已更新。');
+      } else if (updatesRunningTurn && state.chat === chat) {
         toast(approvalMode === 'full-access'
           ? '已开启完全访问，当前任务后续审批将自动允许。'
           : '权限已更新，将从下一轮任务生效。');
@@ -5606,7 +5627,7 @@ async function selectChatApprovalMode(value) {
   } catch (e) {
     if (chat.approvalUpdateSeq === updateSeq) {
       chat.approvalUpdatePending = false;
-      chat.approvalMode = normalizeChatApprovalMode(chat.approvalConfirmedMode);
+      chat.approvalMode = normalizeChatApprovalMode(chat.approvalConfirmedMode, chat);
       if (state.chat === chat) {
         renderChatApprovalMenu(chat);
         toast('权限更新失败：' + e.message, 'err');
@@ -5741,7 +5762,7 @@ function renderChatOptions(chat) {
 }
 
 function configureChatOptions(chat, resumed) {
-  chat.approvalMode = normalizeChatApprovalMode(resumed.approvalMode);
+  chat.approvalMode = normalizeChatApprovalMode(resumed.approvalMode, chat);
   chat.approvalConfirmedMode = chat.approvalMode;
   chat.approvalUpdateChain = Promise.resolve();
   chat.approvalUpdatePending = false;

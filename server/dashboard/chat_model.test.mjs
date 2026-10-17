@@ -2786,9 +2786,7 @@ test('self-drawn approval menu mirrors Codex three presets', () => {
   assert.match(styleCSS, /\.chat-approval-popover,\s*\.chat-options-popover\s*\{[^}]*position:\s*fixed;[^}]*bottom:\s*0/s);
 });
 
-// 回归背景（2026-09-22 真机）：dashboard 对每条消息都下发 approvalMode（默认 on-request），
-// agent 的投递前同步又对它无条件调 chat/settings，而 DSH 明确不支持 → 每条 DeepSeek 消息
-// 都停在 failed: dsh_unsupported。DSH 不得再下发该选项。
+// DSH 权限由独立设置请求修改，消息不重放客户端缓存值。
 test('approval mode is only sent for assistants that support session presets', () => {
   const previous = appState.assistant;
   try {
@@ -4844,4 +4842,71 @@ test('resume still rejects malformed control snapshots after a valid polling res
 test('annotation chat caches isolate providers even when their session IDs collide',()=>{
  assert.notEqual(chatCacheKey('m1','same-session','codex'),chatCacheKey('m1','same-session','dsh'));
  assert.notEqual(chatCacheKey('m1','same-session','codex'),chatCacheKey('m2','same-session','codex'));
+});
+
+test('DSH permission snapshots preserve host presets and never replay them with messages', () => {
+  const snapshot = { serverEpoch: 'dsh-permissions', snapshotVersion: 1, accessMode: 'read_write',
+    turnPhase: 'idle', items: [], approvalMode: 'custom-review',
+    approvalOptions: [{ value: 'workspace-write', name: 'Workspace' }, { value: 'custom-review', name: 'Review' }] };
+  const chat = { assistant: 'dsh', model: createChatState(), followups: [] };
+  assert.equal(applyChatControlSnapshot(chat, snapshot), true);
+  assert.equal(chat.approvalMode, 'custom-review');
+  assert.equal(chat.approvalOptions[1].value, 'custom-review');
+  assert.equal(chatTurnOptions(chat).approvalMode, undefined);
+  assert.equal(applyChatControlSnapshot(chat, { ...snapshot, snapshotVersion: 2, approvalMode: 'custom' }), true);
+  assert.equal(chat.approvalMode, 'custom');
+  assert.equal(applyChatControlSnapshot(chat, { ...snapshot, snapshotVersion: 3, approvalMode: 'on-request', approvalOptions: undefined }), true);
+  assert.equal(chat.approvalOptions.length, 0);
+});
+
+test('DSH permission menu enables advertised options and disables old agents', () => {
+  const trigger = testElement('button'), label = testElement('span'), popover = testElement('div');
+  const originalQuery = appSandbox.document.querySelector;
+  appSandbox.document.querySelector = (selector) => ({ '#chat-approval': trigger, '#chat-approval-label': label, '#chat-approval-popover': popover })[selector] || null;
+  const chat = { assistant: 'dsh', controlReady: true, controlLastSyncedAt: fixedAppNowMs,
+    accessMode: 'read_write', turnPhase: 'idle', starting: false, releasingWriter: false, changingAccess: false, approvalMode: 'workspace-write',
+    approvalOptions: [{value:'read-only',name:'read-only'},{value:'workspace-write',name:'workspace-write'}] };
+  appSandbox.__permissionMenuChat = chat;
+  try {
+    vm.runInContext('setChatApprovalEnabled(__permissionMenuChat, true)', appSandbox);
+    assert.equal(trigger.disabled, false);
+    assert.equal(label.textContent, '工作区内修改');
+    assert.equal(nodeText(popover).includes('DeepSeek'), true);
+    assert.equal(nodeText(popover).includes('完全访问权限'), false);
+    chat.approvalOptions = [];
+    vm.runInContext('setChatApprovalEnabled(__permissionMenuChat, true)', appSandbox);
+    assert.equal(trigger.disabled, true);
+    assert.equal(label.textContent, '权限不可用');
+  } finally { appSandbox.document.querySelector = originalQuery; delete appSandbox.__permissionMenuChat; }
+});
+
+test('DSH permission failures restore confirmed selection and success uses server readback', async () => {
+  const previousChat = appState.chat;
+  const originalQuery = appSandbox.document.querySelector;
+  appSandbox.document.querySelector = () => null;
+  vm.runInContext('globalThis.__permissionOriginals={api,toast}; toast=()=>{};',appSandbox);
+  try {
+    const chat = { assistant:'dsh',macId:'m1',sessionId:'session-permission', model:createChatState(),
+      controlReady:true,controlLastSyncedAt:fixedAppNowMs,accessMode:'read_write',turnPhase:'idle',
+      approvalMode:'workspace-write',approvalConfirmedMode:'workspace-write',
+      approvalOptions:[{value:'workspace-write',name:'Workspace'},{value:'read-only',name:'Read Only'}] };
+    appState.chat=chat;
+    vm.runInContext('api=async()=>{throw new Error("host rejected");}',appSandbox);
+    await vm.runInContext('selectChatApprovalMode("read-only")',appSandbox);
+    assert.equal(chat.approvalMode,'workspace-write');
+    assert.equal(chat.approvalUpdatePending,false);
+    vm.runInContext(`api=async(macId,endpoint,options)=>{
+      globalThis.__permissionPosted=JSON.parse(options.body);
+      return {serverEpoch:'dsh-write',snapshotVersion:1,accessMode:'read_write',turnPhase:'idle',items:[],
+        approvalMode:'read-only',approvalOptions:state.chat.approvalOptions};
+    };`,appSandbox);
+    await vm.runInContext('selectChatApprovalMode("read-only")',appSandbox);
+    assert.equal(appSandbox.__permissionPosted.approvalMode,'read-only');
+    assert.equal(appSandbox.__permissionPosted.assistant,'dsh');
+    assert.equal(chat.approvalConfirmedMode,'read-only');
+    assert.equal(chat.approvalMode,'read-only');
+  } finally {
+    appState.chat=previousChat;appSandbox.document.querySelector=originalQuery;
+    vm.runInContext('({api,toast}=__permissionOriginals)',appSandbox);
+  }
 });

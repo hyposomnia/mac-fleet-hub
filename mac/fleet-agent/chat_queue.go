@@ -291,16 +291,19 @@ func buildChatSessionControlSnapshotLocked(ctx context.Context, assistant, sessi
 		})
 	}
 	approvalMode := runtimeState.ApprovalMode
-	if normalized, normalizeErr := normalizeChatTurnOptions(ChatTurnOptions{ApprovalMode: approvalMode}); normalizeErr == nil {
-		approvalMode = normalized.ApprovalMode
-	} else {
-		approvalMode = ""
+	if assistant != "dsh" {
+		if normalized, normalizeErr := normalizeChatTurnOptions(ChatTurnOptions{ApprovalMode: approvalMode}); normalizeErr == nil {
+			approvalMode = normalized.ApprovalMode
+		} else {
+			approvalMode = ""
+		}
 	}
 	if approvalMode == "" {
 		approvalMode = "on-request"
 	}
 	epoch, version := nextChatControlSnapshotVersion()
 	return ChatSessionControlSnapshot{
+		ApprovalOptions: runtimeState.ApprovalOptions, ApprovalError: runtimeState.ApprovalError,
 		SharedRuntime:     runtimeState.SharedRuntime,
 		AnnotationVersion: annotationVersion(assistant),
 		ServerEpoch:       epoch, SnapshotVersion: version,

@@ -8,7 +8,7 @@ import "testing"
 // assistant 时每一处都要改，且容易漏。能力化之后只在这里判定。
 func TestChatCapabilities(t *testing.T) {
 	codexAll := assistantCapabilities{SelfDraw: true, Queue: true, ApprovalModes: true}
-	// dsh 有自绘面与队列，但没有会话级权限预设：权限由 host 自己的设置决定。
+	// DSH 会话权限独立修改，不在消息投递前同步。
 	dshAll := assistantCapabilities{SelfDraw: true, Queue: true}
 	none := assistantCapabilities{}
 
@@ -23,7 +23,7 @@ func TestChatCapabilities(t *testing.T) {
 		t.Fatalf("启用时 chatCapabilities(dsh) = %+v, want %+v", dshEnabled, dshAll)
 	}
 	if dshEnabled.ApprovalModes {
-		t.Fatal("DSH 不得声明 ApprovalModes：Settings 明确返回 errDSHUnsupported")
+		t.Fatal("DSH 消息不得自动重放权限预设")
 	}
 	if got := chatCapabilities("DSH"); got != dshAll {
 		t.Fatalf("大小写不敏感失败: %+v", got)

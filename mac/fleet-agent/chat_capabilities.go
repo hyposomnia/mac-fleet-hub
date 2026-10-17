@@ -12,16 +12,14 @@ package main
 //     自绘聊天面"。审批与提问往返属于这个面的一部分，不是独立能力，因此不单列。
 //   - 服务端队列与访问态（chat_queue.go）是真正可能缺席的一维：一个只读渲染
 //     磁盘会话、不参与排队与 writer 租约的 assistant，就是 SelfDraw 有而 Queue 无。
-//   - 会话级权限预设（ApprovalModes）是接 DSH 之后才独立出来的一维：DSH 的权限
-//     由 host 自己的 permission 设置决定，Fleet 侧没有对应的 untrusted /
-//     on-request / full-access 预设。它管的不是"有没有这个面"，而是"投递前那步
-//     审批模式同步该不该做"——不支持时必须整步跳过，不能连消息一起丢掉。
+//   - ApprovalModes 控制投递前的 Codex 权限同步。DSH 会话权限通过独立设置请求修改，
+//     选项由控制快照广告，排队消息不得重放过时的权限选择。
 type assistantCapabilities struct {
 	// SelfDraw 支持自绘聊天面：会话列表、历史分页、发送、流式渲染、审批往返。
 	SelfDraw bool
 	// Queue 支持服务端持久队列、steer 与访问态（read_only）控制。
 	Queue bool
-	// ApprovalModes 支持会话级权限预设：chat/settings 生效，且投递前同步 approvalMode。
+	// ApprovalModes 在投递前同步 Codex approvalMode。
 	ApprovalModes bool
 }
 
@@ -38,8 +36,7 @@ func chatCapabilities(assistant string) assistantCapabilities {
 		if !cfg.DSHEnabled {
 			return assistantCapabilities{}
 		}
-		// 权限预设仍走 DSH host 自己的设置，Fleet 侧没有对应语义
-		// （dshChatBackend.Settings 明确返回 errDSHUnsupported）。
+		// DSH 的权限修改独立于消息投递。
 		return assistantCapabilities{SelfDraw: true, Queue: true}
 	default:
 		return assistantCapabilities{}

@@ -180,9 +180,6 @@ func TestDSHChatUnsupportedSurfaces(t *testing.T) {
 	host := newRecordingHost(t, map[string]any{"sessionId": "session-1"})
 	b := newTestDSHBackend(t, host.host)
 
-	if err := b.Settings(context.Background(), "dsh", "session-1", "full-access"); !errors.Is(err, errDSHUnsupported) {
-		t.Fatalf("Settings err = %v, want errDSHUnsupported", err)
-	}
 	if _, err := b.Skills(context.Background(), "dsh", "/tmp"); !errors.Is(err, errDSHUnsupported) {
 		t.Fatalf("Skills err = %v, want errDSHUnsupported", err)
 	}

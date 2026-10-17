@@ -207,7 +207,7 @@ args = { "request": { requestId: <唯一串>, sessionId, mode: 'queue' | 'steer'
 
 - **DSH 的审批 outcome 只有 `allowed-once` / `rejected` / `cancelled` / `unavailable`**，没有会话级授权。
   因此 DSH 会话**只渲染「允许一次 / 拒绝」两个按钮**，「本会话允许」按钮按 capability 隐藏
-  （v1 不做 settings/mutate 提升预设，列为二期）。
+  （会话权限预设由独立权限菜单修改）。
 - 提问的 `answers` 形状不同：Fleet 浏览器给的是以 question id 为键的**对象**，DSH 要的是**数组**。
   agent 必须用请求帧里携带的问题描述符逐项转换；转换必须 fixture 测试覆盖。
   问题描述符与答案数组的权威 schema 在
@@ -226,8 +226,7 @@ WS `session/control` 首帧 `{type:'baseline', value:{queues,jobs,…}}`，后�
 
 - 读：`session/modelCatalog`、`llm/listProviders`。
 - 写模型：`session/selectModel`。
-- 写权限预设：**DSH 没有专用端点**，走 `settings/mutate`（写入后体现为会话事件
-  `sandbox/mode` + `approval/policy`，再经 `session/follow` 回流为 `control_changed`）。
+- 会话权限：从 `permissionPresets/catalog` 读取选项，用 `commands/execute` 执行 `/permission <preset>`，通过 `session/projections` 回读当前值；`settings/mutate` 仅修改新会话默认值。详见 [权限接入规格](2026-10-17-dsh-permissions.md)。
 
 ## 事件映射表
 
@@ -438,6 +437,5 @@ Desktop 重启会换 port/token，任何 401/连接拒绝触发一次"失效重�
    写了就是死代码。精确规则已记进 dev 记忆，等真有调用方再实现。
 3. **不做磁盘降级列表**（原 Phase F / `dsh_scan.go`）。理由见「数据流 1 → 降级路径」。
 
-另外两条规格里写了但 v1 明确不做的写入面，代码里以 `errDSHUnsupported` 可读报错：
-权限预设（`settings/mutate` 会改用户真实 DSH 配置）与技能目录（`skills/list` 是 stream，
-请求形状未在真机验证）。会话级授权 `acceptForSession` 同样明确拒绝，不降级成「允许一次」。
+会话权限预设见 [权限接入规格](2026-10-17-dsh-permissions.md)。技能目录（`skills/list` 是 stream，
+请求形状未在真机验证）以 `errDSHUnsupported` 可读报错。会话级授权 `acceptForSession` 同样明确拒绝，不降级成「允许一次」。

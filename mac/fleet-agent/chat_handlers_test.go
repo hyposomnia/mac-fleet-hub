@@ -401,6 +401,35 @@ func TestChatSettingsUpdatesApprovalMode(t *testing.T) {
 	}
 }
 
+func TestDSHChatSettingsPreservesAdvertisedPreset(t *testing.T) {
+	previous := cfg.DSHEnabled
+	cfg.DSHEnabled = true
+	t.Cleanup(func() { cfg.DSHEnabled = previous })
+	withChatBackend(t, fakeChatBackend{
+		settingsFn: func(ctx context.Context, assistant, sessionID, approvalMode string) error {
+			if assistant != "dsh" || sessionID != "s1" || approvalMode != "custom-review" {
+				t.Fatalf("settings args got assistant=%s sessionID=%s approvalMode=%s", assistant, sessionID, approvalMode)
+			}
+			return nil
+		},
+		controlFn: func(context.Context, string, string) (ChatRuntimeState, error) {
+			return ChatRuntimeState{Status: "idle", ApprovalMode: "custom-review", ApprovalOptions: []ChatApprovalOption{{Value: "custom-review", Name: "Review"}}}, nil
+		},
+	})
+	req := httptest.NewRequest(http.MethodPost, "/api/chat/settings", bytes.NewBufferString(
+		`{"assistant":"dsh","sessionId":"s1","approvalMode":"custom-review"}`,
+	))
+	rr := httptest.NewRecorder()
+
+	handleChatSettings(rr, req)
+
+	var control ChatSessionControlSnapshot
+	if rr.Code != http.StatusOK || json.Unmarshal(rr.Body.Bytes(), &control) != nil || control.ApprovalMode != "custom-review" ||
+		control.ServerEpoch == "" || control.SnapshotVersion == 0 {
+		t.Fatalf("status=%d body=%s", rr.Code, rr.Body.String())
+	}
+}
+
 func TestChatQueueDecisionReturnsFreshControlSnapshot(t *testing.T) {
 	withChatBackend(t, fakeChatBackend{controlFn: func(context.Context, string, string) (ChatRuntimeState, error) {
 		return ChatRuntimeState{Status: "idle", ApprovalMode: "on-request"}, nil

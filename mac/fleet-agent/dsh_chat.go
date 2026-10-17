@@ -395,18 +395,23 @@ func (b *dshChatBackend) Release(ctx context.Context, assistant, sessionID strin
 	return nil
 }
 
-func (b *dshChatBackend) Settings(ctx context.Context, assistant, sessionID, approvalMode string) error {
-	// 权限预设要经 settings/mutate 写入 host 的 permission 命名空间，会改动用户的
-	// 真实 DSH 配置；该路径的形状（preset 取值、revision 语义）尚未在真机验证，
-	// 因此 v1 明确拒绝而不是猜。
-	return errDSHUnsupported
-}
-
 func (b *dshChatBackend) Control(ctx context.Context, assistant, sessionID string) (ChatRuntimeState, error) {
 	// WriterOwner 与本地是否跟踪过该会话无关：DSH 的写入方永远在 host 侧，
 	// 一个 host 进程内每个会话只有一个 Agent。TurnOwner 留空表示没有排他归属——
 	// DSH 的会话 inbox 是有序的，浏览器的 steer 与排队都安全。
 	state := ChatRuntimeState{Status: "idle", WriterOwner: "dsh-host"}
+	client, err := b.ensure(ctx)
+	if err == nil {
+		state.ApprovalOptions, err = b.permissionCatalog(ctx, client)
+		if err == nil {
+			state.ApprovalMode, err = b.permissionSelection(ctx, client, sessionID)
+		}
+	}
+	if err != nil {
+		state.ApprovalOptions = nil
+		state.ApprovalMode = ""
+		state.ApprovalError = err.Error()
+	}
 
 	b.sessMu.Lock()
 	defer b.sessMu.Unlock()

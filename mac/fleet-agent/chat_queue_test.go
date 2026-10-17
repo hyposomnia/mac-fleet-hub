@@ -405,11 +405,7 @@ func TestBackendQueueSenderAppliesApprovalModeBeforeSteer(t *testing.T) {
 	}
 }
 
-// TestBackendQueueSenderSkipsApprovalModeWithoutPreset 锁住 DSH 的投递路径。
-//
-// 回归背景（2026-09-22 真机）：dashboard 每条消息都带 approvalMode（默认 on-request），
-// Deliver 又无条件先调 Settings，而 dshChatBackend.Settings 刻意返回 errDSHUnsupported，
-// 于是**每条** DeepSeek 消息都停在 failed: dsh_unsupported，一次都没发出去。
+// DSH 消息必须沿用 host 当前权限，不重放排队时捕获的设置。
 func TestBackendQueueSenderSkipsApprovalModeWithoutPreset(t *testing.T) {
 	prev := cfg.DSHEnabled
 	t.Cleanup(func() { cfg.DSHEnabled = prev })
@@ -441,7 +437,7 @@ func TestBackendQueueSenderSkipsApprovalModeWithoutPreset(t *testing.T) {
 		t.Fatalf("deliver result=%+v err=%v", result, err)
 	}
 	if settingsCalls != 0 || steerCalls != 1 {
-		t.Fatalf("settings=%d steer=%d, want 0/1（没有权限预设就不该同步）", settingsCalls, steerCalls)
+		t.Fatalf("settings=%d steer=%d, want 0/1（DSH 投递不重放权限）", settingsCalls, steerCalls)
 	}
 }
 
