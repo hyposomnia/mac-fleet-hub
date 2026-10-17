@@ -5013,6 +5013,8 @@ function chatLinkHref(source) {
   return FleetPreview.resolveLocalLink(source, {
     macId: chat?.macId || state.macId,
     cwd: chat?.cwd || '',
+  }) || FleetPreview.resolveNetworkLink(source, {
+    macId: chat?.macId || state.macId,
   }) || source;
 }
 

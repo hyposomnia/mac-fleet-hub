@@ -251,6 +251,19 @@
     return queryURL('/view', { mac: context.macId, path, cwd: context.cwd || '' });
   }
 
+  // The URL alone cannot tell us whether a name needs the host's DNS, VPN or
+  // routing table. Resolve every web link in its originating device context.
+  function resolveNetworkLink(source, context = {}) {
+    const value = String(source || '').trim();
+    if (!/^m[1-9]\d*$/.test(String(context.macId || '')) || !/^(?:https?:\/\/|\/\/)/i.test(value)) return '';
+    try {
+      const url = new URL(value, root.location?.origin || 'https://fleet.invalid');
+      if (!['http:', 'https:'].includes(url.protocol)) return '';
+      if (root.location?.origin && url.origin === root.location.origin) return '';
+      return queryURL('/host-view', { mac: context.macId, url: url.href });
+    } catch (_) { return ''; }
+  }
+
   function fileEndpoint(kind, macId, path, options = {}) {
     if (!/^m\d+$/.test(String(macId || '')) || !path) return '';
     return queryURL(`/${macId}/api/file/${kind}`, {
@@ -826,7 +839,7 @@
       target.replaceChildren(root.FleetMarkdown.renderMarkdown(
         meta.content || '',
         (source) => resourceURL(source, baseContext),
-        (source) => resolveLocalLink(source, baseContext) || source,
+        (source) => resolveLocalLink(source, baseContext) || resolveNetworkLink(source, baseContext) || source,
       ));
       setPreviewState('markdown');
       return;
@@ -987,7 +1000,7 @@
     annotationSelection, annotationRects, revealAnnotation,
     onAnnotationSelection(callback) { annotationSelectionChanged = callback; },
     clearAnnotationSelection() { if(textEditor)textEditor.setCursor(textEditor.getCursor()); },
-    resolveLocalLink, resourceURL, fileEndpoint, formatBytes, isPreviewRoute, previewRequest, previewPathSegments,
+    resolveLocalLink, resolveNetworkLink, resourceURL, fileEndpoint, formatBytes, isPreviewRoute, previewRequest, previewPathSegments,
     safeHTMLDocument, rewriteCSSURLs, isTextPreviewPath, textPreviewMode, textWrapEnabled,
     htmlRuntimeResourcePath, updateTextWrapButton, setTextWrap, initRoute,
   };

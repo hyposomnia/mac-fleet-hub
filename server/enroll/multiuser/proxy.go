@@ -3,6 +3,7 @@ package multiuser
 import (
 	"context"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"net/http/httputil"
@@ -15,6 +16,7 @@ import (
 var devicePath = regexp.MustCompile(`^/(m[1-9][0-9]*)/(api|term|files|dsh)(/.*)?$`)
 
 func (server *Server) handleProxy(writer http.ResponseWriter, request *http.Request, session sessionState, user User) bool {
+	preview, isPreview := request.Context().Value(networkPreviewContextKey{}).(networkPreviewContext)
 	match := devicePath.FindStringSubmatch(request.URL.Path)
 	if len(match) == 0 {
 		return false
@@ -76,7 +78,14 @@ func (server *Server) handleProxy(writer http.ResponseWriter, request *http.Requ
 	defer stopSession()
 	server.watchSessionExpiry(ctx, cancel, session.Hash, session.Expires)
 	currentDevice, authorizationErr := server.AuthorizedDevice(user.ID, device.ID)
-	_, _, sessionErr := server.authenticate(request, true)
+	var sessionErr error
+	if isPreview {
+		if !server.networkPreviewSessionValid(session) {
+			sessionErr = fmt.Errorf("preview login expired")
+		}
+	} else {
+		_, _, sessionErr = server.authenticate(request, true)
+	}
 	if authorizationErr != nil || sessionErr != nil || currentDevice.NodeID != device.NodeID || currentDevice.IP != device.IP {
 		reject(writer, 404, "设备访问授权已失效")
 		return true
@@ -87,16 +96,32 @@ func (server *Server) handleProxy(writer http.ResponseWriter, request *http.Requ
 		outbound.URL.Host = target.Host
 		outbound.URL.Path = upstreamPath
 		outbound.URL.RawPath = ""
+		if kind == "api" {
+			outbound.URL.RawPath = strings.TrimPrefix(request.URL.EscapedPath(), "/"+device.ID)
+		}
 		outbound.Host = target.Host
 		for key := range outbound.Header {
 			lower := strings.ToLower(key)
-			if lower == "cookie" || lower == "authorization" || lower == "x-csrf-token" || strings.HasPrefix(lower, "x-fleet-") || strings.HasPrefix(lower, "x-forwarded-") || strings.HasPrefix(lower, "x-remote-") || lower == "remote-user" || lower == "forwarded" {
+			if lower == "cookie" || lower == "authorization" || lower == "x-csrf-token" || strings.HasPrefix(lower, "x-macfleet-preview-") || strings.HasPrefix(lower, "x-fleet-") || strings.HasPrefix(lower, "x-forwarded-") || strings.HasPrefix(lower, "x-remote-") || lower == "remote-user" || lower == "forwarded" {
 				outbound.Header.Del(key)
 			}
 		}
 		outbound.Header.Set("Origin", server.options.Origin)
 		outbound.Header.Set("X-Fleet-Device-ID", device.ID)
 		outbound.Header.Set("X-Fleet-Device-Token", credential)
+		if isPreview {
+			if authorization := request.Header.Get("Authorization"); authorization != "" {
+				outbound.Header.Set("Authorization", authorization)
+			}
+			if csrf := request.Header.Get("X-CSRF-Token"); csrf != "" {
+				outbound.Header.Set("X-CSRF-Token", csrf)
+			}
+			outbound.Header.Set("X-Macfleet-Preview-Credentials", request.Header.Get("X-Fleet-Preview-Credentials"))
+			outbound.Header.Set("X-Macfleet-Preview-Origin", preview.Origin)
+			outbound.Header.Set("X-Macfleet-Preview-Prefix", preview.Prefix)
+			outbound.Header.Set("X-Macfleet-Preview-ID", preview.ID)
+			outbound.Header.Set("X-Macfleet-Preview-Gateway", server.options.Origin)
+		}
 	}
 	transport, err := NewDeviceTransport(server.options.MeshProxy)
 	if err != nil {
@@ -114,6 +139,31 @@ func (server *Server) handleProxy(writer http.ResponseWriter, request *http.Requ
 	proxy.ModifyResponse = func(response *http.Response) error {
 		response.Header.Del("Set-Cookie")
 		response.Header.Set("Cache-Control", "no-store")
+		if isPreview {
+			if request.Method == http.MethodOptions && request.Header.Get("Access-Control-Request-Method") != "" {
+				response.Body.Close()
+				response.Body = http.NoBody
+				response.ContentLength = 0
+				response.Header.Set("Content-Length", "0")
+			}
+			// This also protects direct navigation and SVG/HTML served with an
+			// unexpected MIME type. Never grant allow-same-origin to arbitrary apps.
+			response.Header.Del("Content-Security-Policy-Report-Only")
+			response.Header.Set("Content-Security-Policy", "sandbox allow-scripts allow-forms allow-downloads allow-popups allow-top-navigation-by-user-activation; default-src 'none'; script-src 'unsafe-inline' 'unsafe-eval' "+server.options.Origin+"; style-src 'unsafe-inline' "+server.options.Origin+"; connect-src "+server.options.Origin+" "+strings.Replace(server.options.Origin, "http", "ws", 1)+"; img-src data: blob: "+server.options.Origin+"; media-src blob: "+server.options.Origin+"; font-src data: "+server.options.Origin+"; frame-src "+server.options.Origin+"; form-action "+server.options.Origin+"; base-uri 'none'; frame-ancestors 'self'")
+			response.Header.Set("Referrer-Policy", "no-referrer")
+			if response.StatusCode == http.StatusNotFound && response.Header.Get("X-Macfleet-Preview-Version") != "1" {
+				// Older devices have no forwarding endpoint; never fall back to
+				// opening the viewer's loopback address.
+				response.Header.Set("X-Fleet-Preview-Error", "device-upgrade-required")
+				message := "这台电脑需要更新 Fleet 客户端才能打开宿主网络网页。请更新后重新打开链接。"
+				response.Body.Close()
+				response.Body = io.NopCloser(strings.NewReader(message))
+				response.ContentLength = int64(len(message))
+				response.Header.Set("Content-Length", fmt.Sprint(len(message)))
+				response.Header.Set("Content-Type", "text/plain; charset=utf-8")
+			}
+			return nil
+		}
 		if location := response.Header.Get("Location"); location != "" {
 			parsed, err := url.Parse(location)
 			if err != nil {

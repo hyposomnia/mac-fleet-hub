@@ -2118,6 +2118,7 @@ func serveAgent(listener net.Listener, ready func()) error {
 	mux.HandleFunc("/api/reload", handleReload)
 	mux.HandleFunc("/api/proxy", handleProxy)
 	mux.HandleFunc("/api/info", handleInfo)
+	mux.Handle("/api/network-preview/", newNetworkPreviewProxy())
 	mux.Handle("/api/dsh-native/", newDSHNativeProxy(cfg.MacIndex, resolveDSHNativeTarget, markDSHNativeProxyFailure))
 	mux.HandleFunc("/api/file/list", handleFileList)
 	mux.HandleFunc("/api/file/preview", handleFilePreview)

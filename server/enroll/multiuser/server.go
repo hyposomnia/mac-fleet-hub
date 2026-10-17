@@ -196,6 +196,10 @@ func (server *Server) ServeHTTP(writer http.ResponseWriter, request *http.Reques
 	writer.Header().Set("X-Content-Type-Options", "nosniff")
 	writer.Header().Set("Referrer-Policy", "same-origin")
 	path := request.URL.Path
+	if strings.HasPrefix(path, networkPreviewPrefix) {
+		server.handleNetworkPreview(writer, request)
+		return
+	}
 	if path == "/install.sh" {
 		server.handleNativeInstall(writer, request)
 		return
@@ -286,6 +290,10 @@ func (server *Server) ServeHTTP(writer http.ResponseWriter, request *http.Reques
 		return
 	}
 	server.renewSession(writer, request, session)
+	if path == "/host-view" {
+		server.openNetworkPreview(writer, request, session, user)
+		return
+	}
 	if unsafeMethod(request.Method) {
 		match := devicePath.FindStringSubmatch(path)
 		embedded := len(match) > 0 && (match[2] == "files" || match[2] == "dsh" || (match[2] == "api" && strings.HasPrefix(match[3], "/dsh-native/")))
