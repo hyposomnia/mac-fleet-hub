@@ -1586,6 +1586,90 @@ function normalizeDeviceSessions(macId, data) {
   return sessions;
 }
 
+// 保留 HTTP 状态和服务端错误码，不能把列表读取失败当成真正的空列表。
+async function sessionLoadError(macId, error, assistant) {
+  let info = null;
+  if (assistant === 'codex' && error.code === 'appserver_unavailable') {
+    try { info = await probeAssistantInfo(macId); } catch (_) {}
+  }
+  return { code: error.code || '', status: error.status || 0, message: error.message || '', info };
+}
+
+function sessionConnectionProblem(macId, error) {
+  const code = error?.code || '';
+  const status = error?.status || 0;
+  const message = typeof error === 'string' ? error : error?.message || '';
+  const detail = `${code} ${message}`;
+  if (status === 401) return {
+    reason: '登录或设备授权已失效。',
+    solution: '重新登录 Fleet；若仍失败，在这台 Mac 的 Fleet 设置中检查设备关联。',
+  };
+  if (status === 403 || status === 404) return {
+    reason: status === 403 ? '当前请求没有设备访问权限。' : '设备已移除，或访问授权已失效。',
+    solution: '刷新设备列表，确认当前账号与这台 Mac 关联的账号一致。',
+  };
+  if (/需要升级并重新关联/.test(detail)) return {
+    reason: '设备授权协议需要更新。', solution: '更新这台 Mac 的 Fleet 客户端，再重新关联当前账号。',
+  };
+  if (state.gatewayDown) return {
+    reason: '无法连接 Fleet 网关。', solution: '检查当前网络，待网关恢复后重试。',
+  };
+  if (state.nodes[macId] === false || code === 'device_unavailable') return {
+    reason: '设备离线，无法读取会话。', solution: '唤醒这台 Mac，确认 Fleet 正在运行且网络已连接，再重试。',
+  };
+  if (code === 'appserver_unavailable') {
+    if (error.info?.codexAppServerMode === 'shared' && error.info.codexAppServerConnected === false) return {
+      reason: '设备在线，但 ChatGPT 共享连接尚未建立。',
+      solution: '在这台 Mac 打开 Codex Desktop；若已打开，等当前任务结束后完全退出，修复 Fleet 的 Desktop 共享配置，再重新打开。',
+    };
+    return {
+      reason: 'ChatGPT 会话服务暂时不可用。',
+      solution: '先重试；若持续失败，检查这台 Mac 的 Codex Desktop 与 Fleet 连接配置，并更新 Fleet 客户端。',
+    };
+  }
+  if (code === 'agent_restarting' || code === 'appserver_recovered') return {
+    reason: 'ChatGPT 连接正在恢复。', solution: '稍等片刻后重试。',
+  };
+  if (code === 'appserver_timeout') return {
+    reason: 'ChatGPT 会话服务响应超时。', solution: '稍等后重试；若持续超时，在这台 Mac 检查 Codex Desktop 的运行状态。',
+  };
+  if (/dsh_host_unavailable|dsh_auth_failed/.test(detail)) return {
+    reason: /dsh_auth_failed/.test(detail) ? 'DeepSeek Desktop 连接认证失败。' : 'DeepSeek Desktop 连接不可用。',
+    solution: '在这台 Mac 打开 DSH Desktop，并检查其登录状态，再重试。',
+  };
+  if (status === 502 || status === 504 || !status) return {
+    reason: status === 504 ? '连接设备超时。' : '无法连接设备服务。',
+    solution: '检查这台 Mac 的网络和 Fleet 运行状态，再重试。',
+  };
+  return {
+    reason: '会话列表读取失败，暂时无法确定原因。',
+    solution: '先重试；若持续失败，检查这台 Mac 的 Fleet 日志。',
+  };
+}
+
+function sessionConnectionFailures() {
+  const errors = { ...state.sessionErrors };
+  if (!Object.keys(errors).length && state.sessionMacId === 'all' && MACS.length && !MACS.some(mac => state.nodes[mac.id])) {
+    for (const mac of MACS) errors[mac.id] = { code: 'device_unavailable' };
+  }
+  return Object.entries(errors);
+}
+
+function syncSessionConnectionNotes() {
+  const wrap = $('#session-groups');
+  if (!wrap) return;
+  $$('[data-session-failure]', wrap).forEach(note => note.remove());
+  for (const [macId, error] of sessionConnectionFailures()) {
+    const problem = sessionConnectionProblem(macId, error);
+    wrap.append(h('section', { class: 'session-connection-note', dataset: { sessionFailure: macId }, role: 'status' },
+      h('div', { class: 'session-connection-heading' },
+        h('strong', { text: `${macName(macId)} · 无法加载会话` }),
+        h('button', { type: 'button', class: 'session-connection-retry', text: '重试', onclick: () => loadSessions() })),
+      h('p', { text: `原因：${problem.reason}` }),
+      h('p', { text: `解决办法：${problem.solution}` })));
+  }
+}
+
 // 当前 DSH 是否降级（能力块在，但 Desktop 没跑 / 报了 degraded）：列表只剩磁盘会话。
 function dshDegraded() {
   if (state.assistant !== 'dsh') return false;
@@ -1614,16 +1698,18 @@ function renderSessionResults(opts = {}) {
   const previousScrollTop = opts.preserveScroll ? wrap.scrollTop : 0;
   const sessions = [...(state.sessionResults || [])].sort((a, b) =>
     (Number(b.pinned) - Number(a.pinned)) || (Number(b.mtime) - Number(a.mtime)));
+  const failures = sessionConnectionFailures();
+  const projects = state.sessionProjects.filter(project => !state.sessionErrors[project.macId]);
   clear(wrap);
-  if (!sessions.length && !(state.sessionView === 'project' && state.sessionProjects.length &&
-      groupSessionsByProject([], state.sessionProjects, state.sessionSearch).length)) {
+  if (!sessions.length && !(state.sessionView === 'project' && projects.length &&
+      groupSessionsByProject([], projects, state.sessionSearch).length)) {
     let message = state.sessionSearch ? '没有匹配的会话' : (state.scope === 'all' ? '没有已归档会话' : '没有未归档会话');
     if (state.sessionMacId === 'all' && MACS.length && !MACS.some((m) => state.nodes[m.id])) message = '设备均处于离线状态';
-    wrap.append(h('div', { class: 'empty', text: message }));
+    if (!failures.length) wrap.append(h('div', { class: 'empty', text: message }));
   } else if (state.sessionView === 'recent') {
     wrap.append(h('div', { class: 'recent-session-list' }, ...sessions.map(sessionRow)));
   } else {
-    const ordered = FleetCore.orderedSessionGroups(sessions, state.sessionProjects, state.sessionSearch);
+    const ordered = FleetCore.orderedSessionGroups(sessions, projects, state.sessionSearch);
 
     for (const g of ordered) {
       const collapsed = state.collapsed.has(g.key);
@@ -1654,10 +1740,7 @@ function renderSessionResults(opts = {}) {
       wrap.append(grp);
     }
   }
-  const failed = Object.keys(state.sessionErrors || {});
-  if (failed.length) {
-    wrap.append(h('div', { class: 'session-partial-note', text: `${failed.map(macName).join('、')} 暂时无法连接` }));
-  }
+  syncSessionConnectionNotes();
   syncDshBanner(); // 降级横幅放列表顶部（幂等：先摘掉旧的再加）
   if (opts.preserveScroll) wrap.scrollTop = previousScrollTop;
   requestAnimationFrame(maybeLoadMoreSessions);
@@ -1693,6 +1776,7 @@ function reconcileRecentSessionRows() {
     index += 1;
   }
   for (const row of existing.values()) row.remove();
+  syncSessionConnectionNotes();
   requestAnimationFrame(maybeLoadMoreSessions);
 }
 
@@ -1733,7 +1817,7 @@ async function loadSessions(opts = {}) {
       ]);
       return { macId, data, projects };
     } catch (error) {
-      return { macId, error };
+      return { macId, error: await sessionLoadError(macId, error, assistant) };
     }
   }));
   if (stale()) {
@@ -1746,19 +1830,21 @@ async function loadSessions(opts = {}) {
   wrap.classList.remove('loading-more');
   setSessionsLoading(false);
 
-  const errors = {};
+  const errors = append ? { ...state.sessionErrors } : {};
   const nextCursors = append ? { ...previousCursors } : {};
   const incoming = [];
   for (const result of results) {
     if (result.error) {
-      errors[result.macId] = result.error.message;
+      errors[result.macId] = result.error;
+      nextCursors[result.macId] = '';
       continue;
     }
+    delete errors[result.macId];
     incoming.push(...normalizeDeviceSessions(result.macId, result.data));
     if (assistantCapabilities(assistant).sessionCursor) nextCursors[result.macId] = result.data.nextCursor || '';
     else nextCursors[result.macId] = '';
   }
-  if (!targets.length && sessionMacId !== 'all') errors[sessionMacId] = '设备不可用';
+  if (!targets.length && sessionMacId !== 'all') errors[sessionMacId] = { code: 'device_unavailable' };
   state.sessionErrors = errors;
   state.sessionCursors = nextCursors;
   if (!append) state.sessionProjects = results.flatMap((result) => (result.projects || []).map((project) => ({
@@ -1802,12 +1888,13 @@ async function refreshSessionsSoft() {
   state.sessionsSoftLoading = true;
   const results = await Promise.all(targets.map(async (macId) => {
     try { return { macId, data: await sessionQuery(macId, { soft: true }) }; }
-    catch (error) { return { macId, error }; }
+    catch (error) { return { macId, error: await sessionLoadError(macId, error, assistant) }; }
   }));
   state.sessionsSoftLoading = false;
   if (state.mode !== 'sessions' || state.sessionMacId !== sessionMacId || state.assistant !== assistant ||
       state.scope !== scope || state.sessionSearch !== search) return;
 
+  state.sessionErrors = Object.fromEntries(results.filter(result => result.error).map(result => [result.macId, result.error]));
   const fresh = [];
   const freshByMac = {};
   for (const result of results) {
@@ -1871,6 +1958,7 @@ async function refreshSessionsSoft() {
     el.classList.toggle('session-waiting', sessionHasVisibleRequest(session));
     updateSessionStateDot(el.querySelector('.session-state-dot'), session);
   }
+  syncSessionConnectionNotes();
   syncSessionRuntimeIndicators();
 }
 

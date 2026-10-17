@@ -1673,7 +1673,13 @@ html[data-workspace-tab="true"] .preview-encoding-control::after { right: 10px; 
 .ses-meta .session-project-name { display: inline-flex; align-items: center; gap: 4px; flex: 1; min-width: 0; }
 .ses-meta .session-project-icon { width: 1em; height: 1em; flex: none; color: inherit; }
 .ses-meta .session-project-label { min-width: 0; }
-.session-partial-note { margin: 8px; padding: 9px 10px; border-radius: var(--radius-compact); background: var(--danger-soft); color: var(--danger); font-size: var(--t-caption); }
+.session-partial-note { margin: 8px; padding: 9px 10px; color: var(--danger); font-size: var(--t-caption); }
+.session-connection-note { margin: 20px 14px; padding: 0; background: transparent; color: var(--text-2); font-size: var(--t-caption); line-height: 1.65; overflow-wrap: anywhere; }
+.session-connection-heading { display: flex; align-items: baseline; gap: 12px; justify-content: space-between; }
+.session-connection-heading strong { color: var(--text-1); font-weight: 600; }
+.session-connection-note p { margin: 7px 0 0; }
+.session-connection-retry, .session-connection-retry:hover { flex: none; padding: 0; border: 0; border-radius: 0; background: transparent; box-shadow: none; color: var(--accent-text); font: inherit; cursor: pointer; }
+.session-connection-retry:hover { text-decoration: underline; }
 
 #file-browser { flex: 1; min-width: 0; min-height: 0; overflow: hidden; background: var(--bg); }
 #app[data-mode="files"] #file-browser { display: flex; flex-direction: column; }
