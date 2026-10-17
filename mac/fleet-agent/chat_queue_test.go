@@ -103,7 +103,7 @@ func TestChatQueueAllowedActionsAreServerDerived(t *testing.T) {
 		access string
 		want   string
 	}{
-		{chatQueueQueued, chatAccessReadWrite, "cancel"},
+		{chatQueueQueued, chatAccessReadWrite, "steer,cancel"},
 		{chatQueueSteering, chatAccessReadWrite, ""},
 		{chatQueueWaitingTurn, chatAccessReadWrite, "steer,cancel"},
 		{chatQueueWaitingTurn, chatAccessReadOnly, "cancel"},

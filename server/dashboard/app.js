@@ -2852,7 +2852,7 @@ async function loadServerChatQueue(chat) {
 }
 
 const CHAT_QUEUE_UI = Object.freeze({
-  queued: { placement: 'transcript', label: '消息已保存' },
+  queued: { placement: 'followup', label: '已排队' },
   steering: { placement: 'transcript', label: '正在插入当前任务…' },
   waiting_turn: { placement: 'followup', label: '已排队' },
   writer_confirmation_required: { placement: 'transcript', label: '此会话正在其他 ChatGPT 客户端中使用。可排队等待，或确认强制接管。' },
@@ -5169,6 +5169,8 @@ function renderChatFollowups() {
       onclick: () => { chat.deferredSend = null; renderChatFollowups(); updateChatComposerState(); syncPendingChatProject(); } })));
   for (const item of items) {
     const images = item.images || [];
+    const actions = chatQueuePresentation(item).actions;
+    const steerLabel = chat.turnPhase === 'running' ? '引导当前任务' : '立即发送';
     const label = item.displayText || item.text
       || (item.annotations?.items?.length ? `${item.annotations.items.length} 条注释` : (item.skills?.length ? item.skills.map((skill) => `$${skill.name}`).join(' ') : `${images.length} 个附件`));
     box.append(h('div', { class: 'chat-followup', dataset: { id: item.id } },
@@ -5183,12 +5185,12 @@ function renderChatFollowups() {
       images.length ? h('span', { class: 'chat-followup-images', text: `+${images.length} 附件` }) : null,
       h('div', { class: 'chat-followup-actions' },
         h('button', { type: 'button', class: 'iconbtn bare chat-followup-edit', title: '编辑排队消息', 'aria-label': '编辑排队消息',
-          disabled: item.decisionPending || chatControlActionsBlocked() ? '' : null, onclick: () => editServerChatQueue(item) },
+          disabled: !actions.includes('cancel') || item.decisionPending || chatControlActionsBlocked() ? '' : null, onclick: () => editServerChatQueue(item) },
           svgIconParts('ic', [{ tag: 'path', attrs: { d: 'M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L8 18l-4 1 1-4Z' } }])),
-        h('button', { type: 'button', class: 'iconbtn bare chat-followup-guide', title: '引导当前任务', 'aria-label': '引导当前任务',
-          disabled: item.decisionPending || chatControlActionsBlocked() ? '' : null, onclick: () => decideServerChatQueue(item, 'steer') },
+        h('button', { type: 'button', class: 'iconbtn bare chat-followup-guide', title: actions.includes('steer') ? steerLabel : '当前客户端暂不支持此消息立即发送', 'aria-label': steerLabel,
+          disabled: !actions.includes('steer') || item.decisionPending || chatControlActionsBlocked() ? '' : null, onclick: () => decideServerChatQueue(item, 'steer') },
           svgIconParts('ic', [{ tag: 'path', attrs: { d: 'M4 5v6a4 4 0 0 0 4 4h11M15 11l4 4-4 4' } }])),
-        h('button', { type: 'button', class: 'iconbtn bare chat-followup-delete', disabled: item.decisionPending || chatControlActionsBlocked() ? '' : null, title: '删除排队消息', 'aria-label': '删除排队消息', onclick: () => decideServerChatQueue(item, 'cancel') },
+        h('button', { type: 'button', class: 'iconbtn bare chat-followup-delete', disabled: !actions.includes('cancel') || item.decisionPending || chatControlActionsBlocked() ? '' : null, title: '删除排队消息', 'aria-label': '删除排队消息', onclick: () => decideServerChatQueue(item, 'cancel') },
           svgIconParts('ic', [{ tag: 'path', attrs: { d: 'M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6M10 11v5M14 11v5' } }])))));
   }
 }

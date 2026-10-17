@@ -81,7 +81,7 @@ func (s *chatTakeoverService) Decide(id, action, audit string, expectedVersion i
 		}
 		return item, err
 	case "steer":
-		item, err := s.queue.updateExpected(id, []string{chatQueueWaitingTurn}, func(i *ChatQueueItem) error {
+		item, err := s.queue.updateExpected(id, []string{chatQueueQueued, chatQueueWaitingTurn}, func(i *ChatQueueItem) error {
 			i.Status, i.DeliveryMode, i.Error = chatQueueQueued, chatDeliveryAuto, ""
 			return nil
 		})

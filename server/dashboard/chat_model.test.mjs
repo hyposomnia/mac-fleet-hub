@@ -1354,7 +1354,7 @@ test('server queue states map to distinct native UI treatments and actions', () 
 
 test('every server queue state has an explicit placement, label, and legal browser actions', () => {
   const expected = {
-    queued: ['transcript', ['cancel']],
+    queued: ['followup', ['steer', 'cancel']],
     steering: ['transcript', []],
     waiting_turn: ['followup', ['steer', 'cancel']],
     writer_confirmation_required: ['transcript', ['wait', 'force', 'cancel']],
@@ -1384,7 +1384,7 @@ test('every server queue state has an explicit placement, label, and legal brows
 
 test('queue transcript cards render exactly the actions permitted by the state matrix', () => {
   const cases = {
-    queued: ['消息已保存', '取消'],
+    queued: ['已排队', '取消'],
     steering: ['正在插入当前任务'],
     writer_confirmation_required: ['等待并发送', '强制接管', '取消'],
     waiting_writer: ['强制接管', '取消'],
@@ -1438,10 +1438,10 @@ test('Fleet-owned turn queue reuses the composer follow-up stack instead of tran
   assert.match(followups, /decideServerChatQueue\(item, 'steer'\)/);
   assert.match(followups, /decideServerChatQueue\(item, 'cancel'\)/);
   assert.match(followups, /title: '编辑排队消息', 'aria-label': '编辑排队消息'/);
-  assert.match(followups, /title: '引导当前任务', 'aria-label': '引导当前任务'/);
+  assert.match(followups, /'aria-label': steerLabel/);
   assert.match(followups, /title: '删除排队消息', 'aria-label': '删除排队消息'/);
   assert.doesNotMatch(followups, />引导当前任务<|'引导中…'/);
-  assert.match(followups, /disabled: item\.decisionPending \|\| chatControlActionsBlocked\(\) \? '' : null/);
+  assert.match(followups, /disabled: !actions\.includes\('steer'\) \|\| item\.decisionPending/);
   assert.match(appSrc, /if \(!await decideServerChatQueue\(item, 'cancel'\) \|\| state\.chat !== chat\) return;[\s\S]*restoreChatComposerItem\(chat, item\)/);
   assert.match(appSrc, /previous\?\.stateVersion === item\.stateVersion/);
   assert.match(appSrc, /chat\.model = FleetChatModel\.appendUserMessage/);
@@ -4908,5 +4908,35 @@ test('DSH permission failures restore confirmed selection and success uses serve
   } finally {
     appState.chat=previousChat;appSandbox.document.querySelector=originalQuery;
     vm.runInContext('({api,toast}=__permissionOriginals)',appSandbox);
+  }
+});
+
+test('queued messages render editable followups with steer gated by agent capability', () => {
+  const source = appSrc.slice(appSrc.indexOf('function renderChatFollowups()'), appSrc.indexOf('function renderChatAttachments()'));
+  for (const [phase, actions, canSteer] of [['idle', ['steer','cancel'], true], ['running',['steer','cancel'],true], ['idle',['cancel'],false]]) {
+    const box = testElement('div');
+    const item = {id:'queue-1', status:'queued', text:'待发送的消息', allowedActions:actions};
+    const calls = [];
+    const context = {
+      state: {chat:{turnPhase:phase,followups:[item]}},
+      $: () => box, clear: node => node.replaceChildren(),
+      h(tag, attrs, ...children) { return {tag, attrs, children:children.filter(Boolean)}; },
+      svgIconParts: () => null,
+      chatQueuePresentation, isFleetQueueFollowup: i => chatQueuePresentation(i).placement === 'followup',
+      chatControlActionsBlocked: () => false,
+      editServerChatQueue: i => calls.push(['edit',i.id]),
+      decideServerChatQueue: (i,action) => calls.push([action,i.id]),
+    };
+    vm.runInNewContext(source+'\nrenderChatFollowups();',context);
+    assert.equal(box.hidden,false);
+    assert.equal(box.children.length,1);
+    const buttons = box.children[0].children.at(-1).children;
+    assert.equal(buttons.length,3);
+    assert.equal(buttons[1].attrs.disabled,canSteer ? null : '');
+    assert.equal(buttons[1].attrs['aria-label'],phase==='running' ? '引导当前任务' : '立即发送');
+    buttons[0].attrs.onclick();
+    if (canSteer) buttons[1].attrs.onclick();
+    buttons[2].attrs.onclick();
+    assert.deepEqual(calls,canSteer ? [['edit','queue-1'],['steer','queue-1'],['cancel','queue-1']] : [['edit','queue-1'],['cancel','queue-1']]);
   }
 });
