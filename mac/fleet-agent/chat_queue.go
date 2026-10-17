@@ -321,9 +321,7 @@ func chatQueueAllowedActions(status, accessMode string) []string {
 func chatQueueAllowedActionsWithTakeover(status, accessMode string, takeoverAvailable bool) []string {
 	readOnly := accessMode == chatAccessReadOnly
 	switch status {
-	case chatQueueQueued:
-		return []string{"cancel"}
-	case chatQueueWaitingTurn:
+	case chatQueueQueued, chatQueueWaitingTurn:
 		if readOnly {
 			return []string{"cancel"}
 		}
@@ -584,15 +582,50 @@ func (q *chatQueue) ClaimNext() (ChatQueueItem, bool, error) {
 			items = append(items, copyChatQueueAnnotations(item))
 		}
 	}
-	sort.Slice(items, func(i, j int) bool { return items[i].CreatedAt < items[j].CreatedAt })
-	seenSession := map[string]bool{}
+	// Keep FIFO within each session, but schedule session heads by their last
+	// attempt so a busy thread cannot starve unrelated conversations.
+	sort.Slice(items, func(i, j int) bool {
+		if items[i].CreatedAt == items[j].CreatedAt {
+			return items[i].ID < items[j].ID
+		}
+		return items[i].CreatedAt < items[j].CreatedAt
+	})
+	heads := map[string]ChatQueueItem{}
+	blocked := map[string]bool{}
+	for _, item := range items {
+		key := chatSessionStateKey(item.Assistant, item.SessionID)
+		head, exists := heads[key]
+		if blocked[key] {
+			continue
+		}
+		switch item.Status {
+		case chatQueueSending, chatQueueSteering, chatQueueRecovering, chatQueueUncertain, chatQueueTakingOver, chatQueueTakeoverCheck:
+			heads[key], blocked[key] = item, true
+			continue
+		}
+		// Explicit steer may pass pending messages, never in-flight or uncertain
+		// deliveries. It still goes through the same session operation lock.
+		if !exists || ((head.Status == chatQueueQueued || head.Status == chatQueueWaitingTurn) &&
+			head.DeliveryMode != chatDeliveryAuto && item.Status == chatQueueQueued && item.DeliveryMode == chatDeliveryAuto) {
+			heads[key] = item
+		}
+	}
+	items = items[:0]
+	for _, head := range heads {
+		items = append(items, head)
+	}
+	sort.Slice(items, func(i, j int) bool {
+		if items[i].AttemptedAt != items[j].AttemptedAt {
+			return items[i].AttemptedAt < items[j].AttemptedAt
+		}
+		if items[i].CreatedAt != items[j].CreatedAt {
+			return items[i].CreatedAt < items[j].CreatedAt
+		}
+		return items[i].ID < items[j].ID
+	})
 	dirty := false
 	for _, snapshot := range items {
 		key := chatSessionStateKey(snapshot.Assistant, snapshot.SessionID)
-		if seenSession[key] {
-			continue
-		}
-		seenSession[key] = true
 		if !chatQueueActionable(snapshot.Status) {
 			continue
 		}

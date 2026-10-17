@@ -2748,7 +2748,7 @@ func (b *codexChatBackend) Settings(ctx context.Context, assistant, sessionID, a
 	if err != nil {
 		return err
 	}
-	if codexUsesSharedDaemon() && !loaded {
+	if codexUsesSharedDaemon() {
 		if err := b.ensureThreadLoaded(ctx, rpc, sessionID); err != nil {
 			return err
 		}
@@ -2758,7 +2758,27 @@ func (b *codexChatBackend) Settings(ctx context.Context, assistant, sessionID, a
 		params[key] = value
 	}
 	if _, err = rpc.call(ctx, "thread/settings/update", params); err != nil {
-		return err
+		if !codexUsesSharedDaemon() || !codexThreadNotFound(err) {
+			return err
+		}
+		// A restart or thread unload can invalidate our loaded-thread cache.
+		// Reload only this thread on the shared runtime, then retry the
+		// idempotent settings update once. Never start a turn or take a writer
+		// from Desktop through the isolated settings path. The transport may
+		// already have reconnected, so use the backend's current connection.
+		rpc, err = b.ensure(ctx)
+		if err != nil {
+			return err
+		}
+		b.mu.Lock()
+		delete(b.loadedThreads, sessionID)
+		b.mu.Unlock()
+		if err = b.ensureThreadLoaded(ctx, rpc, sessionID); err != nil {
+			return err
+		}
+		if _, err = rpc.call(ctx, "thread/settings/update", params); err != nil {
+			return err
+		}
 	}
 	b.applyApprovalMode(rpc, sessionID, approvalMode)
 	return nil
