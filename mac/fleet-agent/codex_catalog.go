@@ -275,6 +275,12 @@ func (b *codexChatBackend) MutateThread(ctx context.Context, sessionID, action, 
 	if err != nil {
 		return err
 	}
+	// Serialize metadata changes with the final automatic title write.
+	b.titleMu.Lock()
+	defer b.titleMu.Unlock()
+	if action == "rename" || action == "archive" || action == "delete" {
+		delete(b.titleRequests, sessionID)
+	}
 	switch action {
 	case "rename":
 		name := strings.TrimSpace(value)

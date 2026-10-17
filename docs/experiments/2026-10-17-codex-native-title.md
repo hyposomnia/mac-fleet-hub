@@ -63,3 +63,26 @@ FLEET_TITLE_SPIKE=1 go test -run '^TestCodexNativeTitleSpike$' -count=1 -v .
 - 正式会话持久化标题，尊重用户手动改名；生成期间需检查目标名称是否变化。
 - 失败允许重试，不能把截取原文作为“AI 已总结”的成功结果。
 - 同步列表、缓存聊天标题和正在打开的窗口。
+
+## SaaS 接入（同日）
+
+生产实现位于 `mac/fleet-agent/codex_title.go`，新建会话的首次成功 `turn/start`
+触发后台标题生成。仅对本次 agent 运行期间由 Fleet 新建的会话生效，不批量回填历史
+会话；agent 在新建与首次发送之间重启时，当前实现不会补跑该标题任务。
+
+- 独立连接同一个已存在的 shared runtime，不新建 writer 进程，不消费聊天连接事件。
+- 最多同时生成两个标题，含排队在内 90 秒超时；失败最多重试一次，沿用首次输入。
+- 输入最多 6000 字符，仅发送文字，不额外发送附件。图片独立输入保持原有标题回退。
+- 写回前回读名称，已有命名或已归档会话跳过；Fleet 改名、归档、删除使待处理任务失效。
+- 写回连接独立且限时，失败不触发聊天连接重启、不影响正文发送。
+- Web 每次会话软刷新同步分组列表、缓存聊天及当前窗口标题。
+
+将原探针改为直接调用生产实现后再次实测：
+
+```text
+AI title: 多台 Mac 网页管理与移动任务监控
+production generator + guarded thread/name/set + thread/read: title matches
+--- PASS: TestCodexNativeTitleSpike (11.11s)
+```
+
+这次完成源码接入和真实 RPC 探针；正式签名客户端发布、安装后的端到端验收另行执行。

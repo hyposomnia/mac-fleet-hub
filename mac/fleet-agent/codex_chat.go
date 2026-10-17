@@ -83,8 +83,12 @@ type codexRolloutToolsCache struct {
 }
 
 type codexChatBackend struct {
-	connect codexConnector
-	restart func(error)
+	connect       codexConnector
+	titleMu       sync.Mutex
+	titleRequests map[string]*codexTitleRequest
+	generateTitle func(context.Context, string) (string, error)
+	titleConnect  codexConnector
+	restart       func(error)
 
 	connectMu           sync.Mutex
 	turnProcessMu       sync.Mutex
@@ -128,6 +132,8 @@ type codexChatBackend struct {
 func newCodexChatBackend(connect codexConnector) *codexChatBackend {
 	return &codexChatBackend{
 		connect:             connect,
+		titleConnect:        connect,
+		titleRequests:       map[string]*codexTitleRequest{},
 		restart:             scheduleFleetAgentRestart,
 		loadedThreads:       map[string]bool{},
 		subs:                map[string]map[chan ChatEvent]struct{}{},
@@ -159,6 +165,8 @@ func newCodexChatBackend(connect codexConnector) *codexChatBackend {
 
 func newAgentChatBackend() chatBackend {
 	b := newCodexChatBackend(connectCodexAppServer)
+	b.generateTitle = generateCodexTitle
+	b.titleConnect = connectCodexTitleRuntime
 	go b.runWriterLeaseReaper(context.Background(), 30*time.Second)
 	if codexUsesSharedDaemon() {
 		go b.runCodexAppToolsPipeWatcher(context.Background(), 10*time.Second)
@@ -836,6 +844,7 @@ func (b *codexChatBackend) Start(ctx context.Context, assistant, cwd, mode strin
 	}
 	b.approvalModes[sessionID] = approvalMode
 	b.mu.Unlock()
+	b.prepareTitle(sessionID)
 	return ChatStartResult{
 		SessionID: sessionID, Cwd: res.Cwd,
 		Model: res.Model, Effort: res.ReasoningEffort, ServiceTier: res.ServiceTier,
@@ -2568,6 +2577,7 @@ func (b *codexChatBackend) Input(ctx context.Context, assistant, sessionID, text
 	if approvalMode == "full-access" {
 		b.applyApprovalMode(rpc, sessionID, approvalMode)
 	}
+	b.scheduleTitle(sessionID, text)
 	return ChatInputResult{TurnID: res.Turn.ID}, nil
 }
 

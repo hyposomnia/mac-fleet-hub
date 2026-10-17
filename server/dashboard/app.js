@@ -2029,7 +2029,7 @@ async function refreshSessionsSoft() {
     const current = currentByKey.get(sessionKey(session));
     if (current) {
       Object.assign(current, {
-        live: session.live, waiting: session.waiting, status: session.status, mtime: session.mtime,
+        title: session.title, live: session.live, waiting: session.waiting, status: session.status, mtime: session.mtime,
         outputEndedAt: session.outputEndedAt, readAt: session.readAt,
         desktopUnread: session.desktopUnread,
         markedUnread: session.markedUnread, readStateVersion: session.readStateVersion,
@@ -2040,6 +2040,8 @@ async function refreshSessionsSoft() {
   for (const el of rows) {
     const session = freshByKey.get(`${el.dataset.mac}\n${el.dataset.assistant}\n${el.dataset.sid}`);
     if (!session) continue;
+    const title = el.querySelector('.t');
+    if (title) title.textContent = session.title || '(无标题)';
     el.classList.toggle('session-waiting', sessionHasVisibleRequest(session));
     updateSessionStateDot(el.querySelector('.session-state-dot'), session);
   }
@@ -3203,6 +3205,10 @@ function updateCachedChatFromSession(macId, session) {
   if (!session?.sessionId) return;
   const chat = state.chatCache.get(chatCacheKey(macId, session.sessionId, session.assistant));
   updateChatUpdatedAt(chat, session.mtime);
+  if (chat && session.title && chat.title !== session.title) {
+    chat.title = session.title;
+    renderChatOwnershipHead(chat);
+  }
   if (chat?.historyReady) session.waitingVisible = pendingChatInteractionCount(chat) > 0;
 }
 

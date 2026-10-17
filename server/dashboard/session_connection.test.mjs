@@ -139,3 +139,28 @@ test('connection notices and DSH degraded notes have no tinted card background',
   assert.match(css, /\.session-connection-note\s*\{[^}]*background:\s*transparent/);
   assert.doesNotMatch(css.match(/\.session-partial-note\s*\{[^}]*}/)?.[0] || '', /background|border-radius|box-shadow/);
 });
+
+test('soft project refresh updates AI title in row, cached chat and active header', async () => {
+  const session = { macId: 'm4', assistant: 'codex', sessionId: 'thread', title: 'old preview', mtime: 1 };
+  const fresh = { ...session, title: 'AI generated title', mtime: 2 };
+  const chat = { title: session.title };
+  const label = { textContent: session.title };
+  const row = { dataset: { mac: 'm4', assistant: 'codex', sid: 'thread' }, classList: { toggle() {} },
+    querySelector: selector => selector === '.t' ? label : null };
+  const { context, state } = harness({ sessionView: 'project', sessionResults: [session], chatCache: new Map([['cached', chat]]), chat });
+  let headerTitle = '';
+  Object.assign(context, {
+    sessionKey: session => `${session.macId}\n${session.assistant}\n${session.sessionId}`,
+    $$: () => [row], sessionQuery: async () => ({ sessions: [fresh] }),
+    chatCacheKey: () => 'cached', renderChatOwnershipHead: value => { if (value === state.chat) headerTitle = value.title; },
+    sessionHasVisibleRequest: () => false, updateSessionStateDot() {}, syncSessionRuntimeIndicators() {},
+    syncSessionConnectionNotes() {},
+  });
+  vm.runInContext(['updateChatUpdatedAt', 'updateCachedChatFromSession', 'refreshSessionsSoft'].map(source).join('\n'), context);
+  await context.refreshSessionsSoft();
+  assert.equal(state.sessionResults[0].title, fresh.title);
+  assert.equal(label.textContent, fresh.title);
+  assert.equal(chat.title, fresh.title);
+  assert.equal(headerTitle, fresh.title);
+  assert.equal(chat.updatedAt, 2);
+});
